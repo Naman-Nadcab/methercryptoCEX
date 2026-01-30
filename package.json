@@ -1,0 +1,31 @@
+{
+  "name": "crypto-exchange",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Enterprise-grade Spot Trading + P2P Cryptocurrency Exchange",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "start": "turbo run start",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "db:migrate": "npm run migrate --workspace=@exchange/backend",
+    "db:seed": "npm run seed --workspace=@exchange/backend",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "clean": "turbo run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
+  "packageManager": "npm@10.2.0"
+}
