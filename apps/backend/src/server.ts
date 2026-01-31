@@ -19,6 +19,7 @@ import userRoutes from './routes/user.fastify.js';
 import adminRoutes from './routes/admin.fastify.js';
 import uploadRoutes from './routes/upload.fastify.js';
 import walletRoutes from './routes/wallet.fastify.js';
+import convertRoutes from './routes/convert.fastify.js';
 import kycRoutes from './routes/kyc.js';
 
 // Extend FastifyRequest with user
@@ -138,6 +139,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(adminRoutes, { prefix: '/api/v1/admin' });
   await app.register(uploadRoutes, { prefix: '/api/v1/upload' });
   await app.register(walletRoutes, { prefix: '/api/v1/wallet' });
+  await app.register(convertRoutes, { prefix: '/api/v1/convert' });
   await app.register(kycRoutes, { prefix: '/api/v1/kyc' });
 
   // Error handler

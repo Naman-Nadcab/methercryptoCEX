@@ -551,10 +551,14 @@ CREATE INDEX idx_wallet_user ON user_wallets(user_id);
 CREATE INDEX idx_wallet_address ON user_wallets(address);
 
 -- 4.4 User Balances (Spot)
+-- Balance account types for internal transfers
+CREATE TYPE balance_account_type AS ENUM ('funding', 'trading', 'unified');
+
 CREATE TABLE user_balances (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     currency_id UUID NOT NULL REFERENCES currencies(id),
+    account_type balance_account_type DEFAULT 'funding',
     
     available_balance DECIMAL(30,8) DEFAULT 0,
     locked_balance DECIMAL(30,8) DEFAULT 0,
@@ -565,7 +569,7 @@ CREATE TABLE user_balances (
     total_withdrawn DECIMAL(30,8) DEFAULT 0,
     
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(user_id, currency_id),
+    UNIQUE(user_id, currency_id, account_type),
     CONSTRAINT chk_available_balance CHECK (available_balance >= 0),
     CONSTRAINT chk_locked_balance CHECK (locked_balance >= 0)
 );

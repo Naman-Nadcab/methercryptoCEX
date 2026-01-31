@@ -2403,6 +2403,1019 @@ export default async function authRoutes(app: FastifyInstance) {
       });
     }
   });
+
+  // ===============================
+  // ANTI-PHISHING CODE - Get Status
+  // ===============================
+  app.get('/anti-phishing/status', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+
+      const result = await db.query<{ anti_phishing_code: string | null }>(
+        `SELECT anti_phishing_code FROM users WHERE id = $1 AND deleted_at IS NULL`,
+        [userId]
+      );
+
+      if (result.rows.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'USER_NOT_FOUND', message: 'User not found' },
+        });
+      }
+
+      return reply.send({
+        success: true,
+        data: { code: result.rows[0]?.anti_phishing_code || '' },
+      });
+
+    } catch (error) {
+      logger.error('Anti-phishing status error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to get anti-phishing status' },
+      });
+    }
+  });
+
+  // ===============================
+  // ANTI-PHISHING CODE - Set/Update
+  // ===============================
+  app.post('/anti-phishing/set', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+      const { code, oldCode } = request.body as { code: string; oldCode?: string };
+
+      if (!code) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'MISSING_CODE', message: 'Anti-phishing code is required' },
+        });
+      }
+
+      // Validate code (4-20 chars, letters, numbers, underscores only)
+      if (code.length < 4 || code.length > 20) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_LENGTH', message: 'Code must be 4-20 characters' },
+        });
+      }
+
+      if (!/^[a-zA-Z0-9_]+$/.test(code)) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_CHARS', message: 'Code can only contain letters, numbers, and underscores' },
+        });
+      }
+
+      // Get current anti-phishing code
+      const userResult = await db.query<{ anti_phishing_code: string | null }>(
+        `SELECT anti_phishing_code FROM users WHERE id = $1 AND deleted_at IS NULL`,
+        [userId]
+      );
+
+      if (userResult.rows.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'USER_NOT_FOUND', message: 'User not found' },
+        });
+      }
+
+      const currentCode = userResult.rows[0]?.anti_phishing_code;
+
+      // If user already has a code, verify old code
+      if (currentCode) {
+        if (!oldCode) {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'OLD_CODE_REQUIRED', message: 'Old anti-phishing code is required' },
+          });
+        }
+        if (oldCode !== currentCode) {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'INVALID_OLD_CODE', message: 'Old anti-phishing code is incorrect' },
+          });
+        }
+      }
+
+      // Update anti-phishing code
+      await db.query(
+        `UPDATE users SET anti_phishing_code = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+        [code, userId]
+      );
+
+      // Log activity
+      await db.query(
+        `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [userId, 'anti_phishing_set', request.ip, request.headers['user-agent'], JSON.stringify({ code })]
+      );
+
+      logger.info('Anti-phishing code set', { userId });
+
+      return reply.send({
+        success: true,
+        data: { message: 'Anti-phishing code set successfully' },
+      });
+
+    } catch (error) {
+      logger.error('Anti-phishing set error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to set anti-phishing code' },
+      });
+    }
+  });
+  // ===============================
+  // API KEYS - List
+  // ===============================
+  app.get('/api-keys', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+
+      const result = await db.query(
+        `SELECT id, name, key_type, api_key_usage, api_key, api_secret, permission, 
+                ip_restriction, ip_addresses, permissions, created_at, expires_at
+         FROM user_api_keys 
+         WHERE user_id = $1 AND deleted_at IS NULL
+         ORDER BY created_at DESC`,
+        [userId]
+      );
+
+      const apiKeys = result.rows.map(row => ({
+        id: row.id,
+        name: row.name,
+        keyType: row.key_type,
+        apiKeyUsage: row.api_key_usage,
+        apiKey: row.api_key,
+        apiSecret: row.api_secret,
+        permission: row.permission,
+        ipRestriction: row.ip_restriction,
+        ipAddresses: row.ip_addresses || [],
+        permissions: row.permissions || {},
+        createdAt: row.created_at,
+        expiresAt: row.expires_at
+      }));
+
+      return reply.send({
+        success: true,
+        data: apiKeys,
+      });
+
+    } catch (error) {
+      logger.error('Get API keys error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to get API keys' },
+      });
+    }
+  });
+
+  // ===============================
+  // API KEYS - Create
+  // ===============================
+  app.post('/api-keys', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+      const {
+        keyType,
+        apiKeyUsage,
+        publicKey,
+        name,
+        permission,
+        ipRestriction,
+        ipAddresses,
+        permissions
+      } = request.body as {
+        keyType: 'system' | 'self';
+        apiKeyUsage: 'transaction' | 'third_party';
+        publicKey?: string;
+        name: string;
+        permission: 'read_write' | 'read_only';
+        ipRestriction: 'ip_only' | 'no_restriction';
+        ipAddresses: string[];
+        permissions: Record<string, boolean>;
+      };
+
+      // Check key limit (max 20)
+      const countResult = await db.query(
+        `SELECT COUNT(*) as count FROM user_api_keys WHERE user_id = $1 AND deleted_at IS NULL`,
+        [userId]
+      );
+      
+      if (parseInt(countResult.rows[0]?.count || '0') >= 20) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'KEY_LIMIT_REACHED', message: 'Maximum 20 API keys allowed per account' },
+        });
+      }
+
+      // Generate API key and secret
+      const crypto = await import('crypto');
+      const apiKey = crypto.randomBytes(16).toString('hex');
+      const apiSecret = keyType === 'system' ? crypto.randomBytes(32).toString('hex') : null;
+
+      // Calculate expiration (3 months if no IP restriction, null if IP bound)
+      const expiresAt = ipRestriction === 'no_restriction' 
+        ? new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString() 
+        : null;
+
+      await db.query(
+        `INSERT INTO user_api_keys (
+          user_id, name, key_type, api_key_usage, api_key, api_secret, public_key,
+          permission, ip_restriction, ip_addresses, permissions, expires_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [
+          userId, name, keyType, apiKeyUsage, apiKey, apiSecret, publicKey || null,
+          permission, ipRestriction, ipAddresses, JSON.stringify(permissions), expiresAt
+        ]
+      );
+
+      // Log activity
+      await db.query(
+        `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [userId, 'api_key_created', request.ip, request.headers['user-agent'], 
+         JSON.stringify({ name, keyType })]
+      );
+
+      logger.info('API key created', { userId, keyType, name });
+
+      return reply.send({
+        success: true,
+        data: {
+          apiKey,
+          apiSecret: keyType === 'system' ? apiSecret : undefined,
+          message: 'API key created successfully'
+        },
+      });
+
+    } catch (error) {
+      logger.error('Create API key error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to create API key' },
+      });
+    }
+  });
+
+  // ===============================
+  // API KEYS - Delete
+  // ===============================
+  app.delete('/api-keys/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+      const { id } = request.params as { id: string };
+
+      const result = await db.query(
+        `UPDATE user_api_keys SET deleted_at = CURRENT_TIMESTAMP 
+         WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+         RETURNING id`,
+        [id, userId]
+      );
+
+      if (result.rows.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'API key not found' },
+        });
+      }
+
+      logger.info('API key deleted', { userId, keyId: id });
+
+      return reply.send({
+        success: true,
+        data: { message: 'API key deleted successfully' },
+      });
+
+    } catch (error) {
+      logger.error('Delete API key error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to delete API key' },
+      });
+    }
+  });
+
+  // ===============================
+  // USER PREFERENCES - Get
+  // ===============================
+  app.get('/preferences', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+
+      const result = await db.query(
+        `SELECT preferences FROM users WHERE id = $1 AND deleted_at IS NULL`,
+        [userId]
+      );
+
+      if (result.rows.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'USER_NOT_FOUND', message: 'User not found' },
+        });
+      }
+
+      const preferences = result.rows[0]?.preferences || {};
+
+      return reply.send({
+        success: true,
+        data: preferences,
+      });
+
+    } catch (error) {
+      logger.error('Get preferences error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to get preferences' },
+      });
+    }
+  });
+
+  // ===============================
+  // USER PREFERENCES - Update
+  // ===============================
+  app.post('/preferences', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+      const updates = request.body as Record<string, any>;
+
+      // Get current preferences
+      const currentResult = await db.query(
+        `SELECT preferences FROM users WHERE id = $1 AND deleted_at IS NULL`,
+        [userId]
+      );
+
+      if (currentResult.rows.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'USER_NOT_FOUND', message: 'User not found' },
+        });
+      }
+
+      const currentPreferences = currentResult.rows[0]?.preferences || {};
+      const newPreferences = { ...currentPreferences, ...updates };
+
+      // Update preferences
+      await db.query(
+        `UPDATE users SET preferences = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+        [JSON.stringify(newPreferences), userId]
+      );
+
+      logger.info('User preferences updated', { userId });
+
+      return reply.send({
+        success: true,
+        data: { message: 'Preferences updated successfully' },
+      });
+
+    } catch (error) {
+      logger.error('Update preferences error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to update preferences' },
+      });
+    }
+  });
+
+  // ===============================
+  // WITHDRAWAL LIMITS - Get
+  // ===============================
+  app.get('/withdrawal-limits', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+
+      const result = await db.query(
+        `SELECT daily_withdrawal_limit, monthly_withdrawal_limit, 
+                COALESCE(daily_withdrawal_used, 0) as daily_withdrawal_used,
+                COALESCE(monthly_withdrawal_used, 0) as monthly_withdrawal_used
+         FROM users WHERE id = $1 AND deleted_at IS NULL`,
+        [userId]
+      );
+
+      if (result.rows.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'USER_NOT_FOUND', message: 'User not found' },
+        });
+      }
+
+      const user = result.rows[0];
+
+      return reply.send({
+        success: true,
+        data: {
+          dailyLimit: parseFloat(user.daily_withdrawal_limit) || 20000,
+          monthlyLimit: parseFloat(user.monthly_withdrawal_limit) || 100000,
+          dailyUsed: parseFloat(user.daily_withdrawal_used) || 0,
+          monthlyUsed: parseFloat(user.monthly_withdrawal_used) || 0,
+          maxDailyLimit: 20000,
+          maxMonthlyLimit: 100000
+        },
+      });
+
+    } catch (error) {
+      logger.error('Get withdrawal limits error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to get withdrawal limits' },
+      });
+    }
+  });
+
+  // ===============================
+  // WITHDRAWAL LIMITS - Update
+  // ===============================
+  app.post('/withdrawal-limits', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+      const { dailyLimit, monthlyLimit } = request.body as {
+        dailyLimit: number;
+        monthlyLimit: number;
+      };
+
+      // Validate limits
+      const maxDaily = 20000;
+      const maxMonthly = 100000;
+
+      if (dailyLimit < 0 || dailyLimit > maxDaily) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_LIMIT', message: `Daily limit must be between 0 and ${maxDaily}` },
+        });
+      }
+
+      if (monthlyLimit < 0 || monthlyLimit > maxMonthly) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_LIMIT', message: `Monthly limit must be between 0 and ${maxMonthly}` },
+        });
+      }
+
+      // Update limits
+      await db.query(
+        `UPDATE users SET 
+          daily_withdrawal_limit = $1, 
+          monthly_withdrawal_limit = $2,
+          updated_at = CURRENT_TIMESTAMP
+         WHERE id = $3`,
+        [dailyLimit, monthlyLimit, userId]
+      );
+
+      // Log activity
+      await db.query(
+        `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [userId, 'withdrawal_limit_change', request.ip, request.headers['user-agent'], 
+         JSON.stringify({ dailyLimit, monthlyLimit })]
+      );
+
+      logger.info('Withdrawal limits updated', { userId, dailyLimit, monthlyLimit });
+
+      return reply.send({
+        success: true,
+        data: { message: 'Withdrawal limits updated successfully' },
+      });
+
+    } catch (error) {
+      logger.error('Update withdrawal limits error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to update withdrawal limits' },
+      });
+    }
+  });
+
+  // ===============================
+  // NEW ADDRESS LOCK - Get Status
+  // ===============================
+  app.get('/new-address-lock/status', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+
+      const result = await db.query<{ new_address_lock_enabled: boolean }>(
+        `SELECT COALESCE(new_address_lock_enabled, FALSE) as new_address_lock_enabled 
+         FROM users WHERE id = $1 AND deleted_at IS NULL`,
+        [userId]
+      );
+
+      return reply.send({
+        success: true,
+        data: { enabled: result.rows[0]?.new_address_lock_enabled || false },
+      });
+
+    } catch (error) {
+      logger.error('New address lock status error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to get status' },
+      });
+    }
+  });
+
+  // ===============================
+  // WITHDRAWAL ADDRESSES - List
+  // ===============================
+  app.get('/withdrawal-addresses', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+
+      const result = await db.query(
+        `SELECT id, asset, network, note, address, memo, is_whitelisted, 
+                created_at as last_updated
+         FROM withdrawal_addresses 
+         WHERE user_id = $1 AND deleted_at IS NULL
+         ORDER BY created_at DESC`,
+        [userId]
+      );
+
+      return reply.send({
+        success: true,
+        data: { addresses: result.rows },
+      });
+
+    } catch (error) {
+      logger.error('Get withdrawal addresses error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to get addresses' },
+      });
+    }
+  });
+
+  // ===============================
+  // WITHDRAWAL ADDRESSES - Add
+  // ===============================
+  app.post('/withdrawal-addresses', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+      const { 
+        asset, 
+        network, 
+        address, 
+        note, 
+        memo,
+        type,
+        walletType,
+        saveAsUniversal,
+        noVerificationNeeded,
+        recipientAccount,
+        recipientType
+      } = request.body as {
+        asset?: string;
+        network?: string;
+        address?: string;
+        note?: string;
+        memo?: string;
+        type?: string;
+        walletType?: string;
+        saveAsUniversal?: boolean;
+        noVerificationNeeded?: boolean;
+        recipientAccount?: string;
+        recipientType?: string;
+      };
+
+      const addressType = type || 'onchain';
+
+      if (addressType === 'onchain') {
+        if (!asset || !address) {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'MISSING_FIELDS', message: 'Asset and address are required' },
+          });
+        }
+      } else if (addressType === 'internal') {
+        if (!recipientAccount) {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'MISSING_FIELDS', message: 'Recipient account is required' },
+          });
+        }
+      }
+
+      // Check if address already exists for this user (for on-chain)
+      if (addressType === 'onchain' && address) {
+        const existing = await db.query(
+          `SELECT id FROM withdrawal_addresses 
+           WHERE user_id = $1 AND address = $2 AND deleted_at IS NULL`,
+          [userId, address]
+        );
+
+        if (existing.rows.length > 0) {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'ADDRESS_EXISTS', message: 'This address already exists' },
+          });
+        }
+      }
+
+      const result = await db.query(
+        `INSERT INTO withdrawal_addresses (
+          user_id, asset, network, address, note, memo, 
+          address_type, wallet_type, save_as_universal, no_verification_needed,
+          recipient_account, recipient_type
+        )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         RETURNING id`,
+        [
+          userId, 
+          asset || null, 
+          network || null, 
+          address || null, 
+          note || null, 
+          memo || null,
+          addressType,
+          walletType || 'regular',
+          saveAsUniversal || false,
+          noVerificationNeeded || false,
+          recipientAccount || null,
+          recipientType || null
+        ]
+      );
+
+      logger.info('Withdrawal address added', { userId, asset, addressType });
+
+      return reply.send({
+        success: true,
+        data: { id: result.rows[0].id, message: 'Address added successfully' },
+      });
+
+    } catch (error) {
+      logger.error('Add withdrawal address error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to add address' },
+      });
+    }
+  });
+
+  // ===============================
+  // WITHDRAWAL ADDRESSES - Delete
+  // ===============================
+  app.delete('/withdrawal-addresses/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+      const { id } = request.params as { id: string };
+
+      const result = await db.query(
+        `UPDATE withdrawal_addresses SET deleted_at = CURRENT_TIMESTAMP
+         WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+         RETURNING id`,
+        [id, userId]
+      );
+
+      if (result.rows.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Address not found' },
+        });
+      }
+
+      logger.info('Withdrawal address deleted', { userId, addressId: id });
+
+      return reply.send({
+        success: true,
+        data: { message: 'Address deleted successfully' },
+      });
+
+    } catch (error) {
+      logger.error('Delete withdrawal address error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to delete address' },
+      });
+    }
+  });
+
+  // ===============================
+  // ADDRESS BOOK - Get Status
+  // ===============================
+  app.get('/address-book/status', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+
+      const result = await db.query<{ address_book_enabled: boolean }>(
+        `SELECT COALESCE(address_book_enabled, FALSE) as address_book_enabled 
+         FROM users WHERE id = $1 AND deleted_at IS NULL`,
+        [userId]
+      );
+
+      if (result.rows.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'USER_NOT_FOUND', message: 'User not found' },
+        });
+      }
+
+      return reply.send({
+        success: true,
+        data: { enabled: result.rows[0]?.address_book_enabled || false },
+      });
+
+    } catch (error) {
+      logger.error('Address book status error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to get address book status' },
+      });
+    }
+  });
+
+  // ===============================
+  // ADDRESS BOOK - Toggle
+  // ===============================
+  app.post('/address-book/toggle', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+      const { enabled } = request.body as { enabled: boolean };
+
+      if (typeof enabled !== 'boolean') {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_VALUE', message: 'Enabled must be a boolean' },
+        });
+      }
+
+      // Update address book setting
+      await db.query(
+        `UPDATE users SET address_book_enabled = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+        [enabled, userId]
+      );
+
+      // Log activity
+      await db.query(
+        `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [userId, 'address_book_toggle', request.ip, request.headers['user-agent'], JSON.stringify({ enabled })]
+      );
+
+      logger.info('Address book toggled', { userId, enabled });
+
+      return reply.send({
+        success: true,
+        data: { message: `Address book ${enabled ? 'enabled' : 'disabled'} successfully` },
+      });
+
+    } catch (error) {
+      logger.error('Address book toggle error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to toggle address book' },
+      });
+    }
+  });
+
+  // ===============================
+  // WITHDRAWAL WHITELIST - Get Status
+  // ===============================
+  app.get('/withdrawal-whitelist/status', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+
+      const result = await db.query<{ withdrawal_whitelist_enabled: boolean }>(
+        `SELECT COALESCE(withdrawal_whitelist_enabled, FALSE) as withdrawal_whitelist_enabled 
+         FROM users WHERE id = $1 AND deleted_at IS NULL`,
+        [userId]
+      );
+
+      if (result.rows.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'USER_NOT_FOUND', message: 'User not found' },
+        });
+      }
+
+      return reply.send({
+        success: true,
+        data: { enabled: result.rows[0]?.withdrawal_whitelist_enabled || false },
+      });
+
+    } catch (error) {
+      logger.error('Withdrawal whitelist status error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to get whitelist status' },
+      });
+    }
+  });
+
+  // ===============================
+  // WITHDRAWAL WHITELIST - Toggle
+  // ===============================
+  app.post('/withdrawal-whitelist/toggle', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+      const { enabled } = request.body as { enabled: boolean };
+
+      if (typeof enabled !== 'boolean') {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_VALUE', message: 'Enabled must be a boolean' },
+        });
+      }
+
+      // Update whitelist setting
+      await db.query(
+        `UPDATE users SET withdrawal_whitelist_enabled = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+        [enabled, userId]
+      );
+
+      // Log activity
+      await db.query(
+        `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [userId, 'whitelist_toggle', request.ip, request.headers['user-agent'], JSON.stringify({ enabled })]
+      );
+
+      logger.info('Withdrawal whitelist toggled', { userId, enabled });
+
+      return reply.send({
+        success: true,
+        data: { message: `Withdrawal whitelist ${enabled ? 'enabled' : 'disabled'} successfully` },
+      });
+
+    } catch (error) {
+      logger.error('Withdrawal whitelist toggle error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to toggle whitelist' },
+      });
+    }
+  });
+
+  // ===============================
+  // FEE RATES - Get User Fee Rates
+  // ===============================
+  app.get('/fee-rates', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+
+      // Get user's fee data
+      const userResult = await db.query<{
+        vip_level: number;
+        mnt_discount_enabled: boolean;
+        trading_volume_30d: string;
+        total_equity: string;
+        avg_equity_30d: string;
+      }>(
+        `SELECT 
+          COALESCE(vip_level, 0) as vip_level,
+          COALESCE(mnt_discount_enabled, false) as mnt_discount_enabled,
+          COALESCE(trading_volume_30d, 0) as trading_volume_30d,
+          COALESCE(total_equity, 0) as total_equity,
+          COALESCE(avg_equity_30d, 0) as avg_equity_30d
+         FROM users WHERE id = $1 AND deleted_at IS NULL`,
+        [userId]
+      );
+
+      if (userResult.rows.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'USER_NOT_FOUND', message: 'User not found' },
+        });
+      }
+
+      const userData = userResult.rows[0];
+
+      // Get fee rates based on VIP level from system settings or use defaults
+      const feeResult = await db.query<{
+        spot_maker_fee: string;
+        spot_taker_fee: string;
+        fiat_maker_fee: string;
+        fiat_taker_fee: string;
+      }>(
+        `SELECT 
+          COALESCE(
+            (SELECT value::jsonb->>'spot_maker_fee' FROM system_settings WHERE key = 'fee_rates_vip_' || $1),
+            '0.1'
+          ) as spot_maker_fee,
+          COALESCE(
+            (SELECT value::jsonb->>'spot_taker_fee' FROM system_settings WHERE key = 'fee_rates_vip_' || $1),
+            '0.1'
+          ) as spot_taker_fee,
+          COALESCE(
+            (SELECT value::jsonb->>'fiat_maker_fee' FROM system_settings WHERE key = 'fee_rates_vip_' || $1),
+            '0.15'
+          ) as fiat_maker_fee,
+          COALESCE(
+            (SELECT value::jsonb->>'fiat_taker_fee' FROM system_settings WHERE key = 'fee_rates_vip_' || $1),
+            '0.2'
+          ) as fiat_taker_fee`,
+        [userData.vip_level]
+      );
+
+      // VIP level names
+      const vipLevelNames: { [key: number]: string } = {
+        0: 'Regular User',
+        1: 'VIP 1',
+        2: 'VIP 2',
+        3: 'VIP 3',
+        4: 'VIP 4',
+        5: 'VIP 5',
+      };
+
+      // Default fee rates per VIP level
+      const defaultFeeRates: { [key: number]: { maker: number; taker: number; fiatMaker: number; fiatTaker: number } } = {
+        0: { maker: 0.1, taker: 0.1, fiatMaker: 0.15, fiatTaker: 0.2 },
+        1: { maker: 0.08, taker: 0.09, fiatMaker: 0.12, fiatTaker: 0.16 },
+        2: { maker: 0.06, taker: 0.07, fiatMaker: 0.09, fiatTaker: 0.12 },
+        3: { maker: 0.04, taker: 0.05, fiatMaker: 0.06, fiatTaker: 0.08 },
+        4: { maker: 0.02, taker: 0.03, fiatMaker: 0.03, fiatTaker: 0.04 },
+        5: { maker: 0.01, taker: 0.02, fiatMaker: 0.015, fiatTaker: 0.02 },
+      };
+
+      const vipLevel = userData.vip_level || 0;
+      const defaultFees = defaultFeeRates[vipLevel] || defaultFeeRates[0];
+
+      return reply.send({
+        success: true,
+        data: {
+          vipLevel: vipLevel,
+          vipLevelName: vipLevelNames[vipLevel] || 'Regular User',
+          spotFees: {
+            maker: feeResult.rows[0] ? parseFloat(feeResult.rows[0].spot_maker_fee) : defaultFees.maker,
+            taker: feeResult.rows[0] ? parseFloat(feeResult.rows[0].spot_taker_fee) : defaultFees.taker,
+            fiatMaker: feeResult.rows[0] ? parseFloat(feeResult.rows[0].fiat_maker_fee) : defaultFees.fiatMaker,
+            fiatTaker: feeResult.rows[0] ? parseFloat(feeResult.rows[0].fiat_taker_fee) : defaultFees.fiatTaker,
+          },
+          mntDiscount: userData.mnt_discount_enabled || false,
+          tradingVolume30d: parseFloat(userData.trading_volume_30d) || 0,
+          totalEquity: parseFloat(userData.total_equity) || 0,
+          avgEquity30d: parseFloat(userData.avg_equity_30d) || 0,
+        },
+      });
+
+    } catch (error) {
+      logger.error('Fee rates fetch error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to fetch fee rates' },
+      });
+    }
+  });
+
+  // ===============================
+  // FEE RATES - Toggle MNT Discount
+  // ===============================
+  app.post('/fee-rates/mnt-discount', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+      const { enabled } = request.body as { enabled: boolean };
+
+      if (typeof enabled !== 'boolean') {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_VALUE', message: 'Enabled must be a boolean' },
+        });
+      }
+
+      // Update MNT discount setting
+      await db.query(
+        `UPDATE users SET mnt_discount_enabled = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+        [enabled, userId]
+      );
+
+      // Log activity
+      await db.query(
+        `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [userId, 'mnt_discount_toggle', request.ip, request.headers['user-agent'], JSON.stringify({ enabled })]
+      );
+
+      logger.info('MNT discount toggled', { userId, enabled });
+
+      return reply.send({
+        success: true,
+        data: { message: `MNT discount ${enabled ? 'enabled' : 'disabled'} successfully` },
+      });
+
+    } catch (error) {
+      logger.error('MNT discount toggle error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to toggle MNT discount' },
+      });
+    }
+  });
 }
 
 // Helper function to generate referral code

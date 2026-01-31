@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth';
 import Link from 'next/link';
 import {
@@ -20,6 +21,15 @@ import {
   ChevronDown,
   Loader2,
   Check,
+  AlertTriangle,
+  ChevronRight,
+  Eye,
+  EyeOff,
+  Copy,
+  ShieldAlert,
+  Settings,
+  Fingerprint,
+  BadgeCheck,
 } from 'lucide-react';
 
 // Country codes with flags
@@ -36,11 +46,159 @@ const countries = [
   { code: '+86', name: 'China', flag: '🇨🇳' },
 ];
 
+// Reusable SecurityRow Component
+const SecurityRow = ({
+  icon: Icon,
+  iconBg,
+  title,
+  description,
+  status,
+  statusColor,
+  statusValue,
+  loading,
+  actionLabel,
+  actionVariant = 'default',
+  onAction,
+  secondaryAction,
+  secondaryLabel,
+}: {
+  icon: any;
+  iconBg: string;
+  title: string;
+  description?: string | React.ReactNode;
+  status?: string;
+  statusColor?: string;
+  statusValue?: string;
+  loading?: boolean;
+  actionLabel: string;
+  actionVariant?: 'default' | 'primary' | 'danger';
+  onAction?: () => void;
+  secondaryAction?: () => void;
+  secondaryLabel?: string;
+}) => (
+  <div className="flex flex-col lg:flex-row lg:items-center justify-between p-5 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors gap-4">
+    <div className="flex items-start lg:items-center gap-4">
+      <div className={`w-12 h-12 ${iconBg} rounded-xl flex items-center justify-center flex-shrink-0`}>
+        <Icon className="w-6 h-6" />
+      </div>
+      <div>
+        <h3 className="font-semibold text-gray-900 dark:text-white">{title}</h3>
+        {description && (
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{description}</p>
+        )}
+      </div>
+    </div>
+    <div className="flex items-center gap-4 ml-16 lg:ml-0">
+      {loading ? (
+        <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+      ) : (
+        <>
+          {status && (
+            <span className={`flex items-center gap-2 text-sm font-medium ${statusColor}`}>
+              <span className={`w-2 h-2 rounded-full ${
+                statusColor?.includes('green') ? 'bg-green-500' : 
+                statusColor?.includes('orange') ? 'bg-orange-500' : 'bg-gray-400'
+              }`}></span>
+              {statusValue || status}
+            </span>
+          )}
+          {secondaryAction && (
+            <button
+              onClick={secondaryAction}
+              className="px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl transition-colors"
+            >
+              {secondaryLabel}
+            </button>
+          )}
+          <button
+            onClick={onAction}
+            className={`px-5 py-2.5 text-sm font-semibold rounded-xl transition-all ${
+              actionVariant === 'primary'
+                ? 'bg-blue-500 hover:bg-blue-600 text-white shadow-lg shadow-blue-500/25'
+                : actionVariant === 'danger'
+                ? 'bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-500/25'
+                : 'bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
+            }`}
+          >
+            {actionLabel}
+          </button>
+        </>
+      )}
+    </div>
+  </div>
+);
+
+// Toggle Switch Component
+const ToggleSwitch = ({ enabled, onChange, loading }: { enabled: boolean; onChange: () => void; loading?: boolean }) => {
+  if (loading) return <Loader2 className="w-5 h-5 animate-spin text-gray-400" />;
+  return (
+    <button
+      onClick={onChange}
+      className={`relative w-14 h-8 rounded-full transition-colors ${
+        enabled ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
+      }`}
+    >
+      <span
+        className={`absolute top-1 w-6 h-6 bg-white rounded-full transition-all shadow-lg ${
+          enabled ? 'right-1' : 'left-1'
+        }`}
+      />
+    </button>
+  );
+};
+
+// Section Card Component
+const SectionCard = ({
+  icon: Icon,
+  iconBg,
+  iconColor,
+  title,
+  subtitle,
+  children,
+}: {
+  icon: any;
+  iconBg: string;
+  iconColor: string;
+  title: string;
+  subtitle: string;
+  children: React.ReactNode;
+}) => (
+  <div className="bg-white dark:bg-[#181a20] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden mb-6">
+    <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center gap-4">
+      <div className={`w-12 h-12 ${iconBg} rounded-xl flex items-center justify-center`}>
+        <Icon className={`w-6 h-6 ${iconColor}`} />
+      </div>
+      <div>
+        <h2 className="text-lg font-bold text-gray-900 dark:text-white">{title}</h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400">{subtitle}</p>
+      </div>
+    </div>
+    <div className="divide-y divide-gray-100 dark:divide-gray-800">
+      {children}
+    </div>
+  </div>
+);
+
 export default function SecurityPage() {
+  const router = useRouter();
   const { user, accessToken } = useAuthStore();
   const [withdrawalWhitelist, setWithdrawalWhitelist] = useState(false);
   const [withdrawViaAddressBook, setWithdrawViaAddressBook] = useState(false);
   const [newAddressLock, setNewAddressLock] = useState(false);
+  const [loadingWhitelist, setLoadingWhitelist] = useState(true);
+  
+  // Withdrawal Whitelist Verification Modal States
+  const [showWhitelistVerifyModal, setShowWhitelistVerifyModal] = useState(false);
+  const [whitelistEmailOtp, setWhitelistEmailOtp] = useState('');
+  const [whitelistEmailOtpTimer, setWhitelistEmailOtpTimer] = useState(0);
+  const [sendingWhitelistOtp, setSendingWhitelistOtp] = useState(false);
+  const [whitelistGoogle2faCode, setWhitelistGoogle2faCode] = useState('');
+  const [verifyingWhitelist, setVerifyingWhitelist] = useState(false);
+  
+  // Withdraw via Address Book Modal States
+  const [showAddressBookModal, setShowAddressBookModal] = useState(false);
+  const [loadingAddressBook, setLoadingAddressBook] = useState(true);
+  const [enablingAddressBook, setEnablingAddressBook] = useState(false);
   
   // SMS Setup Flow States
   const [showEmailOtpModal, setShowEmailOtpModal] = useState(false);
@@ -114,11 +272,36 @@ export default function SecurityPage() {
   const [loadingFundPassword, setLoadingFundPassword] = useState(true);
   const fundPassword2faRefs = useRef<(HTMLInputElement | null)[]>([]);
 
+  // Anti-Phishing Code States
+  const [showAntiPhishingModal, setShowAntiPhishingModal] = useState(false);
+  const [antiPhishingCode, setAntiPhishingCode] = useState('');
+  const [antiPhishingCodeInput, setAntiPhishingCodeInput] = useState('');
+  const [oldAntiPhishingCodeInput, setOldAntiPhishingCodeInput] = useState('');
+  const [savingAntiPhishing, setSavingAntiPhishing] = useState(false);
+  const [loadingAntiPhishing, setLoadingAntiPhishing] = useState(true);
+  const [isChangingAntiPhishing, setIsChangingAntiPhishing] = useState(false);
+
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
   
   // Refs for OTP inputs
   const emailOtpRefs = useRef<(HTMLInputElement | null)[]>([]);
   const phoneOtpRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  // Calculate security level
+  const calculateSecurityLevel = () => {
+    let score = 0;
+    if (user?.email) score += 20;
+    if (userPhone) score += 20;
+    if (user2faEnabled) score += 30;
+    if (passkeysCount > 0) score += 15;
+    if (hasFundPassword) score += 15;
+    return score;
+  };
+
+  const securityLevel = calculateSecurityLevel();
+  const securityStatus = securityLevel >= 80 ? 'High' : securityLevel >= 50 ? 'Medium' : 'Low';
+  const securityColor = securityLevel >= 80 ? 'text-green-500' : securityLevel >= 50 ? 'text-yellow-500' : 'text-orange-500';
+  const securityBgColor = securityLevel >= 80 ? 'from-green-500 to-green-400' : securityLevel >= 50 ? 'from-yellow-500 to-yellow-400' : 'from-orange-500 to-orange-400';
 
   // Fetch user phone, 2FA status, and passkeys
   useEffect(() => {
@@ -154,6 +337,33 @@ export default function SecurityPage() {
         if (fundPwResult.success) {
           setHasFundPassword(fundPwResult.data.hasFundPassword || false);
         }
+
+        // Fetch anti-phishing code
+        const antiPhishRes = await fetch(`${apiUrl}/api/v1/auth/anti-phishing/status`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const antiPhishResult = await antiPhishRes.json();
+        if (antiPhishResult.success) {
+          setAntiPhishingCode(antiPhishResult.data.code || '');
+        }
+
+        // Fetch withdrawal whitelist status
+        const whitelistRes = await fetch(`${apiUrl}/api/v1/auth/withdrawal-whitelist/status`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const whitelistResult = await whitelistRes.json();
+        if (whitelistResult.success) {
+          setWithdrawalWhitelist(whitelistResult.data.enabled || false);
+        }
+
+        // Fetch address book status
+        const addressBookRes = await fetch(`${apiUrl}/api/v1/auth/address-book/status`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const addressBookResult = await addressBookRes.json();
+        if (addressBookResult.success) {
+          setWithdrawViaAddressBook(addressBookResult.data.enabled || false);
+        }
       } catch (error) {
         console.error('Failed to fetch user data:', error);
       } finally {
@@ -161,6 +371,9 @@ export default function SecurityPage() {
         setLoadingGoogle2fa(false);
         setLoadingPasskeys(false);
         setLoadingFundPassword(false);
+        setLoadingAntiPhishing(false);
+        setLoadingWhitelist(false);
+        setLoadingAddressBook(false);
       }
     };
     fetchUserData();
@@ -188,13 +401,19 @@ export default function SecurityPage() {
     }
   }, [google2faEmailOtpTimer]);
 
+  useEffect(() => {
+    if (whitelistEmailOtpTimer > 0) {
+      const timer = setTimeout(() => setWhitelistEmailOtpTimer(whitelistEmailOtpTimer - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [whitelistEmailOtpTimer]);
+
   const maskEmail = (email: string) => {
     if (!email) return '***@****';
     const [local, domain] = email.split('@');
     if (!domain) return '***@****';
     const maskedLocal = local.slice(0, 3) + '***';
-    const maskedDomain = '****';
-    return `${maskedLocal}@${maskedDomain}`;
+    return `${maskedLocal}@${domain}`;
   };
 
   const maskPhone = (phone: string) => {
@@ -202,173 +421,7 @@ export default function SecurityPage() {
     return phone.replace(/(\d{2})\d{6}(\d{2})/, '$1******$2');
   };
 
-  // Start SMS Setup Flow
-  const handleSmsSettingsClick = () => {
-    setShowEmailOtpModal(true);
-    sendEmailOtp();
-  };
-
-  // Send Email OTP
-  const sendEmailOtp = async () => {
-    if (sendingEmailOtp || emailOtpTimer > 0) return;
-    setSendingEmailOtp(true);
-    try {
-      const response = await fetch(`${apiUrl}/api/v1/auth/send-security-otp`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ type: 'email', purpose: 'sms_setup' }),
-      });
-      const result = await response.json();
-      if (result.success) {
-        setEmailOtpTimer(60);
-      } else {
-        alert(result.error?.message || 'Failed to send OTP');
-      }
-    } catch (error) {
-      console.error('Failed to send email OTP:', error);
-      alert('Failed to send OTP');
-    } finally {
-      setSendingEmailOtp(false);
-    }
-  };
-
-  // Verify Email OTP
-  const verifyEmailOtp = async () => {
-    const otp = emailOtp.join('');
-    if (otp.length !== 6) return;
-    
-    setVerifyingEmailOtp(true);
-    try {
-      const response = await fetch(`${apiUrl}/api/v1/auth/verify-security-otp`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ type: 'email', otp, purpose: 'sms_setup' }),
-      });
-      const result = await response.json();
-      if (result.success) {
-        setShowEmailOtpModal(false);
-        setShowPhoneInputModal(true);
-        setEmailOtp(['', '', '', '', '', '']);
-      } else {
-        alert(result.error?.message || 'Invalid OTP');
-      }
-    } catch (error) {
-      console.error('Failed to verify email OTP:', error);
-      alert('Failed to verify OTP');
-    } finally {
-      setVerifyingEmailOtp(false);
-    }
-  };
-
-  // Handle Phone Input Submit
-  const handlePhoneSubmit = () => {
-    if (phoneNumber.length < 10) {
-      alert('Please enter a valid phone number');
-      return;
-    }
-    setShowPhoneInputModal(false);
-    setShowCaptchaModal(true);
-    setCaptchaPosition(0);
-    setCaptchaVerified(false);
-    setCaptchaTarget(Math.floor(Math.random() * 40) + 50); // Random target between 50-90%
-  };
-
-  // Handle Captcha Drag
-  const handleCaptchaDrag = (e: React.MouseEvent | React.TouchEvent) => {
-    if (!dragging) return;
-    const slider = (e.target as HTMLElement).closest('.captcha-slider');
-    if (!slider) return;
-    
-    const rect = slider.getBoundingClientRect();
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const position = ((clientX - rect.left) / rect.width) * 100;
-    setCaptchaPosition(Math.max(0, Math.min(100, position)));
-  };
-
-  // Verify Captcha
-  const verifyCaptcha = () => {
-    if (Math.abs(captchaPosition - captchaTarget) < 5) {
-      setCaptchaVerified(true);
-      setTimeout(() => {
-        setShowCaptchaModal(false);
-        setShowPhoneOtpModal(true);
-        sendPhoneOtp();
-      }, 500);
-    } else {
-      setCaptchaPosition(0);
-      alert('Please complete the puzzle correctly');
-    }
-  };
-
-  // Send Phone OTP
-  const sendPhoneOtp = async () => {
-    if (sendingPhoneOtp || phoneOtpTimer > 0) return;
-    setSendingPhoneOtp(true);
-    try {
-      const fullPhone = selectedCountry.code + phoneNumber;
-      const response = await fetch(`${apiUrl}/api/v1/auth/send-security-otp`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ type: 'phone', phone: fullPhone, purpose: 'sms_setup' }),
-      });
-      const result = await response.json();
-      if (result.success) {
-        setPhoneOtpTimer(60);
-      } else {
-        alert(result.error?.message || 'Failed to send OTP');
-      }
-    } catch (error) {
-      console.error('Failed to send phone OTP:', error);
-      alert('Failed to send OTP');
-    } finally {
-      setSendingPhoneOtp(false);
-    }
-  };
-
-  // Verify Phone OTP and Save
-  const verifyPhoneOtp = async () => {
-    const otp = phoneOtp.join('');
-    if (otp.length !== 6) return;
-    
-    setVerifyingPhoneOtp(true);
-    try {
-      const fullPhone = selectedCountry.code + phoneNumber;
-      const response = await fetch(`${apiUrl}/api/v1/auth/verify-phone-setup`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ phone: fullPhone, otp }),
-      });
-      const result = await response.json();
-      if (result.success) {
-        setUserPhone(fullPhone);
-        setShowPhoneOtpModal(false);
-        setPhoneOtp(['', '', '', '', '', '']);
-        setPhoneNumber('');
-        alert('Phone number verified successfully!');
-      } else {
-        alert(result.error?.message || 'Invalid OTP');
-      }
-    } catch (error) {
-      console.error('Failed to verify phone OTP:', error);
-      alert('Failed to verify OTP');
-    } finally {
-      setVerifyingPhoneOtp(false);
-    }
-  };
-
-  // Handle OTP Input
+  // OTP Input Handlers
   const handleOtpInput = (
     index: number,
     value: string,
@@ -414,16 +467,171 @@ export default function SecurityPage() {
     }
   };
 
-  // Close all modals
-  // ========== GOOGLE 2FA FUNCTIONS ==========
+  // SMS Setup Flow
+  const handleSmsSettingsClick = () => {
+    setShowEmailOtpModal(true);
+    sendEmailOtp();
+  };
 
-  // Start Google 2FA Setup Flow
+  const sendEmailOtp = async () => {
+    if (sendingEmailOtp || emailOtpTimer > 0) return;
+    setSendingEmailOtp(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/auth/send-security-otp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ type: 'email', purpose: 'sms_setup' }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        setEmailOtpTimer(60);
+      } else {
+        alert(result.error?.message || 'Failed to send OTP');
+      }
+    } catch (error) {
+      console.error('Failed to send email OTP:', error);
+      alert('Failed to send OTP');
+    } finally {
+      setSendingEmailOtp(false);
+    }
+  };
+
+  const verifyEmailOtp = async () => {
+    const otp = emailOtp.join('');
+    if (otp.length !== 6) return;
+    
+    setVerifyingEmailOtp(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/auth/verify-security-otp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ type: 'email', otp, purpose: 'sms_setup' }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        setShowEmailOtpModal(false);
+        setShowPhoneInputModal(true);
+        setEmailOtp(['', '', '', '', '', '']);
+      } else {
+        alert(result.error?.message || 'Invalid OTP');
+      }
+    } catch (error) {
+      console.error('Failed to verify email OTP:', error);
+      alert('Failed to verify OTP');
+    } finally {
+      setVerifyingEmailOtp(false);
+    }
+  };
+
+  const handlePhoneSubmit = () => {
+    if (phoneNumber.length < 10) {
+      alert('Please enter a valid phone number');
+      return;
+    }
+    setShowPhoneInputModal(false);
+    setShowCaptchaModal(true);
+    setCaptchaPosition(0);
+    setCaptchaVerified(false);
+    setCaptchaTarget(Math.floor(Math.random() * 40) + 50);
+  };
+
+  const handleCaptchaDrag = (e: React.MouseEvent | React.TouchEvent) => {
+    if (!dragging) return;
+    const slider = (e.target as HTMLElement).closest('.captcha-slider');
+    if (!slider) return;
+    
+    const rect = slider.getBoundingClientRect();
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const position = ((clientX - rect.left) / rect.width) * 100;
+    setCaptchaPosition(Math.max(0, Math.min(100, position)));
+  };
+
+  const verifyCaptcha = () => {
+    if (Math.abs(captchaPosition - captchaTarget) < 5) {
+      setCaptchaVerified(true);
+      setTimeout(() => {
+        setShowCaptchaModal(false);
+        setShowPhoneOtpModal(true);
+        sendPhoneOtp();
+      }, 500);
+    } else {
+      setCaptchaPosition(0);
+      alert('Please complete the puzzle correctly');
+    }
+  };
+
+  const sendPhoneOtp = async () => {
+    if (sendingPhoneOtp || phoneOtpTimer > 0) return;
+    setSendingPhoneOtp(true);
+    try {
+      const fullPhone = selectedCountry.code + phoneNumber;
+      const response = await fetch(`${apiUrl}/api/v1/auth/send-security-otp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ type: 'phone', phone: fullPhone, purpose: 'sms_setup' }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        setPhoneOtpTimer(60);
+      } else {
+        alert(result.error?.message || 'Failed to send OTP');
+      }
+    } catch (error) {
+      console.error('Failed to send phone OTP:', error);
+      alert('Failed to send OTP');
+    } finally {
+      setSendingPhoneOtp(false);
+    }
+  };
+
+  const verifyPhoneOtp = async () => {
+    const otp = phoneOtp.join('');
+    if (otp.length !== 6) return;
+    
+    setVerifyingPhoneOtp(true);
+    try {
+      const fullPhone = selectedCountry.code + phoneNumber;
+      const response = await fetch(`${apiUrl}/api/v1/auth/verify-phone-setup`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ phone: fullPhone, otp }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        setUserPhone(fullPhone);
+        setShowPhoneOtpModal(false);
+        setPhoneOtp(['', '', '', '', '', '']);
+        setPhoneNumber('');
+        alert('Phone number verified successfully!');
+      } else {
+        alert(result.error?.message || 'Invalid OTP');
+      }
+    } catch (error) {
+      console.error('Failed to verify phone OTP:', error);
+      alert('Failed to verify OTP');
+    } finally {
+      setVerifyingPhoneOtp(false);
+    }
+  };
+
+  // Google 2FA Functions
   const handleGoogle2faSettingsClick = () => {
     setShowGoogle2faEmailOtpModal(true);
     sendGoogle2faEmailOtp();
   };
 
-  // Send Email OTP for Google 2FA
   const sendGoogle2faEmailOtp = async () => {
     if (sendingGoogle2faEmailOtp || google2faEmailOtpTimer > 0) return;
     setSendingGoogle2faEmailOtp(true);
@@ -450,14 +658,12 @@ export default function SecurityPage() {
     }
   };
 
-  // Verify Email OTP and get 2FA secret
   const verifyGoogle2faEmailOtp = async () => {
     const otp = google2faEmailOtp.join('');
     if (otp.length !== 6) return;
     
     setVerifyingGoogle2faEmailOtp(true);
     try {
-      // First verify email OTP
       const verifyResponse = await fetch(`${apiUrl}/api/v1/auth/verify-security-otp`, {
         method: 'POST',
         headers: {
@@ -473,7 +679,6 @@ export default function SecurityPage() {
         return;
       }
 
-      // Then generate 2FA secret
       const setupResponse = await fetch(`${apiUrl}/api/v1/auth/2fa/setup`, {
         method: 'POST',
         headers: {
@@ -501,7 +706,6 @@ export default function SecurityPage() {
     }
   };
 
-  // Enable Google 2FA
   const enableGoogle2fa = async () => {
     if (!google2faCode || google2faCode.length !== 6) {
       alert('Please enter a valid 6-digit code');
@@ -538,27 +742,16 @@ export default function SecurityPage() {
     }
   };
 
-  // Copy secret to clipboard
-  const copySecretToClipboard = () => {
-    navigator.clipboard.writeText(google2faSecret);
-    alert('Secret key copied to clipboard!');
-  };
-
-  // ========== DISABLE 2FA FUNCTIONS ==========
-
-  // Handle Disable 2FA button click
   const handleDisable2faClick = () => {
     setShowDisable2faConfirmModal(true);
   };
 
-  // Handle Remove button in confirmation modal
-  const handleDisable2faRemove = () => {
+  const confirmDisable2fa = () => {
     setShowDisable2faConfirmModal(false);
     setShowDisable2faVerifyModal(true);
   };
 
-  // Handle Disable 2FA verification
-  const verifyAndDisable2fa = async () => {
+  const disableGoogle2fa = async () => {
     if (!disable2faPassword || !disable2faCode) {
       alert('Please enter both password and 2FA code');
       return;
@@ -572,10 +765,7 @@ export default function SecurityPage() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ 
-          password: disable2faPassword, 
-          code: disable2faCode 
-        }),
+        body: JSON.stringify({ password: disable2faPassword, code: disable2faCode }),
       });
       const result = await response.json();
       
@@ -584,9 +774,9 @@ export default function SecurityPage() {
         setShowDisable2faVerifyModal(false);
         setDisable2faPassword('');
         setDisable2faCode('');
-        alert('Google 2FA has been disabled successfully!');
+        alert('Google 2FA disabled successfully');
       } else {
-        alert(result.error?.message || 'Failed to disable 2FA. Please check your password and code.');
+        alert(result.error?.message || 'Failed to disable 2FA');
       }
     } catch (error) {
       console.error('Failed to disable 2FA:', error);
@@ -596,142 +786,60 @@ export default function SecurityPage() {
     }
   };
 
-  const closeAllModals = () => {
-    setShowEmailOtpModal(false);
-    setShowPhoneInputModal(false);
-    setShowCaptchaModal(false);
-    setShowPhoneOtpModal(false);
-    setShowGoogle2faEmailOtpModal(false);
-    setShowGoogle2faSetupModal(false);
-    setShowDisable2faConfirmModal(false);
-    setShowDisable2faVerifyModal(false);
-    setShowFundPasswordModal(false);
-    setShowFundPassword2faModal(false);
-    setEmailOtp(['', '', '', '', '', '']);
-    setPhoneOtp(['', '', '', '', '', '']);
-    setGoogle2faEmailOtp(['', '', '', '', '', '']);
-    setPhoneNumber('');
-    setCaptchaPosition(0);
-    setGoogle2faCode('');
-    setDisable2faPassword('');
-    setDisable2faCode('');
-    setFundPassword('');
-    setConfirmFundPassword('');
-    setFundPassword2faCode(['', '', '', '', '', '']);
-  };
-
-  // ========== FUND PASSWORD FUNCTIONS ==========
-
-  // Fund password validation
-  const validateFundPassword = (password: string) => {
-    const hasMinLength = password.length >= 8 && password.length <= 30;
-    const hasUppercase = /[A-Z]/.test(password);
-    const hasLowercase = /[a-z]/.test(password);
-    const hasNumber = /[0-9]/.test(password);
-    return { hasMinLength, hasUppercase, hasLowercase, hasNumber, isValid: hasMinLength && hasUppercase && hasLowercase && hasNumber };
-  };
-
-  // Handle Fund Password Settings click
+  // Fund Password Functions
   const handleFundPasswordClick = () => {
     setShowFundPasswordModal(true);
+    setFundPassword('');
+    setConfirmFundPassword('');
   };
 
-  // Handle Fund Password submit (first step)
-  const handleFundPasswordSubmit = async () => {
-    const validation = validateFundPassword(fundPassword);
-    if (!validation.isValid) {
-      alert('Please ensure your password meets all requirements');
-      return;
+  const validateFundPassword = () => {
+    if (fundPassword.length < 6) {
+      alert('Fund password must be at least 6 characters');
+      return false;
     }
-
     if (fundPassword !== confirmFundPassword) {
       alert('Passwords do not match');
-      return;
+      return false;
     }
+    return true;
+  };
 
+  const submitFundPassword = () => {
+    if (!validateFundPassword()) return;
+    
+    if (user2faEnabled) {
+      setShowFundPasswordModal(false);
+      setShowFundPassword2faModal(true);
+    } else {
+      saveFundPassword();
+    }
+  };
+
+  const saveFundPassword = async () => {
     setSettingFundPassword(true);
     try {
-      // Check if fund password is same as login password
-      const checkRes = await fetch(`${apiUrl}/api/v1/auth/fund-password/check-same`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ password: fundPassword }),
-      });
-      const checkResult = await checkRes.json();
-
-      if (checkResult.data?.isSame) {
-        alert('Fund password must be different from your login password. Please choose a different password.');
-        setSettingFundPassword(false);
-        return;
-      }
-
-      // If 2FA is enabled, show 2FA verification
-      if (user2faEnabled) {
-        setShowFundPasswordModal(false);
-        setShowFundPassword2faModal(true);
-      } else {
-        // If no 2FA, directly set fund password
-        await saveFundPassword();
-      }
-    } catch (error) {
-      console.error('Error checking fund password:', error);
-      alert('Failed to process fund password');
-    } finally {
-      setSettingFundPassword(false);
-    }
-  };
-
-  // Verify 2FA and save fund password
-  const verifyAndSaveFundPassword = async () => {
-    const code = fundPassword2faCode.join('');
-    if (code.length !== 6) return;
-
-    setVerifyingFundPassword2fa(true);
-    try {
-      const verifyRes = await fetch(`${apiUrl}/api/v1/auth/2fa/verify`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ code }),
-      });
-      const verifyResult = await verifyRes.json();
-
-      if (!verifyResult.success) {
-        alert(verifyResult.error?.message || 'Invalid 2FA code');
-        setVerifyingFundPassword2fa(false);
-        return;
-      }
-
-      await saveFundPassword();
-    } catch (error) {
-      console.error('Failed to verify 2FA:', error);
-      alert('Verification failed');
-    } finally {
-      setVerifyingFundPassword2fa(false);
-    }
-  };
-
-  // Save fund password
-  const saveFundPassword = async () => {
-    try {
+      const code = fundPassword2faCode.join('');
       const response = await fetch(`${apiUrl}/api/v1/auth/fund-password/set`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ password: fundPassword }),
+        body: JSON.stringify({ 
+          fundPassword,
+          twoFactorCode: user2faEnabled ? code : undefined 
+        }),
       });
       const result = await response.json();
-
+      
       if (result.success) {
         setHasFundPassword(true);
-        closeAllModals();
+        setShowFundPasswordModal(false);
+        setShowFundPassword2faModal(false);
+        setFundPassword('');
+        setConfirmFundPassword('');
+        setFundPassword2faCode(['', '', '', '', '', '']);
         alert('Fund password set successfully!');
       } else {
         alert(result.error?.message || 'Failed to set fund password');
@@ -739,1408 +847,998 @@ export default function SecurityPage() {
     } catch (error) {
       console.error('Failed to set fund password:', error);
       alert('Failed to set fund password');
+    } finally {
+      setSettingFundPassword(false);
+      setVerifyingFundPassword2fa(false);
     }
   };
 
-  // Handle fund password 2FA input
-  const handleFundPassword2faInput = (index: number, value: string) => {
-    if (!/^\d*$/.test(value)) return;
-    const newCode = [...fundPassword2faCode];
-    newCode[index] = value.slice(-1);
-    setFundPassword2faCode(newCode);
-    
-    if (value && index < 5) {
-      fundPassword2faRefs.current[index + 1]?.focus();
+  const verifyFundPassword2fa = () => {
+    const code = fundPassword2faCode.join('');
+    if (code.length !== 6) {
+      alert('Please enter a valid 6-digit code');
+      return;
+    }
+    setVerifyingFundPassword2fa(true);
+    saveFundPassword();
+  };
+
+  // Anti-Phishing Functions
+  const handleAntiPhishingClick = () => {
+    if (antiPhishingCode) {
+      setIsChangingAntiPhishing(true);
+      setOldAntiPhishingCodeInput('');
+    } else {
+      setIsChangingAntiPhishing(false);
+    }
+    setAntiPhishingCodeInput('');
+    setShowAntiPhishingModal(true);
+  };
+
+  const saveAntiPhishing = async () => {
+    if (antiPhishingCodeInput.length < 4 || antiPhishingCodeInput.length > 20) {
+      alert('Anti-phishing code must be 4-20 characters');
+      return;
+    }
+    if (isChangingAntiPhishing && oldAntiPhishingCodeInput !== antiPhishingCode) {
+      alert('Old anti-phishing code is incorrect');
+      return;
+    }
+
+    setSavingAntiPhishing(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/auth/anti-phishing/set`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ code: antiPhishingCodeInput }),
+      });
+      const result = await response.json();
+      
+      if (result.success) {
+        setAntiPhishingCode(antiPhishingCodeInput);
+        setShowAntiPhishingModal(false);
+        setAntiPhishingCodeInput('');
+        setOldAntiPhishingCodeInput('');
+        alert('Anti-phishing code saved successfully!');
+      } else {
+        alert(result.error?.message || 'Failed to save anti-phishing code');
+      }
+    } catch (error) {
+      console.error('Failed to save anti-phishing code:', error);
+      alert('Failed to save anti-phishing code');
+    } finally {
+      setSavingAntiPhishing(false);
     }
   };
 
-  const handleFundPassword2faKeyDown = (index: number, e: React.KeyboardEvent) => {
-    if (e.key === 'Backspace' && !fundPassword2faCode[index] && index > 0) {
-      fundPassword2faRefs.current[index - 1]?.focus();
+  // Withdrawal Whitelist Functions
+  const handleWhitelistToggle = () => {
+    if (!withdrawalWhitelist) {
+      setShowWhitelistVerifyModal(true);
+      sendWhitelistOtp();
+    } else {
+      toggleWhitelist(false);
     }
   };
 
-  const handleFundPassword2faPaste = (e: React.ClipboardEvent) => {
-    e.preventDefault();
-    const pastedData = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
-    const newCode = [...fundPassword2faCode];
-    for (let i = 0; i < pastedData.length; i++) {
-      newCode[i] = pastedData[i];
+  const sendWhitelistOtp = async () => {
+    if (sendingWhitelistOtp || whitelistEmailOtpTimer > 0) return;
+    setSendingWhitelistOtp(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/auth/send-security-otp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ type: 'email', purpose: 'whitelist_enable' }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        setWhitelistEmailOtpTimer(60);
+      }
+    } catch (error) {
+      console.error('Failed to send OTP:', error);
+    } finally {
+      setSendingWhitelistOtp(false);
     }
-    setFundPassword2faCode(newCode);
   };
 
-  const fundPasswordValidation = validateFundPassword(fundPassword);
+  const verifyWhitelistAndEnable = async () => {
+    if (!whitelistEmailOtp || whitelistEmailOtp.length !== 6) {
+      alert('Please enter a valid OTP');
+      return;
+    }
+    if (user2faEnabled && (!whitelistGoogle2faCode || whitelistGoogle2faCode.length !== 6)) {
+      alert('Please enter a valid 2FA code');
+      return;
+    }
 
-  return (
-    <div className="p-4 lg:p-6 max-w-5xl">
-      {/* Page Title */}
-      <h1 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">
-        Security
-      </h1>
+    setVerifyingWhitelist(true);
+    try {
+      const verifyResponse = await fetch(`${apiUrl}/api/v1/auth/verify-security-otp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ type: 'email', otp: whitelistEmailOtp, purpose: 'whitelist_enable' }),
+      });
+      const verifyResult = await verifyResponse.json();
+      
+      if (!verifyResult.success) {
+        alert('Invalid OTP');
+        return;
+      }
 
-      {/* Two-Factor Authentication */}
-      <div className="bg-white dark:bg-[#181a20] rounded-xl mb-6">
-        <div className="p-4 border-b border-gray-100 dark:border-gray-800">
-          <h2 className="font-semibold text-gray-900 dark:text-white">Two-Factor Authentication</h2>
-        </div>
-        <div className="divide-y divide-gray-100 dark:divide-gray-800">
-          {/* Login Password */}
-          <div className="flex items-center justify-between p-4">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
-                <Lock className="w-5 h-5 text-gray-500" />
-              </div>
-              <div>
-                <h3 className="font-medium text-gray-900 dark:text-white">Login Password</h3>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <span className="flex items-center gap-1 text-sm text-green-500">
-                <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-                Settings
-              </span>
-              <Link
-                href="/dashboard/security/change-password"
-                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors"
-              >
-                Change
-              </Link>
-            </div>
-          </div>
+      if (user2faEnabled) {
+        const twoFaResponse = await fetch(`${apiUrl}/api/v1/auth/2fa/verify`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ code: whitelistGoogle2faCode }),
+        });
+        const twoFaResult = await twoFaResponse.json();
+        
+        if (!twoFaResult.success) {
+          alert('Invalid 2FA code');
+          return;
+        }
+      }
 
-          {/* Email Authentication */}
-          <div className="flex items-center justify-between p-4">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
-                <Mail className="w-5 h-5 text-gray-500" />
-              </div>
-              <div>
-                <h3 className="font-medium text-gray-900 dark:text-white">Email Authentication</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  For Login, withdraw, password retrieval, security settings change and API management verification.{' '}
-                  <span className="text-blue-500 hover:underline cursor-pointer">Unlink</span>
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <span className="flex items-center gap-1 text-sm text-green-500">
-                <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-                {maskEmail(user?.email || '')} <span className="text-gray-400">⊘</span>
-              </span>
-              <button className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors">
-                Change Email
-              </button>
-            </div>
-          </div>
+      await toggleWhitelist(true);
+      setShowWhitelistVerifyModal(false);
+      setWhitelistEmailOtp('');
+      setWhitelistGoogle2faCode('');
+    } catch (error) {
+      console.error('Failed to verify:', error);
+      alert('Verification failed');
+    } finally {
+      setVerifyingWhitelist(false);
+    }
+  };
 
-          {/* SMS Authentication */}
-          <div className="flex items-center justify-between p-4">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
-                <Smartphone className="w-5 h-5 text-gray-500" />
-              </div>
-              <div>
-                <h3 className="font-medium text-gray-900 dark:text-white">SMS Authentication</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  For login, password reset, and change of security settings
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              {loadingPhone ? (
-                <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
-              ) : userPhone ? (
-                <>
-                  <span className="flex items-center gap-1 text-sm text-green-500">
-                    <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-                    {maskPhone(userPhone)}
-                  </span>
-                  <button className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors">
-                    Change
-                  </button>
-                </>
-              ) : (
-                <>
-                  <span className="flex items-center gap-1 text-sm text-gray-400">
-                    <span className="w-2 h-2 bg-gray-400 rounded-full"></span>
-                    Not Yet Configured
-                  </span>
-                  <button 
-                    onClick={handleSmsSettingsClick}
-                    className="px-4 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors"
-                  >
-                    Settings
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
+  const toggleWhitelist = async (enable: boolean) => {
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/auth/withdrawal-whitelist/toggle`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ enabled: enable }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        setWithdrawalWhitelist(enable);
+      }
+    } catch (error) {
+      console.error('Failed to toggle whitelist:', error);
+    }
+  };
 
-          {/* Google Two Factor Authentication */}
-          <div className="flex items-center justify-between p-4">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
-                <Shield className="w-5 h-5 text-gray-500" />
-              </div>
-              <div>
-                <h3 className="font-medium text-gray-900 dark:text-white">Google Two Factor Authentication</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  For login, withdrawal, password reset, change of security settings, and API management verification
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              {loadingGoogle2fa ? (
-                <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
-              ) : user2faEnabled ? (
-                <>
-                  <span className="flex items-center gap-1 text-sm text-green-500">
-                    <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-                    Settings
-                  </span>
-                  <button 
-                    onClick={handleDisable2faClick}
-                    className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                  >
-                    Disable
-                  </button>
-                </>
-              ) : (
-                <>
-                  <span className="flex items-center gap-1 text-sm text-gray-400">
-                    <span className="w-2 h-2 bg-gray-400 rounded-full"></span>
-                    Not Yet Configured
-                  </span>
-                  <button 
-                    onClick={handleGoogle2faSettingsClick}
-                    className="px-4 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors"
-                  >
-                    Settings
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+  // Address Book Functions
+  const handleAddressBookToggle = () => {
+    if (!withdrawViaAddressBook) {
+      setShowAddressBookModal(true);
+    } else {
+      toggleAddressBook(false);
+    }
+  };
 
-      {/* Advanced Protection */}
-      <div className="bg-white dark:bg-[#181a20] rounded-xl mb-6">
-        <div className="p-4 border-b border-gray-100 dark:border-gray-800">
-          <h2 className="font-semibold text-gray-900 dark:text-white">Advanced Protection</h2>
-        </div>
-        <div className="divide-y divide-gray-100 dark:divide-gray-800">
-          {/* Passkeys */}
-          <div className="flex items-center justify-between p-4">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
-                <Key className="w-5 h-5 text-gray-500" />
-              </div>
-              <div>
-                <h3 className="font-medium text-gray-900 dark:text-white">Passkeys</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Use passkeys to protect your account and authorize withdrawals.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              {loadingPasskeys ? (
-                <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
-              ) : passkeysCount > 0 ? (
-                <>
-                  <span className="flex items-center gap-1 text-sm text-green-500">
-                    <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-                    Set up
-                  </span>
-                  <Link 
-                    href="/dashboard/security/passkeys"
-                    className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                  >
-                    Settings
-                  </Link>
-                </>
-              ) : (
-                <>
-                  <span className="flex items-center gap-1 text-sm text-gray-400">
-                    <span className="w-2 h-2 bg-gray-400 rounded-full"></span>
-                    Not Yet Configured
-                  </span>
-                  <Link 
-                    href="/dashboard/security/passkeys"
-                    className="px-4 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors"
-                  >
-                    Settings
-                  </Link>
-                </>
-              )}
-            </div>
-          </div>
+  const enableAddressBook = async () => {
+    setEnablingAddressBook(true);
+    try {
+      await toggleAddressBook(true);
+      setShowAddressBookModal(false);
+    } finally {
+      setEnablingAddressBook(false);
+    }
+  };
 
-          {/* Secure Transaction Approval */}
-          <div className="flex items-center justify-between p-4">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
-                <Phone className="w-5 h-5 text-gray-500" />
-              </div>
-              <div>
-                <h3 className="font-medium text-gray-900 dark:text-white">Secure Transaction Approval</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Add a primary phone for verification in withdrawals and other services.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <span className="flex items-center gap-1 text-sm text-gray-400">
-                <span className="w-2 h-2 bg-gray-400 rounded-full"></span>
-                Not Yet Configured
-              </span>
-              <div className="flex items-center gap-2">
-                <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center cursor-pointer">
-                  <span className="text-white text-xs">?</span>
-                </div>
-                <button className="px-4 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors">
-                  Settings
-                </button>
-              </div>
-            </div>
-          </div>
+  const toggleAddressBook = async (enable: boolean) => {
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/auth/address-book/toggle`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ enabled: enable }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        setWithdrawViaAddressBook(enable);
+      }
+    } catch (error) {
+      console.error('Failed to toggle address book:', error);
+    }
+  };
 
-          {/* Fund Password */}
-          <div className="flex items-center justify-between p-4">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
-                <KeyRound className="w-5 h-5 text-gray-500" />
-              </div>
-              <div>
-                <h3 className="font-medium text-gray-900 dark:text-white">Fund Password</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Used during withdrawal, P2P trading, and other scenarios to conduct security verification.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              {loadingFundPassword ? (
-                <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
-              ) : hasFundPassword ? (
-                <>
-                  <span className="flex items-center gap-1 text-sm text-green-500">
-                    <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-                    Set up
-                  </span>
-                  <button 
-                    onClick={handleFundPasswordClick}
-                    className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                  >
-                    Change
-                  </button>
-                </>
-              ) : (
-                <>
-                  <span className="flex items-center gap-1 text-sm text-gray-400">
-                    <span className="w-2 h-2 bg-gray-400 rounded-full"></span>
-                    Not Yet Configured
-                  </span>
-                  <button 
-                    onClick={handleFundPasswordClick}
-                    className="px-4 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors"
-                  >
-                    Settings
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
+  // OTP Input Component
+  const OtpInput = ({
+    otp,
+    setOtp,
+    refs,
+  }: {
+    otp: string[];
+    setOtp: React.Dispatch<React.SetStateAction<string[]>>;
+    refs: React.MutableRefObject<(HTMLInputElement | null)[]>;
+  }) => (
+    <div className="flex gap-3 justify-center">
+      {otp.map((digit, i) => (
+        <input
+          key={i}
+          ref={(el) => { refs.current[i] = el; }}
+          type="text"
+          inputMode="numeric"
+          maxLength={1}
+          value={digit}
+          onChange={(e) => handleOtpInput(i, e.target.value, otp, setOtp, refs)}
+          onKeyDown={(e) => handleOtpKeyDown(i, e, otp, setOtp, refs)}
+          onPaste={(e) => handleOtpPaste(e, setOtp, refs)}
+          className="w-12 h-14 text-center text-xl font-bold bg-gray-50 dark:bg-[#1e2329] border-2 border-gray-200 dark:border-gray-700 rounded-xl focus:border-blue-500 focus:outline-none transition-colors"
+        />
+      ))}
+    </div>
+  );
 
-          {/* Anti-phishing Code */}
-          <div className="flex items-center justify-between p-4">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
-                <ShieldCheck className="w-5 h-5 text-gray-500" />
-              </div>
-              <div>
-                <h3 className="font-medium text-gray-900 dark:text-white">Anti-phishing Code</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  After you've successfully set up the anti-phishing code, it will appear in all official emails from Methereum to prevent phishing attempts.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <span className="flex items-center gap-1 text-sm text-gray-400">
-                <span className="w-2 h-2 bg-gray-400 rounded-full"></span>
-                Not Yet Configured
-              </span>
-              <button className="px-4 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors">
-                Settings
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Withdrawal Security */}
-      <div className="bg-white dark:bg-[#181a20] rounded-xl mb-6">
-        <div className="p-4 border-b border-gray-100 dark:border-gray-800">
-          <h2 className="font-semibold text-gray-900 dark:text-white">Withdrawal Security</h2>
-        </div>
-        <div className="divide-y divide-gray-100 dark:divide-gray-800">
-          {/* Withdrawal Address Whitelist */}
-          <div className="flex items-center justify-between p-4">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
-                <Wallet className="w-5 h-5 text-gray-500" />
-              </div>
-              <div>
-                <h3 className="font-medium text-gray-900 dark:text-white">Withdrawal Address Whitelist</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  When this feature is enabled, you will not need Google two-factor authentication or email verification for withdrawals to trusted addresses. However, if unusual activity is detected, security verification will still be enforced.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <span className="flex items-center gap-1 text-sm text-gray-400">
-                <span className="w-2 h-2 bg-gray-400 rounded-full"></span>
-                Not Enabled Yet
-              </span>
-              <button
-                onClick={() => setWithdrawalWhitelist(!withdrawalWhitelist)}
-                className={`relative w-12 h-6 rounded-full transition-colors ${
-                  withdrawalWhitelist ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
-                }`}
-              >
-                <span
-                  className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform shadow ${
-                    withdrawalWhitelist ? 'right-1' : 'left-1'
-                  }`}
-                />
-              </button>
-            </div>
-          </div>
-
-          {/* Withdraw via Address Book */}
-          <div className="flex items-center justify-between p-4">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
-                <BookOpen className="w-5 h-5 text-gray-500" />
-              </div>
-              <div>
-                <h3 className="font-medium text-gray-900 dark:text-white">Withdraw via Address Book</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Once enabled, you can only withdraw to addresses saved in your Address Book.{' '}
-                  <span className="text-blue-500 hover:underline cursor-pointer">Manage Withdrawal Addresses</span>
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <span className="flex items-center gap-1 text-sm text-gray-400">
-                <span className="w-2 h-2 bg-gray-400 rounded-full"></span>
-                Not Enabled Yet
-              </span>
-              <button
-                onClick={() => setWithdrawViaAddressBook(!withdrawViaAddressBook)}
-                className={`relative w-12 h-6 rounded-full transition-colors ${
-                  withdrawViaAddressBook ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
-                }`}
-              >
-                <span
-                  className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform shadow ${
-                    withdrawViaAddressBook ? 'right-1' : 'left-1'
-                  }`}
-                />
-              </button>
-            </div>
-          </div>
-
-          {/* New Address Withdrawal Lock */}
-          <div className="flex items-center justify-between p-4">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
-                <MapPin className="w-5 h-5 text-gray-400" />
-              </div>
-              <div>
-                <h3 className="font-medium text-gray-400">New Address Withdrawal Lock</h3>
-                <p className="text-sm text-gray-400">
-                  Once enabled, the withdrawal function will be disabled to newly saved addresses for 24 hours.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <span className="flex items-center gap-1 text-sm text-gray-400">
-                <span className="w-2 h-2 bg-gray-400 rounded-full"></span>
-                Not Enabled Yet
-              </span>
-              <button
-                onClick={() => setNewAddressLock(!newAddressLock)}
-                className={`relative w-12 h-6 rounded-full transition-colors ${
-                  newAddressLock ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
-                }`}
-              >
-                <span
-                  className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform shadow ${
-                    newAddressLock ? 'right-1' : 'left-1'
-                  }`}
-                />
-              </button>
-            </div>
-          </div>
-
-          {/* Manage Crypto Withdrawal Limits */}
-          <div className="flex items-center justify-between p-4">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
-                <Coins className="w-5 h-5 text-gray-500" />
-              </div>
-              <div>
-                <h3 className="font-medium text-gray-900 dark:text-white">Manage Crypto Withdrawal Limits</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Daily Withdrawal Amount: 20000 USDT,Monthly Withdrawal Amount: 100000 USDT
-                </p>
-              </div>
-            </div>
-            <button className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors">
-              Settings
+  // Modal Component
+  const Modal = ({ show, onClose, title, children }: { 
+    show: boolean; 
+    onClose: () => void; 
+    title: string;
+    children: React.ReactNode;
+  }) => {
+    if (!show) return null;
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+        <div className="relative bg-white dark:bg-[#181a20] rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white">{title}</h3>
+            <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors">
+              <X className="w-5 h-5 text-gray-500" />
             </button>
           </div>
+          <div className="p-6">{children}</div>
         </div>
       </div>
+    );
+  };
 
-      {/* Footer */}
-      <footer className="mt-12 pt-8 border-t border-gray-200 dark:border-gray-800">
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-8 mb-8">
-          {/* Logo and Social */}
-          <div className="col-span-2 md:col-span-1">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold">M</span>
-              </div>
-              <span className="text-xl font-bold text-gray-900 dark:text-white">Methereum</span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {['facebook', 'twitter', 'instagram', 'youtube', 'linkedin', 'telegram', 'tiktok', 'reddit', 'discord'].map((social) => (
-                <div
-                  key={social}
-                  className="w-8 h-8 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700"
-                >
-                  <span className="text-xs text-gray-500">●</span>
+  return (
+    <div className="p-4 lg:p-8 bg-gray-50 dark:bg-[#0b0e11] min-h-full">
+      <div className="max-w-5xl mx-auto">
+        {/* Header */}
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Security Center</h1>
+          <p className="text-gray-500 dark:text-gray-400 mt-2">Protect your account with multiple layers of security</p>
+        </div>
+
+        {/* Security Overview Card */}
+        <div className="bg-white dark:bg-[#181a20] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden mb-6">
+          <div className="p-6 lg:p-8">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+              {/* Left: Security Level */}
+              <div className="flex items-center gap-6">
+                <div className={`w-20 h-20 rounded-2xl bg-gradient-to-br ${securityBgColor} flex items-center justify-center shadow-lg`}>
+                  <Shield className="w-10 h-10 text-white" />
                 </div>
-              ))}
-            </div>
-          </div>
-
-          {/* About */}
-          <div>
-            <h3 className="font-semibold text-gray-900 dark:text-white mb-3">About</h3>
-            <ul className="space-y-2 text-sm text-gray-500 dark:text-gray-400">
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">About Methereum</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Meet Mantle</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Press Room</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Communities</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Announcements</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Risk Disclosure</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Whistleblower Channel</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Careers</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Islamic Account</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Fees & Transactions Overview</li>
-            </ul>
-          </div>
-
-          {/* Services */}
-          <div>
-            <h3 className="font-semibold text-gray-900 dark:text-white mb-3">Services</h3>
-            <ul className="space-y-2 text-sm text-gray-500 dark:text-gray-400">
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">One-Click Buy</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">P2P Trading (0 Fees)</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">VIP Program</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Referral Program</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Institutional Services</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Listing Application</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Tax API</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Audit</li>
-            </ul>
-          </div>
-
-          {/* Support */}
-          <div>
-            <h3 className="font-semibold text-gray-900 dark:text-white mb-3">Support</h3>
-            <ul className="space-y-2 text-sm text-gray-500 dark:text-gray-400">
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Submit a Request</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Help Center</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Support Hub</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">User Feedback</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Methereum Learn</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Trading Fee</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">API</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Authenticity Check</li>
-            </ul>
-          </div>
-
-          {/* Products */}
-          <div>
-            <h3 className="font-semibold text-gray-900 dark:text-white mb-3">Products</h3>
-            <ul className="space-y-2 text-sm text-gray-500 dark:text-gray-400">
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Trade</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Derivatives</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Earn</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Launchpad</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Methereum Card</li>
-              <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">TradingView</li>
-            </ul>
-          </div>
-        </div>
-
-        {/* Copyright */}
-        <div className="pt-6 border-t border-gray-200 dark:border-gray-800 flex flex-wrap items-center justify-center gap-4 text-sm text-gray-500 dark:text-gray-400">
-          <span>© 2018-2026 Methereum.com. All rights reserved.</span>
-          <Link href="/terms" className="hover:text-gray-900 dark:hover:text-white">Terms of Service</Link>
-          <Link href="/privacy" className="hover:text-gray-900 dark:hover:text-white">Privacy Terms</Link>
-        </div>
-      </footer>
-
-      {/* ========== MODALS ========== */}
-
-      {/* Email OTP Modal */}
-      {showEmailOtpModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md shadow-xl">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Security Verification</h2>
-                <button onClick={closeAllModals} className="text-gray-400 hover:text-gray-600">
-                  <X className="w-5 h-5" />
-                </button>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Security Level: <span className={securityColor}>{securityStatus}</span></h2>
+                  <p className="text-gray-500 dark:text-gray-400">Complete more security settings to increase protection</p>
+                </div>
               </div>
 
-              <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 mb-6">
-                <Mail className="w-4 h-4" />
-                <span>A verification code will be sent to <strong className="text-gray-900 dark:text-white">{maskEmail(user?.email || '')}</strong></span>
-              </div>
-
-              {/* OTP Inputs */}
-              <div className="flex justify-center gap-2 mb-4">
-                {emailOtp.map((digit, index) => (
-                  <input
-                    key={index}
-                    ref={el => { emailOtpRefs.current[index] = el; }}
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={1}
-                    value={digit}
-                    onChange={e => handleOtpInput(index, e.target.value, emailOtp, setEmailOtp, emailOtpRefs)}
-                    onKeyDown={e => handleOtpKeyDown(index, e, emailOtp, setEmailOtp, emailOtpRefs)}
-                    onPaste={e => handleOtpPaste(e, setEmailOtp, emailOtpRefs)}
-                    className="w-12 h-14 text-center text-xl font-semibold border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
+              {/* Right: Progress */}
+              <div className="w-full lg:w-64">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Protection Score</span>
+                  <span className={`text-sm font-bold ${securityColor}`}>{securityLevel}%</span>
+                </div>
+                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3">
+                  <div 
+                    className={`h-3 rounded-full bg-gradient-to-r ${securityBgColor} transition-all duration-500`} 
+                    style={{ width: `${securityLevel}%` }}
                   />
-                ))}
+                </div>
               </div>
-
-              <div className="text-center mb-6">
-                <span className="text-sm text-gray-500 dark:text-gray-400">
-                  Not able to receive verification code?{' '}
-                  {emailOtpTimer > 0 ? (
-                    <span className="text-gray-400">{emailOtpTimer}s</span>
-                  ) : (
-                    <button 
-                      onClick={sendEmailOtp} 
-                      disabled={sendingEmailOtp}
-                      className="text-blue-500 hover:underline"
-                    >
-                      {sendingEmailOtp ? 'Sending...' : 'Resend'}
-                    </button>
-                  )}
-                </span>
-              </div>
-
-              <p className="text-center text-sm text-blue-500 hover:underline cursor-pointer mb-6">
-                Having problems with verification?
-              </p>
-
-              <button
-                onClick={verifyEmailOtp}
-                disabled={verifyingEmailOtp || emailOtp.join('').length !== 6}
-                className="w-full py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
-              >
-                {verifyingEmailOtp ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Verifying...
-                  </>
-                ) : (
-                  'Confirm'
-                )}
-              </button>
             </div>
           </div>
         </div>
-      )}
+
+        {/* Password Section */}
+        <SectionCard
+          icon={Lock}
+          iconBg="bg-blue-100 dark:bg-blue-900/30"
+          iconColor="text-blue-600 dark:text-blue-400"
+          title="Password"
+          subtitle="Manage your login credentials"
+        >
+          <SecurityRow
+            icon={Lock}
+            iconBg="bg-gray-100 dark:bg-gray-800 text-gray-500"
+            title="Login Password"
+            description="Used for account login"
+            status="Set up"
+            statusColor="text-green-500"
+            actionLabel="Change"
+            onAction={() => router.push('/dashboard/security/password')}
+          />
+        </SectionCard>
+
+        {/* Two-Factor Authentication */}
+        <SectionCard
+          icon={ShieldCheck}
+          iconBg="bg-green-100 dark:bg-green-900/30"
+          iconColor="text-green-600 dark:text-green-400"
+          title="Two-Factor Authentication"
+          subtitle="Add extra layers of security to your account"
+        >
+          <SecurityRow
+            icon={Mail}
+            iconBg="bg-gray-100 dark:bg-gray-800 text-gray-500"
+            title="Email Authentication"
+            description={<>For login, withdrawal, and security verification. <span className="text-blue-500 cursor-pointer hover:underline">Unlink</span></>}
+            status="Verified"
+            statusColor="text-green-500"
+            statusValue={maskEmail(user?.email || '')}
+            actionLabel="Change Email"
+          />
+          <SecurityRow
+            icon={Smartphone}
+            iconBg="bg-gray-100 dark:bg-gray-800 text-gray-500"
+            title="SMS Authentication"
+            description="For login, password reset, and security settings"
+            status={userPhone ? 'Verified' : 'Not Configured'}
+            statusColor={userPhone ? 'text-green-500' : 'text-gray-400'}
+            statusValue={userPhone ? maskPhone(userPhone) : undefined}
+            loading={loadingPhone}
+            actionLabel={userPhone ? 'Change' : 'Settings'}
+            actionVariant={userPhone ? 'default' : 'primary'}
+            onAction={userPhone ? undefined : handleSmsSettingsClick}
+          />
+          <SecurityRow
+            icon={Shield}
+            iconBg="bg-gray-100 dark:bg-gray-800 text-gray-500"
+            title="Google 2FA"
+            description="Most secure verification for sensitive operations"
+            status={user2faEnabled ? 'Enabled' : 'Not Configured'}
+            statusColor={user2faEnabled ? 'text-green-500' : 'text-gray-400'}
+            loading={loadingGoogle2fa}
+            actionLabel={user2faEnabled ? 'Disable' : 'Settings'}
+            actionVariant={user2faEnabled ? 'danger' : 'primary'}
+            onAction={user2faEnabled ? handleDisable2faClick : handleGoogle2faSettingsClick}
+          />
+        </SectionCard>
+
+        {/* Advanced Protection */}
+        <SectionCard
+          icon={Fingerprint}
+          iconBg="bg-purple-100 dark:bg-purple-900/30"
+          iconColor="text-purple-600 dark:text-purple-400"
+          title="Advanced Protection"
+          subtitle="Additional security features for enhanced protection"
+        >
+          <SecurityRow
+            icon={Key}
+            iconBg="bg-gray-100 dark:bg-gray-800 text-gray-500"
+            title="Passkeys"
+            description="Use passkeys to protect your account and authorize withdrawals"
+            status={passkeysCount > 0 ? 'Set up' : 'Not Configured'}
+            statusColor={passkeysCount > 0 ? 'text-green-500' : 'text-gray-400'}
+            loading={loadingPasskeys}
+            actionLabel="Settings"
+            actionVariant={passkeysCount > 0 ? 'default' : 'primary'}
+            onAction={() => router.push('/dashboard/security/passkeys')}
+          />
+          <SecurityRow
+            icon={KeyRound}
+            iconBg="bg-gray-100 dark:bg-gray-800 text-gray-500"
+            title="Fund Password"
+            description="Required for withdrawal, P2P trading, and other sensitive operations"
+            status={hasFundPassword ? 'Set up' : 'Not Configured'}
+            statusColor={hasFundPassword ? 'text-green-500' : 'text-gray-400'}
+            loading={loadingFundPassword}
+            actionLabel={hasFundPassword ? 'Change' : 'Settings'}
+            actionVariant={hasFundPassword ? 'default' : 'primary'}
+            onAction={handleFundPasswordClick}
+          />
+          <SecurityRow
+            icon={BadgeCheck}
+            iconBg="bg-gray-100 dark:bg-gray-800 text-gray-500"
+            title="Anti-Phishing Code"
+            description="This code appears in all official emails to prevent phishing"
+            status={antiPhishingCode ? 'Set up' : 'Not Configured'}
+            statusColor={antiPhishingCode ? 'text-green-500' : 'text-gray-400'}
+            statusValue={antiPhishingCode || undefined}
+            loading={loadingAntiPhishing}
+            actionLabel={antiPhishingCode ? 'Change' : 'Settings'}
+            actionVariant={antiPhishingCode ? 'default' : 'primary'}
+            onAction={handleAntiPhishingClick}
+          />
+        </SectionCard>
+
+        {/* Withdrawal Security */}
+        <SectionCard
+          icon={Wallet}
+          iconBg="bg-orange-100 dark:bg-orange-900/30"
+          iconColor="text-orange-600 dark:text-orange-400"
+          title="Withdrawal Security"
+          subtitle="Control how and where you can withdraw funds"
+        >
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between p-5 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors gap-4">
+            <div className="flex items-start lg:items-center gap-4">
+              <div className="w-12 h-12 bg-gray-100 dark:bg-gray-800 rounded-xl flex items-center justify-center flex-shrink-0">
+                <ShieldCheck className="w-6 h-6 text-gray-500" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900 dark:text-white">Withdrawal Address Whitelist</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  Skip verification for trusted addresses when enabled
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 ml-16 lg:ml-0">
+              <span className={`flex items-center gap-2 text-sm font-medium ${withdrawalWhitelist ? 'text-green-500' : 'text-gray-400'}`}>
+                <span className={`w-2 h-2 rounded-full ${withdrawalWhitelist ? 'bg-green-500' : 'bg-gray-400'}`}></span>
+                {withdrawalWhitelist ? 'Enabled' : 'Disabled'}
+              </span>
+              <ToggleSwitch enabled={withdrawalWhitelist} onChange={handleWhitelistToggle} loading={loadingWhitelist} />
+            </div>
+          </div>
+
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between p-5 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors gap-4">
+            <div className="flex items-start lg:items-center gap-4">
+              <div className="w-12 h-12 bg-gray-100 dark:bg-gray-800 rounded-xl flex items-center justify-center flex-shrink-0">
+                <BookOpen className="w-6 h-6 text-gray-500" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900 dark:text-white">Withdraw via Address Book</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  Only withdraw to saved addresses.{' '}
+                  <Link href="/dashboard/address-book" className="text-blue-500 hover:underline">Manage Addresses</Link>
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 ml-16 lg:ml-0">
+              <span className={`flex items-center gap-2 text-sm font-medium ${withdrawViaAddressBook ? 'text-green-500' : 'text-gray-400'}`}>
+                <span className={`w-2 h-2 rounded-full ${withdrawViaAddressBook ? 'bg-green-500' : 'bg-gray-400'}`}></span>
+                {withdrawViaAddressBook ? 'Enabled' : 'Disabled'}
+              </span>
+              <ToggleSwitch enabled={withdrawViaAddressBook} onChange={handleAddressBookToggle} loading={loadingAddressBook} />
+            </div>
+          </div>
+
+          <SecurityRow
+            icon={MapPin}
+            iconBg="bg-gray-100 dark:bg-gray-800 text-gray-400"
+            title="New Address Withdrawal Lock"
+            description="Disable withdrawals to newly saved addresses for 24 hours"
+            status="Coming Soon"
+            statusColor="text-gray-400"
+            actionLabel="Settings"
+          />
+
+          <SecurityRow
+            icon={Coins}
+            iconBg="bg-gray-100 dark:bg-gray-800 text-gray-500"
+            title="Manage Withdrawal Limits"
+            description="Configure daily and monthly withdrawal limits"
+            actionLabel="Manage"
+            onAction={() => router.push('/dashboard/security/withdrawal-limits')}
+          />
+        </SectionCard>
+      </div>
+
+      {/* ===== MODALS ===== */}
+
+      {/* Email OTP Modal (SMS Setup) */}
+      <Modal show={showEmailOtpModal} onClose={() => setShowEmailOtpModal(false)} title="Email Verification">
+        <div className="text-center mb-6">
+          <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
+            <Mail className="w-8 h-8 text-blue-500" />
+          </div>
+          <p className="text-gray-600 dark:text-gray-400">
+            Enter the 6-digit code sent to <span className="font-medium text-gray-900 dark:text-white">{maskEmail(user?.email || '')}</span>
+          </p>
+        </div>
+        <OtpInput otp={emailOtp} setOtp={setEmailOtp} refs={emailOtpRefs} />
+        <div className="flex justify-center mt-4">
+          {emailOtpTimer > 0 ? (
+            <span className="text-sm text-gray-500">Resend in {emailOtpTimer}s</span>
+          ) : (
+            <button onClick={sendEmailOtp} disabled={sendingEmailOtp} className="text-sm text-blue-500 hover:underline">
+              {sendingEmailOtp ? 'Sending...' : 'Resend Code'}
+            </button>
+          )}
+        </div>
+        <button
+          onClick={verifyEmailOtp}
+          disabled={verifyingEmailOtp || emailOtp.join('').length !== 6}
+          className="w-full mt-6 py-3.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+        >
+          {verifyingEmailOtp ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+          Verify
+        </button>
+      </Modal>
 
       {/* Phone Input Modal */}
-      {showPhoneInputModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md shadow-xl">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Set mobile phone number</h2>
-                <button onClick={closeAllModals} className="text-gray-400 hover:text-gray-600">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Country Selector */}
-              <div className="mb-4">
-                <label className="block text-sm text-gray-500 dark:text-gray-400 mb-2">Country or region</label>
-                <div className="relative">
-                  <button
-                    onClick={() => setShowCountryDropdown(!showCountryDropdown)}
-                    className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-left flex items-center justify-between"
-                  >
-                    <span className="flex items-center gap-2 text-gray-900 dark:text-white">
-                      <span>{selectedCountry.flag}</span>
-                      <span>{selectedCountry.code} {selectedCountry.name}</span>
-                    </span>
-                    <ChevronDown className="w-4 h-4 text-gray-400" />
-                  </button>
-
-                  {showCountryDropdown && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-y-auto z-10">
-                      {countries.map(country => (
-                        <button
-                          key={country.code}
-                          onClick={() => {
-                            setSelectedCountry(country);
-                            setShowCountryDropdown(false);
-                          }}
-                          className="w-full px-4 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-600 flex items-center gap-2 text-gray-900 dark:text-white"
-                        >
-                          <span>{country.flag}</span>
-                          <span>{country.code} {country.name}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Phone Input */}
-              <div className="mb-6">
-                <label className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mb-2">
-                  <input type="checkbox" className="rounded" defaultChecked />
-                  Enter a new mobile phone number
-                </label>
-                <input
-                  type="tel"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={phoneNumber}
-                  onChange={e => setPhoneNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                  placeholder="Enter phone number"
-                  className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
-                />
-              </div>
-
-              <button
-                onClick={handlePhoneSubmit}
-                disabled={phoneNumber.length < 10}
-                className="w-full py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
-              >
-                Confirm
-              </button>
-            </div>
+      <Modal show={showPhoneInputModal} onClose={() => setShowPhoneInputModal(false)} title="Add Phone Number">
+        <div className="text-center mb-6">
+          <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
+            <Smartphone className="w-8 h-8 text-blue-500" />
           </div>
+          <p className="text-gray-600 dark:text-gray-400">Enter your phone number for SMS authentication</p>
         </div>
-      )}
+        <div className="flex gap-2">
+          <div className="relative">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowCountryDropdown(!showCountryDropdown);
+              }}
+              className="flex items-center gap-2 px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl"
+            >
+              <span>{selectedCountry.flag}</span>
+              <span>{selectedCountry.code}</span>
+              <ChevronDown className="w-4 h-4" />
+            </button>
+            {showCountryDropdown && (
+              <div className="absolute top-full left-0 mt-2 w-64 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-10 max-h-60 overflow-y-auto">
+                {countries.map(country => (
+                  <button
+                    key={country.code}
+                    onClick={(e) => { 
+                      e.stopPropagation();
+                      setSelectedCountry(country); 
+                      setShowCountryDropdown(false); 
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800"
+                  >
+                    <span>{country.flag}</span>
+                    <span className="flex-1 text-left">{country.name}</span>
+                    <span className="text-gray-500">{country.code}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <input
+            type="tel"
+            value={phoneNumber}
+            onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
+            placeholder="Phone number"
+            className="flex-1 px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:border-blue-500"
+          />
+        </div>
+        <button
+          onClick={handlePhoneSubmit}
+          disabled={phoneNumber.length < 10}
+          className="w-full mt-6 py-3.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors"
+        >
+          Continue
+        </button>
+      </Modal>
 
       {/* Captcha Modal */}
-      {showCaptchaModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-sm shadow-xl overflow-hidden">
-            {/* Image with puzzle piece */}
-            <div className="relative h-48 bg-gradient-to-br from-blue-600 to-blue-800 overflow-hidden">
-              <img
-                src="/assets/captcha-bg.jpg"
-                alt="Captcha"
-                className="w-full h-full object-cover opacity-80"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = 'none';
-                }}
-              />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="text-center">
-                  <div className="w-16 h-16 bg-white/20 rounded-lg mb-2 mx-auto flex items-center justify-center">
-                    <span className="text-white font-bold text-2xl">M</span>
-                  </div>
-                  <span className="text-white font-semibold">METHEREUM</span>
-                </div>
-              </div>
-              {/* Puzzle piece indicator */}
-              <div 
-                className="absolute top-1/2 -translate-y-1/2 w-10 h-10 border-2 border-white/50 rounded-lg bg-white/10"
-                style={{ left: `${captchaTarget}%`, transform: `translateX(-50%) translateY(-50%)` }}
-              />
-              {/* Moving puzzle piece */}
-              <div 
-                className={`absolute top-1/2 -translate-y-1/2 w-10 h-10 rounded-lg transition-colors ${
-                  captchaVerified ? 'bg-green-500' : 'bg-blue-500'
-                }`}
-                style={{ left: `${captchaPosition}%`, transform: `translateX(-50%) translateY(-50%)` }}
-              />
-            </div>
-
-            {/* Slider */}
-            <div className="p-4">
-              <div 
-                className="captcha-slider relative h-12 bg-gray-100 dark:bg-gray-700 rounded-lg cursor-pointer"
-                onMouseDown={() => setDragging(true)}
-                onMouseUp={() => {
-                  setDragging(false);
-                  verifyCaptcha();
-                }}
-                onMouseLeave={() => {
-                  if (dragging) {
-                    setDragging(false);
-                    verifyCaptcha();
-                  }
-                }}
-                onMouseMove={handleCaptchaDrag}
-                onTouchStart={() => setDragging(true)}
-                onTouchEnd={() => {
-                  setDragging(false);
-                  verifyCaptcha();
-                }}
-                onTouchMove={handleCaptchaDrag}
-              >
-                <div 
-                  className={`absolute top-1 bottom-1 left-1 w-10 rounded-md flex items-center justify-center transition-colors ${
-                    captchaVerified ? 'bg-green-500' : 'bg-blue-500'
-                  }`}
-                  style={{ left: `calc(${captchaPosition}% - ${captchaPosition * 0.4}px)` }}
-                >
-                  {captchaVerified ? (
-                    <Check className="w-5 h-5 text-white" />
-                  ) : (
-                    <div className="flex flex-col gap-0.5">
-                      <div className="w-4 h-0.5 bg-white rounded"></div>
-                      <div className="w-4 h-0.5 bg-white rounded"></div>
-                      <div className="w-4 h-0.5 bg-white rounded"></div>
-                    </div>
-                  )}
-                </div>
-                <span className="absolute inset-0 flex items-center justify-center text-sm text-gray-400 dark:text-gray-500 pointer-events-none">
-                  {captchaVerified ? 'Verified!' : 'Slide to complete the puzzle'}
-                </span>
-              </div>
-
-              <button 
-                onClick={closeAllModals}
-                className="mt-4 w-full flex items-center justify-center gap-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-              >
-                <X className="w-4 h-4" />
-                <span className="text-sm">Close</span>
-              </button>
-            </div>
+      <Modal show={showCaptchaModal} onClose={() => setShowCaptchaModal(false)} title="Security Verification">
+        <div className="relative h-32 bg-gray-100 dark:bg-gray-800 rounded-xl mb-6 overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-purple-500/20" />
+          <div
+            className="absolute top-1/2 -translate-y-1/2 w-12 h-12 bg-blue-500 rounded-lg transition-all"
+            style={{ left: `${captchaTarget}%`, marginLeft: '-24px', opacity: 0.5 }}
+          />
+          <div
+            className="absolute top-1/2 -translate-y-1/2 w-12 h-12 bg-blue-500 rounded-lg shadow-lg transition-all"
+            style={{ left: `${captchaPosition}%`, marginLeft: '-24px' }}
+          />
+        </div>
+        <div 
+          className="captcha-slider relative h-12 bg-gray-100 dark:bg-gray-800 rounded-xl cursor-pointer"
+          onMouseDown={() => setDragging(true)}
+          onMouseUp={() => { setDragging(false); verifyCaptcha(); }}
+          onMouseLeave={() => setDragging(false)}
+          onMouseMove={handleCaptchaDrag}
+          onTouchStart={() => setDragging(true)}
+          onTouchEnd={() => { setDragging(false); verifyCaptcha(); }}
+          onTouchMove={handleCaptchaDrag}
+        >
+          <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-sm">
+            Drag the slider to match the position
+          </div>
+          <div
+            className="absolute top-1 bottom-1 w-12 bg-blue-500 rounded-lg flex items-center justify-center transition-all"
+            style={{ left: `calc(${captchaPosition}% - 24px)` }}
+          >
+            <ChevronRight className="w-6 h-6 text-white" />
           </div>
         </div>
-      )}
+        {captchaVerified && (
+          <div className="mt-4 text-center text-green-500 font-medium flex items-center justify-center gap-2">
+            <Check className="w-5 h-5" /> Verified!
+          </div>
+        )}
+      </Modal>
 
       {/* Phone OTP Modal */}
-      {showPhoneOtpModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md shadow-xl">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Set mobile phone number</h2>
-                <button onClick={closeAllModals} className="text-gray-400 hover:text-gray-600">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 mb-6">
-                <input type="checkbox" className="rounded" defaultChecked />
-                <span>A verification code will be sent to <strong className="text-gray-900 dark:text-white">{selectedCountry.code}{phoneNumber}</strong></span>
-              </div>
-
-              {/* OTP Inputs */}
-              <div className="flex justify-center gap-2 mb-4">
-                {phoneOtp.map((digit, index) => (
-                  <input
-                    key={index}
-                    ref={el => { phoneOtpRefs.current[index] = el; }}
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={1}
-                    value={digit}
-                    onChange={e => handleOtpInput(index, e.target.value, phoneOtp, setPhoneOtp, phoneOtpRefs)}
-                    onKeyDown={e => handleOtpKeyDown(index, e, phoneOtp, setPhoneOtp, phoneOtpRefs)}
-                    onPaste={e => handleOtpPaste(e, setPhoneOtp, phoneOtpRefs)}
-                    className="w-12 h-14 text-center text-xl font-semibold border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
-                  />
-                ))}
-              </div>
-
-              <div className="text-center mb-6">
-                <span className="text-sm text-gray-500 dark:text-gray-400">
-                  Not able to receive verification code?{' '}
-                  {phoneOtpTimer > 0 ? (
-                    <span className="text-gray-400">{phoneOtpTimer}s</span>
-                  ) : (
-                    <button 
-                      onClick={sendPhoneOtp} 
-                      disabled={sendingPhoneOtp}
-                      className="text-blue-500 hover:underline"
-                    >
-                      {sendingPhoneOtp ? 'Sending...' : 'Resend'}
-                    </button>
-                  )}
-                </span>
-              </div>
-
-              <button
-                onClick={verifyPhoneOtp}
-                disabled={verifyingPhoneOtp || phoneOtp.join('').length !== 6}
-                className="w-full py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
-              >
-                {verifyingPhoneOtp ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Verifying...
-                  </>
-                ) : (
-                  'Confirm'
-                )}
-              </button>
-            </div>
+      <Modal show={showPhoneOtpModal} onClose={() => setShowPhoneOtpModal(false)} title="Phone Verification">
+        <div className="text-center mb-6">
+          <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
+            <Smartphone className="w-8 h-8 text-blue-500" />
           </div>
+          <p className="text-gray-600 dark:text-gray-400">
+            Enter the code sent to <span className="font-medium text-gray-900 dark:text-white">{selectedCountry.code}{phoneNumber}</span>
+          </p>
         </div>
-      )}
+        <OtpInput otp={phoneOtp} setOtp={setPhoneOtp} refs={phoneOtpRefs} />
+        <div className="flex justify-center mt-4">
+          {phoneOtpTimer > 0 ? (
+            <span className="text-sm text-gray-500">Resend in {phoneOtpTimer}s</span>
+          ) : (
+            <button onClick={sendPhoneOtp} disabled={sendingPhoneOtp} className="text-sm text-blue-500 hover:underline">
+              {sendingPhoneOtp ? 'Sending...' : 'Resend Code'}
+            </button>
+          )}
+        </div>
+        <button
+          onClick={verifyPhoneOtp}
+          disabled={verifyingPhoneOtp || phoneOtp.join('').length !== 6}
+          className="w-full mt-6 py-3.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+        >
+          {verifyingPhoneOtp ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+          Verify & Enable
+        </button>
+      </Modal>
 
       {/* Google 2FA Email OTP Modal */}
-      {showGoogle2faEmailOtpModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md shadow-xl">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Security Verification</h2>
-                <button onClick={closeAllModals} className="text-gray-400 hover:text-gray-600">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 mb-6">
-                <Mail className="w-4 h-4" />
-                <span>A verification code will be sent to <strong className="text-gray-900 dark:text-white">{maskEmail(user?.email || '')}</strong></span>
-              </div>
-
-              {/* OTP Inputs */}
-              <div className="flex justify-center gap-2 mb-4">
-                {google2faEmailOtp.map((digit, index) => (
-                  <input
-                    key={index}
-                    ref={el => { google2faEmailOtpRefs.current[index] = el; }}
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={1}
-                    value={digit}
-                    onChange={e => handleOtpInput(index, e.target.value, google2faEmailOtp, setGoogle2faEmailOtp, google2faEmailOtpRefs)}
-                    onKeyDown={e => handleOtpKeyDown(index, e, google2faEmailOtp, setGoogle2faEmailOtp, google2faEmailOtpRefs)}
-                    onPaste={e => handleOtpPaste(e, setGoogle2faEmailOtp, google2faEmailOtpRefs)}
-                    className="w-12 h-14 text-center text-xl font-semibold border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
-                  />
-                ))}
-              </div>
-
-              <div className="text-center mb-6">
-                <span className="text-sm text-gray-500 dark:text-gray-400">
-                  Not able to receive verification code?{' '}
-                  {google2faEmailOtpTimer > 0 ? (
-                    <span className="text-gray-400">{google2faEmailOtpTimer}s</span>
-                  ) : (
-                    <button 
-                      onClick={sendGoogle2faEmailOtp} 
-                      disabled={sendingGoogle2faEmailOtp}
-                      className="text-blue-500 hover:underline"
-                    >
-                      {sendingGoogle2faEmailOtp ? 'Sending...' : 'Resend'}
-                    </button>
-                  )}
-                </span>
-              </div>
-
-              <p className="text-center text-sm text-blue-500 hover:underline cursor-pointer mb-6">
-                Having problems with verification?
-              </p>
-
-              <button
-                onClick={verifyGoogle2faEmailOtp}
-                disabled={verifyingGoogle2faEmailOtp || google2faEmailOtp.join('').length !== 6}
-                className="w-full py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
-              >
-                {verifyingGoogle2faEmailOtp ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Verifying...
-                  </>
-                ) : (
-                  'Confirm'
-                )}
-              </button>
-            </div>
+      <Modal show={showGoogle2faEmailOtpModal} onClose={() => setShowGoogle2faEmailOtpModal(false)} title="Email Verification">
+        <div className="text-center mb-6">
+          <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
+            <Shield className="w-8 h-8 text-green-500" />
           </div>
+          <p className="text-gray-600 dark:text-gray-400">Verify your email before enabling Google 2FA</p>
         </div>
-      )}
+        <OtpInput otp={google2faEmailOtp} setOtp={setGoogle2faEmailOtp} refs={google2faEmailOtpRefs} />
+        <div className="flex justify-center mt-4">
+          {google2faEmailOtpTimer > 0 ? (
+            <span className="text-sm text-gray-500">Resend in {google2faEmailOtpTimer}s</span>
+          ) : (
+            <button onClick={sendGoogle2faEmailOtp} disabled={sendingGoogle2faEmailOtp} className="text-sm text-blue-500 hover:underline">
+              {sendingGoogle2faEmailOtp ? 'Sending...' : 'Resend Code'}
+            </button>
+          )}
+        </div>
+        <button
+          onClick={verifyGoogle2faEmailOtp}
+          disabled={verifyingGoogle2faEmailOtp || google2faEmailOtp.join('').length !== 6}
+          className="w-full mt-6 py-3.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+        >
+          {verifyingGoogle2faEmailOtp ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+          Continue
+        </button>
+      </Modal>
 
       {/* Google 2FA Setup Modal */}
-      {showGoogle2faSetupModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Set Up Google Two-Factor Authentication</h2>
-                <button onClick={closeAllModals} className="text-gray-400 hover:text-gray-600">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Step 1 */}
-              <div className="mb-6">
-                <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 flex items-center justify-center text-sm font-medium flex-shrink-0">
-                    1
-                  </div>
-                  <div>
-                    <h3 className="font-medium text-gray-900 dark:text-white mb-1">Download Google Authenticator Android / iOS</h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      Google Authenticator can be downloaded from the App Store or Google Play.
-                      Search "Google Authenticator" and proceed to download.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Step 2 */}
-              <div className="mb-6">
-                <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400 flex items-center justify-center text-sm font-medium flex-shrink-0">
-                    2
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="font-medium text-gray-900 dark:text-white mb-1">Add key phrase into Google Authenticator and remember the key phrase</h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
-                      Open Google Authenticator, scan the QR code below or manually enter the key phrase to activate the verification token
-                    </p>
-                    <p className="text-sm text-orange-500 mb-4">
-                      Key phrase is used to recover Google Authenticator in the event of a loss or change of device — please make sure to keep the key phrase safe before setting up Google Authenticator.
-                    </p>
-
-                    {/* 2FA Code Input */}
-                    <div className="mb-4">
-                      <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 mb-2">
-                        <Shield className="w-4 h-4" />
-                        Google 2FA Code
-                      </label>
-                      <input
-                        type="text"
-                        value={google2faCode}
-                        onChange={e => setGoogle2faCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                        placeholder="Please enter the Google Authenticator code"
-                        className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
-                      />
-                    </div>
-
-                    {/* QR Code */}
-                    <div className="flex justify-center mb-4">
-                      {google2faQrCode ? (
-                        <img 
-                          src={google2faQrCode} 
-                          alt="QR Code" 
-                          className="w-40 h-40 border border-gray-200 dark:border-gray-600 rounded-lg"
-                        />
-                      ) : (
-                        <div className="w-40 h-40 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center">
-                          <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Copy Key */}
-                    <div className="mb-6">
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Copy key</p>
-                      <div className="flex items-center gap-2">
-                        <code className="flex-1 px-3 py-2 bg-gray-50 dark:bg-gray-700 rounded text-sm font-mono text-gray-900 dark:text-white break-all">
-                          {google2faSecret}
-                        </code>
-                        <button
-                          onClick={copySecretToClipboard}
-                          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
-                          title="Copy to clipboard"
-                        >
-                          <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                          </svg>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Buttons */}
-              <div className="flex gap-3">
-                <button
-                  onClick={enableGoogle2fa}
-                  disabled={enablingGoogle2fa || google2faCode.length !== 6}
-                  className="flex-1 py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
-                >
-                  {enablingGoogle2fa ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Confirming...
-                    </>
-                  ) : (
-                    'Confirm'
-                  )}
-                </button>
-                <button
-                  onClick={closeAllModals}
-                  className="flex-1 py-3 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-white font-medium rounded-lg transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
+      <Modal show={showGoogle2faSetupModal} onClose={() => setShowGoogle2faSetupModal(false)} title="Set Up Google 2FA">
+        <div className="space-y-6">
+          <div className="text-center">
+            <p className="text-gray-600 dark:text-gray-400 mb-4">Scan this QR code with Google Authenticator</p>
+            {google2faQrCode && (
+              <img src={google2faQrCode} alt="2FA QR Code" className="w-48 h-48 mx-auto rounded-xl border border-gray-200 dark:border-gray-700" />
+            )}
           </div>
-        </div>
-      )}
-
-      {/* Disable 2FA Confirmation Modal */}
-      {showDisable2faConfirmModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md shadow-xl">
-            <div className="p-6">
-              {/* Close Button */}
-              <div className="flex justify-end mb-4">
-                <button onClick={closeAllModals} className="text-gray-400 hover:text-gray-600">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Warning Icon */}
-              <div className="flex justify-center mb-4">
-                <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
-                  <svg className="w-8 h-8 text-blue-500" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
-                  </svg>
-                </div>
-              </div>
-
-              {/* Title */}
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white text-center mb-4">
-                Confirm Removing Google 2FA Authentication?
-              </h2>
-
-              {/* Note */}
-              <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 mb-6">
-                <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Note:</p>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  For account security, please be aware that after unlinking Google two-factor authentication, 
-                  on-chain withdrawals, internal transfers, fiat withdrawals, Card transactions, P2P Trading, 
-                  and advertising will be suspended for 24 hours.
-                </p>
-              </div>
-
-              {/* Buttons */}
-              <div className="flex gap-3">
-                <button
-                  onClick={handleDisable2faRemove}
-                  className="flex-1 py-3 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-lg transition-colors"
-                >
-                  Remove
-                </button>
-                <button
-                  onClick={closeAllModals}
-                  className="flex-1 py-3 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-white font-medium rounded-lg transition-colors border border-gray-200 dark:border-gray-600"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Disable 2FA Verification Modal */}
-      {showDisable2faVerifyModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md shadow-xl">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Security Verification</h2>
-                <button onClick={closeAllModals} className="text-gray-400 hover:text-gray-600">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Login Password */}
-              <div className="mb-4">
-                <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 mb-2">
-                  <Lock className="w-4 h-4" />
-                  Login Password
-                </label>
-                <div className="relative">
-                  <input
-                    type={showDisablePassword ? 'text' : 'password'}
-                    value={disable2faPassword}
-                    onChange={e => setDisable2faPassword(e.target.value)}
-                    placeholder="Please enter a password"
-                    className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none pr-12"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowDisablePassword(!showDisablePassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    {showDisablePassword ? (
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                      </svg>
-                    ) : (
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                      </svg>
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              {/* Google 2FA Code */}
-              <div className="mb-6">
-                <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 mb-2">
-                  <Shield className="w-4 h-4" />
-                  Google 2FA Code
-                </label>
-                <input
-                  type="text"
-                  value={disable2faCode}
-                  onChange={e => setDisable2faCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  placeholder="Please enter the Google Authenticator code"
-                  className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
-                />
-              </div>
-
-              {/* Next Step Button */}
+          <div className="p-4 bg-gray-50 dark:bg-[#1e2329] rounded-xl">
+            <p className="text-xs text-gray-500 mb-2">Or enter this key manually:</p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 text-sm font-mono text-gray-900 dark:text-white break-all">{google2faSecret}</code>
               <button
-                onClick={verifyAndDisable2fa}
-                disabled={disabling2fa || !disable2faPassword || disable2faCode.length !== 6}
-                className="w-full py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+                onClick={() => navigator.clipboard.writeText(google2faSecret)}
+                className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg"
               >
-                {disabling2fa ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Verifying...
-                  </>
-                ) : (
-                  'Next Step'
-                )}
+                <Copy className="w-4 h-4 text-gray-500" />
               </button>
-
-              {/* Help Link */}
-              <p className="text-center text-sm text-blue-500 hover:underline cursor-pointer mt-4">
-                Having problems with verification?
-              </p>
             </div>
           </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Enter 6-digit code</label>
+            <input
+              type="text"
+              value={google2faCode}
+              onChange={(e) => setGoogle2faCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="000000"
+              className="w-full px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl text-center text-xl font-mono tracking-widest outline-none focus:border-blue-500"
+            />
+          </div>
+          <button
+            onClick={enableGoogle2fa}
+            disabled={enablingGoogle2fa || google2faCode.length !== 6}
+            className="w-full py-3.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+          >
+            {enablingGoogle2fa ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+            Enable 2FA
+          </button>
         </div>
-      )}
+      </Modal>
+
+      {/* Disable 2FA Confirm Modal */}
+      <Modal show={showDisable2faConfirmModal} onClose={() => setShowDisable2faConfirmModal(false)} title="Disable Google 2FA">
+        <div className="text-center mb-6">
+          <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
+            <AlertTriangle className="w-8 h-8 text-red-500" />
+          </div>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Are you sure?</h3>
+          <p className="text-gray-600 dark:text-gray-400">
+            Disabling 2FA will reduce your account security. You will need your password and current 2FA code to proceed.
+          </p>
+        </div>
+        <div className="flex gap-3">
+          <button
+            onClick={() => setShowDisable2faConfirmModal(false)}
+            className="flex-1 py-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 font-medium rounded-xl transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={confirmDisable2fa}
+            className="flex-1 py-3 bg-red-500 hover:bg-red-600 text-white font-medium rounded-xl transition-colors"
+          >
+            Continue
+          </button>
+        </div>
+      </Modal>
+
+      {/* Disable 2FA Verify Modal */}
+      <Modal show={showDisable2faVerifyModal} onClose={() => setShowDisable2faVerifyModal(false)} title="Verify to Disable 2FA">
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Password</label>
+            <div className="relative">
+              <input
+                type={showDisablePassword ? 'text' : 'password'}
+                value={disable2faPassword}
+                onChange={(e) => setDisable2faPassword(e.target.value)}
+                placeholder="Enter your password"
+                className="w-full px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:border-blue-500 pr-12"
+              />
+              <button
+                type="button"
+                onClick={() => setShowDisablePassword(!showDisablePassword)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400"
+              >
+                {showDisablePassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">2FA Code</label>
+            <input
+              type="text"
+              value={disable2faCode}
+              onChange={(e) => setDisable2faCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="Enter 6-digit code"
+              className="w-full px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl text-center text-xl font-mono tracking-widest outline-none focus:border-blue-500"
+            />
+          </div>
+          <button
+            onClick={disableGoogle2fa}
+            disabled={disabling2fa || !disable2faPassword || disable2faCode.length !== 6}
+            className="w-full py-3.5 bg-red-500 hover:bg-red-600 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+          >
+            {disabling2fa ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+            Disable 2FA
+          </button>
+        </div>
+      </Modal>
 
       {/* Fund Password Modal */}
-      {showFundPasswordModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md shadow-xl">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  {hasFundPassword ? 'Change Fund Password' : 'Link Fund Password'}
-                </h2>
-                <button onClick={closeAllModals} className="text-gray-400 hover:text-gray-600">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Fund Password Input */}
-              <div className="mb-4">
-                <label className="text-sm text-gray-600 dark:text-gray-400 mb-2 block">Fund Password</label>
-                <div className="relative">
-                  <input
-                    type={showFundPasswordInput ? 'text' : 'password'}
-                    value={fundPassword}
-                    onChange={e => setFundPassword(e.target.value)}
-                    placeholder="Enter fund password"
-                    className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none pr-20"
-                  />
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
-                    {fundPassword && (
-                      <button
-                        type="button"
-                        onClick={() => setFundPassword('')}
-                        className="text-gray-400 hover:text-gray-600"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setShowFundPasswordInput(!showFundPasswordInput)}
-                      className="text-gray-400 hover:text-gray-600"
-                    >
-                      {showFundPasswordInput ? (
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                        </svg>
-                      ) : (
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                        </svg>
-                      )}
-                    </button>
-                  </div>
-                </div>
-                {/* Password Requirements */}
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                  Password must contain 8-30 characters, including at least one uppercase letter, one lowercase letter and a number.
-                </p>
-                {/* Validation indicators */}
-                {fundPassword && (
-                  <div className="mt-2 space-y-1">
-                    <p className={`text-xs flex items-center gap-1 ${fundPasswordValidation.hasMinLength ? 'text-green-500' : 'text-red-500'}`}>
-                      {fundPasswordValidation.hasMinLength ? '✓' : '✗'} 8-30 characters
-                    </p>
-                    <p className={`text-xs flex items-center gap-1 ${fundPasswordValidation.hasUppercase ? 'text-green-500' : 'text-red-500'}`}>
-                      {fundPasswordValidation.hasUppercase ? '✓' : '✗'} One uppercase letter
-                    </p>
-                    <p className={`text-xs flex items-center gap-1 ${fundPasswordValidation.hasLowercase ? 'text-green-500' : 'text-red-500'}`}>
-                      {fundPasswordValidation.hasLowercase ? '✓' : '✗'} One lowercase letter
-                    </p>
-                    <p className={`text-xs flex items-center gap-1 ${fundPasswordValidation.hasNumber ? 'text-green-500' : 'text-red-500'}`}>
-                      {fundPasswordValidation.hasNumber ? '✓' : '✗'} One number
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {/* Confirm Fund Password Input */}
-              <div className="mb-6">
-                <label className="text-sm text-gray-600 dark:text-gray-400 mb-2 block">Confirm Fund Password</label>
-                <div className="relative">
-                  <input
-                    type={showConfirmFundPasswordInput ? 'text' : 'password'}
-                    value={confirmFundPassword}
-                    onChange={e => setConfirmFundPassword(e.target.value)}
-                    placeholder="Please Enter"
-                    className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none pr-12"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirmFundPasswordInput(!showConfirmFundPasswordInput)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    {showConfirmFundPasswordInput ? (
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                      </svg>
-                    ) : (
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                      </svg>
-                    )}
-                  </button>
-                </div>
-                {confirmFundPassword && fundPassword !== confirmFundPassword && (
-                  <p className="text-xs text-red-500 mt-1">Passwords do not match</p>
-                )}
-              </div>
-
-              {/* Confirm Button */}
+      <Modal show={showFundPasswordModal} onClose={() => setShowFundPasswordModal(false)} title={hasFundPassword ? 'Change Fund Password' : 'Set Fund Password'}>
+        <div className="text-center mb-6">
+          <div className="w-16 h-16 bg-purple-100 dark:bg-purple-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
+            <KeyRound className="w-8 h-8 text-purple-500" />
+          </div>
+          <p className="text-gray-600 dark:text-gray-400">
+            Fund password is required for withdrawals and P2P trading
+          </p>
+        </div>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Fund Password</label>
+            <div className="relative">
+              <input
+                type={showFundPasswordInput ? 'text' : 'password'}
+                value={fundPassword}
+                onChange={(e) => setFundPassword(e.target.value)}
+                placeholder="Enter fund password"
+                className="w-full px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:border-blue-500 pr-12"
+              />
               <button
-                onClick={handleFundPasswordSubmit}
-                disabled={settingFundPassword || !fundPasswordValidation.isValid || fundPassword !== confirmFundPassword}
-                className="w-full py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+                type="button"
+                onClick={() => setShowFundPasswordInput(!showFundPasswordInput)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400"
               >
-                {settingFundPassword ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Processing...
-                  </>
-                ) : (
-                  'Confirm'
-                )}
+                {showFundPasswordInput ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Fund Password 2FA Verification Modal */}
-      {showFundPassword2faModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md shadow-xl">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Security Verification</h2>
-                <button onClick={closeAllModals} className="text-gray-400 hover:text-gray-600">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Google 2FA Code */}
-              <div className="mb-6">
-                <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 mb-3">
-                  <Shield className="w-4 h-4" />
-                  Google 2FA Code
-                </label>
-                <div className="flex justify-center gap-2">
-                  {fundPassword2faCode.map((digit, index) => (
-                    <input
-                      key={index}
-                      ref={el => { fundPassword2faRefs.current[index] = el; }}
-                      type="text"
-                      inputMode="numeric"
-                      maxLength={1}
-                      value={digit}
-                      onChange={e => handleFundPassword2faInput(index, e.target.value)}
-                      onKeyDown={e => handleFundPassword2faKeyDown(index, e)}
-                      onPaste={handleFundPassword2faPaste}
-                      className="w-12 h-14 text-center text-xl font-semibold border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
-                    />
-                  ))}
-                </div>
-              </div>
-
-              {/* Help Link */}
-              <p className="text-center text-sm text-blue-500 hover:underline cursor-pointer mb-6">
-                Having problems with verification?
-              </p>
-
-              {/* Confirm Button */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Confirm Password</label>
+            <div className="relative">
+              <input
+                type={showConfirmFundPasswordInput ? 'text' : 'password'}
+                value={confirmFundPassword}
+                onChange={(e) => setConfirmFundPassword(e.target.value)}
+                placeholder="Confirm fund password"
+                className="w-full px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:border-blue-500 pr-12"
+              />
               <button
-                onClick={verifyAndSaveFundPassword}
-                disabled={verifyingFundPassword2fa || fundPassword2faCode.join('').length !== 6}
-                className="w-full py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+                type="button"
+                onClick={() => setShowConfirmFundPasswordInput(!showConfirmFundPasswordInput)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400"
               >
-                {verifyingFundPassword2fa ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Verifying...
-                  </>
-                ) : (
-                  'Confirm'
-                )}
+                {showConfirmFundPasswordInput ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
             </div>
           </div>
+          <button
+            onClick={submitFundPassword}
+            disabled={settingFundPassword || !fundPassword || fundPassword !== confirmFundPassword}
+            className="w-full py-3.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+          >
+            {settingFundPassword ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+            {user2faEnabled ? 'Continue' : 'Save'}
+          </button>
         </div>
-      )}
+      </Modal>
+
+      {/* Fund Password 2FA Modal */}
+      <Modal show={showFundPassword2faModal} onClose={() => setShowFundPassword2faModal(false)} title="Verify 2FA">
+        <div className="text-center mb-6">
+          <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
+            <Shield className="w-8 h-8 text-green-500" />
+          </div>
+          <p className="text-gray-600 dark:text-gray-400">Enter your Google 2FA code to confirm</p>
+        </div>
+        <OtpInput otp={fundPassword2faCode} setOtp={setFundPassword2faCode} refs={fundPassword2faRefs} />
+        <button
+          onClick={verifyFundPassword2fa}
+          disabled={verifyingFundPassword2fa || fundPassword2faCode.join('').length !== 6}
+          className="w-full mt-6 py-3.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+        >
+          {verifyingFundPassword2fa ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+          Confirm
+        </button>
+      </Modal>
+
+      {/* Anti-Phishing Modal */}
+      <Modal show={showAntiPhishingModal} onClose={() => setShowAntiPhishingModal(false)} title={isChangingAntiPhishing ? 'Change Anti-Phishing Code' : 'Set Anti-Phishing Code'}>
+        <div className="text-center mb-6">
+          <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
+            <BadgeCheck className="w-8 h-8 text-blue-500" />
+          </div>
+          <p className="text-gray-600 dark:text-gray-400">
+            This code will appear in all official emails from Methereum
+          </p>
+        </div>
+        <div className="space-y-4">
+          {isChangingAntiPhishing && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Current Code</label>
+              <input
+                type="text"
+                value={oldAntiPhishingCodeInput}
+                onChange={(e) => setOldAntiPhishingCodeInput(e.target.value)}
+                placeholder="Enter current anti-phishing code"
+                className="w-full px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:border-blue-500"
+              />
+            </div>
+          )}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">New Code (4-20 characters)</label>
+            <input
+              type="text"
+              value={antiPhishingCodeInput}
+              onChange={(e) => setAntiPhishingCodeInput(e.target.value.slice(0, 20))}
+              placeholder="Enter new anti-phishing code"
+              className="w-full px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:border-blue-500"
+            />
+          </div>
+          <button
+            onClick={saveAntiPhishing}
+            disabled={savingAntiPhishing || antiPhishingCodeInput.length < 4}
+            className="w-full py-3.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+          >
+            {savingAntiPhishing ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+            Save
+          </button>
+        </div>
+      </Modal>
+
+      {/* Whitelist Verify Modal */}
+      <Modal show={showWhitelistVerifyModal} onClose={() => setShowWhitelistVerifyModal(false)} title="Enable Withdrawal Whitelist">
+        <div className="text-center mb-6">
+          <div className="w-16 h-16 bg-orange-100 dark:bg-orange-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
+            <ShieldCheck className="w-8 h-8 text-orange-500" />
+          </div>
+          <p className="text-gray-600 dark:text-gray-400">Verify your identity to enable whitelist</p>
+        </div>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Email OTP</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={whitelistEmailOtp}
+                onChange={(e) => setWhitelistEmailOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="Enter 6-digit code"
+                className="flex-1 px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:border-blue-500"
+              />
+              <button
+                onClick={sendWhitelistOtp}
+                disabled={sendingWhitelistOtp || whitelistEmailOtpTimer > 0}
+                className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-xl transition-colors whitespace-nowrap"
+              >
+                {whitelistEmailOtpTimer > 0 ? `${whitelistEmailOtpTimer}s` : 'Send'}
+              </button>
+            </div>
+          </div>
+          {user2faEnabled && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Google 2FA Code</label>
+              <input
+                type="text"
+                value={whitelistGoogle2faCode}
+                onChange={(e) => setWhitelistGoogle2faCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="Enter 6-digit code"
+                className="w-full px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:border-blue-500"
+              />
+            </div>
+          )}
+          <button
+            onClick={verifyWhitelistAndEnable}
+            disabled={verifyingWhitelist || whitelistEmailOtp.length !== 6 || (user2faEnabled && whitelistGoogle2faCode.length !== 6)}
+            className="w-full py-3.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+          >
+            {verifyingWhitelist ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+            Enable Whitelist
+          </button>
+        </div>
+      </Modal>
+
+      {/* Address Book Enable Modal */}
+      <Modal show={showAddressBookModal} onClose={() => setShowAddressBookModal(false)} title="Enable Address Book Restriction">
+        <div className="text-center mb-6">
+          <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
+            <BookOpen className="w-8 h-8 text-blue-500" />
+          </div>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Restrict Withdrawals</h3>
+          <p className="text-gray-600 dark:text-gray-400">
+            Once enabled, you can only withdraw to addresses saved in your Address Book.
+          </p>
+        </div>
+        <div className="flex gap-3">
+          <button
+            onClick={() => setShowAddressBookModal(false)}
+            className="flex-1 py-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 font-medium rounded-xl transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={enableAddressBook}
+            disabled={enablingAddressBook}
+            className="flex-1 py-3 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-xl transition-colors flex items-center justify-center gap-2"
+          >
+            {enablingAddressBook ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+            Enable
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }

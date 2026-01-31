@@ -1,0 +1,1292 @@
+'use client';
+
+import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuthStore } from '@/store/auth';
+import Image from 'next/image';
+import { 
+  ChevronRight, 
+  Plus, 
+  Search, 
+  Loader2,
+  X,
+  ChevronUp,
+  ChevronDown,
+  Mail,
+  Shield
+} from 'lucide-react';
+
+interface WithdrawalAddress {
+  id: string;
+  asset: string;
+  network: string;
+  note: string;
+  address: string;
+  memo?: string;
+  last_updated: string;
+  is_whitelisted: boolean;
+}
+
+interface Asset {
+  id: string;
+  symbol: string;
+  name: string;
+}
+
+export default function AddressBookPage() {
+  const router = useRouter();
+  const { user, accessToken } = useAuthStore();
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
+  // Refs for dropdown
+  const typeDropdownRef = useRef<HTMLDivElement>(null);
+  const assetDropdownRef = useRef<HTMLDivElement>(null);
+
+  // States
+  const [addresses, setAddresses] = useState<WithdrawalAddress[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [typeFilter, setTypeFilter] = useState('All');
+  const [assetFilter, setAssetFilter] = useState('All');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+  
+  // Dropdown states
+  const [showTypeDropdown, setShowTypeDropdown] = useState(false);
+  const [showAssetDropdown, setShowAssetDropdown] = useState(false);
+  const [assetSearchQuery, setAssetSearchQuery] = useState('');
+  
+  // Settings states
+  const [withdrawViaAddressBook, setWithdrawViaAddressBook] = useState(false);
+  const [newAddressLock, setNewAddressLock] = useState(false);
+  const [withdrawalWhitelist, setWithdrawalWhitelist] = useState(false);
+  const [loadingSettings, setLoadingSettings] = useState(true);
+  const [togglingWhitelist, setTogglingWhitelist] = useState(false);
+
+  // 2FA status
+  const [user2faEnabled, setUser2faEnabled] = useState(false);
+
+  // Whitelist verification modal states
+  const [showWhitelistVerifyModal, setShowWhitelistVerifyModal] = useState(false);
+  const [whitelistEmailOtp, setWhitelistEmailOtp] = useState('');
+  const [whitelistEmailOtpTimer, setWhitelistEmailOtpTimer] = useState(0);
+  const [sendingWhitelistOtp, setSendingWhitelistOtp] = useState(false);
+  const [whitelistGoogle2faCode, setWhitelistGoogle2faCode] = useState('');
+  const [verifyingWhitelist, setVerifyingWhitelist] = useState(false);
+
+  // Assets from database
+  const [dbAssets, setDbAssets] = useState<Asset[]>([]);
+  const [loadingAssets, setLoadingAssets] = useState(true);
+
+  // Add address modal states
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addingAddress, setAddingAddress] = useState(false);
+  const [addModalTab, setAddModalTab] = useState<'onchain' | 'internal'>('onchain');
+  const [walletAddressType, setWalletAddressType] = useState('regular');
+  const [saveAsUniversal, setSaveAsUniversal] = useState(false);
+  const [noVerificationNeeded, setNoVerificationNeeded] = useState(false);
+  const [recipientType, setRecipientType] = useState<'email' | 'mobile' | 'uid'>('email');
+  const [selectedCountryCode, setSelectedCountryCode] = useState('+91');
+  const [showCountryDropdown, setShowCountryDropdown] = useState(false);
+  const [newAddress, setNewAddress] = useState({
+    asset: '',
+    network: '',
+    address: '',
+    note: '',
+    memo: '',
+    type: 'onchain',
+    recipientAccount: '',
+    walletType: 'regular'
+  });
+
+  // Country codes
+  const countryCodes = [
+    { code: '+91', name: 'India', flag: '🇮🇳' },
+    { code: '+1', name: 'United States', flag: '🇺🇸' },
+    { code: '+44', name: 'United Kingdom', flag: '🇬🇧' },
+    { code: '+86', name: 'China', flag: '🇨🇳' },
+    { code: '+81', name: 'Japan', flag: '🇯🇵' },
+    { code: '+82', name: 'South Korea', flag: '🇰🇷' },
+    { code: '+65', name: 'Singapore', flag: '🇸🇬' },
+    { code: '+971', name: 'UAE', flag: '🇦🇪' },
+    { code: '+61', name: 'Australia', flag: '🇦🇺' },
+    { code: '+49', name: 'Germany', flag: '🇩🇪' },
+    { code: '+33', name: 'France', flag: '🇫🇷' },
+    { code: '+7', name: 'Russia', flag: '🇷🇺' },
+    { code: '+55', name: 'Brazil', flag: '🇧🇷' },
+    { code: '+52', name: 'Mexico', flag: '🇲🇽' },
+    { code: '+234', name: 'Nigeria', flag: '🇳🇬' },
+  ];
+
+  // Type options
+  const typeOptions = [
+    { value: 'All', label: 'All' },
+    { value: 'regular', label: 'Regular Wallet Address' },
+    { value: 'universal', label: 'Universal Wallet Address' },
+    { value: 'internal', label: 'Internal Transfer' },
+    { value: 'web3', label: 'web3' },
+  ];
+
+  // Networks (would come from API based on selected asset)
+  const networks = ['Bitcoin', 'Ethereum (ERC20)', 'BSC (BEP20)', 'Polygon', 'Tron (TRC20)', 'Solana'];
+
+  // Timer effect for whitelist OTP
+  useEffect(() => {
+    if (whitelistEmailOtpTimer > 0) {
+      const timer = setTimeout(() => setWhitelistEmailOtpTimer(whitelistEmailOtpTimer - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [whitelistEmailOtpTimer]);
+
+  // Click outside handler
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (typeDropdownRef.current && !typeDropdownRef.current.contains(event.target as Node)) {
+        setShowTypeDropdown(false);
+      }
+      if (assetDropdownRef.current && !assetDropdownRef.current.contains(event.target as Node)) {
+        setShowAssetDropdown(false);
+        setAssetSearchQuery('');
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    fetchAddresses();
+    fetchSettings();
+    fetchAssets();
+    fetch2faStatus();
+  }, [accessToken]);
+
+  const fetch2faStatus = async () => {
+    if (!accessToken) return;
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/auth/2fa/status`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      const result = await response.json();
+      if (result.success) {
+        setUser2faEnabled(result.data.enabled || false);
+      }
+    } catch (error) {
+      console.error('Failed to fetch 2FA status:', error);
+    }
+  };
+
+  const fetchAssets = async () => {
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/wallet/tokens`, {
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {}
+      });
+      const result = await response.json();
+      
+      if (result.success && result.data) {
+        setDbAssets(result.data.map((t: any) => ({
+          id: t.id,
+          symbol: t.symbol,
+          name: t.name
+        })));
+      }
+    } catch (error) {
+      console.error('Failed to fetch assets:', error);
+      // Fallback assets
+      setDbAssets([
+        { id: '1', symbol: 'BTC', name: 'Bitcoin' },
+        { id: '2', symbol: 'USDT', name: 'Tether' },
+        { id: '3', symbol: 'ETH', name: 'Ethereum' },
+        { id: '4', symbol: 'XRP', name: 'Ripple' },
+        { id: '5', symbol: 'LTC', name: 'Litecoin' },
+        { id: '6', symbol: 'XLM', name: 'Stellar' },
+        { id: '7', symbol: 'DOGE', name: 'Dogecoin' },
+        { id: '8', symbol: 'UNI', name: 'Uniswap' },
+        { id: '9', symbol: 'SUSHI', name: 'SushiSwap' },
+        { id: '10', symbol: 'BNB', name: 'Binance Coin' },
+        { id: '11', symbol: 'SOL', name: 'Solana' },
+        { id: '12', symbol: 'MATIC', name: 'Polygon' },
+      ]);
+    } finally {
+      setLoadingAssets(false);
+    }
+  };
+
+  const fetchAddresses = async () => {
+    if (!accessToken) return;
+    
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/auth/withdrawal-addresses`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      const result = await response.json();
+      
+      if (result.success) {
+        setAddresses(result.data.addresses || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch addresses:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchSettings = async () => {
+    if (!accessToken) return;
+    
+    try {
+      const [addressBookRes, whitelistRes, lockRes] = await Promise.all([
+        fetch(`${apiUrl}/api/v1/auth/address-book/status`, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        }),
+        fetch(`${apiUrl}/api/v1/auth/withdrawal-whitelist/status`, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        }),
+        fetch(`${apiUrl}/api/v1/auth/new-address-lock/status`, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        })
+      ]);
+
+      const [addressBookResult, whitelistResult, lockResult] = await Promise.all([
+        addressBookRes.json(),
+        whitelistRes.json(),
+        lockRes.json()
+      ]);
+
+      if (addressBookResult.success) setWithdrawViaAddressBook(addressBookResult.data.enabled || false);
+      if (whitelistResult.success) setWithdrawalWhitelist(whitelistResult.data.enabled || false);
+      if (lockResult.success) setNewAddressLock(lockResult.data.enabled || false);
+    } catch (error) {
+      console.error('Failed to fetch settings:', error);
+    } finally {
+      setLoadingSettings(false);
+    }
+  };
+
+  // Mask email for display
+  const maskEmail = (email: string) => {
+    if (!email) return '';
+    const [localPart, domain] = email.split('@');
+    if (!localPart || !domain) return email;
+    const maskedLocal = localPart.slice(0, 3) + '****';
+    return `${maskedLocal}@${domain}`;
+  };
+
+  // Handle whitelist toggle click - show verification modal
+  const handleWhitelistToggle = () => {
+    setShowWhitelistVerifyModal(true);
+  };
+
+  // Send whitelist email OTP
+  const sendWhitelistEmailOtp = async () => {
+    setSendingWhitelistOtp(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/auth/send-security-otp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ type: 'email', purpose: 'whitelist_toggle' }),
+      });
+      const result = await response.json();
+
+      if (result.success) {
+        setWhitelistEmailOtpTimer(120);
+        alert('Verification code sent to your email');
+      } else {
+        alert(result.error?.message || 'Failed to send verification code');
+      }
+    } catch (error) {
+      console.error('Failed to send OTP:', error);
+      alert('Failed to send verification code');
+    } finally {
+      setSendingWhitelistOtp(false);
+    }
+  };
+
+  // Verify and update whitelist setting
+  const verifyAndUpdateWhitelist = async () => {
+    if (!whitelistEmailOtp) {
+      alert('Please enter the email verification code');
+      return;
+    }
+
+    if (user2faEnabled && !whitelistGoogle2faCode) {
+      alert('Please enter the Google 2FA code');
+      return;
+    }
+
+    setVerifyingWhitelist(true);
+    try {
+      // Verify email OTP
+      const verifyOtpRes = await fetch(`${apiUrl}/api/v1/auth/verify-security-otp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ type: 'email', otp: whitelistEmailOtp, purpose: 'whitelist_toggle' }),
+      });
+      const otpResult = await verifyOtpRes.json();
+
+      if (!otpResult.success) {
+        alert(otpResult.error?.message || 'Invalid email verification code');
+        setVerifyingWhitelist(false);
+        return;
+      }
+
+      // If 2FA enabled, verify 2FA code
+      if (user2faEnabled) {
+        const verify2faRes = await fetch(`${apiUrl}/api/v1/auth/2fa/verify`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ code: whitelistGoogle2faCode }),
+        });
+        const faResult = await verify2faRes.json();
+
+        if (!faResult.success) {
+          alert(faResult.error?.message || 'Invalid 2FA code');
+          setVerifyingWhitelist(false);
+          return;
+        }
+      }
+
+      // Toggle whitelist setting
+      const newValue = !withdrawalWhitelist;
+      const response = await fetch(`${apiUrl}/api/v1/auth/withdrawal-whitelist/toggle`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ enabled: newValue }),
+      });
+      const result = await response.json();
+
+      if (result.success) {
+        setWithdrawalWhitelist(newValue);
+        setShowWhitelistVerifyModal(false);
+        setWhitelistEmailOtp('');
+        setWhitelistGoogle2faCode('');
+        setWhitelistEmailOtpTimer(0);
+        alert(`Withdrawal Address Whitelist ${newValue ? 'enabled' : 'disabled'} successfully!`);
+      } else {
+        alert(result.error?.message || 'Failed to update setting');
+      }
+    } catch (error) {
+      console.error('Failed to update whitelist:', error);
+      alert('Failed to update setting');
+    } finally {
+      setVerifyingWhitelist(false);
+    }
+  };
+
+  const handleSearch = async () => {
+    setSearching(true);
+    setTimeout(() => {
+      setSearching(false);
+    }, 300);
+  };
+
+  const handleAddAddress = async () => {
+    if (addModalTab === 'onchain') {
+      if (!newAddress.asset || !newAddress.network || !newAddress.address) {
+        alert('Please fill in all required fields');
+        return;
+      }
+    } else {
+      if (!newAddress.recipientAccount) {
+        alert('Please enter recipient account');
+        return;
+      }
+    }
+
+    setAddingAddress(true);
+    try {
+      // For mobile, prepend country code to recipient account
+      let finalRecipientAccount = newAddress.recipientAccount;
+      if (addModalTab === 'internal' && recipientType === 'mobile' && newAddress.recipientAccount) {
+        finalRecipientAccount = `${selectedCountryCode}${newAddress.recipientAccount}`;
+      }
+
+      const payload = {
+        ...newAddress,
+        recipientAccount: finalRecipientAccount,
+        type: addModalTab,
+        walletType: walletAddressType,
+        saveAsUniversal,
+        noVerificationNeeded,
+        recipientType: addModalTab === 'internal' ? recipientType : undefined,
+        countryCode: addModalTab === 'internal' && recipientType === 'mobile' ? selectedCountryCode : undefined
+      };
+
+      const response = await fetch(`${apiUrl}/api/v1/auth/withdrawal-addresses`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`
+        },
+        body: JSON.stringify(payload)
+      });
+      const result = await response.json();
+
+      if (result.success) {
+        setShowAddModal(false);
+        resetAddForm();
+        fetchAddresses();
+      } else {
+        alert(result.error?.message || 'Failed to add address');
+      }
+    } catch (error) {
+      console.error('Failed to add address:', error);
+      alert('Failed to add address');
+    } finally {
+      setAddingAddress(false);
+    }
+  };
+
+  const resetAddForm = () => {
+    setNewAddress({
+      asset: '',
+      network: '',
+      address: '',
+      note: '',
+      memo: '',
+      type: 'onchain',
+      recipientAccount: '',
+      walletType: 'regular'
+    });
+    setAddModalTab('onchain');
+    setWalletAddressType('regular');
+    setSaveAsUniversal(false);
+    setNoVerificationNeeded(false);
+    setRecipientType('email');
+    setSelectedCountryCode('+91');
+    setShowCountryDropdown(false);
+  };
+
+  const handleDeleteAddress = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this address?')) return;
+
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/auth/withdrawal-addresses/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      const result = await response.json();
+
+      if (result.success) {
+        fetchAddresses();
+      } else {
+        alert(result.error?.message || 'Failed to delete address');
+      }
+    } catch (error) {
+      console.error('Failed to delete address:', error);
+    }
+  };
+
+  // Get asset icon by symbol - uses the currency-logo folder
+  const getAssetIcon = (symbol: string) => {
+    // Logos are stored in /assets/upload/currency-logo/{symbol}.svg
+    return `/assets/upload/currency-logo/${symbol.toLowerCase()}.svg`;
+  };
+
+  // Filter addresses based on search and filters
+  const filteredAddresses = addresses.filter(addr => {
+    if (typeFilter !== 'All') {
+      // Type filtering logic would go here
+    }
+    if (assetFilter !== 'All' && addr.asset !== assetFilter) return false;
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      const matchesAddress = addr.address.toLowerCase().includes(query);
+      const matchesNote = addr.note?.toLowerCase().includes(query);
+      const matchesAsset = addr.asset.toLowerCase().includes(query);
+      const matchesNetwork = addr.network.toLowerCase().includes(query);
+      if (!matchesAddress && !matchesNote && !matchesAsset && !matchesNetwork) return false;
+    }
+    return true;
+  });
+
+  // Filter assets for dropdown search
+  const filteredAssets = dbAssets.filter(asset => 
+    asset.symbol.toLowerCase().includes(assetSearchQuery.toLowerCase()) ||
+    asset.name.toLowerCase().includes(assetSearchQuery.toLowerCase())
+  );
+
+  const formatDate = (dateString: string) => {
+    if (!dateString) return '-';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', { 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  return (
+    <div className="p-4 lg:p-6 bg-white dark:bg-[#0b0e11] min-h-full">
+      <div className="max-w-7xl mx-auto">
+        {/* Title and Buttons Row */}
+        <div className="flex items-start justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">
+              Withdrawal Address
+            </h1>
+
+            {/* Settings Row */}
+            <div className="space-y-3">
+              {/* Withdraw via Address Book */}
+              <div className="flex items-center gap-3">
+                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                  withdrawViaAddressBook 
+                    ? 'border-blue-500 bg-blue-500' 
+                    : 'border-gray-300 dark:border-gray-500'
+                }`}>
+                  {withdrawViaAddressBook && (
+                    <div className="w-2 h-2 rounded-full bg-white" />
+                  )}
+                </div>
+                <span className="text-gray-700 dark:text-gray-300">Withdraw via Address Book</span>
+              </div>
+
+              {/* 24 Hour Lock */}
+              <div className="flex items-center gap-3">
+                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                  newAddressLock 
+                    ? 'border-blue-500 bg-blue-500' 
+                    : 'border-gray-300 dark:border-gray-500'
+                }`}>
+                  {newAddressLock && (
+                    <div className="w-2 h-2 rounded-full bg-white" />
+                  )}
+                </div>
+                <span className="text-gray-700 dark:text-gray-300">
+                  Withdrawals are unavailable for newly saved addresses for 24 hours
+                </span>
+                <button 
+                  onClick={() => router.push('/dashboard/security')}
+                  className="text-blue-500 hover:text-blue-600 flex items-center gap-0.5 font-medium ml-2"
+                >
+                  Set Up
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-2 px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors font-medium"
+            >
+              <Plus className="w-5 h-5" />
+              Add
+            </button>
+            <button 
+              onClick={() => router.push('/dashboard/address-book/add-batches')}
+              className="px-6 py-3 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors font-medium"
+            >
+              Add in Batches
+            </button>
+          </div>
+        </div>
+
+        {/* Filters Row */}
+        <div className="flex items-end gap-4 mb-4 flex-wrap">
+          {/* Type Dropdown */}
+          <div className="relative" ref={typeDropdownRef}>
+            <label className="block text-gray-500 dark:text-gray-400 mb-2">Type:</label>
+            <button
+              onClick={() => {
+                setShowTypeDropdown(!showTypeDropdown);
+                setShowAssetDropdown(false);
+              }}
+              className="flex items-center justify-between gap-4 px-4 py-3 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white min-w-[180px] hover:border-gray-300 dark:hover:border-gray-600"
+            >
+              <span>{typeOptions.find(t => t.value === typeFilter)?.label || 'All'}</span>
+              {showTypeDropdown ? (
+                <ChevronUp className="w-4 h-4 text-gray-400" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-gray-400" />
+              )}
+            </button>
+            
+            {showTypeDropdown && (
+              <div className="absolute top-full left-0 mt-1 w-full bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-20 overflow-hidden">
+                {typeOptions.map(option => (
+                  <button
+                    key={option.value}
+                    onClick={() => {
+                      setTypeFilter(option.value);
+                      setShowTypeDropdown(false);
+                    }}
+                    className={`w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm transition-colors ${
+                      typeFilter === option.value 
+                        ? 'text-blue-500 bg-blue-50 dark:bg-blue-900/20' 
+                        : 'text-gray-900 dark:text-white'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Assets Dropdown */}
+          <div className="relative" ref={assetDropdownRef}>
+            <label className="block text-gray-500 dark:text-gray-400 mb-2">Assets:</label>
+            <button
+              onClick={() => {
+                setShowAssetDropdown(!showAssetDropdown);
+                setShowTypeDropdown(false);
+              }}
+              className="flex items-center justify-between gap-4 px-4 py-3 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white min-w-[140px] hover:border-gray-300 dark:hover:border-gray-600"
+            >
+              <div className="flex items-center gap-2">
+                {assetFilter !== 'All' && (
+                  <div className="w-5 h-5 relative flex-shrink-0 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                    <Image
+                      src={getAssetIcon(assetFilter)}
+                      alt={assetFilter}
+                      fill
+                      className="object-contain"
+                      unoptimized
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  </div>
+                )}
+                <span>{assetFilter}</span>
+              </div>
+              {showAssetDropdown ? (
+                <ChevronUp className="w-4 h-4 text-gray-400" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-gray-400" />
+              )}
+            </button>
+            
+            {showAssetDropdown && (
+              <div className="absolute top-full left-0 mt-1 w-[220px] bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-20 overflow-hidden">
+                {/* Search Input */}
+                <div className="p-2 border-b border-gray-100 dark:border-gray-700">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      value={assetSearchQuery}
+                      onChange={e => setAssetSearchQuery(e.target.value)}
+                      placeholder="Search..."
+                      autoFocus
+                      className="w-full pl-9 pr-3 py-2 bg-gray-50 dark:bg-[#181a20] border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 text-sm outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+                
+                {/* Options List */}
+                <div className="max-h-[300px] overflow-y-auto">
+                  {/* All Option */}
+                  <button
+                    onClick={() => {
+                      setAssetFilter('All');
+                      setShowAssetDropdown(false);
+                      setAssetSearchQuery('');
+                    }}
+                    className={`w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm transition-colors flex items-center gap-2 ${
+                      assetFilter === 'All' 
+                        ? 'text-blue-500 bg-blue-50 dark:bg-blue-900/20' 
+                        : 'text-gray-900 dark:text-white'
+                    }`}
+                  >
+                    All
+                  </button>
+                  
+                  {/* Asset Options */}
+                  {loadingAssets ? (
+                    <div className="px-4 py-3 text-center">
+                      <Loader2 className="w-5 h-5 animate-spin mx-auto text-gray-400" />
+                    </div>
+                  ) : filteredAssets.length === 0 ? (
+                    <div className="px-4 py-3 text-center text-gray-400 text-sm">
+                      No assets found
+                    </div>
+                  ) : (
+                    filteredAssets.map(asset => (
+                      <button
+                        key={asset.id}
+                        onClick={() => {
+                          setAssetFilter(asset.symbol);
+                          setShowAssetDropdown(false);
+                          setAssetSearchQuery('');
+                        }}
+                        className={`w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm transition-colors flex items-center gap-3 ${
+                          assetFilter === asset.symbol 
+                            ? 'text-blue-500 bg-blue-50 dark:bg-blue-900/20' 
+                            : 'text-gray-900 dark:text-white'
+                        }`}
+                      >
+                        <div className="w-6 h-6 relative flex-shrink-0 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                          <Image
+                            src={getAssetIcon(asset.symbol)}
+                            alt={asset.symbol}
+                            fill
+                            className="object-contain"
+                            unoptimized
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                        </div>
+                        <span>{asset.symbol}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Search Input */}
+          <div>
+            <label className="block text-gray-500 dark:text-gray-400 mb-2">Search Address:</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleSearch()}
+                placeholder="Enter the address or add a note..."
+                className="px-4 py-3 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 w-[300px] outline-none focus:border-blue-500 hover:border-gray-300 dark:hover:border-gray-600"
+              />
+              <button 
+                onClick={handleSearch}
+                disabled={searching}
+                className="px-6 py-3 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors font-medium"
+              >
+                {searching ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Search'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Whitelist Toggle */}
+        <div className="flex items-center gap-3 mb-6">
+          <button
+            onClick={handleWhitelistToggle}
+            disabled={togglingWhitelist}
+            className={`relative w-12 h-7 rounded-full transition-colors ${
+              withdrawalWhitelist ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 w-6 h-6 bg-white rounded-full transition-all shadow ${
+                withdrawalWhitelist ? 'right-0.5' : 'left-0.5'
+              }`}
+            />
+          </button>
+          <span className="text-gray-700 dark:text-gray-300">Withdrawal Address Whitelist</span>
+        </div>
+
+        {/* Table */}
+        <div className="border border-gray-100 dark:border-gray-800 rounded-lg overflow-hidden">
+          <table className="w-full">
+            <thead>
+              <tr className="bg-gray-50 dark:bg-[#1e2329] border-b border-gray-100 dark:border-gray-800">
+                <th className="text-left py-4 px-6 text-sm font-normal text-gray-500 dark:text-gray-400">Assets</th>
+                <th className="text-left py-4 px-6 text-sm font-normal text-gray-500 dark:text-gray-400">Network</th>
+                <th className="text-left py-4 px-6 text-sm font-normal text-gray-500 dark:text-gray-400">Note</th>
+                <th className="text-left py-4 px-6 text-sm font-normal text-gray-500 dark:text-gray-400">Withdrawal Address</th>
+                <th className="text-left py-4 px-6 text-sm font-normal text-gray-500 dark:text-gray-400">Memo/Tag</th>
+                <th className="text-left py-4 px-6 text-sm font-normal text-gray-500 dark:text-gray-400">Last Updated</th>
+                <th className="text-left py-4 px-6 text-sm font-normal text-gray-500 dark:text-gray-400">Change</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="text-center py-20">
+                    <Loader2 className="w-8 h-8 animate-spin mx-auto text-gray-400" />
+                  </td>
+                </tr>
+              ) : filteredAddresses.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="text-center py-20 bg-white dark:bg-[#181a20]">
+                    <div className="flex flex-col items-center gap-4">
+                      {/* Empty State Illustration */}
+                      <div className="w-24 h-24 relative">
+                        <svg viewBox="0 0 100 100" className="w-full h-full">
+                          <rect x="20" y="10" width="55" height="70" rx="3" fill="#f3f4f6" className="dark:fill-[#2a2d35]" />
+                          <rect x="25" y="15" width="45" height="60" rx="2" fill="#fff" className="dark:fill-[#1e2329]" stroke="#e5e7eb" strokeWidth="1" />
+                          <rect x="32" y="28" width="30" height="2" rx="1" fill="#e5e7eb" className="dark:fill-gray-600" />
+                          <rect x="32" y="36" width="25" height="2" rx="1" fill="#e5e7eb" className="dark:fill-gray-600" />
+                          <rect x="32" y="44" width="32" height="2" rx="1" fill="#e5e7eb" className="dark:fill-gray-600" />
+                          <rect x="32" y="52" width="20" height="2" rx="1" fill="#e5e7eb" className="dark:fill-gray-600" />
+                          <g transform="translate(55, 50) rotate(30)">
+                            <rect x="0" y="0" width="8" height="35" rx="1" fill="#fbbf24" />
+                            <rect x="0" y="0" width="8" height="6" fill="#f59e0b" />
+                            <polygon points="0,35 4,45 8,35" fill="#fde68a" />
+                            <polygon points="2,40 4,45 6,40" fill="#374151" />
+                          </g>
+                        </svg>
+                      </div>
+                      <p className="text-gray-400 dark:text-gray-500">No Records</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                filteredAddresses.map(addr => (
+                  <tr key={addr.id} className="border-b border-gray-50 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-[#1e2329]/50 bg-white dark:bg-[#181a20]">
+                    <td className="py-4 px-6">
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 relative flex-shrink-0 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                          <Image
+                            src={getAssetIcon(addr.asset)}
+                            alt={addr.asset}
+                            fill
+                            className="object-contain"
+                            unoptimized
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                        </div>
+                        <span className="text-gray-900 dark:text-white font-medium">{addr.asset}</span>
+                      </div>
+                    </td>
+                    <td className="py-4 px-6 text-gray-900 dark:text-white">{addr.network}</td>
+                    <td className="py-4 px-6 text-gray-600 dark:text-gray-400">{addr.note || '-'}</td>
+                    <td className="py-4 px-6 text-gray-900 dark:text-white font-mono text-sm">
+                      {addr.address.length > 20 
+                        ? `${addr.address.slice(0, 10)}...${addr.address.slice(-10)}`
+                        : addr.address
+                      }
+                    </td>
+                    <td className="py-4 px-6 text-gray-600 dark:text-gray-400">{addr.memo || '-'}</td>
+                    <td className="py-4 px-6 text-gray-600 dark:text-gray-400 text-sm">{formatDate(addr.last_updated)}</td>
+                    <td className="py-4 px-6">
+                      <div className="flex items-center gap-3">
+                        <button className="text-blue-500 hover:text-blue-600 text-sm font-medium">Edit</button>
+                        <button 
+                          onClick={() => handleDeleteAddress(addr.id)}
+                          className="text-red-500 hover:text-red-600 text-sm font-medium"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Whitelist Verification Modal */}
+      {showWhitelistVerifyModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-[#1e2329] rounded-2xl w-full max-w-md shadow-xl">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Security Verification</h2>
+                <button 
+                  onClick={() => {
+                    setShowWhitelistVerifyModal(false);
+                    setWhitelistEmailOtp('');
+                    setWhitelistGoogle2faCode('');
+                    setWhitelistEmailOtpTimer(0);
+                  }} 
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Email OTP Section */}
+              <div className="mb-4">
+                <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 mb-2">
+                  <Mail className="w-4 h-4" />
+                  <span>A verification code will be sent to <strong className="text-gray-900 dark:text-white">{maskEmail(user?.email || '')}</strong></span>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={whitelistEmailOtp}
+                    onChange={e => setWhitelistEmailOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="Please enter the email verification code"
+                    className="flex-1 px-4 py-3 bg-gray-50 dark:bg-[#181a20] border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none text-sm"
+                  />
+                  <button
+                    onClick={sendWhitelistEmailOtp}
+                    disabled={sendingWhitelistOtp || whitelistEmailOtpTimer > 0}
+                    className="px-4 py-3 text-sm font-medium text-blue-500 hover:text-blue-600 disabled:text-gray-400 whitespace-nowrap"
+                  >
+                    {sendingWhitelistOtp ? 'Sending...' : whitelistEmailOtpTimer > 0 ? `${whitelistEmailOtpTimer}s` : 'Send Verification Code'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Google 2FA Section */}
+              <div className="mb-6">
+                <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 mb-2">
+                  <Shield className="w-4 h-4" />
+                  Google 2FA Code
+                </label>
+                <input
+                  type="text"
+                  value={whitelistGoogle2faCode}
+                  onChange={e => setWhitelistGoogle2faCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="Please enter the Google Authenticator code"
+                  className="w-full px-4 py-3 bg-gray-50 dark:bg-[#181a20] border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
+                  disabled={!user2faEnabled}
+                />
+                {!user2faEnabled && (
+                  <p className="text-xs text-gray-400 mt-1">Google 2FA is not enabled</p>
+                )}
+              </div>
+
+              {/* Next Step Button */}
+              <button
+                onClick={verifyAndUpdateWhitelist}
+                disabled={verifyingWhitelist || !whitelistEmailOtp || (user2faEnabled && !whitelistGoogle2faCode)}
+                className="w-full py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+              >
+                {verifyingWhitelist ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Verifying...
+                  </>
+                ) : (
+                  'Next Step'
+                )}
+              </button>
+
+              {/* Help Link */}
+              <p className="text-center text-sm text-blue-500 hover:underline cursor-pointer mt-4">
+                Having problems with verification?
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Address Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-[#1e2329] rounded-xl w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Add</h2>
+                <button 
+                  onClick={() => {
+                    setShowAddModal(false);
+                    resetAddForm();
+                  }} 
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Warning Note */}
+              <div className="flex items-start gap-2 p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg mb-4">
+                <div className="w-4 h-4 rounded-full bg-orange-400 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <span className="text-white text-xs">!</span>
+                </div>
+                <p className="text-sm text-gray-700 dark:text-gray-300">
+                  Note: Once successfully added, your withdrawal address cannot be modified.
+                </p>
+              </div>
+
+              {/* Tabs */}
+              <div className="flex gap-6 border-b border-gray-200 dark:border-gray-700 mb-4">
+                <button
+                  onClick={() => setAddModalTab('onchain')}
+                  className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
+                    addModalTab === 'onchain'
+                      ? 'border-blue-500 text-gray-900 dark:text-white'
+                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700'
+                  }`}
+                >
+                  On-chain Withdrawal
+                </button>
+                <button
+                  onClick={() => setAddModalTab('internal')}
+                  className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
+                    addModalTab === 'internal'
+                      ? 'border-blue-500 text-gray-900 dark:text-white'
+                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700'
+                  }`}
+                >
+                  Internal Transfer
+                </button>
+              </div>
+
+              {/* On-chain Withdrawal Form */}
+              {addModalTab === 'onchain' && (
+                <div className="space-y-4">
+                  {/* Save as Universal Wallet Address */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-600 dark:text-gray-400">Save as Universal Wallet Address</span>
+                    <div className="w-4 h-4 rounded-full border border-gray-300 flex items-center justify-center cursor-help">
+                      <span className="text-xs text-gray-400">?</span>
+                    </div>
+                  </div>
+
+                  {/* Wallet Address Type */}
+                  <div className="relative">
+                    <select
+                      value={walletAddressType}
+                      onChange={e => setWalletAddressType(e.target.value)}
+                      className="w-full px-4 py-3 bg-white dark:bg-[#181a20] border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white outline-none focus:border-blue-500 appearance-none cursor-pointer"
+                    >
+                      <option value="regular">Regular Wallet Address</option>
+                      <option value="universal">Universal Wallet Address</option>
+                    </select>
+                    <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                  </div>
+
+                  {/* Assets */}
+                  <div>
+                    <label className="block text-sm text-gray-600 dark:text-gray-400 mb-2">Assets</label>
+                    <div className="relative">
+                      <select
+                        value={newAddress.asset}
+                        onChange={e => setNewAddress({...newAddress, asset: e.target.value})}
+                        className="w-full px-4 py-3 bg-white dark:bg-[#181a20] border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white outline-none focus:border-blue-500 appearance-none cursor-pointer"
+                      >
+                        <option value="">Please select</option>
+                        {dbAssets.map(asset => (
+                          <option key={asset.id} value={asset.symbol}>{asset.symbol}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                    </div>
+                  </div>
+
+                  {/* Address */}
+                  <div>
+                    <label className="block text-sm text-gray-600 dark:text-gray-400 mb-2">Address</label>
+                    <input
+                      type="text"
+                      value={newAddress.address}
+                      onChange={e => setNewAddress({...newAddress, address: e.target.value})}
+                      placeholder="Please input your withdrawal wallet address"
+                      className="w-full px-4 py-3 bg-white dark:bg-[#181a20] border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  {/* Chain Type */}
+                  <div>
+                    <label className="block text-sm text-gray-600 dark:text-gray-400 mb-2">Chain Type</label>
+                    <div className="relative">
+                      <select
+                        value={newAddress.network}
+                        onChange={e => setNewAddress({...newAddress, network: e.target.value})}
+                        className="w-full px-4 py-3 bg-white dark:bg-[#181a20] border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white outline-none focus:border-blue-500 appearance-none cursor-pointer"
+                      >
+                        <option value="">Select chain type</option>
+                        {networks.map(network => (
+                          <option key={network} value={network}>{network}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                    </div>
+                  </div>
+
+                  {/* Remark */}
+                  <div>
+                    <label className="block text-sm text-gray-600 dark:text-gray-400 mb-2">Remark</label>
+                    <input
+                      type="text"
+                      value={newAddress.note}
+                      onChange={e => setNewAddress({...newAddress, note: e.target.value})}
+                      placeholder="Add a remark"
+                      className="w-full px-4 py-3 bg-white dark:bg-[#181a20] border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Internal Transfer Form */}
+              {addModalTab === 'internal' && (
+                <div className="space-y-4">
+                  {/* Recipient Account */}
+                  <div>
+                    <label className="block text-sm text-gray-600 dark:text-gray-400 mb-2">Recipient Account</label>
+                    
+                    {/* Recipient Type Tabs */}
+                    <div className="flex gap-2 mb-3">
+                      <button
+                        onClick={() => setRecipientType('email')}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          recipientType === 'email'
+                            ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
+                            : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                        }`}
+                      >
+                        Email Address
+                      </button>
+                      <button
+                        onClick={() => setRecipientType('mobile')}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          recipientType === 'mobile'
+                            ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
+                            : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                        }`}
+                      >
+                        Mobile Number
+                      </button>
+                      <button
+                        onClick={() => setRecipientType('uid')}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          recipientType === 'uid'
+                            ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
+                            : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                        }`}
+                      >
+                        UID
+                      </button>
+                    </div>
+
+                    {/* Recipient Input - Different based on type */}
+                    {recipientType === 'mobile' ? (
+                      <div className="flex gap-2">
+                        {/* Country Code Dropdown */}
+                        <div className="relative">
+                          <button
+                            onClick={() => setShowCountryDropdown(!showCountryDropdown)}
+                            className="flex items-center gap-2 px-4 py-3 bg-white dark:bg-[#181a20] border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white min-w-[100px]"
+                          >
+                            <span>{selectedCountryCode}</span>
+                            <ChevronDown className="w-4 h-4 text-gray-400" />
+                          </button>
+                          
+                          {showCountryDropdown && (
+                            <div className="absolute top-full left-0 mt-1 w-[200px] bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-30 max-h-[200px] overflow-y-auto">
+                              {countryCodes.map(country => (
+                                <button
+                                  key={country.code}
+                                  onClick={() => {
+                                    setSelectedCountryCode(country.code);
+                                    setShowCountryDropdown(false);
+                                  }}
+                                  className={`w-full text-left px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm flex items-center gap-2 ${
+                                    selectedCountryCode === country.code 
+                                      ? 'text-blue-500 bg-blue-50 dark:bg-blue-900/20' 
+                                      : 'text-gray-900 dark:text-white'
+                                  }`}
+                                >
+                                  <span>{country.flag}</span>
+                                  <span>{country.code}</span>
+                                  <span className="text-gray-400 text-xs">{country.name}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        
+                        {/* Phone Number Input */}
+                        <input
+                          type="text"
+                          value={newAddress.recipientAccount}
+                          onChange={e => setNewAddress({...newAddress, recipientAccount: e.target.value.replace(/\D/g, '')})}
+                          placeholder="Please enter"
+                          className="flex-1 px-4 py-3 bg-white dark:bg-[#181a20] border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-blue-500"
+                        />
+                      </div>
+                    ) : (
+                      <input
+                        type="text"
+                        value={newAddress.recipientAccount}
+                        onChange={e => setNewAddress({...newAddress, recipientAccount: e.target.value})}
+                        placeholder="Please enter"
+                        className="w-full px-4 py-3 bg-white dark:bg-[#181a20] border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-blue-500"
+                      />
+                    )}
+                  </div>
+
+                  {/* Remark */}
+                  <div>
+                    <label className="block text-sm text-gray-600 dark:text-gray-400 mb-2">Remark</label>
+                    <input
+                      type="text"
+                      value={newAddress.note}
+                      onChange={e => setNewAddress({...newAddress, note: e.target.value})}
+                      placeholder="Add a remark"
+                      className="w-full px-4 py-3 bg-white dark:bg-[#181a20] border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* No Verification Toggle */}
+              <div className="mt-6 pt-4 border-t border-gray-100 dark:border-gray-800">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-700 dark:text-gray-300">No verification needed for this address next time</span>
+                    <div className="w-4 h-4 rounded-full border border-gray-300 flex items-center justify-center cursor-help">
+                      <span className="text-xs text-gray-400">?</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setNoVerificationNeeded(!noVerificationNeeded)}
+                    className={`relative w-11 h-6 rounded-full transition-colors ${
+                      noVerificationNeeded ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 w-5 h-5 bg-white rounded-full transition-all shadow ${
+                        noVerificationNeeded ? 'right-0.5' : 'left-0.5'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-600 dark:text-gray-400">Enable no-verification withdrawals</span>
+                  <button 
+                    onClick={() => {
+                      setShowAddModal(false);
+                      resetAddForm();
+                      router.push('/dashboard/security#withdrawal-whitelist');
+                    }}
+                    className="text-sm text-blue-500 hover:text-blue-600 flex items-center gap-1"
+                  >
+                    Enable
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Confirm Button */}
+              <button
+                onClick={handleAddAddress}
+                disabled={addingAddress}
+                className="w-full mt-6 py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+              >
+                {addingAddress ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Adding...
+                  </>
+                ) : (
+                  'Confirm'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

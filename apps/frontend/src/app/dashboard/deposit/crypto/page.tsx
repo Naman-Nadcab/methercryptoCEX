@@ -20,7 +20,21 @@ import {
   Shield,
   Upload,
   Camera,
+  LayoutGrid,
+  Send,
+  ArrowLeftRight,
+  TrendingUp,
+  Clock,
 } from 'lucide-react';
+
+const SIDEBAR_LINKS = [
+  { label: 'Asset Dashboard', href: '/dashboard/assets/overview', icon: LayoutGrid },
+  { label: 'Deposit', href: '/dashboard/deposit/crypto', icon: TrendingUp, active: true },
+  { label: 'Withdraw', href: '/dashboard/withdraw/crypto', icon: Send },
+  { label: 'Transfer', href: '/dashboard/transfer', icon: ArrowLeftRight },
+  { label: 'Convert', href: '/dashboard/assets/convert', icon: RefreshCw },
+  { label: 'History', href: '/dashboard/assets/history', icon: Clock },
+];
 
 interface Chain {
   id: string;
@@ -79,7 +93,7 @@ const POPULAR_TOKENS = ['BTC', 'ETH', 'USDT', 'USDC'];
 
 export default function DepositCryptoPage() {
   const router = useRouter();
-  const { accessToken, logout } = useAuthStore();
+  const { accessToken } = useAuthStore();
   const [tokens, setTokens] = useState<Token[]>([]);
   const [selectedToken, setSelectedToken] = useState<Token | null>(null);
   const [availableChains, setAvailableChains] = useState<Chain[]>([]);
@@ -179,11 +193,8 @@ export default function DepositCryptoPage() {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       
-      if (res.status === 401) {
-        logout();
-        router.push('/login');
-        return;
-      }
+      // Do NOT logout on 401 - user stays logged in until manual logout
+      // API errors should be handled gracefully without forcing logout
       
       if (res.ok) {
         const data = await res.json();
@@ -224,9 +235,7 @@ export default function DepositCryptoPage() {
   const fetchDepositAddress = async (chainId: string) => {
     console.log('fetchDepositAddress called with chainId:', chainId, 'accessToken exists:', !!accessToken);
     if (!accessToken) {
-      console.log('No access token, redirecting to login');
-      logout();
-      router.push('/login');
+      console.log('No access token available');
       return;
     }
     
@@ -249,9 +258,8 @@ export default function DepositCryptoPage() {
         setDepositAddress(data.data);
         setShowKycModal(false);
       } else if (res.status === 401) {
-        console.log('Session expired, logging out');
-        logout();
-        router.push('/login');
+        // Do NOT logout on 401 - keep user logged in
+        console.log('Auth error but keeping session active');
       } else if (res.status === 403 && data.error?.code === 'KYC_REQUIRED') {
         console.log('KYC required, showing modal');
         setShowKycModal(true);
@@ -321,23 +329,45 @@ export default function DepositCryptoPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-[#0b0e11]">
-      <div className="max-w-5xl mx-auto px-4 lg:px-8 py-6">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Deposit</h1>
-          <Link
-            href="/dashboard/deposit/fiat"
-            className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-[#181a20] border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-          >
-            <span className="text-yellow-500">💰</span>
-            Fiat Deposit
-          </Link>
-        </div>
+      <div className="flex">
+        {/* Sidebar */}
+        <aside className="w-60 min-h-screen bg-white dark:bg-[#181a20] border-r border-gray-200 dark:border-gray-800">
+          <nav className="p-4 space-y-1">
+            {SIDEBAR_LINKS.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={`flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl transition-colors ${
+                  link.active
+                    ? 'bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-800/30'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                }`}
+              >
+                <link.icon className="w-5 h-5" />
+                {link.label}
+              </Link>
+            ))}
+          </nav>
+        </aside>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Section - Deposit Form */}
-          <div className="lg:col-span-2">
-            <div className="bg-white dark:bg-[#181a20] rounded-xl p-6 border border-gray-200 dark:border-transparent">
+        {/* Main Content */}
+        <main className="flex-1 p-6">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-6">
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Deposit Crypto</h1>
+            <Link
+              href="/dashboard/deposit/fiat"
+              className="flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-xl hover:border-blue-300 dark:hover:border-blue-600 transition-colors text-sm font-medium"
+            >
+              <span className="text-yellow-500">💰</span>
+              Fiat Deposit
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left Section - Deposit Form */}
+            <div className="lg:col-span-2">
+              <div className="bg-white dark:bg-[#1e2329] rounded-2xl p-6 border border-gray-100 dark:border-gray-800">
               {/* Step 1: Choose Coin */}
               <div className="mb-6">
                 <div className="flex items-center gap-2 mb-3">
@@ -732,81 +762,8 @@ export default function DepositCryptoPage() {
             </Link>
           )}
         </div>
+        </main>
       </div>
-
-      {/* Footer */}
-      <footer className="bg-white dark:bg-[#0b0e11] border-t border-gray-200 dark:border-gray-800 py-12 px-4 lg:px-8 mt-8">
-        <div className="max-w-5xl mx-auto">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-8">
-            {/* About */}
-            <div>
-              <h4 className="font-semibold mb-3 text-gray-900 dark:text-white">About</h4>
-              <ul className="space-y-2 text-sm text-gray-500 dark:text-gray-400">
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">About Methereum</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Meet Mantle</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Press Room</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Communities</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Announcements</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Risk Disclosure</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Whistleblower Channel</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Careers</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Islamic Account</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Fees & Transactions Overview</li>
-              </ul>
-            </div>
-
-            {/* Services */}
-            <div>
-              <h4 className="font-semibold mb-3 text-gray-900 dark:text-white">Services</h4>
-              <ul className="space-y-2 text-sm text-gray-500 dark:text-gray-400">
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">One-Click Buy</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">P2P Trading (0 Fees)</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">VIP Program</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Referral Program</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Institutional Services</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Listing Application</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Tax API</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Audit</li>
-              </ul>
-            </div>
-
-            {/* Support */}
-            <div>
-              <h4 className="font-semibold mb-3 text-gray-900 dark:text-white">Support</h4>
-              <ul className="space-y-2 text-sm text-gray-500 dark:text-gray-400">
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Submit a Request</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Help Center</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Support Hub</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">User Feedback</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Methereum Learn</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Trading Fee</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">API</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Authenticity Check</li>
-              </ul>
-            </div>
-
-            {/* Products */}
-            <div>
-              <h4 className="font-semibold mb-3 text-gray-900 dark:text-white">Products</h4>
-              <ul className="space-y-2 text-sm text-gray-500 dark:text-gray-400">
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Trade</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Derivatives</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Earn</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Launchpad</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Methereum Card</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">TradingView</li>
-              </ul>
-            </div>
-          </div>
-
-          {/* Copyright */}
-          <div className="pt-6 border-t border-gray-200 dark:border-gray-800 flex flex-wrap items-center justify-center gap-4 text-sm text-gray-500">
-            <span>© 2018-2026 Methereum.com. All rights reserved.</span>
-            <Link href="/terms" className="hover:text-gray-900 dark:hover:text-white">Terms of Service</Link>
-            <Link href="/privacy" className="hover:text-gray-900 dark:hover:text-white">Privacy Terms</Link>
-          </div>
-        </div>
-      </footer>
 
       {/* Help Button */}
       <button className="fixed bottom-6 right-6 w-12 h-12 bg-blue-500 hover:bg-blue-600 text-white rounded-full shadow-lg flex items-center justify-center transition-colors z-40">

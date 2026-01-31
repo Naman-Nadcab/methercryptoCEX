@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronDown, Calendar, FileText, HelpCircle, Info } from 'lucide-react';
+import { ChevronDown, Calendar, FileText, Download, Clock, Check, FileSpreadsheet, History, Info, Loader2 } from 'lucide-react';
 
 type TabType = 'transaction' | 'order' | 'account';
 type TimeRangeType = '7days' | '30days' | '90days' | 'customize';
@@ -13,24 +13,25 @@ export default function DataExportPage() {
   const [exportType, setExportType] = useState('');
   const [timeRange, setTimeRange] = useState<TimeRangeType>('7days');
   const [startDate, setStartDate] = useState('2026-01-23');
-  const [endDate, setEndDate] = useState('2026-01-29');
+  const [endDate, setEndDate] = useState('2026-01-30');
   const [includeLegalName, setIncludeLegalName] = useState(false);
   const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
   const [statementType, setStatementType] = useState<StatementType>('monthly');
   const [statementTypeDropdown, setStatementTypeDropdown] = useState('');
   const [statementTypeDropdownOpen, setStatementTypeDropdownOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const tabs = [
-    { id: 'transaction' as TabType, label: 'Transaction Log' },
-    { id: 'order' as TabType, label: 'Order History' },
-    { id: 'account' as TabType, label: 'Account Statement' },
+    { id: 'transaction' as TabType, label: 'Transaction Log', icon: FileText },
+    { id: 'order' as TabType, label: 'Order History', icon: History },
+    { id: 'account' as TabType, label: 'Account Statement', icon: FileSpreadsheet },
   ];
 
   const accountOptions = [
     { value: 'main', label: 'Main Account' },
-    { value: 'sub1', label: 'Sub Account 1' },
-    { value: 'sub2', label: 'Sub Account 2' },
+    { value: 'funding', label: 'Funding Account' },
+    { value: 'trading', label: 'Trading Account' },
   ];
 
   const typeOptions = [
@@ -38,6 +39,7 @@ export default function DataExportPage() {
     { value: 'withdrawal', label: 'Withdrawal' },
     { value: 'transfer', label: 'Transfer' },
     { value: 'trade', label: 'Trade' },
+    { value: 'all', label: 'All Types' },
   ];
 
   const statementTypeOptions = [
@@ -47,407 +49,394 @@ export default function DataExportPage() {
     { value: 'funding', label: 'Funding' },
   ];
 
-  return (
-    <div className="p-4 lg:p-6 max-w-5xl">
-      {/* Page Title */}
-      <h1 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">
-        Data Export
-      </h1>
+  const handleExport = () => {
+    setExporting(true);
+    setTimeout(() => setExporting(false), 2000);
+  };
 
-      {/* Tabs */}
-      <div className="border-b border-gray-200 dark:border-gray-700 mb-6">
-        <div className="flex gap-6">
-          {tabs.map((tab) => (
+  const Dropdown = ({ 
+    label, 
+    value, 
+    options, 
+    isOpen, 
+    onToggle, 
+    onSelect 
+  }: { 
+    label: string;
+    value: string;
+    options: { value: string; label: string }[];
+    isOpen: boolean;
+    onToggle: () => void;
+    onSelect: (value: string) => void;
+  }) => (
+    <div className="relative dropdown-container">
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle();
+        }}
+        className="w-full max-w-xs px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl text-left flex items-center justify-between hover:border-blue-500 transition-colors"
+      >
+        <span className={value ? 'text-gray-900 dark:text-white font-medium' : 'text-gray-400'}>
+          {value ? options.find(o => o.value === value)?.label : 'Please select'}
+        </span>
+        <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+      
+      {isOpen && (
+        <div className="absolute top-full left-0 right-0 max-w-xs mt-2 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-20 overflow-hidden">
+          {options.map((option) => (
             <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`pb-3 text-sm font-medium transition-colors relative ${
-                activeTab === tab.id
-                  ? 'text-gray-900 dark:text-white'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+              key={option.value}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect(option.value);
+              }}
+              className={`w-full px-4 py-3 text-left flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${
+                value === option.value ? 'bg-blue-50 dark:bg-blue-900/20' : ''
               }`}
             >
-              {tab.label}
-              {activeTab === tab.id && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gray-900 dark:bg-white" />
-              )}
+              <span className="font-medium text-gray-900 dark:text-white">{option.label}</span>
+              {value === option.value && <Check className="w-5 h-5 text-blue-500" />}
             </button>
           ))}
         </div>
+      )}
+    </div>
+  );
+
+  const RadioCard = ({ checked, onChange, label, description }: {
+    checked: boolean;
+    onChange: () => void;
+    label: string;
+    description?: string;
+  }) => (
+    <button
+      onClick={onChange}
+      className={`flex-1 p-4 rounded-xl border-2 text-left transition-all ${
+        checked 
+          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
+          : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+      }`}
+    >
+      <div className="flex items-center gap-3">
+        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+          checked ? 'border-blue-500' : 'border-gray-300 dark:border-gray-600'
+        }`}>
+          {checked && <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />}
+        </div>
+        <div>
+          <span className={`font-medium ${checked ? 'text-blue-700 dark:text-blue-400' : 'text-gray-900 dark:text-white'}`}>{label}</span>
+          {description && <p className="text-xs text-gray-500 mt-0.5">{description}</p>}
+        </div>
       </div>
+    </button>
+  );
 
-      {/* Create Section */}
-      <div className="bg-white dark:bg-[#181a20] rounded-xl p-6 mb-6">
-        <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-4">
-          Create
-        </h2>
+  return (
+    <div className="p-4 lg:p-8 bg-gray-50 dark:bg-[#0b0e11] min-h-full" onClick={(e) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.dropdown-container')) {
+        setAccountDropdownOpen(false);
+        setTypeDropdownOpen(false);
+        setStatementTypeDropdownOpen(false);
+      }
+    }}>
+      <div className="max-w-5xl mx-auto">
+        {/* Header */}
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Data Export</h1>
+          <p className="text-gray-500 dark:text-gray-400 mt-2">Export your transaction history, orders, and account statements</p>
+        </div>
 
-        {/* Instructions - Different for Account Statement */}
-        {activeTab === 'account' ? (
-          <div className="mb-6 text-sm text-gray-500 dark:text-gray-400 space-y-1">
-            <p>
-              1. Generate and download statements from your Funding and Unified Trading Accounts. Note: This excludes Methereum Earn, Methereum structured products, Custodial Trading Subaccounts, MT4 Accounts, and bonuses.
-            </p>
-            <p>
-              2. Daily data will be updated at 11:59:59PM UTC and will be available to download the following day. Statements can be generated for up to 12 months of historical data, with a limit of 50 exports per month. It takes approximately one (1) working day to generate a statement. The download link will be available for seven (7) days, so please download your statement promptly.
-            </p>
+        {/* Tabs */}
+        <div className="flex items-center gap-2 mb-8 p-1.5 bg-white dark:bg-[#181a20] rounded-2xl border border-gray-100 dark:border-gray-800 w-fit">
+          {tabs.map(tab => {
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-5 py-3 rounded-xl font-medium text-sm transition-all ${
+                  activeTab === tab.id
+                    ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Create Export Section */}
+        <div className="bg-white dark:bg-[#181a20] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden mb-6">
+          <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center gap-3">
+            <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center">
+              <Download className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Create Export</h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Generate a new data export file</p>
+            </div>
           </div>
-        ) : (
-          <div className="mb-6 text-sm text-gray-500 dark:text-gray-400 space-y-1">
-            <p>
-              1. Daily data is updated the following day and is available for export. The export period is limited to 12 months, with a maximum of 50 exports per month. The data export process will take about 1-3 days.
-            </p>
-            <p>
-              2. The data export process will take about 1-3 days. Please check "My Export History" to download.
-            </p>
-          </div>
-        )}
 
-        {/* Form - Different for Account Statement */}
-        {activeTab === 'account' ? (
-          <div className="space-y-4">
-            {/* Account */}
-            <div className="flex items-center gap-4">
-              <label className="w-28 text-sm text-gray-700 dark:text-gray-300">Account</label>
-              <div className="relative">
-                <button
-                  onClick={() => {
+          <div className="p-6">
+            {/* Info Box */}
+            <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/50 rounded-xl mb-6">
+              <div className="flex items-start gap-3">
+                <Info className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
+                <div className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
+                  {activeTab === 'account' ? (
+                    <>
+                      <p>Generate and download statements from your Funding and Unified Trading Accounts.</p>
+                      <p>Statements can be generated for up to 12 months of historical data, with a limit of 50 exports per month.</p>
+                    </>
+                  ) : (
+                    <>
+                      <p>Daily data is updated the following day and is available for export.</p>
+                      <p>The export period is limited to 12 months, with a maximum of 50 exports per month.</p>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              {/* Account Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Account</label>
+                <Dropdown
+                  label="Account"
+                  value={account}
+                  options={accountOptions}
+                  isOpen={accountDropdownOpen}
+                  onToggle={() => {
                     setAccountDropdownOpen(!accountDropdownOpen);
                     setTypeDropdownOpen(false);
                     setStatementTypeDropdownOpen(false);
                   }}
-                  className="w-56 flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm text-gray-400"
-                >
-                  <span>{account ? accountOptions.find(a => a.value === account)?.label : 'Please select'}</span>
-                  <ChevronDown className="w-4 h-4" />
-                </button>
-                {accountDropdownOpen && (
-                  <div className="absolute top-full left-0 mt-1 w-56 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-10">
-                    {accountOptions.map((option) => (
-                      <button
-                        key={option.value}
-                        onClick={() => {
-                          setAccount(option.value);
-                          setAccountDropdownOpen(false);
-                        }}
-                        className="w-full px-3 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Statement Type Radio */}
-            <div className="flex items-center gap-4">
-              <label className="w-28 text-sm text-gray-700 dark:text-gray-300"></label>
-              <div className="flex items-center gap-6">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="statementType"
-                    checked={statementType === 'monthly'}
-                    onChange={() => setStatementType('monthly')}
-                    className="w-4 h-4 text-orange-500 border-gray-300 focus:ring-orange-500"
-                  />
-                  <span className="text-sm text-gray-700 dark:text-gray-300">Monthly Statement</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="statementType"
-                    checked={statementType === 'custom'}
-                    onChange={() => setStatementType('custom')}
-                    className="w-4 h-4 text-orange-500 border-gray-300 focus:ring-orange-500"
-                  />
-                  <span className="text-sm text-gray-700 dark:text-gray-300">Custom Time</span>
-                  <Info className="w-4 h-4 text-gray-400" />
-                </label>
-              </div>
-            </div>
-
-            {/* Type Dropdown */}
-            <div className="flex items-center gap-4">
-              <label className="w-28 text-sm text-gray-700 dark:text-gray-300">Type</label>
-              <div className="relative">
-                <button
-                  onClick={() => {
-                    setStatementTypeDropdownOpen(!statementTypeDropdownOpen);
-                    setAccountDropdownOpen(false);
-                    setTypeDropdownOpen(false);
-                  }}
-                  className="w-56 flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm text-gray-400"
-                >
-                  <span>{statementTypeDropdown ? statementTypeOptions.find(t => t.value === statementTypeDropdown)?.label : 'Please select'}</span>
-                  <ChevronDown className="w-4 h-4" />
-                </button>
-                {statementTypeDropdownOpen && (
-                  <div className="absolute top-full left-0 mt-1 w-56 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-10">
-                    {statementTypeOptions.map((option) => (
-                      <button
-                        key={option.value}
-                        onClick={() => {
-                          setStatementTypeDropdown(option.value);
-                          setStatementTypeDropdownOpen(false);
-                        }}
-                        className="w-full px-3 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Divider */}
-            <div className="border-t border-gray-100 dark:border-gray-800 my-4"></div>
-
-            {/* Export Button */}
-            <div className="flex items-center gap-4">
-              <button className="px-6 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-lg transition-colors">
-                Export Now
-              </button>
-              <span className="text-sm text-gray-500 dark:text-gray-400">
-                <span className="text-orange-500">50</span> attempts left for this month.
-              </span>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {/* Account */}
-            <div className="flex items-center gap-4">
-              <label className="w-28 text-sm text-gray-700 dark:text-gray-300">Account</label>
-              <div className="relative">
-                <button
-                  onClick={() => {
-                    setAccountDropdownOpen(!accountDropdownOpen);
-                    setTypeDropdownOpen(false);
-                  }}
-                  className="w-56 flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm text-gray-400"
-                >
-                  <span>{account ? accountOptions.find(a => a.value === account)?.label : 'Please select'}</span>
-                  <ChevronDown className="w-4 h-4" />
-                </button>
-                {accountDropdownOpen && (
-                  <div className="absolute top-full left-0 mt-1 w-56 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-10">
-                    {accountOptions.map((option) => (
-                      <button
-                        key={option.value}
-                        onClick={() => {
-                          setAccount(option.value);
-                          setAccountDropdownOpen(false);
-                        }}
-                        className="w-full px-3 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Type */}
-            <div className="flex items-center gap-4">
-              <label className="w-28 text-sm text-gray-700 dark:text-gray-300">Type</label>
-              <div className="relative">
-                <button
-                  onClick={() => {
-                    setTypeDropdownOpen(!typeDropdownOpen);
+                  onSelect={(val) => {
+                    setAccount(val);
                     setAccountDropdownOpen(false);
                   }}
-                  className="w-56 flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm text-gray-400"
-                >
-                  <span>{exportType ? typeOptions.find(t => t.value === exportType)?.label : 'Please select'}</span>
-                  <ChevronDown className="w-4 h-4" />
-                </button>
-                {typeDropdownOpen && (
-                  <div className="absolute top-full left-0 mt-1 w-56 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-10">
-                    {typeOptions.map((option) => (
-                      <button
-                        key={option.value}
-                        onClick={() => {
-                          setExportType(option.value);
-                          setTypeDropdownOpen(false);
-                        }}
-                        className="w-full px-3 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Time (UTC) */}
-            <div className="flex items-start gap-4">
-              <label className="w-28 text-sm text-gray-700 dark:text-gray-300 pt-2">Time (UTC)</label>
-              <div className="space-y-3">
-                {/* Radio buttons */}
-                <div className="flex items-center gap-6">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="timeRange"
-                      checked={timeRange === '7days'}
-                      onChange={() => setTimeRange('7days')}
-                      className="w-4 h-4 text-orange-500 border-gray-300 focus:ring-orange-500"
-                    />
-                    <span className="text-sm text-gray-700 dark:text-gray-300">Last 7 Days</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="timeRange"
-                      checked={timeRange === '30days'}
-                      onChange={() => setTimeRange('30days')}
-                      className="w-4 h-4 text-orange-500 border-gray-300 focus:ring-orange-500"
-                    />
-                    <span className="text-sm text-gray-700 dark:text-gray-300">Last 30 Days</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="timeRange"
-                      checked={timeRange === '90days'}
-                      onChange={() => setTimeRange('90days')}
-                      className="w-4 h-4 text-orange-500 border-gray-300 focus:ring-orange-500"
-                    />
-                    <span className="text-sm text-gray-700 dark:text-gray-300">Last 90 Days</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="timeRange"
-                      checked={timeRange === 'customize'}
-                      onChange={() => setTimeRange('customize')}
-                      className="w-4 h-4 text-orange-500 border-gray-300 focus:ring-orange-500"
-                    />
-                    <span className="text-sm text-gray-700 dark:text-gray-300">Customize</span>
-                  </label>
-                </div>
-
-                {/* Date range */}
-                <div className="flex items-center gap-2">
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                      className="w-32 px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm text-gray-400"
-                      placeholder="Start date"
-                    />
-                  </div>
-                  <span className="text-gray-400">→</span>
-                  <div className="relative flex items-center">
-                    <input
-                      type="text"
-                      value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)}
-                      className="w-32 px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm text-gray-400"
-                      placeholder="End date"
-                    />
-                    <button className="ml-2 text-gray-400 hover:text-gray-600">
-                      <Calendar className="w-5 h-5" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Format */}
-            <div className="flex items-center gap-4">
-              <label className="w-28 text-sm text-gray-700 dark:text-gray-300">Format</label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={includeLegalName}
-                  onChange={(e) => setIncludeLegalName(e.target.checked)}
-                  className="w-4 h-4 text-orange-500 border-gray-300 rounded focus:ring-orange-500"
                 />
-                <span className="text-sm text-gray-700 dark:text-gray-300">Legal Name</span>
-              </label>
-            </div>
+              </div>
 
-            {/* Export Button */}
-            <div className="flex items-center gap-4 pt-2">
-              <div className="w-28"></div>
-              <button className="px-6 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-lg transition-colors">
-                Export Now
-              </button>
-              <span className="text-sm text-gray-500 dark:text-gray-400">
-                <span className="text-orange-500">50</span> attempts left for this month.
-              </span>
+              {/* Account Statement Specific Options */}
+              {activeTab === 'account' && (
+                <>
+                  {/* Statement Type Radio */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Statement Period</label>
+                    <div className="flex gap-4 max-w-lg">
+                      <RadioCard
+                        checked={statementType === 'monthly'}
+                        onChange={() => setStatementType('monthly')}
+                        label="Monthly Statement"
+                      />
+                      <RadioCard
+                        checked={statementType === 'custom'}
+                        onChange={() => setStatementType('custom')}
+                        label="Custom Time"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Type Dropdown */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Type</label>
+                    <Dropdown
+                      label="Type"
+                      value={statementTypeDropdown}
+                      options={statementTypeOptions}
+                      isOpen={statementTypeDropdownOpen}
+                      onToggle={() => {
+                        setStatementTypeDropdownOpen(!statementTypeDropdownOpen);
+                        setAccountDropdownOpen(false);
+                        setTypeDropdownOpen(false);
+                      }}
+                      onSelect={(val) => {
+                        setStatementTypeDropdown(val);
+                        setStatementTypeDropdownOpen(false);
+                      }}
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Transaction/Order Options */}
+              {activeTab !== 'account' && (
+                <>
+                  {/* Type */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Type</label>
+                    <Dropdown
+                      label="Type"
+                      value={exportType}
+                      options={typeOptions}
+                      isOpen={typeDropdownOpen}
+                      onToggle={() => {
+                        setTypeDropdownOpen(!typeDropdownOpen);
+                        setAccountDropdownOpen(false);
+                        setStatementTypeDropdownOpen(false);
+                      }}
+                      onSelect={(val) => {
+                        setExportType(val);
+                        setTypeDropdownOpen(false);
+                      }}
+                    />
+                  </div>
+
+                  {/* Time Range */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Time Range (UTC)</label>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 max-w-xl">
+                      {[
+                        { value: '7days', label: 'Last 7 Days' },
+                        { value: '30days', label: 'Last 30 Days' },
+                        { value: '90days', label: 'Last 90 Days' },
+                        { value: 'customize', label: 'Custom' },
+                      ].map(option => (
+                        <button
+                          key={option.value}
+                          onClick={() => setTimeRange(option.value as TimeRangeType)}
+                          className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                            timeRange === option.value
+                              ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25'
+                              : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Date Range Inputs */}
+                    {timeRange === 'customize' && (
+                      <div className="flex items-center gap-3 max-w-md">
+                        <div className="relative flex-1">
+                          <input
+                            type="date"
+                            value={startDate}
+                            onChange={(e) => setStartDate(e.target.value)}
+                            className="w-full px-4 py-3 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white outline-none focus:border-blue-500"
+                          />
+                        </div>
+                        <span className="text-gray-400">→</span>
+                        <div className="relative flex-1">
+                          <input
+                            type="date"
+                            value={endDate}
+                            onChange={(e) => setEndDate(e.target.value)}
+                            className="w-full px-4 py-3 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white outline-none focus:border-blue-500"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Format Options */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Options</label>
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <div
+                        onClick={() => setIncludeLegalName(!includeLegalName)}
+                        className={`w-5 h-5 rounded-md flex items-center justify-center border-2 transition-all ${
+                          includeLegalName ? 'bg-blue-500 border-blue-500' : 'border-gray-300 dark:border-gray-600'
+                        }`}
+                      >
+                        {includeLegalName && <Check className="w-3 h-3 text-white" />}
+                      </div>
+                      <span className="text-sm text-gray-700 dark:text-gray-300">Include Legal Name in export</span>
+                    </label>
+                  </div>
+                </>
+              )}
+
+              {/* Export Button */}
+              <div className="pt-4 border-t border-gray-100 dark:border-gray-800 flex items-center gap-4">
+                <button
+                  onClick={handleExport}
+                  disabled={exporting}
+                  className="px-8 py-3.5 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white font-semibold rounded-xl transition-all shadow-lg shadow-blue-500/25 flex items-center gap-2"
+                >
+                  {exporting ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Exporting...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-5 h-5" />
+                      Export Now
+                    </>
+                  )}
+                </button>
+                <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+                  <Clock className="w-4 h-4" />
+                  <span><span className="font-semibold text-blue-500">50</span> exports remaining this month</span>
+                </div>
+              </div>
             </div>
           </div>
-        )}
-      </div>
-
-      {/* My Exports Section */}
-      <div className="bg-white dark:bg-[#181a20] rounded-xl">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-gray-800">
-          <h2 className="font-semibold text-gray-900 dark:text-white">My Exports</h2>
-          <a
-            href="#"
-            className="text-sm text-orange-500 hover:text-orange-600 hover:underline"
-          >
-            How to Extract Content From Your Data Export File
-          </a>
         </div>
 
-        {/* Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-100 dark:border-gray-800">
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 dark:text-gray-400">
-                  Statement
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 dark:text-gray-400">
-                  Date Range (UTC)
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 dark:text-gray-400">
-                  Submitted On
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 dark:text-gray-400">
-                  Status
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 dark:text-gray-400">
-                  Action
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {/* Empty State */}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Empty State */}
-        <div className="flex flex-col items-center justify-center py-16">
-          <div className="w-20 h-20 mb-4">
-            <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect x="15" y="10" width="50" height="60" rx="4" fill="#F3F4F6" stroke="#E5E7EB" strokeWidth="2"/>
-              <rect x="25" y="25" width="30" height="3" rx="1.5" fill="#D1D5DB"/>
-              <rect x="25" y="33" width="20" height="3" rx="1.5" fill="#D1D5DB"/>
-              <rect x="25" y="41" width="25" height="3" rx="1.5" fill="#D1D5DB"/>
-              <circle cx="55" cy="55" r="15" fill="#FEF3C7" stroke="#F59E0B" strokeWidth="2"/>
-              <path d="M50 55L54 59L62 51" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
+        {/* My Exports Section */}
+        <div className="bg-white dark:bg-[#181a20] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-xl flex items-center justify-center">
+                <History className="w-5 h-5 text-green-600 dark:text-green-400" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">My Exports</h2>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Download your previously generated exports</p>
+              </div>
+            </div>
+            <button className="text-sm text-blue-500 hover:text-blue-600 font-medium">
+              How to Extract Content →
+            </button>
           </div>
-          <p className="text-sm text-gray-500 dark:text-gray-400">No records found</p>
+
+          {/* Table Header */}
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-gray-50 dark:bg-[#1e2329]">
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Statement</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Date Range</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Submitted</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Action</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+
+          {/* Empty State */}
+          <div className="py-20">
+            <div className="flex flex-col items-center justify-center">
+              <div className="w-24 h-24 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mb-6">
+                <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                  <rect x="8" y="6" width="32" height="36" rx="4" className="fill-gray-200 dark:fill-gray-700"/>
+                  <rect x="14" y="14" width="20" height="3" rx="1.5" className="fill-gray-300 dark:fill-gray-600"/>
+                  <rect x="14" y="20" width="14" height="3" rx="1.5" className="fill-gray-300 dark:fill-gray-600"/>
+                  <rect x="14" y="26" width="17" height="3" rx="1.5" className="fill-gray-300 dark:fill-gray-600"/>
+                  <circle cx="36" cy="36" r="10" className="fill-blue-100 dark:fill-blue-900/50"/>
+                  <path d="M32 36l3 3 5-5" className="stroke-blue-500" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">No Exports Yet</h3>
+              <p className="text-gray-500 dark:text-gray-400 text-center max-w-md">
+                Create your first export to download your transaction history, orders, or account statements.
+              </p>
+            </div>
+          </div>
         </div>
       </div>
-
-      {/* Floating Help Button */}
-      <button className="fixed bottom-6 right-6 w-12 h-12 bg-orange-500 hover:bg-orange-600 text-white rounded-full shadow-lg flex items-center justify-center transition-colors z-50">
-        <HelpCircle className="w-6 h-6" />
-      </button>
     </div>
   );
 }
