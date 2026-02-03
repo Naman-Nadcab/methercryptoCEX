@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store/auth';
+import { api } from '@/lib/api';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -39,24 +40,25 @@ interface Transaction {
   date_time: string;
   description?: string;
   available_balance?: string;
+  confirmations?: number;
+  requiredConfirmations?: number;
+  confirmationProgress?: number;
+  explorerUrl?: string;
 }
 
 const HISTORY_TABS = [
+  { id: 'all', label: 'All Transactions', icon: Clock },
   { id: 'deposit', label: 'Deposit', icon: Download },
   { id: 'withdraw', label: 'Withdraw', icon: Upload },
   { id: 'transfer', label: 'Transfer', icon: ArrowLeftRight },
-  { id: 'one-click-buy', label: 'One-Click Buy', external: true },
-  { id: 'p2p', label: 'P2P' },
-  { id: 'deposit-fiat', label: 'Deposit Fiat' },
-  { id: 'fiat-withdrawal', label: 'Fiat Withdrawal' },
 ];
 
 export default function AssetHistoryPage() {
-  const { accessToken } = useAuthStore();
+  const { accessToken, _hasHydrated } = useAuthStore();
   const searchParams = useSearchParams();
   
   const [mainTab, setMainTab] = useState<'transactions' | 'history'>('history');
-  const [historyTab, setHistoryTab] = useState(searchParams.get('tab') || 'deposit');
+  const [historyTab, setHistoryTab] = useState(searchParams.get('tab') || 'all');
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [ordersExpanded, setOrdersExpanded] = useState(false);
@@ -72,42 +74,125 @@ export default function AssetHistoryPage() {
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [copiedTxid, setCopiedTxid] = useState<string | null>(null);
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-
   const coins = ['All', 'BTC', 'ETH', 'USDT', 'USDC', 'SOL', 'XRP'];
   const methods = ['All', 'On-chain', 'Internal'];
   const statuses = ['All', 'Completed', 'Pending', 'Processing', 'Failed'];
 
+  // Initial fetch and when tab/filters change
   useEffect(() => {
-    if (accessToken) {
-      fetchTransactions();
+    if (_hasHydrated && accessToken) {
+      fetchTransactions(false);
+    } else if (_hasHydrated && !accessToken) {
+      setLoading(false);
     }
-  }, [accessToken, historyTab, coinFilter, methodFilter, statusFilter, startDate, endDate]);
+  }, [_hasHydrated, accessToken, historyTab, coinFilter, methodFilter, statusFilter, startDate, endDate]);
 
-  const fetchTransactions = async () => {
+  // Real-time polling for deposit history (and All when it includes deposits)
+  useEffect(() => {
+    if (!_hasHydrated || !accessToken) return;
+    const isDepositView = historyTab === 'deposit' || historyTab === 'all';
+    if (!isDepositView) return;
+
+    const hasPending = transactions.some(
+      (tx) => tx.status === 'pending' || tx.status === 'confirming' || tx.status === 'processing'
+    );
+    // Pending items: poll every 3s. Otherwise: poll every 5s for real-time new deposits
+    const intervalMs = hasPending ? 3000 : 5000;
+
+    const interval = setInterval(() => {
+      fetchTransactions(true); // silent refresh - no loading spinner
+    }, intervalMs);
+
+    return () => clearInterval(interval);
+  }, [_hasHydrated, accessToken, historyTab, transactions, coinFilter, methodFilter, statusFilter]);
+
+  const fetchTransactions = async (silentRefresh = false) => {
     try {
-      setLoading(true);
-      const params = new URLSearchParams({
-        type: historyTab,
-        ...(coinFilter !== 'all' && { coin: coinFilter }),
-        ...(methodFilter !== 'all' && { method: methodFilter }),
-        ...(statusFilter !== 'all' && { status: statusFilter }),
-        ...(startDate && { startDate }),
-        ...(endDate && { endDate }),
-      });
+      if (!silentRefresh) setLoading(true);
 
-      const res = await fetch(`${API_URL}/api/v1/wallet/history?${params}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+      let endpoint = '/api/v1/wallet/';
+      const params = new URLSearchParams();
       
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) {
-          setTransactions(data.data || []);
+      // Different endpoints for different tabs
+      if (historyTab === 'all') {
+        endpoint += 'transactions/all';
+        if (statusFilter !== 'all') params.append('status', statusFilter);
+        if (coinFilter !== 'all') params.append('coin', coinFilter);
+      } else if (historyTab === 'deposit') {
+        endpoint += 'deposit-history';
+        if (statusFilter !== 'all') params.append('status', statusFilter);
+      } else if (historyTab === 'withdraw') {
+        endpoint += 'withdrawals';
+        if (statusFilter !== 'all') params.append('status', statusFilter);
+        if (coinFilter !== 'all') params.append('coin', coinFilter);
+      } else if (historyTab === 'transfer') {
+        endpoint += 'transfer/history';
+      }
+
+      const response = await api.get<any>(`${endpoint}?${params}`);
+
+      if (response.success) {
+        let mappedData: Transaction[] = [];
+        
+        if (historyTab === 'deposit') {
+          // Deposits only - from deposit-history endpoint
+          mappedData = (response.data || []).map((d: any) => ({
+            id: d.id,
+            type: 'deposit' as const,
+            coin: d.symbol || 'Unknown',
+            coin_logo: d.logoUrl || `/assets/upload/currency-logo/${(d.symbol || 'btc').toLowerCase()}.svg`,
+            chain_type: d.chainName || 'Unknown',
+            quantity: d.amount || '0',
+            address: d.fromAddress || '',  // sender address
+            txid: d.txHash || '',
+            status: d.status || 'pending',
+            date_time: d.createdAt,
+            confirmations: d.confirmations || 0,
+            requiredConfirmations: d.requiredConfirmations || 25,
+            confirmationProgress: d.confirmationProgress || 0,
+            explorerUrl: d.explorerUrl,
+          }));
+        } else if (historyTab === 'withdraw') {
+          // Withdrawals only - already mapped by backend
+          mappedData = (response.data || []).map((w: any) => ({
+            id: w.id,
+            type: 'withdraw' as const,
+            coin: w.coin || w.symbol || 'Unknown',
+            coin_logo: w.coin_logo || `/assets/upload/currency-logo/${(w.coin || w.symbol || 'btc').toLowerCase()}.svg`,
+            chain_type: w.chain_type || 'Unknown',
+            quantity: w.quantity || w.amount || '0',
+            address: w.address || '',
+            txid: w.txid || '',
+            status: w.status || 'pending',
+            date_time: w.date_time || w.created_at,
+          }));
+        } else if (historyTab === 'transfer') {
+          // Transfers only
+          mappedData = (response.data || []).map((t: any) => ({
+            id: t.id,
+            type: 'transfer' as const,
+            coin: t.symbol || 'Unknown',
+            coin_logo: t.iconUrl || `/assets/upload/currency-logo/${(t.symbol || 'btc').toLowerCase()}.svg`,
+            chain_type: `${t.fromAccount || 'Funding'} → ${t.toAccount || 'Trading'}`,
+            quantity: t.amount || '0',
+            address: '',
+            txid: '',
+            status: t.status || 'completed',
+            date_time: t.createdAt,
+          }));
+        } else if (historyTab === 'all') {
+          // All transactions - already formatted by backend
+          mappedData = response.data || [];
         }
+        
+        setTransactions(mappedData);
+      } else {
+        // API returned error, show empty
+        setTransactions([]);
       }
     } catch (error) {
       console.error('Failed to fetch transactions:', error);
+      setTransactions([]);
     } finally {
       setLoading(false);
     }
@@ -135,9 +220,47 @@ export default function AssetHistoryPage() {
       completed: 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400',
       pending: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400',
       processing: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
+      confirming: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
       failed: 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400',
     };
     return styles[status] || styles.pending;
+  };
+
+  const renderConfirmationStatus = (tx: Transaction) => {
+    if (tx.status === 'completed') {
+      return (
+        <span className={`px-2.5 py-1 rounded-lg text-xs font-medium ${getStatusBadge('completed')}`}>
+          Completed
+        </span>
+      );
+    }
+    
+    if (tx.status === 'pending' || tx.status === 'confirming') {
+      const confirmations = tx.confirmations || 0;
+      const required = tx.requiredConfirmations || 25;
+      const progress = Math.min(100, (confirmations / required) * 100);
+      
+      return (
+        <div className="flex flex-col gap-1">
+          <span className={`px-2.5 py-1 rounded-lg text-xs font-medium inline-flex items-center gap-1 ${getStatusBadge('pending')}`}>
+            <RefreshCw className="w-3 h-3 animate-spin" />
+            {confirmations}/{required} Confirmations
+          </span>
+          <div className="w-24 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+            <div 
+              className="h-full bg-yellow-500 dark:bg-yellow-400 rounded-full transition-all duration-500"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+      );
+    }
+    
+    return (
+      <span className={`px-2.5 py-1 rounded-lg text-xs font-medium capitalize ${getStatusBadge(tx.status)}`}>
+        {tx.status}
+      </span>
+    );
   };
 
   // Set default dates (current month)
@@ -236,11 +359,29 @@ export default function AssetHistoryPage() {
 
           {/* Header */}
           <div className="flex items-center justify-between mb-6">
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Funding Account History</h1>
-            <button className="flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-[#1e2329] text-gray-700 dark:text-gray-300 font-medium text-sm rounded-xl border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors">
-              <Download className="w-4 h-4" />
-              Export
-            </button>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Funding Account History</h1>
+              {(historyTab === 'deposit' || historyTab === 'all') && (
+                <span className="px-2.5 py-1 text-xs font-medium rounded-full bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20">
+                  Live
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => fetchTransactions(false)}
+                disabled={loading}
+                className="flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-[#1e2329] text-gray-700 dark:text-gray-300 font-medium text-sm rounded-xl border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors disabled:opacity-50"
+                title="Refresh now"
+              >
+                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                Refresh
+              </button>
+              <button className="flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-[#1e2329] text-gray-700 dark:text-gray-300 font-medium text-sm rounded-xl border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors">
+                <Download className="w-4 h-4" />
+                Export
+              </button>
+            </div>
           </div>
 
           {/* Main Tabs Card */}
@@ -637,15 +778,24 @@ export default function AssetHistoryPage() {
                               </div>
                             </td>
                             <td className="px-4 py-4">
-                              <span className={`px-2.5 py-1 rounded-lg text-xs font-medium capitalize ${getStatusBadge(tx.status)}`}>
-                                {tx.status}
-                              </span>
+                              {renderConfirmationStatus(tx)}
                             </td>
                             <td className="px-4 py-4 text-sm text-gray-600 dark:text-gray-400">{formatDate(tx.date_time)}</td>
                             <td className="px-4 py-4 text-right">
-                              <button className="text-sm text-blue-500 hover:text-blue-600 font-medium">
-                                Details
-                              </button>
+                              {tx.explorerUrl ? (
+                                <a 
+                                  href={tx.explorerUrl} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="text-sm text-blue-500 hover:text-blue-600 font-medium inline-flex items-center gap-1"
+                                >
+                                  View <ExternalLink className="w-3 h-3" />
+                                </a>
+                              ) : (
+                                <button className="text-sm text-blue-500 hover:text-blue-600 font-medium">
+                                  Details
+                                </button>
+                              )}
                             </td>
                           </tr>
                         ))

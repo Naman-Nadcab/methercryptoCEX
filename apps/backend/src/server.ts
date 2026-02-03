@@ -9,6 +9,10 @@ import { config } from './config/index.js';
 import { db } from './lib/database.js';
 import { redis } from './lib/redis.js';
 import { logger } from './lib/logger.js';
+import { validateHotWalletEnv } from './lib/hot-wallet-env.js';
+import { validateRequiredTables } from './lib/validate-migrations.js';
+import { processSigningQueue } from './services/withdrawal-signing.service.js';
+import { runAutoSweep } from './services/hot-wallet-sweep.service.js';
 
 // Routes
 import authRoutes from './routes/auth.fastify.js';
@@ -51,12 +55,43 @@ export async function buildServer(): Promise<FastifyInstance> {
     trustProxy: true,
   });
 
-  // Register plugins
+  // Register plugins – CORS: allow configured origins; in dev also allow any localhost/127.0.0.1 (any port)
+  const isDev = config.env === 'development';
   await app.register(cors, {
-    origin: config.security.corsOrigins,
+    origin: (origin, cb) => {
+      if (!origin) {
+        cb(null, true);
+        return;
+      }
+      const allowed = config.security.corsOrigins;
+      if (allowed.includes('*') || allowed.includes(origin)) {
+        cb(null, true);
+        return;
+      }
+      if (isDev && (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:'))) {
+        cb(null, true);
+        return;
+      }
+      if (config.frontendUrl && origin === config.frontendUrl) {
+        cb(null, true);
+        return;
+      }
+      cb(new Error('Not allowed by CORS'), false);
+    },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Requested-With',
+      'Accept',
+      'Origin',
+      'Accept-Encoding',
+      'Accept-Language',
+    ],
+    exposedHeaders: ['Content-Length', 'Content-Type'],
+    preflightContinue: false,
+    optionsSuccessStatus: 204,
   });
 
   await app.register(helmet, {
@@ -164,11 +199,18 @@ async function start() {
     logger.info('Starting Crypto Exchange Backend (Fastify)...');
 
     // Connect to services
-    await redis.connect();
-    logger.info('✓ Redis connected');
+    try {
+      await redis.connect();
+      logger.info('✓ Redis connected');
+    } catch (err) {
+      logger.warn('Redis unavailable; server will run with DB-only session fallback for admin. Start Redis for full features.');
+    }
 
     await db.query('SELECT 1');
     logger.info('✓ Database connected');
+
+    validateHotWalletEnv();
+    await validateRequiredTables();
 
     const app = await buildServer();
 
@@ -176,6 +218,9 @@ async function start() {
     logger.info(`🚀 Server running on port ${config.port}`);
     logger.info(`   Environment: ${config.env}`);
     logger.info(`   API Version: ${config.apiVersion}`);
+
+    setInterval(() => processSigningQueue().catch((err) => logger.error('Signing queue error', { error: err instanceof Error ? err.message : 'Unknown' })), 5000);
+    setInterval(() => runAutoSweep().catch((err) => logger.error('Auto-sweep error', { error: err instanceof Error ? err.message : 'Unknown' })), 60_000);
 
   } catch (error) {
     logger.error('Failed to start server', { error: error instanceof Error ? error.message : 'Unknown' });

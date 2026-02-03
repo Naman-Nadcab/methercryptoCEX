@@ -44,7 +44,10 @@ const migrations = [
 
   `CREATE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE deleted_at IS NULL;`,
   `CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone) WHERE deleted_at IS NULL;`,
-  `CREATE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code);`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code VARCHAR(10);`,
+  `UPDATE users SET referral_code = 'R' || substr(replace(id::text, '-', ''), 1, 9) WHERE referral_code IS NULL OR referral_code = '';`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code) WHERE referral_code IS NOT NULL;`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by UUID REFERENCES users(id);`,
   `CREATE INDEX IF NOT EXISTS idx_users_referred_by ON users(referred_by);`,
   `CREATE INDEX IF NOT EXISTS idx_users_status ON users(status) WHERE deleted_at IS NULL;`,
 
@@ -206,11 +209,32 @@ const migrations = [
     uploaded_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
   );`,
 
-  `CREATE INDEX IF NOT EXISTS idx_kyc_documents_record_id ON kyc_documents(kyc_record_id);`,
+  `ALTER TABLE kyc_documents ADD COLUMN IF NOT EXISTS kyc_record_id UUID REFERENCES kyc_records(id) ON DELETE CASCADE;`,
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'kyc_documents' AND column_name = 'kyc_record_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_kyc_documents_record_id ON kyc_documents(kyc_record_id);
+    END IF;
+  END $$;`,
 
   // ============================================
-  // CHAINS TABLE
+  // CHAINS + TOKENS AS TABLES (not views)
+  // Exchange requires chains/tokens to be TABLES. If they exist as VIEWs,
+  // CREATE TABLE IF NOT EXISTS would do nothing and wallet APIs would fail.
+  // We drop the views (tokens first, then chains) only when they are views;
+  // tables are left unchanged. Backup view definitions elsewhere if needed.
   // ============================================
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'tokens' AND c.relkind = 'v') THEN
+      DROP VIEW IF EXISTS tokens CASCADE;
+      RAISE NOTICE 'Dropped view tokens so migrations can create tokens table.';
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'chains' AND c.relkind = 'v') THEN
+      DROP VIEW IF EXISTS chains CASCADE;
+      RAISE NOTICE 'Dropped view chains so migrations can create chains table.';
+    END IF;
+  END $$;`,
   `CREATE TABLE IF NOT EXISTS chains (
     id VARCHAR(20) PRIMARY KEY,
     name VARCHAR(50) NOT NULL,
@@ -250,8 +274,19 @@ const migrations = [
     UNIQUE(chain_id, symbol, is_native)
   );`,
 
-  `CREATE INDEX IF NOT EXISTS idx_tokens_chain_id ON tokens(chain_id) WHERE is_active = TRUE;`,
-  `CREATE INDEX IF NOT EXISTS idx_tokens_symbol ON tokens(symbol);`,
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'tokens' AND c.relkind = 'r') THEN
+      ALTER TABLE tokens ADD COLUMN IF NOT EXISTS chain_id VARCHAR(20) REFERENCES chains(id);
+      ALTER TABLE tokens ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+      IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'tokens' AND column_name = 'chain_id') AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'tokens' AND column_name = 'is_active') THEN
+        CREATE INDEX IF NOT EXISTS idx_tokens_chain_id ON tokens(chain_id) WHERE is_active = TRUE;
+      END IF;
+      IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'tokens' AND column_name = 'symbol') THEN
+        CREATE INDEX IF NOT EXISTS idx_tokens_symbol ON tokens(symbol);
+      END IF;
+    END IF;
+  END $$;`,
 
   // ============================================
   // USER MASTER KEYS TABLE (for HD wallet derivation)
@@ -284,8 +319,53 @@ const migrations = [
     UNIQUE(chain_id, address)
   );`,
 
-  `CREATE INDEX IF NOT EXISTS idx_wallets_user_id ON wallets(user_id);`,
-  `CREATE INDEX IF NOT EXISTS idx_wallets_address ON wallets(chain_id, address);`,
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'wallets' AND c.relkind = 'r') THEN
+      CREATE INDEX IF NOT EXISTS idx_wallets_user_id ON wallets(user_id);
+      CREATE INDEX IF NOT EXISTS idx_wallets_address ON wallets(chain_id, address);
+    END IF;
+  END $$;`,
+
+  // User deposit addresses are immutable: do not allow changing address once set (change only via code)
+  `CREATE OR REPLACE FUNCTION prevent_wallets_address_change()
+  RETURNS TRIGGER AS $$
+  BEGIN
+    IF OLD.address IS DISTINCT FROM NEW.address THEN
+      RAISE EXCEPTION 'wallets.address is immutable: user deposit address must not be changed once set';
+    END IF;
+    RETURN NEW;
+  END;
+  $$ LANGUAGE plpgsql;`,
+  `DROP TRIGGER IF EXISTS trg_prevent_wallets_address_change ON wallets;
+   CREATE TRIGGER trg_prevent_wallets_address_change
+   BEFORE UPDATE ON wallets
+   FOR EACH ROW EXECUTE FUNCTION prevent_wallets_address_change();`,
+
+  // Fix: wallets.chain_id must be VARCHAR (chain ids like 'bsc', 'ethereum'), not UUID
+  `DO $$
+  DECLARE
+    col_type text;
+    conname text;
+  BEGIN
+    SELECT data_type INTO col_type
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'wallets' AND column_name = 'chain_id';
+    IF col_type = 'uuid' THEN
+      SELECT c.conname INTO conname FROM pg_constraint c
+      JOIN pg_class t ON c.conrelid = t.oid
+      WHERE t.relname = 'wallets' AND c.contype = 'f' AND c.conkey @> ARRAY(
+        (SELECT attnum FROM pg_attribute WHERE attrelid = (SELECT oid FROM pg_class WHERE relname = 'wallets') AND attname = 'chain_id' AND NOT attisdropped)
+      ) LIMIT 1;
+      IF conname IS NOT NULL THEN
+        EXECUTE format('ALTER TABLE wallets DROP CONSTRAINT IF EXISTS %I', conname);
+      END IF;
+      ALTER TABLE wallets ALTER COLUMN chain_id TYPE VARCHAR(20) USING chain_id::text;
+      ALTER TABLE wallets ADD CONSTRAINT wallets_chain_id_fkey FOREIGN KEY (chain_id) REFERENCES chains(id);
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    NULL;
+  END $$;`,
 
   // ============================================
   // BALANCES TABLE
@@ -300,8 +380,13 @@ const migrations = [
     UNIQUE(user_id, token_id)
   );`,
 
-  `CREATE INDEX IF NOT EXISTS idx_balances_user_id ON balances(user_id);`,
-  `CREATE INDEX IF NOT EXISTS idx_balances_token_id ON balances(token_id);`,
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'balances' AND c.relkind = 'r') THEN
+      CREATE INDEX IF NOT EXISTS idx_balances_user_id ON balances(user_id);
+      CREATE INDEX IF NOT EXISTS idx_balances_token_id ON balances(token_id);
+    END IF;
+  END $$;`,
 
   // ============================================
   // TRADING PAIRS TABLE
@@ -323,7 +408,12 @@ const migrations = [
     UNIQUE(base_token_id, quote_token_id)
   );`,
 
-  `CREATE INDEX IF NOT EXISTS idx_trading_pairs_symbol ON trading_pairs(symbol) WHERE is_active = TRUE;`,
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'trading_pairs' AND c.relkind = 'r') THEN
+      CREATE INDEX IF NOT EXISTS idx_trading_pairs_symbol ON trading_pairs(symbol) WHERE is_active = TRUE;
+    END IF;
+  END $$;`,
 
   // ============================================
   // ORDERS TABLE
@@ -352,18 +442,20 @@ const migrations = [
     cancelled_at TIMESTAMP WITH TIME ZONE
   );`,
 
-  `CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);`,
-  `CREATE INDEX IF NOT EXISTS idx_orders_pair_id ON orders(pair_id);`,
-  `CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);`,
-  `CREATE INDEX IF NOT EXISTS idx_orders_open ON orders(pair_id, side, price) WHERE status IN ('open', 'partially_filled');`,
-  `CREATE INDEX IF NOT EXISTS idx_orders_user_open ON orders(user_id, status) WHERE status IN ('open', 'partially_filled');`,
-  `CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at DESC);`,
-  `CREATE INDEX IF NOT EXISTS idx_orders_client_order_id ON orders(user_id, client_order_id);`,
-
-  `DROP TRIGGER IF EXISTS update_orders_updated_at ON orders;
-   CREATE TRIGGER update_orders_updated_at
-   BEFORE UPDATE ON orders
-   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();`,
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'orders' AND c.relkind = 'r') THEN
+      CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
+      CREATE INDEX IF NOT EXISTS idx_orders_pair_id ON orders(pair_id);
+      CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+      CREATE INDEX IF NOT EXISTS idx_orders_open ON orders(pair_id, side, price) WHERE status IN ('open', 'partially_filled');
+      CREATE INDEX IF NOT EXISTS idx_orders_user_open ON orders(user_id, status) WHERE status IN ('open', 'partially_filled');
+      CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_orders_client_order_id ON orders(user_id, client_order_id);
+      DROP TRIGGER IF EXISTS update_orders_updated_at ON orders;
+      CREATE TRIGGER update_orders_updated_at BEFORE UPDATE ON orders FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    END IF;
+  END $$;`,
 
   // ============================================
   // TRADES TABLE
@@ -384,11 +476,16 @@ const migrations = [
     executed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
   );`,
 
-  `CREATE INDEX IF NOT EXISTS idx_trades_pair_id ON trades(pair_id);`,
-  `CREATE INDEX IF NOT EXISTS idx_trades_buyer_id ON trades(buyer_id);`,
-  `CREATE INDEX IF NOT EXISTS idx_trades_seller_id ON trades(seller_id);`,
-  `CREATE INDEX IF NOT EXISTS idx_trades_executed_at ON trades(executed_at DESC);`,
-  `CREATE INDEX IF NOT EXISTS idx_trades_pair_executed ON trades(pair_id, executed_at DESC);`,
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'trades' AND c.relkind = 'r') THEN
+      CREATE INDEX IF NOT EXISTS idx_trades_pair_id ON trades(pair_id);
+      CREATE INDEX IF NOT EXISTS idx_trades_buyer_id ON trades(buyer_id);
+      CREATE INDEX IF NOT EXISTS idx_trades_seller_id ON trades(seller_id);
+      CREATE INDEX IF NOT EXISTS idx_trades_executed_at ON trades(executed_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_trades_pair_executed ON trades(pair_id, executed_at DESC);
+    END IF;
+  END $$;`,
 
   // ============================================
   // PAYMENT METHODS TABLE
@@ -405,7 +502,12 @@ const migrations = [
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
   );`,
 
-  `CREATE INDEX IF NOT EXISTS idx_payment_methods_user_id ON payment_methods(user_id) WHERE is_active = TRUE;`,
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'payment_methods' AND c.relkind = 'r') THEN
+      CREATE INDEX IF NOT EXISTS idx_payment_methods_user_id ON payment_methods(user_id) WHERE is_active = TRUE;
+    END IF;
+  END $$;`,
 
   // ============================================
   // P2P ADS TABLE
@@ -435,28 +537,56 @@ const migrations = [
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
   );`,
 
-  `CREATE INDEX IF NOT EXISTS idx_p2p_ads_user_id ON p2p_ads(user_id);`,
-  `CREATE INDEX IF NOT EXISTS idx_p2p_ads_type ON p2p_ads(type, status) WHERE status = 'active';`,
-  `CREATE INDEX IF NOT EXISTS idx_p2p_ads_token ON p2p_ads(token_id, fiat_currency, status) WHERE status = 'active';`,
-  `CREATE INDEX IF NOT EXISTS idx_p2p_ads_price ON p2p_ads(price) WHERE status = 'active';`,
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'p2p_ads' AND c.relkind = 'r') THEN
+      BEGIN CREATE INDEX IF NOT EXISTS idx_p2p_ads_user_id ON p2p_ads(user_id); EXCEPTION WHEN OTHERS THEN NULL; END;
+      BEGIN CREATE INDEX IF NOT EXISTS idx_p2p_ads_type ON p2p_ads(type, status) WHERE status = 'active'; EXCEPTION WHEN OTHERS THEN NULL; END;
+      BEGIN CREATE INDEX IF NOT EXISTS idx_p2p_ads_token ON p2p_ads(token_id, fiat_currency, status) WHERE status = 'active'; EXCEPTION WHEN OTHERS THEN NULL; END;
+      BEGIN CREATE INDEX IF NOT EXISTS idx_p2p_ads_price ON p2p_ads(price) WHERE status = 'active'; EXCEPTION WHEN OTHERS THEN NULL; END;
+    END IF;
+  END $$;`,
 
   // ============================================
-  // ESCROWS TABLE
+  // ESCROWS TABLE (create without tokens FK if tokens is a view)
   // ============================================
-  `CREATE TABLE IF NOT EXISTS escrows (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES users(id),
-    token_id UUID NOT NULL REFERENCES tokens(id),
-    amount DECIMAL(36,18) NOT NULL,
-    status VARCHAR(20) NOT NULL DEFAULT 'locked' 
-      CHECK (status IN ('locked', 'released', 'refunded')),
-    locked_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    released_at TIMESTAMP WITH TIME ZONE,
-    refunded_at TIMESTAMP WITH TIME ZONE
-  );`,
+  `DO $$
+  DECLARE
+    tokens_is_table BOOLEAN;
+  BEGIN
+    SELECT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'tokens' AND c.relkind = 'r') INTO tokens_is_table;
+    IF tokens_is_table THEN
+      CREATE TABLE IF NOT EXISTS escrows (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        user_id UUID NOT NULL REFERENCES users(id),
+        token_id UUID NOT NULL REFERENCES tokens(id),
+        amount DECIMAL(36,18) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'locked' CHECK (status IN ('locked', 'released', 'refunded')),
+        locked_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        released_at TIMESTAMP WITH TIME ZONE,
+        refunded_at TIMESTAMP WITH TIME ZONE
+      );
+    ELSE
+      CREATE TABLE IF NOT EXISTS escrows (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        user_id UUID NOT NULL REFERENCES users(id),
+        token_id UUID NOT NULL,
+        amount DECIMAL(36,18) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'locked' CHECK (status IN ('locked', 'released', 'refunded')),
+        locked_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        released_at TIMESTAMP WITH TIME ZONE,
+        refunded_at TIMESTAMP WITH TIME ZONE
+      );
+    END IF;
+  END $$;`,
 
-  `CREATE INDEX IF NOT EXISTS idx_escrows_user_id ON escrows(user_id);`,
-  `CREATE INDEX IF NOT EXISTS idx_escrows_status ON escrows(status) WHERE status = 'locked';`,
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'escrows' AND c.relkind = 'r') THEN
+      CREATE INDEX IF NOT EXISTS idx_escrows_user_id ON escrows(user_id);
+      CREATE INDEX IF NOT EXISTS idx_escrows_status ON escrows(status) WHERE status = 'locked';
+    END IF;
+  END $$;`,
 
   // ============================================
   // P2P ORDERS TABLE
@@ -484,11 +614,20 @@ const migrations = [
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
   );`,
 
-  `CREATE INDEX IF NOT EXISTS idx_p2p_orders_ad_id ON p2p_orders(ad_id);`,
-  `CREATE INDEX IF NOT EXISTS idx_p2p_orders_buyer_id ON p2p_orders(buyer_id);`,
-  `CREATE INDEX IF NOT EXISTS idx_p2p_orders_seller_id ON p2p_orders(seller_id);`,
-  `CREATE INDEX IF NOT EXISTS idx_p2p_orders_status ON p2p_orders(status);`,
-  `CREATE INDEX IF NOT EXISTS idx_p2p_orders_expires ON p2p_orders(expires_at) WHERE status IN ('pending', 'payment_pending');`,
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'p2p_orders' AND c.relkind = 'r') THEN
+      BEGIN CREATE INDEX IF NOT EXISTS idx_p2p_orders_ad_id ON p2p_orders(ad_id); EXCEPTION WHEN OTHERS THEN NULL; END;
+      BEGIN CREATE INDEX IF NOT EXISTS idx_p2p_orders_buyer_id ON p2p_orders(buyer_id); EXCEPTION WHEN OTHERS THEN NULL; END;
+      BEGIN CREATE INDEX IF NOT EXISTS idx_p2p_orders_seller_id ON p2p_orders(seller_id); EXCEPTION WHEN OTHERS THEN NULL; END;
+      BEGIN CREATE INDEX IF NOT EXISTS idx_p2p_orders_status ON p2p_orders(status); EXCEPTION WHEN OTHERS THEN NULL; END;
+      BEGIN
+        CREATE INDEX IF NOT EXISTS idx_p2p_orders_expires ON p2p_orders(expires_at) WHERE status IN ('pending', 'payment_pending');
+      EXCEPTION WHEN OTHERS THEN
+        BEGIN CREATE INDEX IF NOT EXISTS idx_p2p_orders_expires ON p2p_orders(expires_at); EXCEPTION WHEN OTHERS THEN NULL; END;
+      END;
+    END IF;
+  END $$;`,
 
   // ============================================
   // P2P DISPUTES TABLE
@@ -509,44 +648,66 @@ const migrations = [
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
   );`,
 
-  `CREATE INDEX IF NOT EXISTS idx_p2p_disputes_order_id ON p2p_disputes(order_id);`,
-  `CREATE INDEX IF NOT EXISTS idx_p2p_disputes_status ON p2p_disputes(status) WHERE status IN ('open', 'under_review');`,
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'p2p_disputes' AND c.relkind = 'r') THEN
+      CREATE INDEX IF NOT EXISTS idx_p2p_disputes_order_id ON p2p_disputes(order_id);
+      CREATE INDEX IF NOT EXISTS idx_p2p_disputes_status ON p2p_disputes(status) WHERE status IN ('open', 'under_review');
+    END IF;
+  END $$;`,
 
   // ============================================
-  // TRANSACTIONS TABLE
+  // TRANSACTIONS TABLE (optional FKs when tokens/chains are views)
   // ============================================
-  `CREATE TABLE IF NOT EXISTS transactions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES users(id),
-    token_id UUID NOT NULL REFERENCES tokens(id),
-    type VARCHAR(30) NOT NULL
-      CHECK (type IN ('deposit', 'withdrawal', 'trade', 'fee', 'p2p_escrow_lock', 'p2p_escrow_release', 'p2p_escrow_refund', 'referral_reward', 'airdrop', 'adjustment')),
-    status VARCHAR(20) NOT NULL DEFAULT 'pending'
-      CHECK (status IN ('pending', 'confirming', 'completed', 'failed', 'cancelled')),
-    amount DECIMAL(36,18) NOT NULL,
-    fee DECIMAL(36,18),
-    tx_hash VARCHAR(100),
-    chain_id VARCHAR(20) REFERENCES chains(id),
-    from_address VARCHAR(100),
-    to_address VARCHAR(100),
-    confirmations INTEGER NOT NULL DEFAULT 0,
-    required_confirmations INTEGER NOT NULL DEFAULT 0,
-    memo TEXT,
-    reference_id UUID,
-    reference_type VARCHAR(30),
-    metadata JSONB,
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    completed_at TIMESTAMP WITH TIME ZONE
-  );`,
+  `DO $$
+  DECLARE
+    tokens_is_table BOOLEAN;
+    chains_is_table BOOLEAN;
+    token_ref TEXT;
+    chain_ref TEXT;
+    q TEXT;
+  BEGIN
+    SELECT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'tokens' AND c.relkind = 'r') INTO tokens_is_table;
+    SELECT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'chains' AND c.relkind = 'r') INTO chains_is_table;
+    token_ref := CASE WHEN tokens_is_table THEN ' REFERENCES tokens(id)' ELSE '' END;
+    chain_ref := CASE WHEN chains_is_table THEN ' REFERENCES chains(id)' ELSE '' END;
+    q := 'CREATE TABLE IF NOT EXISTS transactions (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      user_id UUID NOT NULL REFERENCES users(id),
+      token_id UUID NOT NULL' || token_ref || ',
+      type VARCHAR(30) NOT NULL CHECK (type IN (''deposit'', ''withdrawal'', ''trade'', ''fee'', ''p2p_escrow_lock'', ''p2p_escrow_release'', ''p2p_escrow_refund'', ''referral_reward'', ''airdrop'', ''adjustment'')),
+      status VARCHAR(20) NOT NULL DEFAULT ''pending'' CHECK (status IN (''pending'', ''confirming'', ''completed'', ''failed'', ''cancelled'')),
+      amount DECIMAL(36,18) NOT NULL,
+      fee DECIMAL(36,18),
+      tx_hash VARCHAR(100),
+      chain_id VARCHAR(20)' || chain_ref || ',
+      from_address VARCHAR(100),
+      to_address VARCHAR(100),
+      confirmations INTEGER NOT NULL DEFAULT 0,
+      required_confirmations INTEGER NOT NULL DEFAULT 0,
+      memo TEXT,
+      reference_id UUID,
+      reference_type VARCHAR(30),
+      metadata JSONB,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      completed_at TIMESTAMP WITH TIME ZONE
+    )';
+    EXECUTE q;
+  END $$;`,
 
-  `CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id);`,
-  `CREATE INDEX IF NOT EXISTS idx_transactions_token_id ON transactions(token_id);`,
-  `CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type);`,
-  `CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(status);`,
-  `CREATE INDEX IF NOT EXISTS idx_transactions_tx_hash ON transactions(tx_hash) WHERE tx_hash IS NOT NULL;`,
-  `CREATE INDEX IF NOT EXISTS idx_transactions_created_at ON transactions(created_at DESC);`,
-  `CREATE INDEX IF NOT EXISTS idx_transactions_pending ON transactions(chain_id, status) WHERE status IN ('pending', 'confirming');`,
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'transactions' AND c.relkind = 'r') THEN
+      CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id);
+      CREATE INDEX IF NOT EXISTS idx_transactions_token_id ON transactions(token_id);
+      CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type);
+      CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(status);
+      CREATE INDEX IF NOT EXISTS idx_transactions_tx_hash ON transactions(tx_hash) WHERE tx_hash IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_transactions_created_at ON transactions(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_transactions_pending ON transactions(chain_id, status) WHERE status IN ('pending', 'confirming');
+    END IF;
+  END $$;`,
 
   // ============================================
   // AUDIT LOGS TABLE
@@ -563,31 +724,55 @@ const migrations = [
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
   );`,
 
-  `CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);`,
-  `CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);`,
-  `CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC);`,
-  `CREATE INDEX IF NOT EXISTS idx_audit_logs_resource ON audit_logs(resource_type, resource_id);`,
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'audit_logs' AND c.relkind = 'r') THEN
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_resource ON audit_logs(resource_type, resource_id);
+    END IF;
+  END $$;`,
 
   // Partition audit logs by month (for production scale)
   // `CREATE TABLE audit_logs_y2024m01 PARTITION OF audit_logs FOR VALUES FROM ('2024-01-01') TO ('2024-02-01');`,
 
   // ============================================
-  // REFERRAL REWARDS TABLE
+  // REFERRAL REWARDS TABLE (optional FKs when trades/tokens are views)
   // ============================================
-  `CREATE TABLE IF NOT EXISTS referral_rewards (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    referrer_id UUID NOT NULL REFERENCES users(id),
-    referee_id UUID NOT NULL REFERENCES users(id),
-    trade_id UUID REFERENCES trades(id),
-    reward_amount DECIMAL(36,18) NOT NULL,
-    token_id UUID NOT NULL REFERENCES tokens(id),
-    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'credited', 'failed')),
-    credited_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );`,
+  `DO $$
+  DECLARE
+    trades_is_table BOOLEAN;
+    tokens_is_table BOOLEAN;
+    trade_ref TEXT;
+    token_ref TEXT;
+    q TEXT;
+  BEGIN
+    SELECT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'trades' AND c.relkind = 'r') INTO trades_is_table;
+    SELECT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'tokens' AND c.relkind = 'r') INTO tokens_is_table;
+    trade_ref := CASE WHEN trades_is_table THEN ' REFERENCES trades(id)' ELSE '' END;
+    token_ref := CASE WHEN tokens_is_table THEN ' REFERENCES tokens(id)' ELSE '' END;
+    q := 'CREATE TABLE IF NOT EXISTS referral_rewards (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      referrer_id UUID NOT NULL REFERENCES users(id),
+      referee_id UUID NOT NULL REFERENCES users(id),
+      trade_id UUID' || trade_ref || ',
+      reward_amount DECIMAL(36,18) NOT NULL,
+      token_id UUID NOT NULL' || token_ref || ',
+      status VARCHAR(20) NOT NULL DEFAULT ''pending'' CHECK (status IN (''pending'', ''credited'', ''failed'')),
+      credited_at TIMESTAMP WITH TIME ZONE,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )';
+    EXECUTE q;
+  END $$;`,
 
-  `CREATE INDEX IF NOT EXISTS idx_referral_rewards_referrer ON referral_rewards(referrer_id);`,
-  `CREATE INDEX IF NOT EXISTS idx_referral_rewards_referee ON referral_rewards(referee_id);`,
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'referral_rewards' AND c.relkind = 'r') THEN
+      CREATE INDEX IF NOT EXISTS idx_referral_rewards_referrer ON referral_rewards(referrer_id);
+      CREATE INDEX IF NOT EXISTS idx_referral_rewards_referee ON referral_rewards(referee_id);
+    END IF;
+  END $$;`,
 
   // ============================================
   // RATE LIMITS TABLE
@@ -621,45 +806,73 @@ const migrations = [
   // INSERT DEFAULT DATA
   // ============================================
   
-  // Insert chains
+  // Insert chains (idempotent). Skip or use minimal columns if chains is a view or has different schema.
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'chains' AND column_name = 'confirmations_required') THEN
+      INSERT INTO chains (id, name, type, native_currency, decimals, rpc_url, explorer_url, confirmations_required, avg_block_time)
+      VALUES
+        ('eth', 'Ethereum', 'evm', 'ETH', 18, 'https://eth-mainnet.g.alchemy.com/v2/demo', 'https://etherscan.io', 12, 12),
+        ('ethereum', 'Ethereum', 'evm', 'ETH', 18, 'https://eth-mainnet.g.alchemy.com/v2/demo', 'https://etherscan.io', 12, 12),
+        ('bsc', 'BNB Smart Chain', 'evm', 'BNB', 18, 'https://bsc-dataseed.binance.org', 'https://bscscan.com', 15, 3),
+        ('polygon', 'Polygon', 'evm', 'MATIC', 18, 'https://polygon-rpc.com', 'https://polygonscan.com', 128, 2),
+        ('arbitrum', 'Arbitrum One', 'evm', 'ETH', 18, 'https://arb1.arbitrum.io/rpc', 'https://arbiscan.io', 12, 1),
+        ('optimism', 'Optimism', 'evm', 'ETH', 18, 'https://mainnet.optimism.io', 'https://optimistic.etherscan.io', 12, 2),
+        ('base', 'Base', 'evm', 'ETH', 18, 'https://mainnet.base.org', 'https://basescan.org', 12, 2),
+        ('solana', 'Solana', 'solana', 'SOL', 9, 'https://api.mainnet-beta.solana.com', 'https://solscan.io', 32, 1),
+        ('tron', 'Tron', 'tron', 'TRX', 6, 'https://api.trongrid.io', 'https://tronscan.org', 19, 3),
+        ('bitcoin', 'Bitcoin', 'bitcoin', 'BTC', 8, 'http://localhost:8332', 'https://blockstream.info', 6, 600)
+      ON CONFLICT (id) DO NOTHING;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    NULL;
+  END $$;`,
+
+  // Add polkadot to chains type and insert Polkadot chain
+  `DO $$
+  DECLARE
+    conname text;
+  BEGIN
+    SELECT c.conname INTO conname FROM pg_constraint c
+    JOIN pg_class t ON c.conrelid = t.oid
+    WHERE t.relname = 'chains' AND c.contype = 'c' AND c.conname LIKE '%type%' LIMIT 1;
+    IF conname IS NOT NULL THEN
+      EXECUTE format('ALTER TABLE chains DROP CONSTRAINT IF EXISTS %I', conname);
+    END IF;
+    ALTER TABLE chains ADD CONSTRAINT chains_type_check CHECK (type IN ('evm', 'solana', 'tron', 'bitcoin', 'polkadot'));
+  EXCEPTION WHEN duplicate_object THEN
+    NULL;
+  END $$;`,
   `INSERT INTO chains (id, name, type, native_currency, decimals, rpc_url, explorer_url, confirmations_required, avg_block_time)
-   VALUES 
-     ('ethereum', 'Ethereum', 'evm', 'ETH', 18, 'https://eth-mainnet.g.alchemy.com/v2/demo', 'https://etherscan.io', 12, 12),
-     ('bsc', 'BNB Smart Chain', 'evm', 'BNB', 18, 'https://bsc-dataseed.binance.org', 'https://bscscan.com', 15, 3),
-     ('polygon', 'Polygon', 'evm', 'MATIC', 18, 'https://polygon-rpc.com', 'https://polygonscan.com', 128, 2),
-     ('arbitrum', 'Arbitrum One', 'evm', 'ETH', 18, 'https://arb1.arbitrum.io/rpc', 'https://arbiscan.io', 12, 1),
-     ('optimism', 'Optimism', 'evm', 'ETH', 18, 'https://mainnet.optimism.io', 'https://optimistic.etherscan.io', 12, 2),
-     ('base', 'Base', 'evm', 'ETH', 18, 'https://mainnet.base.org', 'https://basescan.org', 12, 2),
-     ('solana', 'Solana', 'solana', 'SOL', 9, 'https://api.mainnet-beta.solana.com', 'https://solscan.io', 32, 1),
-     ('tron', 'Tron', 'tron', 'TRX', 6, 'https://api.trongrid.io', 'https://tronscan.org', 19, 3),
-     ('bitcoin', 'Bitcoin', 'bitcoin', 'BTC', 8, 'http://localhost:8332', 'https://blockstream.info', 6, 600)
+   VALUES ('polkadot', 'Polkadot', 'polkadot', 'DOT', 10, 'https://rpc.polkadot.io', 'https://polkascan.io/polkadot', 12, 6)
    ON CONFLICT (id) DO NOTHING;`,
 
-  // Insert tokens (native + major stablecoins)
-  `INSERT INTO tokens (id, symbol, name, chain_id, contract_address, decimals, is_active, is_native, min_deposit, min_withdrawal, withdrawal_fee)
-   VALUES
-     -- Native tokens
-     (uuid_generate_v4(), 'ETH', 'Ethereum', 'ethereum', NULL, 18, true, true, 0.001, 0.001, 0.0005),
-     (uuid_generate_v4(), 'BNB', 'BNB', 'bsc', NULL, 18, true, true, 0.01, 0.01, 0.0005),
-     (uuid_generate_v4(), 'MATIC', 'Polygon', 'polygon', NULL, 18, true, true, 1, 1, 0.1),
-     (uuid_generate_v4(), 'SOL', 'Solana', 'solana', NULL, 9, true, true, 0.01, 0.01, 0.001),
-     (uuid_generate_v4(), 'TRX', 'Tron', 'tron', NULL, 6, true, true, 10, 10, 1),
-     (uuid_generate_v4(), 'BTC', 'Bitcoin', 'bitcoin', NULL, 8, true, true, 0.0001, 0.0001, 0.00005),
-     
-     -- USDT on different chains
-     (uuid_generate_v4(), 'USDT', 'Tether USD', 'ethereum', '0xdAC17F958D2ee523a2206206994597C13D831ec7', 6, true, false, 10, 10, 5),
-     (uuid_generate_v4(), 'USDT', 'Tether USD', 'bsc', '0x55d398326f99059fF775485246999027B3197955', 18, true, false, 10, 10, 1),
-     (uuid_generate_v4(), 'USDT', 'Tether USD', 'polygon', '0xc2132D05D31c914a87C6611C10748AEb04B58e8F', 6, true, false, 10, 10, 1),
-     (uuid_generate_v4(), 'USDT', 'Tether USD', 'tron', 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t', 6, true, false, 10, 10, 1),
-     (uuid_generate_v4(), 'USDT', 'Tether USD', 'arbitrum', '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9', 6, true, false, 10, 10, 1),
-     
-     -- USDC on different chains
-     (uuid_generate_v4(), 'USDC', 'USD Coin', 'ethereum', '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', 6, true, false, 10, 10, 5),
-     (uuid_generate_v4(), 'USDC', 'USD Coin', 'bsc', '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d', 18, true, false, 10, 10, 1),
-     (uuid_generate_v4(), 'USDC', 'USD Coin', 'polygon', '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174', 6, true, false, 10, 10, 1),
-     (uuid_generate_v4(), 'USDC', 'USD Coin', 'arbitrum', '0xaf88d065e77c8cC2239327C5EDb3A432268e5831', 6, true, false, 10, 10, 1),
-     (uuid_generate_v4(), 'USDC', 'USD Coin', 'base', '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', 6, true, false, 10, 10, 1)
-   ON CONFLICT DO NOTHING;`,
+  // Insert tokens (native + major stablecoins). Skip if tokens is a view or schema differs.
+  `DO $$
+  BEGIN
+    INSERT INTO tokens (id, symbol, name, chain_id, contract_address, decimals, is_active, is_native, min_deposit, min_withdrawal, withdrawal_fee)
+    VALUES
+      (uuid_generate_v4(), 'ETH', 'Ethereum', 'ethereum', NULL, 18, true, true, 0.001, 0.001, 0.0005),
+      (uuid_generate_v4(), 'BNB', 'BNB', 'bsc', NULL, 18, true, true, 0.01, 0.01, 0.0005),
+      (uuid_generate_v4(), 'MATIC', 'Polygon', 'polygon', NULL, 18, true, true, 1, 1, 0.1),
+      (uuid_generate_v4(), 'SOL', 'Solana', 'solana', NULL, 9, true, true, 0.01, 0.01, 0.001),
+      (uuid_generate_v4(), 'TRX', 'Tron', 'tron', NULL, 6, true, true, 10, 10, 1),
+      (uuid_generate_v4(), 'BTC', 'Bitcoin', 'bitcoin', NULL, 8, true, true, 0.0001, 0.0001, 0.00005),
+      (uuid_generate_v4(), 'USDT', 'Tether USD', 'ethereum', '0xdAC17F958D2ee523a2206206994597C13D831ec7', 6, true, false, 10, 10, 5),
+      (uuid_generate_v4(), 'USDT', 'Tether USD', 'bsc', '0x55d398326f99059fF775485246999027B3197955', 18, true, false, 10, 10, 1),
+      (uuid_generate_v4(), 'USDT', 'Tether USD', 'polygon', '0xc2132D05D31c914a87C6611C10748AEb04B58e8F', 6, true, false, 10, 10, 1),
+      (uuid_generate_v4(), 'USDT', 'Tether USD', 'tron', 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t', 6, true, false, 10, 10, 1),
+      (uuid_generate_v4(), 'USDT', 'Tether USD', 'arbitrum', '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9', 6, true, false, 10, 10, 1),
+      (uuid_generate_v4(), 'USDC', 'USD Coin', 'ethereum', '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', 6, true, false, 10, 10, 5),
+      (uuid_generate_v4(), 'USDC', 'USD Coin', 'bsc', '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d', 18, true, false, 10, 10, 1),
+      (uuid_generate_v4(), 'USDC', 'USD Coin', 'polygon', '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174', 6, true, false, 10, 10, 1),
+      (uuid_generate_v4(), 'USDC', 'USD Coin', 'arbitrum', '0xaf88d065e77c8cC2239327C5EDb3A432268e5831', 6, true, false, 10, 10, 1),
+      (uuid_generate_v4(), 'USDC', 'USD Coin', 'base', '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', 6, true, false, 10, 10, 1),
+      (uuid_generate_v4(), 'DOT', 'Polkadot', 'polkadot', NULL, 10, true, true, 0.1, 0.1, 0.01)
+    ON CONFLICT DO NOTHING;
+  EXCEPTION WHEN OTHERS THEN
+    NULL;
+  END $$;`,
 
   // Insert default system settings
   `INSERT INTO system_settings (key, value, description)
@@ -717,6 +930,311 @@ const migrations = [
   );`,
 
   `CREATE INDEX IF NOT EXISTS idx_feature_toggles_key ON feature_toggles(feature_key);`,
+
+  // Backfill currencies so deposits.currency_id exists (avoids user_balances_currency_id_fkey)
+  `DO $$
+  DECLARE
+    has_ub int; has_c int; has_d int; has_t int;
+  BEGIN
+    SELECT COUNT(*) INTO has_ub FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_balances';
+    SELECT COUNT(*) INTO has_c FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'currencies';
+    SELECT COUNT(*) INTO has_d FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'deposits';
+    SELECT COUNT(*) INTO has_t FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'tokens';
+    IF has_ub > 0 AND has_c > 0 AND has_d > 0 AND has_t > 0 THEN
+      INSERT INTO currencies (id, symbol, name, currency_type, blockchain_id, contract_address, decimals)
+      SELECT t.id, t.symbol, t.name, 'crypto'::currency_type, NULL, t.contract_address, t.decimals
+      FROM tokens t
+      WHERE t.id IN (SELECT d.currency_id FROM deposits d WHERE d.currency_id IS NOT NULL)
+        AND NOT EXISTS (SELECT 1 FROM currencies c WHERE c.id = t.id)
+      ON CONFLICT (id) DO NOTHING;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    NULL;
+  END $$;`,
+
+  // ============================================
+  // USER SECURITY SETTINGS COLUMNS
+  // ============================================
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS sms_auth_enabled BOOLEAN DEFAULT FALSE;`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS email_auth_enabled BOOLEAN DEFAULT TRUE;`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS passkeys_enabled BOOLEAN DEFAULT FALSE;`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS fund_password_hash VARCHAR(255);`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS anti_phishing_code VARCHAR(50);`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS withdrawal_whitelist_enabled BOOLEAN DEFAULT FALSE;`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS address_book_enabled BOOLEAN DEFAULT FALSE;`,
+
+  // ============================================
+  // USER PASSKEYS TABLE
+  // ============================================
+  `CREATE TABLE IF NOT EXISTS user_passkeys (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    credential_id TEXT NOT NULL UNIQUE,
+    public_key TEXT NOT NULL,
+    counter INTEGER NOT NULL DEFAULT 0,
+    device_name VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_used_at TIMESTAMP WITH TIME ZONE
+  );`,
+
+  `CREATE INDEX IF NOT EXISTS idx_user_passkeys_user_id ON user_passkeys(user_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_user_passkeys_credential_id ON user_passkeys(credential_id);`,
+
+  // ============================================
+  // LOGIN VERIFICATION TOKENS TABLE
+  // ============================================
+  `CREATE TABLE IF NOT EXISTS login_verification_tokens (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token VARCHAR(255) NOT NULL UNIQUE,
+    login_method VARCHAR(20) NOT NULL CHECK (login_method IN ('email', 'phone', 'passkey')),
+    steps_completed JSONB DEFAULT '[]',
+    steps_required JSONB DEFAULT '[]',
+    current_step INTEGER NOT NULL DEFAULT 0,
+    ip_address INET,
+    user_agent TEXT,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    completed_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+
+  `CREATE INDEX IF NOT EXISTS idx_login_verification_token ON login_verification_tokens(token) WHERE completed_at IS NULL;`,
+  `CREATE INDEX IF NOT EXISTS idx_login_verification_user_id ON login_verification_tokens(user_id);`,
+
+  // ============================================
+  // HOT WALLETS TABLE (admin MPC-like hot wallet per chain). Optional chains FK if chains is view.
+  // ============================================
+  `DO $$
+  DECLARE
+    chains_is_table BOOLEAN;
+    chain_ref TEXT;
+    q TEXT;
+  BEGIN
+    SELECT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'chains' AND c.relkind = 'r') INTO chains_is_table;
+    chain_ref := CASE WHEN chains_is_table THEN ' REFERENCES chains(id) ON DELETE CASCADE' ELSE '' END;
+    q := 'CREATE TABLE IF NOT EXISTS hot_wallets (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      chain_id VARCHAR(64) NOT NULL' || chain_ref || ',
+      address VARCHAR(255) NOT NULL,
+      encrypted_private_key TEXT NOT NULL,
+      balance_cache DECIMAL(36,18) NOT NULL DEFAULT 0,
+      min_balance_alert DECIMAL(36,18) NOT NULL DEFAULT 0,
+      min_hot_balance DECIMAL(36,18) NOT NULL DEFAULT 0,
+      cold_wallet_address VARCHAR(255),
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(chain_id)
+    )';
+    EXECUTE q;
+  END $$;`,
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'hot_wallets' AND c.relkind = 'r') THEN
+      ALTER TABLE hot_wallets ALTER COLUMN chain_id TYPE VARCHAR(64);
+      CREATE INDEX IF NOT EXISTS idx_hot_wallets_chain_id ON hot_wallets(chain_id);
+      CREATE INDEX IF NOT EXISTS idx_hot_wallets_active ON hot_wallets(is_active) WHERE is_active = TRUE;
+      ALTER TABLE hot_wallets ADD COLUMN IF NOT EXISTS min_hot_balance DECIMAL(36,18) NOT NULL DEFAULT 0;
+      ALTER TABLE hot_wallets ADD COLUMN IF NOT EXISTS cold_wallet_address VARCHAR(255);
+      ALTER TABLE hot_wallets ADD COLUMN IF NOT EXISTS last_sweep_tx_hash VARCHAR(255);
+      ALTER TABLE hot_wallets ADD COLUMN IF NOT EXISTS last_sweep_at TIMESTAMP WITH TIME ZONE;
+      DROP TRIGGER IF EXISTS update_hot_wallets_updated_at ON hot_wallets;
+      CREATE TRIGGER update_hot_wallets_updated_at BEFORE UPDATE ON hot_wallets FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    END IF;
+  END $$;`,
+
+  // HOT WALLET AUDIT: every action with actor_id, payload_hash, no plaintext secrets
+  `CREATE TABLE IF NOT EXISTS hot_wallet_audit_log (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    actor_id VARCHAR(255) NOT NULL,
+    actor_type VARCHAR(20) NOT NULL DEFAULT 'admin',
+    action VARCHAR(80) NOT NULL,
+    resource_type VARCHAR(50),
+    resource_id VARCHAR(255),
+    payload_hash VARCHAR(64),
+    ip_address INET,
+    user_agent TEXT,
+    details JSONB,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_hot_wallet_audit_actor ON hot_wallet_audit_log(actor_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_hot_wallet_audit_action ON hot_wallet_audit_log(action);`,
+  `CREATE INDEX IF NOT EXISTS idx_hot_wallet_audit_created ON hot_wallet_audit_log(created_at DESC);`,
+
+  // WITHDRAWAL SIGNING QUEUE: async, rate-limited, idempotent. Optional chains FK if chains is view.
+  `DO $$
+  DECLARE
+    chains_is_table BOOLEAN;
+    chain_ref TEXT;
+    q TEXT;
+  BEGIN
+    SELECT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'chains' AND c.relkind = 'r') INTO chains_is_table;
+    chain_ref := CASE WHEN chains_is_table THEN ' REFERENCES chains(id)' ELSE '' END;
+    q := 'CREATE TABLE IF NOT EXISTS withdrawal_signing_queue (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      withdrawal_id UUID NOT NULL,
+      chain_id VARCHAR(20) NOT NULL' || chain_ref || ',
+      status VARCHAR(20) NOT NULL DEFAULT ''pending'' CHECK (status IN (''pending'', ''signing'', ''broadcast'', ''completed'', ''failed'')),
+      idempotency_key VARCHAR(255) UNIQUE,
+      signed_tx_hex TEXT,
+      tx_hash VARCHAR(255),
+      error_message TEXT,
+      attempts INT NOT NULL DEFAULT 0,
+      max_attempts INT NOT NULL DEFAULT 3,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      processed_at TIMESTAMP WITH TIME ZONE
+    )';
+    EXECUTE q;
+  END $$;`,
+  `CREATE INDEX IF NOT EXISTS idx_withdrawal_signing_queue_status ON withdrawal_signing_queue(status) WHERE status IN ('pending', 'signing', 'broadcast');`,
+  `CREATE INDEX IF NOT EXISTS idx_withdrawal_signing_queue_withdrawal ON withdrawal_signing_queue(withdrawal_id);`,
+
+  // ============================================
+  // WITHDRAWALS TABLE. Optional tokens/chains FKs when they are views.
+  // ============================================
+  `DO $$
+  DECLARE
+    tokens_is_table BOOLEAN;
+    chains_is_table BOOLEAN;
+    token_ref TEXT;
+    chain_ref TEXT;
+    q TEXT;
+  BEGIN
+    SELECT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'tokens' AND c.relkind = 'r') INTO tokens_is_table;
+    SELECT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'chains' AND c.relkind = 'r') INTO chains_is_table;
+    token_ref := CASE WHEN tokens_is_table THEN ' REFERENCES tokens(id)' ELSE '' END;
+    chain_ref := CASE WHEN chains_is_table THEN ' REFERENCES chains(id)' ELSE '' END;
+    q := 'CREATE TABLE IF NOT EXISTS withdrawals (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_id UUID NOT NULL' || token_ref || ',
+      chain_id VARCHAR(20) NOT NULL' || chain_ref || ',
+      amount DECIMAL(36,18) NOT NULL,
+      fee DECIMAL(36,18) NOT NULL DEFAULT 0,
+      net_amount DECIMAL(36,18),
+      to_address VARCHAR(255) NOT NULL,
+      tx_hash VARCHAR(255),
+      memo VARCHAR(255),
+      status VARCHAR(50) NOT NULL DEFAULT ''pending'',
+      account_type VARCHAR(50) NOT NULL DEFAULT ''funding'',
+      email_verified BOOLEAN NOT NULL DEFAULT FALSE,
+      two_fa_verified BOOLEAN NOT NULL DEFAULT FALSE,
+      withdrawal_address_id UUID,
+      processed_at TIMESTAMP WITH TIME ZONE,
+      completed_at TIMESTAMP WITH TIME ZONE,
+      failed_reason TEXT,
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )';
+    EXECUTE q;
+  END $$;`,
+  `CREATE INDEX IF NOT EXISTS idx_withdrawals_user_id ON withdrawals(user_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_withdrawals_status ON withdrawals(status);`,
+  `CREATE INDEX IF NOT EXISTS idx_withdrawals_created_at ON withdrawals(created_at DESC);`,
+  `CREATE INDEX IF NOT EXISTS idx_withdrawals_tx_hash ON withdrawals(tx_hash) WHERE tx_hash IS NOT NULL;`,
+
+  // ============================================
+  // WITHDRAWAL SECURITY COLUMNS (withdrawals + users)
+  // ============================================
+  `ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE;`,
+  `ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS two_fa_verified BOOLEAN NOT NULL DEFAULT FALSE;`,
+  `ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS withdrawal_address_id UUID;`,
+  `ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS net_amount DECIMAL(36,18);`,
+  `ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP WITH TIME ZONE;`,
+  `ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS failed_reason TEXT;`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_withdrawal_limit DECIMAL(36,18) DEFAULT 1000000;`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_withdrawal_limit DECIMAL(36,18) DEFAULT 10000000;`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_withdrawal_used DECIMAL(36,18) DEFAULT 0;`,
+
+  // ============================================
+  // WITHDRAWAL ADDRESSES (whitelist per user)
+  // ============================================
+  `CREATE TABLE IF NOT EXISTS withdrawal_addresses (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    asset VARCHAR(20),
+    network VARCHAR(50),
+    address VARCHAR(255),
+    note VARCHAR(255),
+    memo VARCHAR(255),
+    address_type VARCHAR(30) DEFAULT 'onchain',
+    wallet_type VARCHAR(30) DEFAULT 'regular',
+    save_as_universal BOOLEAN DEFAULT FALSE,
+    no_verification_needed BOOLEAN DEFAULT FALSE,
+    recipient_account VARCHAR(255),
+    recipient_type VARCHAR(50),
+    is_whitelisted BOOLEAN DEFAULT FALSE,
+    deleted_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_withdrawal_addresses_user ON withdrawal_addresses(user_id) WHERE deleted_at IS NULL;`,
+  `CREATE INDEX IF NOT EXISTS idx_withdrawal_addresses_address ON withdrawal_addresses(user_id, address) WHERE deleted_at IS NULL;`,
+
+  // ============================================
+  // ADMIN USERS (separate from app users; for admin panel login)
+  // ============================================
+  `CREATE TABLE IF NOT EXISTS admin_users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email VARCHAR(255) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    role VARCHAR(50) NOT NULL DEFAULT 'admin',
+    permissions TEXT[] NOT NULL DEFAULT '{}',
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    last_login_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_admin_users_email ON admin_users(email);`,
+  `CREATE INDEX IF NOT EXISTS idx_admin_users_active ON admin_users(is_active) WHERE is_active = TRUE;`,
+
+  // ============================================
+  // ADMIN SESSIONS
+  // ============================================
+  `CREATE TABLE IF NOT EXISTS admin_sessions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    admin_id UUID NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
+    session_token VARCHAR(255) NOT NULL,
+    ip_address INET,
+    user_agent TEXT,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_admin_sessions_admin_id ON admin_sessions(admin_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires ON admin_sessions(expires_at);`,
+
+  // ============================================
+  // ADMIN ACTIVITY LOGS
+  // ============================================
+  `CREATE TABLE IF NOT EXISTS admin_activity_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    admin_id UUID NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
+    action VARCHAR(80) NOT NULL,
+    details JSONB,
+    ip_address INET,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_admin_activity_logs_admin_id ON admin_activity_logs(admin_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_admin_activity_logs_created ON admin_activity_logs(created_at DESC);`,
+
+  // ============================================
+  // DEFAULT ADMIN USER (only if no admin exists). Password: admin123
+  // ============================================
+  `DO $$
+  BEGIN
+    IF NOT EXISTS (SELECT 1 FROM admin_users LIMIT 1) THEN
+      INSERT INTO admin_users (id, email, password_hash, name, role, permissions, is_active)
+      VALUES (
+        uuid_generate_v4(),
+        'admin@example.com',
+        crypt('admin123', gen_salt('bf')),
+        'Super Admin',
+        'super_admin',
+        ARRAY['all']::text[],
+        TRUE
+      );
+    END IF;
+  END $$;`,
 ];
 
 async function migrate(direction: 'up' | 'down' = 'up'): Promise<void> {
@@ -741,6 +1259,11 @@ async function migrate(direction: 'up' | 'down' = 'up'): Promise<void> {
       // Drop all tables (for development only)
       const dropTables = `
         DROP TABLE IF EXISTS 
+          withdrawal_signing_queue,
+          hot_wallet_audit_log,
+          withdrawal_addresses,
+          hot_wallets,
+          withdrawals,
           referral_rewards,
           rate_limit_overrides,
           audit_logs,

@@ -55,50 +55,21 @@ interface DepositDB {
 }
 
 export default async function walletRoutes(app: FastifyInstance) {
-  // Get all active chains
+  // Get all active chains (DB-only; no Redis dependency)
   app.get('/chains', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      // Try cache first
-      const cacheKey = 'chains:active';
-      const cached = await redis.getJson<ChainDB[]>(cacheKey);
-      
-      if (cached) {
-        return { success: true, data: cached };
-      }
-
       const result = await db.query<ChainDB>(`
-        SELECT id, COALESCE(id_text, name) as id_text, name, type, native_currency, decimals, 
-               rpc_url, explorer_url, is_active, 
-               COALESCE(required_confirmations, 12) as confirmations_required
-        FROM chains
-        WHERE is_active = TRUE
-        ORDER BY 
-          CASE UPPER(COALESCE(id_text, name))
-            WHEN 'ETH' THEN 1
-            WHEN 'ETHEREUM' THEN 1
-            WHEN 'BSC' THEN 2
-            WHEN 'BNB SMART CHAIN' THEN 2
-            WHEN 'POLYGON' THEN 3
-            WHEN 'MATIC' THEN 3
-            WHEN 'ARBITRUM' THEN 4
-            WHEN 'OPTIMISM' THEN 5
-            WHEN 'BASE' THEN 6
-            WHEN 'TRON' THEN 7
-            WHEN 'TRX' THEN 7
-            WHEN 'SOLANA' THEN 8
-            WHEN 'SOL' THEN 8
-            WHEN 'BITCOIN' THEN 9
-            WHEN 'BTC' THEN 9
-            ELSE 10
-          END
+        SELECT c.id, c.id as id_text, c.name, c.type, c.native_currency, c.decimals,
+               c.rpc_url, c.explorer_url, c.is_active,
+               COALESCE(c.confirmations_required, 25) as confirmations_required
+        FROM chains c
+        WHERE c.is_active = TRUE
+        ORDER BY c.name ASC
       `);
-
-      // Cache for 5 minutes
-      await redis.setJson(cacheKey, result.rows, 300);
-
       return { success: true, data: result.rows };
     } catch (error) {
-      logger.error('Failed to get chains', { error: error instanceof Error ? error.message : 'Unknown' });
+      const err = error instanceof Error ? error : new Error(String(error));
+      logger.error('Failed to get chains', { error: err.message, stack: err.stack });
       return reply.status(500).send({
         success: false,
         error: { code: 'INTERNAL_ERROR', message: 'Failed to fetch chains' }
@@ -183,37 +154,38 @@ export default async function walletRoutes(app: FastifyInstance) {
     }
   });
 
-  // Get chains available for a specific token symbol
+  // Get chains that support this token (asset). Used to filter chains by selected asset.
   app.get('/tokens/:symbol/chains', async (request: FastifyRequest<{
     Params: { symbol: string }
   }>, reply: FastifyReply) => {
+    const { symbol } = request.params;
+    const cacheKey = `tokens:${symbol.toUpperCase()}:chains`;
     try {
-      const { symbol } = request.params;
-
-      // Try cache first
-      const cacheKey = `tokens:${symbol.toUpperCase()}:chains`;
       const cached = await redis.getJson<ChainDB[]>(cacheKey);
-      
-      if (cached) {
+      if (cached && Array.isArray(cached)) {
         return { success: true, data: cached };
       }
-
+    } catch (_) {
+      /* Redis optional */
+    }
+    try {
       const result = await db.query<ChainDB>(`
         SELECT DISTINCT 
-               c.id, c.id_text, c.name, c.type, c.native_currency, 
-               COALESCE(c.required_confirmations, 12) as confirmations_required,
+               c.id, c.id as id_text, c.name, c.type, c.native_currency, 
+               COALESCE(c.confirmations_required, 12) as confirmations_required,
                c.explorer_url,
-               LOWER(COALESCE(c.id_text, c.name)) as icon,
+               LOWER(c.id) as icon,
                CASE c.type WHEN 'evm' THEN 1 ELSE 2 END as sort_order
         FROM tokens t
         JOIN chains c ON t.chain_id = c.id
         WHERE UPPER(t.symbol) = UPPER($1) AND t.is_active = TRUE AND c.is_active = TRUE
         ORDER BY sort_order, c.name ASC
       `, [symbol]);
-
-      // Cache for 5 minutes
-      await redis.setJson(cacheKey, result.rows, 300);
-
+      try {
+        await redis.setJson(cacheKey, result.rows, 300);
+      } catch (_) {
+        /* ignore */
+      }
       return { success: true, data: result.rows };
     } catch (error) {
       logger.error('Failed to get chains for token', { error: error instanceof Error ? error.message : 'Unknown' });
@@ -281,127 +253,97 @@ export default async function walletRoutes(app: FastifyInstance) {
   }, async (request: FastifyRequest<{
     Params: { chainId: string }
   }>, reply: FastifyReply) => {
-    try {
-      const userId = request.user!.id;
-      const { chainId } = request.params;
+    const userId = request.user!.id;
+    const { chainId } = request.params;
+    const dev = process.env.NODE_ENV === 'development';
 
-      // Check KYC status first
+    const fail = (code: string, message: string, detail?: string) =>
+      reply.status(500).send({
+        success: false,
+        error: { code, message, ...(dev && detail ? { detail } : {}) }
+      });
+
+    try {
+      // Step 1: KYC (support both kyc_applications and kyc_records)
       let isKycVerified = false;
       try {
-        logger.info('Checking KYC for user', { userId, email: request.user?.email });
-        const kycCheck = await db.query(`
-          SELECT status FROM kyc_applications 
-          WHERE user_id = $1 AND status = 'approved'
-          LIMIT 1
-        `, [userId]);
-        isKycVerified = kycCheck.rows.length > 0;
-        logger.info('KYC check result', { userId, isKycVerified, rowsFound: kycCheck.rows.length });
+        try {
+          const kycCheck = await db.query(`SELECT status FROM kyc_applications WHERE user_id = $1 AND status = 'approved' LIMIT 1`, [userId]);
+          isKycVerified = kycCheck.rows.length > 0;
+        } catch {
+          const kycRecords = await db.query(`SELECT status FROM kyc_records WHERE user_id = $1 AND status = 'approved' LIMIT 1`, [userId]);
+          isKycVerified = kycRecords.rows.length > 0;
+        }
       } catch (kycError) {
-        // If KYC table doesn't exist or query fails, treat as not verified
-        logger.warn('KYC check failed, treating as not verified', { error: kycError instanceof Error ? kycError.message : 'Unknown' });
+        const msg = kycError instanceof Error ? kycError.message : 'Unknown';
+        logger.warn('KYC check failed', { error: msg });
         isKycVerified = false;
       }
 
       if (!isKycVerified) {
-        logger.info('KYC not verified, returning 403', { userId });
         return reply.status(403).send({
           success: false,
-          error: { 
-            code: 'KYC_REQUIRED', 
-            message: 'Identity verification required to deposit',
-            kycRequired: true
-          }
+          error: { code: 'KYC_REQUIRED', message: 'Identity verification required to deposit', kycRequired: true }
         });
       }
 
-      // Validate chain exists (chainId can be UUID or string id)
-      const chainCheck = await db.query<ChainDB>(
-        `SELECT *, COALESCE(required_confirmations, 12) as confirmations_required 
-         FROM chains WHERE (id::text = $1 OR LOWER(COALESCE(id_text, name)) = LOWER($1)) AND is_active = TRUE`,
-        [chainId]
-      );
-
-      if (chainCheck.rows.length === 0) {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'INVALID_CHAIN', message: 'Invalid or inactive chain' }
-        });
-      }
-
-      const chain = chainCheck.rows[0]!;
-
-      // For EVM chains, use a single shared address
-      // Determine if this is an EVM chain
-      const isEvmChain = chain.type === 'evm';
-      
-      // For EVM chains, we use a "master" EVM chain ID to share addresses
-      // All EVM chains use the same address
-      let walletChainId = chain.id;
-      
-      if (isEvmChain) {
-        // Find the Ethereum chain ID to use as master for all EVM wallets
-        const ethChain = await db.query<{ id: string }>(`SELECT id FROM chains WHERE LOWER(id_text) = 'eth' LIMIT 1`);
-        if (ethChain.rows.length > 0) {
-          walletChainId = ethChain.rows[0]!.id;
-        }
-      }
-
-      // Check if wallet exists for this user and chain
-      let walletResult = await db.query<{ address: string }>(
-        `SELECT address FROM wallets WHERE user_id = $1 AND chain_id = $2`,
-        [userId, walletChainId]
-      );
-
-      let walletAddress: string;
-
-      if (walletResult.rows.length === 0) {
-        // Create new wallet - generate address
-        logger.info('Creating new wallet for user', { userId, chainId: walletChainId, chainType: chain.type });
-        
-        // Generate deterministic wallet from user ID
-        const crypto = await import('crypto');
-        const { ethers } = await import('ethers');
-        
-        // Create deterministic seed from user ID
-        const seed = crypto.createHash('sha256').update(`wallet:${userId}:${walletChainId}`).digest('hex');
-        
-        if (isEvmChain) {
-          // Generate EVM address
-          const wallet = ethers.Wallet.fromPhrase(ethers.Mnemonic.entropyToPhrase(Buffer.from(seed, 'hex').slice(0, 16)));
-          walletAddress = wallet.address;
-        } else {
-          // Generate placeholder addresses for non-EVM chains
-          const chainKey = (chain.id_text || chain.name).toLowerCase();
-          if (chainKey === 'sol' || chainKey === 'solana') {
-            walletAddress = `So${seed.slice(0, 42)}`;
-          } else if (chainKey === 'trx' || chainKey === 'tron') {
-            walletAddress = `T${seed.slice(0, 33)}`;
-          } else if (chainKey === 'btc' || chainKey === 'bitcoin') {
-            walletAddress = `bc1q${seed.slice(0, 38)}`;
-          } else {
-            walletAddress = `0x${seed.slice(0, 40)}`;
-          }
-        }
-
-        // Store the wallet
-        await db.query(
-          `INSERT INTO wallets (user_id, chain_id, address, hd_path, hd_index, is_active)
-           VALUES ($1, $2, $3, $4, $5, true)
-           ON CONFLICT (user_id, chain_id) DO UPDATE SET address = EXCLUDED.address`,
-          [userId, walletChainId, walletAddress, "m/44'/60'/0'/0/0", 0]
+      // Step 2: Chain lookup
+      let chain: ChainDB;
+      try {
+        const chainCheck = await db.query<ChainDB>(
+          `SELECT c.*, COALESCE(c.confirmations_required, 25) as confirmations_required
+           FROM chains c WHERE (c.id::text = $1 OR LOWER(c.id) = LOWER($1) OR LOWER(c.name) = LOWER($1)) AND c.is_active = TRUE`,
+          [chainId]
         );
-        
-        logger.info('Created wallet', { userId, chainId: walletChainId, address: walletAddress });
-      } else {
-        walletAddress = walletResult.rows[0]!.address;
+        if (chainCheck.rows.length === 0) {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'INVALID_CHAIN', message: 'Invalid or inactive chain' }
+          });
+        }
+        chain = chainCheck.rows[0]!;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Unknown';
+        logger.error('Deposit address: chain lookup failed', { error: msg, chainId });
+        return fail('CHAIN_LOOKUP_FAILED', 'Failed to get deposit address', msg);
       }
 
-      const confirmations = chain.confirmations_required || chain.required_confirmations || 12;
+      // Step 3: Resolve wallet chain ID (EVM shares one address per user; use chain.id if wallet exists, else first EVM)
+      let walletChainId = chain.id;
+      if (chain.type === 'evm') {
+        const existing = await walletService.getWallet(userId, chain.id as ChainId);
+        if (!existing) {
+          const ethChain = await db.query<{ id: string }>(`SELECT id FROM chains WHERE type = 'evm' AND is_active = TRUE ORDER BY id LIMIT 1`);
+          if (ethChain.rows.length > 0) walletChainId = ethChain.rows[0]!.id;
+        }
+      }
 
+      // Step 4: Get or create wallet
+      let wallet: { address: string } | null = null;
+      try {
+        wallet = await walletService.getWallet(userId, walletChainId as ChainId);
+        if (!wallet) {
+          await walletService.createWalletsForUser(userId);
+          wallet = await walletService.getWallet(userId, walletChainId as ChainId);
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Unknown';
+        logger.error('Deposit address: wallet get/create failed', { error: msg, userId, walletChainId });
+        return fail('WALLET_CREATE_FAILED', 'Failed to get deposit address', msg);
+      }
+
+      if (!wallet) {
+        return reply.status(500).send({
+          success: false,
+          error: { code: 'WALLET_CREATE_FAILED', message: 'Could not create or load wallet for this chain.' }
+        });
+      }
+
+      const confirmations = chain.confirmations_required ?? chain.required_confirmations ?? 25;
       return {
         success: true,
         data: {
-          address: walletAddress,
+          address: wallet.address,
           chain: {
             id: chain.id,
             name: chain.name,
@@ -409,18 +351,21 @@ export default async function walletRoutes(app: FastifyInstance) {
             confirmationsRequired: confirmations,
             explorerUrl: chain.explorer_url || ''
           },
-          qrCodeData: `${chain.type === 'evm' ? 'ethereum' : chain.name.toLowerCase()}:${walletAddress}`,
+          qrCodeData: `${chain.type === 'evm' ? 'ethereum' : chain.name.toLowerCase()}:${wallet.address}`,
           notice: getDepositNotice(chain.type, confirmations)
         }
       };
     } catch (error) {
-      logger.error('Failed to get deposit address', { 
-        error: error instanceof Error ? error.message : 'Unknown',
-        userId: request.user?.id 
-      });
+      const errMsg = error instanceof Error ? error.message : 'Unknown';
+      const errStack = error instanceof Error ? error.stack : undefined;
+      logger.error('Deposit address: unexpected error', { error: errMsg, stack: errStack, userId, chainId });
       return reply.status(500).send({
         success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to get deposit address' }
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Failed to get deposit address',
+          ...(dev && errMsg ? { detail: errMsg } : {})
+        }
       });
     }
   });
@@ -583,25 +528,34 @@ export default async function walletRoutes(app: FastifyInstance) {
       const status = request.query.status;
       const coin = request.query.coin;
 
+      // Check if withdrawals table exists
+      const tableCheck = await db.query(`
+        SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'withdrawals')
+      `);
+
+      if (!tableCheck.rows[0].exists) {
+        return { success: true, data: [], pagination: { page, limit, total: 0, totalPages: 0 } };
+      }
+
       let query = `
         SELECT 
-          w.id, w.user_id, w.token_id, w.chain_id, w.amount, w.fee,
-          w.to_address, w.tx_hash, w.status, w.created_at, w.processed_at,
-          t.symbol, t.name as token_name, 
-          c.name as chain_name, c.type as chain_type
+          w.id, w.user_id, w.token_id, w.chain_id, w.amount, w.fee, w.net_amount,
+          w.to_address, w.tx_hash, w.status, w.created_at, w.processed_at, w.completed_at,
+          t.symbol, t.name as token_name, t.icon_url as logo_url,
+          c.name as chain_name, c.native_currency as chain_type
         FROM withdrawals w
-        JOIN tokens t ON w.token_id = t.id
-        JOIN chains c ON w.chain_id = c.id
+        LEFT JOIN tokens t ON w.token_id = t.id
+        LEFT JOIN chains c ON w.chain_id = c.id
         WHERE w.user_id = $1
       `;
       const params: unknown[] = [userId];
 
-      if (status) {
-        params.push(status);
-        query += ` AND w.status = $${params.length}`;
+      if (status && status !== 'all') {
+        params.push(status.toLowerCase());
+        query += ` AND LOWER(w.status) = $${params.length}`;
       }
 
-      if (coin) {
+      if (coin && coin !== 'all') {
         params.push(coin.toUpperCase());
         query += ` AND UPPER(t.symbol) = $${params.length}`;
       }
@@ -612,21 +566,35 @@ export default async function walletRoutes(app: FastifyInstance) {
       const result = await db.query(query, params);
 
       // Get total count
-      let countQuery = `SELECT COUNT(*) as count FROM withdrawals w JOIN tokens t ON w.token_id = t.id WHERE w.user_id = $1`;
+      let countQuery = `SELECT COUNT(*) as count FROM withdrawals w LEFT JOIN tokens t ON w.token_id = t.id WHERE w.user_id = $1`;
       const countParams: unknown[] = [userId];
-      if (status) {
-        countParams.push(status);
-        countQuery += ` AND w.status = $${countParams.length}`;
+      if (status && status !== 'all') {
+        countParams.push(status.toLowerCase());
+        countQuery += ` AND LOWER(w.status) = $${countParams.length}`;
       }
-      if (coin) {
+      if (coin && coin !== 'all') {
         countParams.push(coin.toUpperCase());
         countQuery += ` AND UPPER(t.symbol) = $${countParams.length}`;
       }
       const countResult = await db.query<{ count: string }>(countQuery, countParams);
 
+      // Map to consistent format
+      const mappedData = result.rows.map(w => ({
+        id: w.id,
+        type: 'withdraw',
+        coin: w.symbol || 'Unknown',
+        coin_logo: w.logo_url || `/assets/upload/currency-logo/${(w.symbol || 'btc').toLowerCase()}.svg`,
+        chain_type: w.chain_name || 'Unknown',
+        quantity: w.amount,
+        address: w.to_address || '',
+        txid: w.tx_hash || '',
+        status: w.status,
+        date_time: w.created_at
+      }));
+
       return {
         success: true,
-        data: result.rows,
+        data: mappedData,
         pagination: {
           page,
           limit,
@@ -841,6 +809,7 @@ export default async function walletRoutes(app: FastifyInstance) {
   });
 
   // Create withdrawal request (authenticated)
+  // Security: if user has 2FA or withdrawal whitelist enabled, those conditions must be satisfied before withdrawal is created.
   app.post('/withdrawals', {
     preHandler: [app.authenticate]
   }, async (request: FastifyRequest<{
@@ -851,11 +820,13 @@ export default async function walletRoutes(app: FastifyInstance) {
       toAddress: string;
       accountType?: string;
       memo?: string;
+      twoFactorCode?: string;
+      withdrawalAddressId?: string;
     }
   }>, reply: FastifyReply) => {
     try {
       const userId = request.user!.id;
-      const { symbol, chainId, amount, toAddress, accountType = 'funding', memo } = request.body;
+      const { symbol, chainId, amount, toAddress, accountType = 'funding', memo, twoFactorCode, withdrawalAddressId } = request.body;
 
       // Validate input
       if (!symbol || !chainId || !amount || !toAddress) {
@@ -945,13 +916,56 @@ export default async function walletRoutes(app: FastifyInstance) {
         });
       }
 
+      // Withdrawal security: 2FA and whitelist (user must satisfy all enabled settings)
+      const { verifyUser2FA, userHas2FA } = await import('../lib/totp-verify.js');
+      const has2FA = await userHas2FA(userId);
+      if (has2FA) {
+        if (!twoFactorCode || typeof twoFactorCode !== 'string') {
+          return reply.status(400).send({
+            success: false,
+            error: { code: '2FA_REQUIRED', message: 'Two-factor code is required for withdrawal' }
+          });
+        }
+        const valid2FA = await verifyUser2FA(userId, twoFactorCode.trim());
+        if (!valid2FA) {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'INVALID_2FA', message: 'Invalid two-factor code' }
+          });
+        }
+      }
+
+      let withdrawalAddressIdRes: string | null = null;
+      const whitelistResult = await db.query<{ withdrawal_whitelist_enabled: boolean }>(
+        `SELECT COALESCE(withdrawal_whitelist_enabled, FALSE) as withdrawal_whitelist_enabled FROM users WHERE id = $1`,
+        [userId]
+      );
+      const whitelistEnabled = whitelistResult.rows[0]?.withdrawal_whitelist_enabled ?? false;
+      if (whitelistEnabled) {
+        const addrCheck = await db.query<{ id: string }>(
+          `SELECT id FROM withdrawal_addresses WHERE user_id = $1 AND (address = $2 OR LOWER(address) = LOWER($2)) AND deleted_at IS NULL`,
+          [userId, toAddress]
+        );
+        if (addrCheck.rows.length === 0) {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'ADDRESS_NOT_WHITELISTED', message: 'This address is not in your withdrawal whitelist' }
+          });
+        }
+        withdrawalAddressIdRes = addrCheck.rows[0]!.id;
+      }
+
+      const netAmount = withdrawAmount - fee;
+      const twoFaVerified = has2FA;
+
       // Create withdrawal record
       const withdrawalResult = await db.query(`
         INSERT INTO withdrawals (
-          user_id, token_id, chain_id, amount, fee, to_address, memo, status, account_type
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8)
+          user_id, token_id, chain_id, amount, fee, net_amount, to_address, memo, status, account_type,
+          email_verified, two_fa_verified, withdrawal_address_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, FALSE, $10, $11)
         RETURNING id, created_at
-      `, [userId, token.token_id, token.chain_id, withdrawAmount.toString(), fee.toString(), toAddress, memo || null, accountType]);
+      `, [userId, token.token_id, token.chain_id, withdrawAmount.toString(), fee.toString(), netAmount.toString(), toAddress, memo || null, accountType, twoFaVerified, withdrawalAddressIdRes]);
 
       const withdrawal = withdrawalResult.rows[0];
 
@@ -981,6 +995,12 @@ export default async function walletRoutes(app: FastifyInstance) {
         symbol,
         amount: withdrawAmount
       });
+
+      const { enqueueWithdrawal } = await import('../services/withdrawal-signing.service.js');
+      const enqueueResult = await enqueueWithdrawal(withdrawal.id);
+      if (!enqueueResult.enqueued && enqueueResult.reason) {
+        logger.warn('Withdrawal not enqueued for signing', { withdrawalId: withdrawal.id, reason: enqueueResult.reason });
+      }
 
       return {
         success: true,
@@ -1152,40 +1172,79 @@ export default async function walletRoutes(app: FastifyInstance) {
     try {
       const userId = request.user!.id;
 
-      // Get all token balances for funding account
+      // Get ONLY currencies where user has actual balance (from deposits/transfers)
       const result = await db.query(`
-        SELECT 
-          b.token_id,
-          t.symbol,
-          t.name,
-          COALESCE(b.available_balance, 0) as available_balance,
-          COALESCE(b.locked_balance, 0) as locked_balance,
-          COALESCE(b.available_balance, 0) + COALESCE(b.locked_balance, 0) as total_balance
-        FROM tokens t
-        LEFT JOIN balances b ON t.id = b.token_id AND b.user_id = $1 AND b.account_type = 'funding'
-        WHERE t.is_active = TRUE
-        ORDER BY 
-          CASE WHEN COALESCE(b.available_balance, 0) + COALESCE(b.locked_balance, 0) > 0 THEN 0 ELSE 1 END,
-          t.symbol ASC
+        SELECT DISTINCT ON (UPPER(c.symbol))
+          c.id as token_id,
+          c.symbol,
+          REGEXP_REPLACE(c.name, '\\s*\\([A-Z0-9]+\\)\\s*$', '', 'i') as name,
+          ub.available_balance::text as available_balance,
+          ub.locked_balance::text as locked_balance,
+          (ub.available_balance + ub.locked_balance)::text as total_balance
+        FROM user_balances ub
+        JOIN currencies c ON c.id = ub.currency_id
+        WHERE ub.user_id = $1 
+          AND ub.account_type = 'funding'
+          AND (ub.available_balance > 0 OR ub.locked_balance > 0 OR ub.pending_balance > 0)
+          AND c.is_active = TRUE
+        ORDER BY UPPER(c.symbol), ub.available_balance DESC
       `, [userId]);
 
-      // Mock BTC price for conversion
-      const btcPrice = 82000;
+      // BTC price for conversion
+      const btcPrice = 97500;
 
-      const balances = result.rows.map(row => ({
-        token_id: row.token_id,
-        symbol: row.symbol,
-        name: row.name,
-        total_balance: row.total_balance || '0',
-        available_balance: row.available_balance || '0',
-        locked_balance: row.locked_balance || '0',
-        btc_value: (parseFloat(row.total_balance || '0') / btcPrice).toFixed(8),
-        usd_value: row.total_balance || '0'
-      }));
+      // Get USDT prices for each currency
+      const pricesResult = await db.query(`
+        SELECT DISTINCT ON (UPPER(bc.symbol))
+          bc.symbol,
+          mp.price::numeric as usd_price
+        FROM market_prices mp
+        JOIN currencies bc ON mp.base_currency_id = bc.id
+        JOIN currencies qc ON mp.quote_currency_id = qc.id
+        WHERE UPPER(qc.symbol) = 'USDT'
+        ORDER BY UPPER(bc.symbol), mp.price DESC
+      `);
+      
+      const priceMap: Record<string, number> = { 'USDT': 1, 'USDC': 1 };
+      pricesResult.rows.forEach(row => {
+        priceMap[row.symbol.toUpperCase()] = parseFloat(row.usd_price) || 1;
+      });
+
+      const balances = result.rows.map(row => {
+        const price = priceMap[row.symbol.toUpperCase()] || 1;
+        const totalBalance = parseFloat(row.total_balance || '0');
+        const usdValue = totalBalance * price;
+        
+        return {
+          token_id: row.token_id,
+          symbol: row.symbol,
+          name: row.name,
+          total_balance: row.total_balance || '0',
+          available_balance: row.available_balance || '0',
+          locked_balance: row.locked_balance || '0',
+          btc_value: (usdValue / btcPrice).toFixed(8),
+          usd_value: usdValue.toFixed(2)
+        };
+      });
+
+      // Sort: coins with balance first, then alphabetically
+      balances.sort((a, b) => {
+        const aHasBalance = parseFloat(a.total_balance) > 0;
+        const bHasBalance = parseFloat(b.total_balance) > 0;
+        if (aHasBalance && !bHasBalance) return -1;
+        if (!aHasBalance && bHasBalance) return 1;
+        return a.symbol.localeCompare(b.symbol);
+      });
 
       const totalUsd = balances.reduce((sum, b) => sum + parseFloat(b.usd_value), 0);
-      const availableUsd = balances.reduce((sum, b) => sum + parseFloat(b.available_balance), 0);
-      const lockedUsd = balances.reduce((sum, b) => sum + parseFloat(b.locked_balance), 0);
+      const availableUsd = balances.reduce((sum, b) => {
+        const price = priceMap[b.symbol.toUpperCase()] || 1;
+        return sum + parseFloat(b.available_balance) * price;
+      }, 0);
+      const lockedUsd = balances.reduce((sum, b) => {
+        const price = priceMap[b.symbol.toUpperCase()] || 1;
+        return sum + parseFloat(b.locked_balance) * price;
+      }, 0);
 
       return {
         success: true,
@@ -1600,12 +1659,488 @@ export default async function walletRoutes(app: FastifyInstance) {
       });
     }
   });
+
+  // Get deposit history with confirmation tracking (from indexer)
+  app.get('/deposit-history', {
+    preHandler: [app.authenticate]
+  }, async (request: FastifyRequest<{
+    Querystring: { page?: string; limit?: string; status?: string }
+  }>, reply: FastifyReply) => {
+    try {
+      const userId = request.user!.id;
+      const page = parseInt(request.query.page || '1');
+      const limit = Math.min(parseInt(request.query.limit || '20'), 100);
+      const offset = (page - 1) * limit;
+      const status = request.query.status;
+
+      // Repair: complete any pending deposit (only if user_balances + currencies exist; skip rows with missing currency_id)
+      const hasUserBalances = await db.query(
+        `SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_balances'`
+      );
+      if (hasUserBalances.rows.length > 0) {
+        const overdue = await db.query(`
+          SELECT id, user_id, currency_id, amount::numeric as amount
+          FROM deposits
+          WHERE user_id = $1 AND status = 'pending'
+            AND confirmations >= COALESCE(required_confirmations, 25)
+            AND (amount IS NULL OR amount::numeric > 0)
+        `, [userId]).catch(() => ({ rows: [] }));
+        for (const row of (overdue as { rows: { id: string; user_id: string; currency_id: string; amount: string | number }[] }).rows) {
+          try {
+            const cur = await db.query(`SELECT 1 FROM currencies WHERE id = $1`, [row.currency_id]);
+            if (cur.rows.length === 0) {
+              logger.warn('Repair deposit skipped: currency_id not in currencies', { depositId: row.id, currencyId: row.currency_id });
+              continue;
+            }
+            await db.query('BEGIN');
+          await db.query(
+            `UPDATE deposits SET status = 'completed', credited_at = NOW(), updated_at = NOW() WHERE id = $1`,
+            [row.id]
+          );
+          const amount = String(row.amount ?? 0);
+          const upd = await db.query(`
+            UPDATE user_balances
+            SET available_balance = available_balance + $1::numeric,
+                pending_balance = GREATEST(pending_balance - $1::numeric, 0),
+                total_deposited = COALESCE(total_deposited, 0) + $1::numeric,
+                updated_at = NOW()
+            WHERE user_id = $2 AND currency_id = $3 AND account_type = 'funding'
+          `, [amount, row.user_id, row.currency_id]);
+          if (upd.rowCount === 0) {
+            await db.query(`
+              INSERT INTO user_balances (id, user_id, currency_id, available_balance, locked_balance, pending_balance, total_deposited, account_type, updated_at)
+              VALUES (gen_random_uuid(), $1, $2, $3::numeric, 0, 0, $3::numeric, 'funding', NOW())
+            `, [row.user_id, row.currency_id, amount]);
+          }
+          await db.query('COMMIT');
+          logger.info('Deposit completed (overdue confirmations)', { depositId: row.id, userId: row.user_id });
+        } catch (e) {
+          await db.query('ROLLBACK');
+          logger.warn('Repair deposit failed', { depositId: row.id, error: e });
+        }
+        }
+      }
+
+      let whereClause = 'd.user_id = $1 AND (d.amount IS NULL OR d.amount::numeric > 0)';
+      const params: unknown[] = [userId];
+
+      if (status) {
+        params.push(status);
+        whereClause += ` AND d.status = $${params.length}`;
+      }
+
+      const result = await db.query(`
+        SELECT 
+          d.id,
+          d.tx_hash,
+          d.from_address,
+          d.to_address,
+          d.amount::text,
+          d.confirmations,
+          d.required_confirmations,
+          d.block_number,
+          d.block_timestamp,
+          d.status,
+          d.credited_at,
+          d.created_at,
+          d.updated_at,
+          c.symbol,
+          c.name as currency_name,
+          c.logo_url,
+          b.chain_name,
+          b.chain_symbol,
+          b.chain_id as chain_numeric_id
+        FROM deposits d
+        LEFT JOIN currencies c ON d.currency_id = c.id
+        LEFT JOIN blockchains b ON d.blockchain_id = b.id
+        WHERE ${whereClause}
+        ORDER BY d.created_at DESC
+        LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+      `, [...params, limit, offset]);
+
+      // Get total count (exclude zero amount)
+      const countResult = await db.query<{ count: string }>(
+        `SELECT COUNT(*) as count FROM deposits WHERE user_id = $1 AND (amount IS NULL OR amount::numeric > 0)`,
+        [userId]
+      );
+
+      // Get explorer URLs for each chain
+      const explorerMap: Record<string, string> = {
+        'ETH': 'https://etherscan.io/tx/',
+        'BSC': 'https://bscscan.com/tx/',
+        'BNB': 'https://bscscan.com/tx/',
+        'MATIC': 'https://polygonscan.com/tx/',
+        'ARB': 'https://arbiscan.io/tx/',
+        'BASE': 'https://basescan.org/tx/',
+      };
+
+      const deposits = result.rows.map(row => {
+        const explorerBase = explorerMap[row.chain_symbol?.toUpperCase()] || 'https://etherscan.io/tx/';
+        return {
+          id: row.id,
+          txHash: row.tx_hash,
+          explorerUrl: row.tx_hash ? `${explorerBase}${row.tx_hash}` : null,
+          fromAddress: row.from_address,
+          toAddress: row.to_address,
+          amount: row.amount,
+          symbol: row.symbol,
+          currencyName: row.currency_name,
+          logoUrl: row.logo_url,
+          chainName: row.chain_name,
+          chainSymbol: row.chain_symbol,
+          confirmations: row.confirmations || 0,
+          requiredConfirmations: row.required_confirmations || 25,
+          confirmationProgress: Math.min(100, ((row.confirmations || 0) / (row.required_confirmations || 25)) * 100),
+          blockNumber: row.block_number,
+          blockTimestamp: row.block_timestamp,
+          status: row.status,
+          creditedAt: row.credited_at,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at
+        };
+      });
+
+      return {
+        success: true,
+        data: deposits,
+        pagination: {
+          page,
+          limit,
+          total: parseInt(countResult.rows[0]?.count || '0'),
+          totalPages: Math.ceil(parseInt(countResult.rows[0]?.count || '0') / limit)
+        }
+      };
+    } catch (error) {
+      logger.error('Failed to get deposit history', { 
+        error: error instanceof Error ? error.message : 'Unknown',
+        userId: request.user?.id 
+      });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to get deposit history' }
+      });
+    }
+  });
+
+  // Get ALL transactions (deposits + withdrawals + transfers combined)
+  app.get('/transactions/all', {
+    preHandler: [app.authenticate]
+  }, async (request: FastifyRequest<{
+    Querystring: { limit?: string; offset?: string; status?: string; coin?: string }
+  }>, reply: FastifyReply) => {
+    try {
+      const userId = request.user!.id;
+      const limit = parseInt(request.query.limit || '50');
+      const offset = parseInt(request.query.offset || '0');
+      const statusFilter = request.query.status?.toLowerCase();
+      const coinFilter = request.query.coin?.toUpperCase();
+
+      // Repair: only if user_balances exists; skip rows whose currency_id is not in currencies (avoids FK violation e.g. TRX)
+      const hasUB = await db.query(
+        `SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_balances'`
+      );
+      if (hasUB.rows.length > 0) {
+        const overdue2 = await db.query(`
+          SELECT id, user_id, currency_id, amount::numeric as amount
+          FROM deposits
+          WHERE user_id = $1 AND status = 'pending'
+            AND confirmations >= COALESCE(required_confirmations, 25)
+            AND (amount IS NULL OR amount::numeric > 0)
+        `, [userId]).catch(() => ({ rows: [] }));
+        for (const row of (overdue2 as { rows: { id: string; user_id: string; currency_id: string; amount: string | number }[] }).rows) {
+          try {
+            const cur = await db.query(`SELECT 1 FROM currencies WHERE id = $1`, [row.currency_id]);
+            if (cur.rows.length === 0) {
+              logger.warn('Repair deposit skipped: currency_id not in currencies', { depositId: row.id, currencyId: row.currency_id });
+              continue;
+            }
+            await db.query('BEGIN');
+            await db.query(
+              `UPDATE deposits SET status = 'completed', credited_at = NOW(), updated_at = NOW() WHERE id = $1`,
+              [row.id]
+            );
+            const amount = String(row.amount ?? 0);
+            const upd = await db.query(`
+              UPDATE user_balances
+              SET available_balance = available_balance + $1::numeric,
+                  pending_balance = GREATEST(pending_balance - $1::numeric, 0),
+                  total_deposited = COALESCE(total_deposited, 0) + $1::numeric,
+                  updated_at = NOW()
+              WHERE user_id = $2 AND currency_id = $3 AND account_type = 'funding'
+            `, [amount, row.user_id, row.currency_id]);
+            if (upd.rowCount === 0) {
+              await db.query(`
+                INSERT INTO user_balances (id, user_id, currency_id, available_balance, locked_balance, pending_balance, total_deposited, account_type, updated_at)
+                VALUES (gen_random_uuid(), $1, $2, $3::numeric, 0, 0, $3::numeric, 'funding', NOW())
+              `, [row.user_id, row.currency_id, amount]);
+            }
+            await db.query('COMMIT');
+            logger.info('Deposit completed (overdue confirmations)', { depositId: row.id, userId: row.user_id });
+          } catch (e) {
+            await db.query('ROLLBACK');
+            logger.warn('Repair deposit failed', { depositId: row.id, error: e });
+          }
+        }
+      }
+
+      const allTransactions: any[] = [];
+
+      // 1. Get DEPOSITS (exclude zero amount; address = sender = from_address)
+      let depositQuery = `
+        SELECT 
+          d.id,
+          'deposit' as type,
+          d.tx_hash,
+          d.from_address,
+          d.to_address,
+          d.amount,
+          d.status,
+          d.confirmations,
+          d.required_confirmations,
+          d.created_at,
+          c.symbol,
+          c.name as currency_name,
+          c.logo_url,
+          b.chain_name
+        FROM deposits d
+        LEFT JOIN currencies c ON d.currency_id = c.id
+        LEFT JOIN blockchains b ON d.blockchain_id = b.id
+        WHERE d.user_id = $1 AND (d.amount IS NULL OR d.amount::numeric > 0)
+      `;
+      const depositParams: any[] = [userId];
+      let paramIndex = 2;
+
+      if (statusFilter && statusFilter !== 'all') {
+        depositQuery += ` AND LOWER(d.status) = $${paramIndex}`;
+        depositParams.push(statusFilter);
+        paramIndex++;
+      }
+      if (coinFilter && coinFilter !== 'ALL') {
+        depositQuery += ` AND UPPER(c.symbol) = $${paramIndex}`;
+        depositParams.push(coinFilter);
+      }
+
+      const depositsResult = await db.query(depositQuery, depositParams);
+      depositsResult.rows.forEach(row => {
+        allTransactions.push({
+          id: row.id,
+          type: 'deposit',
+          coin: row.symbol || 'Unknown',
+          coin_logo: row.logo_url || `/assets/upload/currency-logo/${(row.symbol || 'btc').toLowerCase()}.svg`,
+          chain_type: row.chain_name || 'Unknown',
+          quantity: row.amount,
+          address: row.from_address || '',  // sender address
+          txid: row.tx_hash || '',
+          status: row.status,
+          date_time: row.created_at,
+          confirmations: row.confirmations || 0,
+          requiredConfirmations: row.required_confirmations || 25
+        });
+      });
+
+      // 2. Get WITHDRAWALS
+      let withdrawQuery = `
+        SELECT 
+          w.id,
+          'withdraw' as type,
+          w.tx_hash,
+          w.to_address as address,
+          w.amount,
+          w.status,
+          w.created_at,
+          c.symbol,
+          c.name as currency_name,
+          c.logo_url,
+          b.chain_name
+        FROM withdrawals w
+        LEFT JOIN currencies c ON w.currency_id = c.id
+        LEFT JOIN blockchains b ON w.blockchain_id = b.id
+        WHERE w.user_id = $1
+      `;
+      const withdrawParams: any[] = [userId];
+      paramIndex = 2;
+
+      if (statusFilter && statusFilter !== 'all') {
+        withdrawQuery += ` AND LOWER(w.status) = $${paramIndex}`;
+        withdrawParams.push(statusFilter);
+        paramIndex++;
+      }
+      if (coinFilter && coinFilter !== 'ALL') {
+        withdrawQuery += ` AND UPPER(c.symbol) = $${paramIndex}`;
+        withdrawParams.push(coinFilter);
+      }
+
+      try {
+        const withdrawalsResult = await db.query(withdrawQuery, withdrawParams);
+        withdrawalsResult.rows.forEach(row => {
+          allTransactions.push({
+            id: row.id,
+            type: 'withdraw',
+            coin: row.symbol || 'Unknown',
+            coin_logo: row.logo_url || `/assets/upload/currency-logo/${(row.symbol || 'btc').toLowerCase()}.svg`,
+            chain_type: row.chain_name || 'Unknown',
+            quantity: row.amount,
+            address: row.address || '',
+            txid: row.tx_hash || '',
+            status: row.status,
+            date_time: row.created_at
+          });
+        });
+      } catch (e) {
+        // Withdrawals table may not exist
+      }
+
+      // 3. Get TRANSFERS
+      try {
+        const tableCheck = await db.query(`
+          SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'internal_transfers')
+        `);
+
+        if (tableCheck.rows[0].exists) {
+          let transferQuery = `
+            SELECT 
+              it.id,
+              'transfer' as type,
+              it.from_account,
+              it.to_account,
+              it.amount,
+              it.status,
+              it.created_at,
+              c.symbol,
+              c.name as currency_name,
+              c.logo_url
+            FROM internal_transfers it
+            JOIN currencies c ON it.currency_id = c.id
+            WHERE it.user_id = $1
+          `;
+          const transferParams: any[] = [userId];
+          paramIndex = 2;
+
+          if (statusFilter && statusFilter !== 'all') {
+            transferQuery += ` AND LOWER(it.status) = $${paramIndex}`;
+            transferParams.push(statusFilter);
+            paramIndex++;
+          }
+          if (coinFilter && coinFilter !== 'ALL') {
+            transferQuery += ` AND UPPER(c.symbol) = $${paramIndex}`;
+            transferParams.push(coinFilter);
+          }
+
+          const transfersResult = await db.query(transferQuery, transferParams);
+          transfersResult.rows.forEach(row => {
+            allTransactions.push({
+              id: row.id,
+              type: 'transfer',
+              coin: row.symbol || 'Unknown',
+              coin_logo: row.logo_url || `/assets/upload/currency-logo/${(row.symbol || 'btc').toLowerCase()}.svg`,
+              chain_type: `${row.from_account} → ${row.to_account}`,
+              quantity: row.amount,
+              address: '',
+              txid: '',
+              status: row.status,
+              date_time: row.created_at
+            });
+          });
+        }
+      } catch (e) {
+        // Internal transfers table may not exist
+      }
+
+      // Sort all by date descending
+      allTransactions.sort((a, b) => new Date(b.date_time).getTime() - new Date(a.date_time).getTime());
+
+      // Apply pagination
+      const paginatedTransactions = allTransactions.slice(offset, offset + limit);
+
+      return {
+        success: true,
+        data: paginatedTransactions,
+        total: allTransactions.length
+      };
+    } catch (error) {
+      logger.error('Failed to get all transactions', { 
+        error: error instanceof Error ? error.message : 'Unknown',
+        userId: request.user?.id 
+      });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to get all transactions' }
+      });
+    }
+  });
+
+  // Get single deposit details with real-time confirmation update
+  app.get('/deposit/:txHash', {
+    preHandler: [app.authenticate]
+  }, async (request: FastifyRequest<{
+    Params: { txHash: string }
+  }>, reply: FastifyReply) => {
+    try {
+      const userId = request.user!.id;
+      const { txHash } = request.params;
+
+      const result = await db.query(`
+        SELECT 
+          d.*,
+          c.symbol,
+          c.name as currency_name,
+          c.logo_url,
+          b.chain_name,
+          b.chain_symbol
+        FROM deposits d
+        LEFT JOIN currencies c ON d.currency_id = c.id
+        LEFT JOIN blockchains b ON d.blockchain_id = b.id
+        WHERE d.tx_hash = $1 AND d.user_id = $2
+      `, [txHash, userId]);
+
+      if (result.rows.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Deposit not found' }
+        });
+      }
+
+      const deposit = result.rows[0];
+
+      return {
+        success: true,
+        data: {
+          id: deposit.id,
+          txHash: deposit.tx_hash,
+          fromAddress: deposit.from_address,
+          toAddress: deposit.to_address,
+          amount: deposit.amount,
+          symbol: deposit.symbol,
+          currencyName: deposit.currency_name,
+          logoUrl: deposit.logo_url,
+          chainName: deposit.chain_name,
+          chainSymbol: deposit.chain_symbol,
+          confirmations: deposit.confirmations || 0,
+          requiredConfirmations: deposit.required_confirmations || 25,
+          status: deposit.status,
+          blockNumber: deposit.block_number,
+          blockTimestamp: deposit.block_timestamp,
+          creditedAt: deposit.credited_at,
+          createdAt: deposit.created_at
+        }
+      };
+    } catch (error) {
+      logger.error('Failed to get deposit details', { 
+        error: error instanceof Error ? error.message : 'Unknown' 
+      });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to get deposit details' }
+      });
+    }
+  });
 }
 
+/** Block confirmations required for deposit crediting only (chain-level setting). */
 function getDepositNotice(chainType: string, confirmations: number | undefined): string {
   const confirms = confirmations || 12;
   const notices: string[] = [
-    `Your deposit will be credited after ${confirms} network confirmations.`,
+    `Your deposit will be credited after ${confirms} block confirmations on the network.`,
     'Please ensure you are sending the correct token on the correct network.',
     'Sending tokens on the wrong network may result in permanent loss of funds.'
   ];

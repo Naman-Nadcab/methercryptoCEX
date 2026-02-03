@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useAuthStore } from '@/store/auth';
 import Link from 'next/link';
 import {
@@ -25,12 +25,21 @@ import {
   Sparkles,
   Star,
   Zap,
+  Loader2,
 } from 'lucide-react';
 
 type ActiveCard = 'earnings' | 'commissions';
 
+interface ReferralStats {
+  referralCode: string;
+  totalReferrals: number;
+  totalEarnings: number;
+  pendingEarnings: number;
+  commissionRate: number;
+}
+
 export default function ReferralProgramPage() {
-  const { user } = useAuthStore();
+  const { user, accessToken, _hasHydrated } = useAuthStore();
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [activeCard, setActiveCard] = useState<ActiveCard>('earnings');
@@ -39,8 +48,43 @@ export default function ReferralProgramPage() {
   const [modalCopiedLink, setModalCopiedLink] = useState(false);
   const [currentSlide, setCurrentSlide] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<ReferralStats | null>(null);
+  
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
-  const referralCode = user?.id?.slice(0, 8).toUpperCase() || 'METH1234';
+  // Fetch referral data from API
+  useEffect(() => {
+    const fetchReferralData = async () => {
+      if (!_hasHydrated || !accessToken) return;
+      
+      try {
+        // First try to get referral stats
+        const response = await fetch(`${apiUrl}/api/v1/auth/profile`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const result = await response.json();
+        
+        if (result.success && result.data?.user?.referralCode) {
+          setStats({
+            referralCode: result.data.user.referralCode,
+            totalReferrals: 0, // TODO: Fetch from referral stats endpoint
+            totalEarnings: 0,
+            pendingEarnings: 0,
+            commissionRate: 20, // Default commission rate
+          });
+        }
+      } catch (error) {
+        console.error('Failed to fetch referral data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchReferralData();
+  }, [accessToken, _hasHydrated]);
+
+  const referralCode = stats?.referralCode || user?.id?.slice(0, 8).toUpperCase() || 'LOADING...';
   const referralLink = `https://www.methereum.com/invite?ref=${referralCode}`;
 
   const customText = `Sign up for a Methereum account and claim exclusive rewards from the Methereum referral program! Plus, claim up to 6,135 USDT bonus at ${referralLink}`;

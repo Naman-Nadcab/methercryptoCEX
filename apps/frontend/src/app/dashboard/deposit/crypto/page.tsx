@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/store/auth';
+import { api } from '@/lib/api';
 import Link from 'next/link';
 import Image from 'next/image';
 import { QRCodeSVG } from 'qrcode.react';
@@ -75,6 +76,7 @@ interface Deposit {
   chain_name: string;
   amount: string;
   tx_hash?: string;
+  explorer_url?: string;
   to_address: string;
   confirmations: number;
   required_confirmations: number;
@@ -88,27 +90,33 @@ interface KycStatus {
   level: number;
 }
 
-// Popular tokens for quick selection
-const POPULAR_TOKENS = ['BTC', 'ETH', 'USDT', 'USDC'];
+// Popular tokens for quick selection (BTC, ETH, USDT, USDC, BNB, SOL, TRX)
+const POPULAR_TOKENS = ['BTC', 'ETH', 'USDT', 'USDC', 'BNB', 'SOL', 'TRX'];
 
 export default function DepositCryptoPage() {
   const router = useRouter();
-  const { accessToken } = useAuthStore();
+  const searchParams = useSearchParams();
+  const coinParam = searchParams.get('coin');
+  const { accessToken, _hasHydrated } = useAuthStore();
   const [tokens, setTokens] = useState<Token[]>([]);
   const [selectedToken, setSelectedToken] = useState<Token | null>(null);
+  const [initialCoinSet, setInitialCoinSet] = useState(false);
   const [availableChains, setAvailableChains] = useState<Chain[]>([]);
   const [selectedChain, setSelectedChain] = useState<Chain | null>(null);
   const [depositAddress, setDepositAddress] = useState<DepositAddress | null>(null);
   const [recentDeposits, setRecentDeposits] = useState<Deposit[]>([]);
+  const [recentDepositsLoading, setRecentDepositsLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [addressLoading, setAddressLoading] = useState(false);
   const [chainsLoading, setChainsLoading] = useState(false);
+  const [chainsError, setChainsError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [showTokenDropdown, setShowTokenDropdown] = useState(false);
   const [showChainDropdown, setShowChainDropdown] = useState(false);
   const [tokenSearch, setTokenSearch] = useState('');
   const [kycStatus, setKycStatus] = useState<KycStatus | null>(null);
   const [showKycModal, setShowKycModal] = useState(false);
+  const [addressError, setAddressError] = useState<string | null>(null);
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -137,6 +145,8 @@ export default function DepositCryptoPage() {
       'trx': 'tron',
       'bitcoin': 'bitcoin',
       'btc': 'bitcoin',
+      'polkadot': 'polkadot',
+      'dot': 'polkadot',
       'avalanche c-chain': 'avalanche',
       'avalanche': 'avalanche',
       'avax': 'avalanche',
@@ -145,21 +155,48 @@ export default function DepositCryptoPage() {
     return `/assets/upload/blockchain-logo/${icon}.svg`;
   };
 
-  // Fetch tokens on mount
+  // 1) Load assets (tokens) on mount
   useEffect(() => {
     fetchTokens();
-    if (accessToken) {
+    if (_hasHydrated && accessToken) {
       fetchKycStatus();
       fetchRecentDeposits();
     }
-  }, [accessToken]);
+  }, [_hasHydrated, accessToken]);
 
-  // Fetch chains when token changes
+  // Auto-select coin from URL parameter
+  useEffect(() => {
+    if (coinParam && tokens.length > 0 && !initialCoinSet) {
+      const matchedToken = tokens.find(
+        t => t.symbol.toUpperCase() === coinParam.toUpperCase()
+      );
+      if (matchedToken) {
+        setSelectedToken(matchedToken);
+        setInitialCoinSet(true);
+      }
+    }
+  }, [coinParam, tokens, initialCoinSet]);
+
+  // 2) When asset (token) is selected: fetch chains that support this asset only
   useEffect(() => {
     if (selectedToken) {
-      fetchChainsForToken(selectedToken.symbol);
+      setSelectedChain(null);
+      setDepositAddress(null);
+      setAddressError(null);
+      fetchChainsForAsset(selectedToken.symbol);
+    } else {
+      setAvailableChains([]);
+      setSelectedChain(null);
+      setDepositAddress(null);
     }
-  }, [selectedToken]);
+  }, [selectedToken?.id]);
+
+  // When chains for asset are loaded, auto-select first chain if none selected
+  useEffect(() => {
+    if (selectedToken && availableChains.length > 0 && !selectedChain) {
+      setSelectedChain(availableChains[0]);
+    }
+  }, [availableChains.length, selectedToken?.id]);
 
   // Fetch deposit address when chain is selected
   useEffect(() => {
@@ -188,86 +225,74 @@ export default function DepositCryptoPage() {
   };
 
   const fetchKycStatus = async () => {
+    if (!accessToken) return;
     try {
-      const res = await fetch(`${API_URL}/api/v1/wallet/kyc-status`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      
-      // Do NOT logout on 401 - user stays logged in until manual logout
-      // API errors should be handled gracefully without forcing logout
-      
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) {
-          setKycStatus(data.data);
-        }
+      const result = await api.get<{ verified: boolean; status: string; level: number }>('/api/v1/wallet/kyc-status');
+      if (result.success && result.data) {
+        setKycStatus(result.data);
       }
     } catch (error) {
       console.error('Failed to fetch KYC status:', error);
     }
   };
 
-  const fetchChainsForToken = async (symbol: string) => {
+  // Fetch chains that support the selected asset (token). Asset must be related to chain.
+  const fetchChainsForAsset = async (symbol: string) => {
     try {
       setChainsLoading(true);
-      setSelectedChain(null); // Reset chain when token changes
-      setDepositAddress(null);
-      
-      const res = await fetch(`${API_URL}/api/v1/wallet/tokens/${symbol}/chains`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && data.data) {
-          setAvailableChains(data.data);
-          // Auto-select first chain if available
-          if (data.data.length > 0) {
-            console.log('Auto-selecting first chain:', data.data[0].name, data.data[0].id);
-            setSelectedChain(data.data[0]);
-          }
+      setChainsError(null);
+      const result = await api.get<Chain[]>(`/api/v1/wallet/tokens/${encodeURIComponent(symbol)}/chains`);
+      if (result.success && Array.isArray(result.data)) {
+        setAvailableChains(result.data);
+        setChainsError(null);
+        if (result.data.length === 0) {
+          setChainsError(`No chains support ${symbol}. Add ${symbol} on a chain in admin.`);
         }
+      } else {
+        setAvailableChains([]);
+        setChainsError(result.error?.message || 'Could not load chains for this asset.');
       }
     } catch (error) {
-      console.error('Failed to fetch chains:', error);
+      console.error('Failed to fetch chains for asset:', error);
+      setAvailableChains([]);
+      setChainsError('Network error. Try again.');
     } finally {
       setChainsLoading(false);
     }
   };
 
   const fetchDepositAddress = async (chainId: string) => {
-    console.log('fetchDepositAddress called with chainId:', chainId, 'accessToken exists:', !!accessToken);
     if (!accessToken) {
-      console.log('No access token available');
+      setAddressError('Please sign in to see your deposit address.');
       return;
     }
-    
     try {
       setAddressLoading(true);
       setDepositAddress(null);
+      setAddressError(null);
       setShowKycModal(false);
-      
-      console.log('Making API request to:', `${API_URL}/api/v1/wallet/deposit-address/${chainId}`);
-      const res = await fetch(`${API_URL}/api/v1/wallet/deposit-address/${chainId}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      
-      console.log('API response status:', res.status);
-      const data = await res.json();
-      console.log('API response data:', data);
-      
-      if (data.success && data.data) {
-        console.log('Setting deposit address:', data.data.address);
-        setDepositAddress(data.data);
+      // Use centralized api client: 401 triggers token refresh and retry automatically
+      const result = await api.get<DepositAddress>(`/api/v1/wallet/deposit-address/${chainId}`);
+      if (result.success && result.data?.address) {
+        setDepositAddress(result.data);
+        setAddressError(null);
         setShowKycModal(false);
-      } else if (res.status === 401) {
-        // Do NOT logout on 401 - keep user logged in
-        console.log('Auth error but keeping session active');
-      } else if (res.status === 403 && data.error?.code === 'KYC_REQUIRED') {
-        console.log('KYC required, showing modal');
-        setShowKycModal(true);
+      } else if (result.error?.code === 'KYC_REQUIRED') {
         setDepositAddress(null);
+        setAddressError('Complete identity verification (KYC) to view your deposit address.');
+        setShowKycModal(true);
+      } else if (result.error?.code === 'SESSION_EXPIRED' || result.error?.code === 'INVALID_TOKEN') {
+        setDepositAddress(null);
+        setAddressError('Session expired. Please sign in again.');
+        router.push('/login');
       } else {
-        console.log('Unknown error response:', data);
+        setDepositAddress(null);
+        const detail = (result.error as { detail?: string } | undefined)?.detail;
+        setAddressError(detail || result.error?.message || 'Could not load address. Try again.');
       }
     } catch (error) {
+      setDepositAddress(null);
+      setAddressError('Network error. Check backend and try again.');
       console.error('Failed to fetch deposit address:', error);
     } finally {
       setAddressLoading(false);
@@ -276,18 +301,46 @@ export default function DepositCryptoPage() {
 
   const fetchRecentDeposits = async () => {
     if (!accessToken) return;
-    
+    setRecentDepositsLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/v1/wallet/deposits?limit=10`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const data = await res.json();
-      
-      if (data.success) {
-        setRecentDeposits(data.data || []);
+      const result = await api.get<Array<{
+        id: string;
+        symbol?: string;
+        chainName?: string;
+        amount?: string;
+        txHash?: string;
+        explorerUrl?: string;
+        fromAddress?: string;
+        toAddress?: string;
+        confirmations?: number;
+        requiredConfirmations?: number;
+        status?: string;
+        createdAt?: string;
+        created_at?: string;
+      }>>('/api/v1/wallet/deposit-history?limit=10');
+      if (result.success && Array.isArray(result.data)) {
+        const mapped: Deposit[] = result.data.map((d) => ({
+          id: d.id,
+          symbol: d.symbol || 'Unknown',
+          chain_name: d.chainName || 'Unknown',
+          amount: d.amount || '0',
+          tx_hash: d.txHash,
+          explorer_url: d.explorerUrl,
+          to_address: d.fromAddress || d.toAddress || '', // show sender address
+          confirmations: d.confirmations ?? 0,
+          required_confirmations: d.requiredConfirmations ?? 25,
+          status: d.status || 'pending',
+          created_at: d.createdAt || d.created_at || '',
+        }));
+        setRecentDeposits(mapped);
+      } else {
+        setRecentDeposits([]);
       }
     } catch (error) {
       console.error('Failed to fetch deposits:', error);
+      setRecentDeposits([]);
+    } finally {
+      setRecentDepositsLoading(false);
     }
   };
 
@@ -496,12 +549,15 @@ export default function DepositCryptoPage() {
                 </div>
               </div>
 
-              {/* Step 2: Choose Chain */}
+              {/* Step 2: Choose Chain (filtered by selected asset) */}
               <div className="mb-6">
                 <div className="flex items-center gap-2 mb-3">
                   <span className={`w-6 h-6 rounded-full text-white text-sm flex items-center justify-center font-medium ${selectedToken ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}>2</span>
                   <span className={`font-medium ${selectedToken ? 'text-gray-900 dark:text-white' : 'text-gray-400'}`}>Choose a Chain</span>
                 </div>
+                {selectedToken && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Chains that support {selectedToken.symbol}</p>
+                )}
 
                 <div className="relative">
                   <button
@@ -539,6 +595,11 @@ export default function DepositCryptoPage() {
                         <div className="flex justify-center py-6">
                           <RefreshCw className="w-5 h-5 text-blue-500 animate-spin" />
                         </div>
+                      ) : chainsError ? (
+                        <div className="py-6 px-4 text-center">
+                          <p className="text-amber-600 dark:text-amber-400 text-sm mb-1">No chains available</p>
+                          <p className="text-gray-500 dark:text-gray-400 text-xs">{chainsError}</p>
+                        </div>
                       ) : availableChains.length > 0 ? (
                         availableChains.map((chain) => (
                           <button
@@ -564,11 +625,11 @@ export default function DepositCryptoPage() {
                                 <span className="text-xs px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded">EVM</span>
                               )}
                             </div>
-                            <span className="text-xs text-gray-500">{chain.confirmations_required} confirms</span>
+                            <span className="text-xs text-gray-500">{chain.confirmations_required} block confirms</span>
                           </button>
                         ))
                       ) : (
-                        <div className="py-6 text-center text-gray-400">No chains available</div>
+                        <div className="py-6 text-center text-gray-400">No chains available. Run backend migrations if the database is empty.</div>
                       )}
                     </div>
                   )}
@@ -585,6 +646,17 @@ export default function DepositCryptoPage() {
                 {addressLoading ? (
                   <div className="flex items-center justify-center py-12">
                     <RefreshCw className="w-6 h-6 text-blue-500 animate-spin" />
+                  </div>
+                ) : addressError ? (
+                  <div className="rounded-lg p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                    <p className="text-amber-800 dark:text-amber-200 text-sm">{addressError}</p>
+                    <button
+                      type="button"
+                      onClick={() => selectedChain && fetchDepositAddress(selectedChain.id)}
+                      className="mt-3 text-sm font-medium text-amber-600 dark:text-amber-400 hover:underline"
+                    >
+                      Retry
+                    </button>
                   </div>
                 ) : depositAddress ? (
                   <div className="bg-gray-50 dark:bg-[#0b0e11] rounded-lg p-4">
@@ -633,7 +705,7 @@ export default function DepositCryptoPage() {
                   </div>
                 ) : (
                   <div className="text-center py-8 text-gray-400">
-                    Select a coin and chain to see the deposit address
+                    {selectedChain ? 'Loading deposit address…' : 'Select a coin and chain to see the deposit address'}
                   </div>
                 )}
               </div>
@@ -693,10 +765,11 @@ export default function DepositCryptoPage() {
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Recent Deposits</h2>
             <button
               onClick={fetchRecentDeposits}
-              className="text-sm text-blue-500 hover:text-blue-600 flex items-center gap-1"
+              disabled={recentDepositsLoading}
+              className="text-sm text-blue-500 hover:text-blue-600 flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <RefreshCw className="w-4 h-4" />
-              Refresh
+              <RefreshCw className={`w-4 h-4 ${recentDepositsLoading ? 'animate-spin' : ''}`} />
+              {recentDepositsLoading ? 'Refreshing...' : 'Refresh'}
             </button>
           </div>
 
@@ -727,14 +800,18 @@ export default function DepositCryptoPage() {
                     </span>
                     <span className="text-gray-600 dark:text-gray-400">
                       {deposit.tx_hash ? (
-                        <Link href="#" className="text-blue-500 hover:underline truncate block">
-                          {deposit.tx_hash.slice(0, 8)}...
-                        </Link>
+                        deposit.explorer_url ? (
+                          <a href={deposit.explorer_url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline truncate block">
+                            {deposit.tx_hash.slice(0, 8)}...
+                          </a>
+                        ) : (
+                          <span className="truncate block">{deposit.tx_hash.slice(0, 8)}...</span>
+                        )
                       ) : '-'}
                     </span>
                     <span className={getStatusColor(deposit.status)}>
-                      {deposit.status === 'confirming' 
-                        ? `${deposit.confirmations}/${deposit.required_confirmations}` 
+                      {(deposit.status === 'confirming' || deposit.status === 'pending') && deposit.required_confirmations
+                        ? `${deposit.confirmations}/${deposit.required_confirmations} Confirmations`
                         : deposit.status}
                     </span>
                     <span className="text-gray-600 dark:text-gray-400">
@@ -755,7 +832,7 @@ export default function DepositCryptoPage() {
 
           {recentDeposits.length > 0 && (
             <Link
-              href="/dashboard/deposits"
+              href="/dashboard/assets/history?tab=deposit"
               className="inline-flex items-center gap-1 mt-4 text-sm text-yellow-500 hover:text-yellow-600"
             >
               View More <ExternalLink className="w-4 h-4" />

@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
+import { config } from '../config/index.js';
 
 // Types
 interface AdminLoginBody {
@@ -33,6 +34,70 @@ function generateAdminTokens(app: FastifyInstance, payload: {
     { expiresIn: '7d' }
   );
   return { accessToken, refreshToken };
+}
+
+/** Get admin from request (JWT + session). Throws reply if unauthorized. */
+async function getAdminFromRequest(
+  app: FastifyInstance,
+  request: FastifyRequest,
+  reply: FastifyReply,
+  requireSuperAdmin: boolean
+): Promise<{ adminId: string; role: string } | null> {
+  const token = request.headers.authorization?.replace('Bearer ', '');
+  if (!token) {
+    reply.status(401).send({ success: false, error: { code: 'UNAUTHORIZED', message: 'No token provided' } });
+    return null;
+  }
+  let decoded: { adminId: string; role?: string; sessionId: string; type?: string };
+  try {
+    decoded = app.jwt.verify<typeof decoded>(token);
+  } catch {
+    reply.status(401).send({ success: false, error: { code: 'INVALID_TOKEN', message: 'Invalid or expired token' } });
+    return null;
+  }
+  if (decoded.type !== 'admin') {
+    reply.status(401).send({ success: false, error: { code: 'INVALID_TOKEN', message: 'Invalid admin token' } });
+    return null;
+  }
+  let session: { adminId: string; role: string; isActive: boolean } | null = null;
+  try {
+    session = await redis.getJson<{ adminId: string; role: string; isActive: boolean }>(`admin:session:${decoded.sessionId}`);
+  } catch {
+    // Redis down; fallback to DB
+  }
+  if (!session || !session.isActive) {
+    // Fallback: validate session from DB
+    const dbSession = await db.query<{ admin_id: string; role: string }>(
+      `SELECT s.admin_id, u.role FROM admin_sessions s
+       JOIN admin_users u ON u.id = s.admin_id
+       WHERE s.id = $1 AND s.expires_at > NOW()`,
+      [decoded.sessionId]
+    );
+    if (dbSession.rows.length === 0) {
+      reply.status(401).send({ success: false, error: { code: 'SESSION_EXPIRED', message: 'Session expired' } });
+      return null;
+    }
+    const row = dbSession.rows[0]!;
+    session = { adminId: row.admin_id, role: row.role, isActive: true };
+  }
+  const role = session.role ?? decoded.role ?? '';
+  if (requireSuperAdmin && role !== 'super_admin' && role !== 'Super Admin') {
+    reply.status(403).send({
+      success: false,
+      error: { code: 'FORBIDDEN', message: 'Hot wallet actions require Super Admin role.' },
+    });
+    return null;
+  }
+  const ip = (request.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || request.ip;
+  const allowlist = config.security?.adminIpWhitelist ?? [];
+  if (allowlist.length > 0 && !allowlist.includes(ip) && !allowlist.includes('*')) {
+    reply.status(403).send({
+      success: false,
+      error: { code: 'FORBIDDEN', message: 'Your IP is not on the admin allowlist.' },
+    });
+    return null;
+  }
+  return { adminId: session.adminId, role };
 }
 
 export default async function adminRoutes(app: FastifyInstance) {
@@ -108,13 +173,17 @@ export default async function adminRoutes(app: FastifyInstance) {
         [sessionId, admin.id, sessionToken, request.ip, request.headers['user-agent'], expiresAt]
       );
 
-      // Store session in Redis
-      await redis.setJson(`admin:session:${sessionId}`, {
-        adminId: admin.id,
-        email: admin.email,
-        role: admin.role,
-        isActive: true,
-      }, 7 * 24 * 60 * 60);
+      // Store session in Redis (optional; if Redis is down, session is still in DB and auth/me will fallback to DB)
+      try {
+        await redis.setJson(`admin:session:${sessionId}`, {
+          adminId: admin.id,
+          email: admin.email,
+          role: admin.role,
+          isActive: true,
+        }, 7 * 24 * 60 * 60);
+      } catch (e) {
+        logger.warn('Redis unavailable for admin session cache; using DB fallback', { error: e instanceof Error ? e.message : 'Unknown' });
+      }
 
       // Update last login
       await db.query(
@@ -172,7 +241,11 @@ export default async function adminRoutes(app: FastifyInstance) {
       const token = request.headers.authorization?.replace('Bearer ', '');
       if (token) {
         const decoded = app.jwt.verify<{ sessionId: string; adminId: string }>(token);
-        await redis.del(`admin:session:${decoded.sessionId}`);
+        try {
+          await redis.del(`admin:session:${decoded.sessionId}`);
+        } catch {
+          // Redis down; session still invalidated in DB
+        }
         await db.query(
           'DELETE FROM admin_sessions WHERE id = $1',
           [decoded.sessionId]
@@ -991,7 +1064,7 @@ export default async function adminRoutes(app: FastifyInstance) {
 
   /**
    * GET /admin/withdrawals
-   * Get withdrawals with filters
+   * Get withdrawals with filters (uses chains + tokens schema)
    */
   app.get('/withdrawals', async (request, reply) => {
     try {
@@ -1002,26 +1075,25 @@ export default async function adminRoutes(app: FastifyInstance) {
       const stats = await db.query(`
         SELECT 
           COUNT(*) as total,
-          COUNT(*) FILTER (WHERE status = 'pending_approval') as pending_approval,
+          COUNT(*) FILTER (WHERE status = 'pending') as pending,
           COUNT(*) FILTER (WHERE status = 'processing') as processing,
-          COUNT(*) FILTER (WHERE status = 'pending_blockchain') as pending_blockchain,
           COUNT(*) FILTER (WHERE status = 'completed') as completed,
           COUNT(*) FILTER (WHERE status = 'failed') as failed,
           COUNT(*) FILTER (WHERE status = 'cancelled') as cancelled
         FROM withdrawals
       `);
 
-      // Get withdrawals
+      // Get withdrawals (chains + tokens schema)
       let query = `
         SELECT 
           w.*,
           u.email, u.username,
-          c.symbol as currency_symbol,
-          b.chain_name
+          t.symbol as currency_symbol,
+          c.name as chain_name
         FROM withdrawals w
         JOIN users u ON w.user_id = u.id
-        JOIN currencies c ON w.currency_id = c.id
-        JOIN blockchains b ON w.blockchain_id = b.id
+        JOIN tokens t ON w.token_id = t.id
+        JOIN chains c ON w.chain_id = c.id
       `;
       const params: any[] = [];
       let paramIndex = 1;
@@ -1055,6 +1127,611 @@ export default async function adminRoutes(app: FastifyInstance) {
       return reply.status(500).send({
         success: false,
         error: { code: 'FETCH_FAILED', message: 'Failed to fetch withdrawals' },
+      });
+    }
+  });
+
+  // ===============================
+  // HOT WALLET SETTINGS (MPC-like hot wallet per chain)
+  // ===============================
+
+  /**
+   * GET /admin/hot-wallets
+   * List all hot wallets (admin auth required). One wallet per chain family (e.g. one EVM address for all EVM chains).
+   * Returns available chain families for creating new wallets (only families present in DB).
+   */
+  app.get('/hot-wallets', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const hotWalletService = await import('../services/hot-wallet.service.js').then(m => m);
+      const list = await hotWalletService.listHotWallets();
+      const chains = await db.query<{ id: string; name: string; type: string; rpc_url: string }>(
+        'SELECT id, name, type, rpc_url FROM chains WHERE is_active = TRUE ORDER BY id'
+      );
+      const chainMap = Object.fromEntries(chains.rows.map(c => [c.id, c]));
+      const familiesInDb = await hotWalletService.listChainFamiliesInDb();
+      const familyHasWallet = await Promise.all(
+        familiesInDb.map(async (f) => ({ ...f, hasWallet: await hotWalletService.familyHasHotWallet(f.type) }))
+      );
+      const availableFamilies = familyHasWallet
+        .filter((f) => !f.hasWallet)
+        .map(({ type, label, representativeChainId, chainName, creationSupported }) => ({
+          type,
+          label,
+          representativeChainId,
+          chainName,
+          creationSupported,
+        }));
+      const allFamilies = familyHasWallet.map(({ type, label, representativeChainId, chainName, creationSupported, hasWallet }) => ({
+        type,
+        label,
+        representativeChainId,
+        chainName,
+        creationSupported,
+        hasWallet,
+      }));
+      const data = list.map(hw => ({
+        id: hw.id,
+        chainId: hw.chain_id,
+        chainName: chainMap[hw.chain_id]?.name ?? hw.chain_id,
+        chainType: chainMap[hw.chain_id]?.type ?? 'unknown',
+        address: hw.address,
+        balanceCache: hw.balance_cache,
+        minBalanceAlert: hw.min_balance_alert,
+        minHotBalance: hw.min_hot_balance ?? '0',
+        coldWalletAddress: hw.cold_wallet_address ?? null,
+        isActive: hw.is_active,
+        createdAt: hw.created_at,
+        updatedAt: hw.updated_at,
+      }));
+      return reply.send({
+        success: true,
+        data,
+        allChains: chains.rows.map(c => ({ id: c.id, name: c.name, type: c.type })),
+        availableFamilies,
+        allFamilies,
+      });
+    } catch (error: unknown) {
+      const err = error as { message?: string; code?: string; pgCode?: string };
+      const msg = err?.message ?? (error instanceof Error ? (error as Error).message : 'Unknown');
+      logger.error('Get hot wallets error', { error: msg });
+      if (err?.pgCode === '42P01' || err?.code === '42P01') {
+        return reply.status(500).send({
+          success: false,
+          error: { code: 'FETCH_FAILED', message: 'Hot wallets table missing. Run: npm run migrate (in apps/backend).' },
+        });
+      }
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'FETCH_FAILED', message: msg },
+      });
+    }
+  });
+
+  /**
+   * POST /admin/hot-wallets
+   * Create a new hot wallet by chain family (Super Admin only). Uses representative chain from DB.
+   * Body: { chainFamily: string } e.g. "evm" | "bitcoin" | "solana" | "tron", or legacy { chainId: string }.
+   */
+  app.post<{ Body: { chainId?: string; chainFamily?: string } }>('/hot-wallets', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, true);
+    if (!admin) return;
+    try {
+      const body = request.body || {};
+      const chainFamily = typeof body.chainFamily === 'string' ? body.chainFamily.trim() : undefined;
+      const chainId = typeof body.chainId === 'string' ? body.chainId.trim() : undefined;
+      const hotWalletService = await import('../services/hot-wallet.service.js').then(m => m);
+      const ip = (request.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || request.ip;
+      const userAgent = request.headers['user-agent'];
+      let created;
+      if (chainFamily) {
+        created = await hotWalletService.createHotWalletByFamily(chainFamily, admin.adminId, ip, userAgent);
+      } else if (chainId) {
+        created = await hotWalletService.createHotWallet(chainId, admin.adminId, ip, userAgent);
+      } else {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_INPUT', message: 'chainFamily or chainId is required' },
+        });
+      }
+      return reply.send({ success: true, data: created });
+    } catch (error: unknown) {
+      const err = error as { message?: string; code?: string; pgCode?: string };
+      const msg = err?.message ?? (error instanceof Error ? error.message : 'Unknown');
+      const code = err?.code;
+      if (code === 'CHAIN_NOT_FOUND' || err?.code === 'CHAIN_NOT_FOUND') {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'CHAIN_NOT_FOUND', message: msg },
+        });
+      }
+      if (code === 'HOT_WALLET_ALREADY_EXISTS' || err?.code === 'HOT_WALLET_ALREADY_EXISTS') {
+        return reply.status(409).send({
+          success: false,
+          error: { code: 'ALREADY_EXISTS', message: msg },
+        });
+      }
+      if (code === 'ONLY_EVM_SUPPORTED' || err?.code === 'ONLY_EVM_SUPPORTED') {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'UNSUPPORTED_CHAIN', message: msg },
+        });
+      }
+      if (code === 'ENCRYPTION_FAILED' || err?.code === 'ENCRYPTION_FAILED') {
+        return reply.status(500).send({
+          success: false,
+          error: { code: 'CREATE_FAILED', message: 'Encryption failed. Set ENCRYPTION_KEY in .env (min 32 chars).' },
+        });
+      }
+      if (err?.pgCode === '42P01' || code === '42P01') {
+        return reply.status(500).send({
+          success: false,
+          error: { code: 'CREATE_FAILED', message: 'Hot wallets table missing. Run: npm run migrate (in apps/backend).' },
+        });
+      }
+      if (err?.pgCode === '23503' || code === '23503') {
+        return reply.status(500).send({
+          success: false,
+          error: { code: 'CREATE_FAILED', message: 'Chain not found in database. Ensure chains table has this chain id.' },
+        });
+      }
+      logger.error('Create hot wallet error', { error: msg, code: err?.code });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'CREATE_FAILED', message: msg || (error instanceof Error ? (error as Error).message : 'Unknown') },
+      });
+    }
+  });
+
+  /**
+   * GET /admin/hot-wallets/balances
+   * Fetch native + token balances via Web3 for hot wallet. Query: chainId (stored chain_id for the wallet, e.g. arbitrum).
+   * Returns per-chain balances; only currencies from DB (tokens table), each currency once per chain.
+   */
+  app.get<{ Querystring: { chainId?: string } }>('/hot-wallets/balances', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const chainId = (request.query?.chainId as string)?.trim();
+      const hotWalletService = await import('../services/hot-wallet.service.js').then(m => m);
+      const list = await hotWalletService.listHotWallets();
+      if (list.length === 0) {
+        return reply.send({ success: true, data: [] });
+      }
+      const resolvedChainId = chainId && list.some(hw => hw.chain_id === chainId)
+        ? chainId
+        : list[0]!.chain_id;
+      const walletRow = list.find(hw => hw.chain_id === resolvedChainId);
+      if (!walletRow) {
+        return reply.send({ success: true, data: [] });
+      }
+      const chainsOfType = await db.query<{ id: string }>(
+        'SELECT id FROM chains WHERE is_active = TRUE AND type = (SELECT type FROM chains WHERE id = $1 LIMIT 1) ORDER BY id',
+        [resolvedChainId]
+      );
+      const chainIds = chainsOfType.rows.map(r => r.id);
+      const data = await hotWalletService.getHotWalletBalancesForChains(chainIds, walletRow.address);
+      return reply.send({ success: true, data });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Unknown';
+      logger.error('Get hot wallet balances error', { error: msg });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'FETCH_FAILED', message: msg },
+      });
+    }
+  });
+
+  /**
+   * GET /admin/hot-wallets/history
+   * Deposit and withdrawal history for hot wallet. Query: chainId?, type? (deposit|withdrawal), status? (pending|success|reverted|aborted), page?, limit?.
+   */
+  app.get<{ Querystring: { chainId?: string; type?: string; status?: string; page?: string; limit?: string } }>('/hot-wallets/history', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const chainId = (request.query?.chainId as string)?.trim();
+      const type = (request.query?.type as string)?.toLowerCase();
+      const status = (request.query?.status as string)?.toLowerCase();
+      const page = Math.max(1, parseInt(request.query?.page || '1', 10));
+      const limit = Math.min(100, Math.max(1, parseInt(request.query?.limit || '20', 10)));
+      const offset = (page - 1) * limit;
+
+      const hotWalletAddresses = await db.query<{ address: string }>('SELECT address FROM hot_wallets WHERE is_active = TRUE');
+      const addresses = hotWalletAddresses.rows.map(r => r.address);
+      const history: Array<{
+        id: string;
+        type: 'deposit' | 'withdrawal';
+        chainId: string;
+        chainName: string;
+        symbol: string;
+        amount: string;
+        status: string;
+        txHash: string | null;
+        createdAt: string;
+        toAddress?: string;
+      }> = [];
+      const statusMap: Record<string, string> = {
+        pending: 'pending',
+        confirming: 'pending',
+        processing: 'pending',
+        completed: 'success',
+        failed: 'reverted',
+        cancelled: 'aborted',
+      };
+      const normalizeStatus = (s: string) => statusMap[s?.toLowerCase()] ?? s;
+
+      const limitBoth = type === 'withdrawal' || type === 'deposit' ? limit : limit + 500;
+      if (type !== 'withdrawal' && type !== 'deposit') {
+        // Withdrawals (all are from hot wallet when processed)
+        let wQuery = `
+          SELECT w.id, w.chain_id, w.amount, w.status, w.tx_hash, w.created_at, w.to_address, t.symbol, c.name as chain_name
+          FROM withdrawals w
+          JOIN tokens t ON w.token_id = t.id
+          JOIN chains c ON w.chain_id = c.id
+          WHERE 1=1
+        `;
+        const wParams: (string | number)[] = [];
+        let pi = 1;
+        if (chainId) {
+          wQuery += ` AND w.chain_id = $${pi++}`;
+          wParams.push(chainId);
+        }
+        if (status) {
+          const statusValues = status === 'pending' ? ['pending', 'processing'] : status === 'success' ? ['completed'] : status === 'reverted' ? ['failed'] : status === 'aborted' ? ['cancelled'] : [];
+          if (statusValues.length > 0) {
+            wQuery += ` AND w.status = ANY($${pi++}::text[])`;
+            wParams.push(statusValues);
+          }
+        }
+        wQuery += ` ORDER BY w.created_at DESC LIMIT $${pi}`;
+        wParams.push(limitBoth);
+        const wResult = await db.query(wQuery, wParams);
+        for (const row of wResult.rows as Array<{ id: string; chain_id: string; amount: string; status: string; tx_hash: string | null; created_at: string; to_address: string; symbol: string; chain_name: string }>) {
+          history.push({
+            id: row.id,
+            type: 'withdrawal',
+            chainId: row.chain_id,
+            chainName: row.chain_name,
+            symbol: row.symbol,
+            amount: row.amount,
+            status: normalizeStatus(row.status),
+            txHash: row.tx_hash,
+            createdAt: row.created_at,
+            toAddress: row.to_address,
+          });
+        }
+      }
+
+      if (type !== 'deposit' && type !== 'withdrawal') {
+        // Deposits: transactions where to_address is hot wallet
+        if (addresses.length > 0) {
+          let dQuery = `
+            SELECT tr.id, tr.chain_id, tr.amount, tr.status, tr.tx_hash, tr.created_at, tr.to_address, t.symbol, c.name as chain_name
+            FROM transactions tr
+            JOIN tokens t ON tr.token_id = t.id
+            JOIN chains c ON tr.chain_id = c.id
+            WHERE tr.type = 'deposit' AND tr.to_address = ANY($1::text[])
+          `;
+          const dParams: (string | number | string[])[] = [addresses];
+          let pi = 2;
+          if (chainId) {
+            dQuery += ` AND tr.chain_id = $${pi++}`;
+            dParams.push(chainId);
+          }
+          if (status) {
+            const statusValues = status === 'pending' ? ['pending', 'confirming'] : status === 'success' ? ['completed'] : status === 'reverted' ? ['failed'] : status === 'aborted' ? ['cancelled'] : [];
+            if (statusValues.length > 0) {
+              dQuery += ` AND tr.status = ANY($${pi++}::text[])`;
+              dParams.push(statusValues);
+            }
+          }
+          dQuery += ` ORDER BY tr.created_at DESC LIMIT $${pi}`;
+          dParams.push(limitBoth);
+          const dResult = await db.query(dQuery, dParams);
+          for (const row of dResult.rows as Array<{ id: string; chain_id: string; amount: string; status: string; tx_hash: string | null; created_at: string; to_address: string; symbol: string; chain_name: string }>) {
+            history.push({
+              id: row.id,
+              type: 'deposit',
+              chainId: row.chain_id,
+              chainName: row.chain_name,
+              symbol: row.symbol,
+              amount: row.amount,
+              status: normalizeStatus(row.status),
+              txHash: row.tx_hash,
+              createdAt: row.created_at,
+            });
+          }
+        }
+      }
+
+      if (type === 'deposit' || type === 'withdrawal') {
+        // Single type: run the right query only
+        if (type === 'withdrawal') {
+          let wQuery = `
+            SELECT w.id, w.chain_id, w.amount, w.status, w.tx_hash, w.created_at, w.to_address, t.symbol, c.name as chain_name
+            FROM withdrawals w
+            JOIN tokens t ON w.token_id = t.id
+            JOIN chains c ON w.chain_id = c.id
+            WHERE 1=1
+          `;
+          const wParams: (string | number)[] = [];
+          let pi = 1;
+          if (chainId) {
+            wQuery += ` AND w.chain_id = $${pi++}`;
+            wParams.push(chainId);
+          }
+          if (status) {
+            const statusValues = status === 'pending' ? ['pending', 'processing'] : status === 'success' ? ['completed'] : status === 'reverted' ? ['failed'] : status === 'aborted' ? ['cancelled'] : [];
+            if (statusValues.length > 0) {
+              wQuery += ` AND w.status = ANY($${pi++}::text[])`;
+              wParams.push(statusValues);
+            }
+          }
+          wQuery += ` ORDER BY w.created_at DESC LIMIT $${pi++} OFFSET $${pi}`;
+          wParams.push(limit, offset);
+          const wResult = await db.query(wQuery, wParams);
+          for (const row of wResult.rows as Array<{ id: string; chain_id: string; amount: string; status: string; tx_hash: string | null; created_at: string; to_address: string; symbol: string; chain_name: string }>) {
+            history.push({
+              id: row.id,
+              type: 'withdrawal',
+              chainId: row.chain_id,
+              chainName: row.chain_name,
+              symbol: row.symbol,
+              amount: row.amount,
+              status: normalizeStatus(row.status),
+              txHash: row.tx_hash,
+              createdAt: row.created_at,
+              toAddress: row.to_address,
+            });
+          }
+        } else {
+          if (addresses.length > 0) {
+            let dQuery = `
+              SELECT tr.id, tr.chain_id, tr.amount, tr.status, tr.tx_hash, tr.created_at, t.symbol, c.name as chain_name
+              FROM transactions tr
+              JOIN tokens t ON tr.token_id = t.id
+              JOIN chains c ON tr.chain_id = c.id
+              WHERE tr.type = 'deposit' AND tr.to_address = ANY($1::text[])
+            `;
+            const dParams: (string | number | string[])[] = [addresses];
+            let pi = 2;
+            if (chainId) {
+              dQuery += ` AND tr.chain_id = $${pi++}`;
+              dParams.push(chainId);
+            }
+            if (status) {
+              const statusValues = status === 'pending' ? ['pending', 'confirming'] : status === 'success' ? ['completed'] : status === 'reverted' ? ['failed'] : status === 'aborted' ? ['cancelled'] : [];
+              if (statusValues.length > 0) {
+                dQuery += ` AND tr.status = ANY($${pi++}::text[])`;
+                dParams.push(statusValues);
+              }
+            }
+            dQuery += ` ORDER BY tr.created_at DESC LIMIT $${pi++} OFFSET $${pi}`;
+            dParams.push(limit, offset);
+            const dResult = await db.query(dQuery, dParams);
+            for (const row of dResult.rows as Array<{ id: string; chain_id: string; amount: string; status: string; tx_hash: string | null; created_at: string; symbol: string; chain_name: string }>) {
+              history.push({
+                id: row.id,
+                type: 'deposit',
+                chainId: row.chain_id,
+                chainName: row.chain_name,
+                symbol: row.symbol,
+                amount: row.amount,
+                status: normalizeStatus(row.status),
+                txHash: row.tx_hash,
+                createdAt: row.created_at,
+              });
+            }
+          }
+        }
+      }
+
+      history.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      const total = history.length;
+      const sliced = history.slice(offset, offset + limit);
+      return reply.send({
+        success: true,
+        data: sliced,
+        pagination: { page, limit, total },
+      });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Unknown';
+      logger.error('Get hot wallet history error', { error: msg });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'FETCH_FAILED', message: msg },
+      });
+    }
+  });
+
+  /**
+   * GET /admin/hot-wallets/:chainId/balance
+   * Refresh and return hot wallet native balance from RPC (audit logged)
+   */
+  app.get<{ Params: { chainId: string } }>('/hot-wallets/:chainId/balance', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      let { chainId } = request.params;
+      try {
+        chainId = decodeURIComponent(chainId).trim();
+      } catch {
+        chainId = (chainId || '').trim();
+      }
+      if (!chainId) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_INPUT', message: 'Chain ID is required.' },
+        });
+      }
+      const hotWalletService = await import('../services/hot-wallet.service.js').then(m => m);
+      const result = await hotWalletService.refreshBalanceCache(chainId, admin.adminId);
+      return reply.send({ success: true, data: result });
+    } catch (error: unknown) {
+      const err = error as { message?: string; code?: string };
+      const msg = err?.message ?? (error instanceof Error ? error.message : 'Unknown');
+      const code = err?.code;
+      if (code === 'HOT_WALLET_NOT_FOUND' || code === 'CHAIN_NOT_FOUND') {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'NOT_FOUND', message: msg },
+        });
+      }
+      if (code === 'RPC_REFRESH_FAILED') {
+        return reply.status(502).send({
+          success: false,
+          error: { code: 'RPC_REFRESH_FAILED', message: msg },
+        });
+      }
+      logger.error('Refresh hot wallet balance error', { error: msg });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'REFRESH_FAILED', message: msg },
+      });
+    }
+  });
+
+  /**
+   * PATCH /admin/hot-wallets/:chainId
+   * Update min balance alert, min hot balance, cold address, or is_active (Super Admin only, audit logged).
+   */
+  app.patch<{
+    Params: { chainId: string };
+    Body: { minBalanceAlert?: string; minHotBalance?: string; coldWalletAddress?: string | null; isActive?: boolean };
+  }>('/hot-wallets/:chainId', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, true);
+    if (!admin) return;
+    try {
+      let chainId = request.params.chainId;
+      try {
+        chainId = decodeURIComponent(chainId).trim();
+      } catch {
+        chainId = (chainId || '').trim();
+      }
+      if (!chainId) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_INPUT', message: 'Chain ID is required.' },
+        });
+      }
+      const { minBalanceAlert, minHotBalance, coldWalletAddress, isActive } = request.body || {};
+      const hotWalletService = await import('../services/hot-wallet.service.js').then(m => m);
+      const ip = (request.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || request.ip;
+      const userAgent = request.headers['user-agent'];
+      if (typeof minBalanceAlert === 'string') {
+        await hotWalletService.setMinBalanceAlert(chainId, minBalanceAlert);
+      }
+      if (typeof minHotBalance === 'string') {
+        await hotWalletService.setMinHotBalance(chainId, minHotBalance);
+      }
+      if (coldWalletAddress !== undefined) {
+        await hotWalletService.setColdWalletAddress(chainId, coldWalletAddress ?? null);
+      }
+      if (typeof isActive === 'boolean') {
+        await hotWalletService.setHotWalletActive(chainId, isActive, admin.adminId, ip, userAgent);
+      }
+      const list = await hotWalletService.listHotWallets();
+      const updated = list.find(hw => hw.chain_id === chainId);
+      return reply.send({ success: true, data: updated ?? null });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown';
+      logger.error('Update hot wallet error', { error: msg });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'UPDATE_FAILED', message: msg },
+      });
+    }
+  });
+
+  /**
+   * POST /admin/hot-wallets/:chainId/replace
+   * Replace hot wallet for chain with new keypair (Super Admin only). Withdraw funds from old address first.
+   */
+  app.post<{ Params: { chainId: string } }>('/hot-wallets/:chainId/replace', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, true);
+    if (!admin) return;
+    try {
+      let chainId = request.params.chainId;
+      try {
+        chainId = decodeURIComponent(chainId).trim();
+      } catch {
+        chainId = (chainId || '').trim();
+      }
+      if (!chainId) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_INPUT', message: 'Chain ID is required.' },
+        });
+      }
+      const hotWalletService = await import('../services/hot-wallet.service.js').then(m => m);
+      const ip = (request.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || request.ip;
+      const userAgent = request.headers['user-agent'];
+      const updated = await hotWalletService.replaceHotWallet(chainId, admin.adminId, ip, userAgent);
+      return reply.send({ success: true, data: updated });
+    } catch (error: unknown) {
+      const err = error as { message?: string; code?: string };
+      const msg = err?.message ?? (error instanceof Error ? error.message : 'Unknown');
+      const code = err?.code;
+      if (code === 'HOT_WALLET_NOT_FOUND' || code === 'CHAIN_NOT_FOUND') {
+        return reply.status(404).send({
+          success: false,
+          error: { code: code === 'HOT_WALLET_NOT_FOUND' ? 'NOT_FOUND' : 'CHAIN_NOT_FOUND', message: msg },
+        });
+      }
+      if (code === 'ONLY_EVM_SUPPORTED') {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'UNSUPPORTED_CHAIN', message: msg },
+        });
+      }
+      logger.error('Replace hot wallet error', { error: msg });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'REPLACE_FAILED', message: msg },
+      });
+    }
+  });
+
+  /**
+   * DELETE /admin/hot-wallets/:chainId
+   * Remove hot wallet for chain (Super Admin only). Chain can get a new wallet afterward.
+   */
+  app.delete<{ Params: { chainId: string } }>('/hot-wallets/:chainId', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, true);
+    if (!admin) return;
+    try {
+      let chainId = request.params.chainId;
+      try {
+        chainId = decodeURIComponent(chainId).trim();
+      } catch {
+        chainId = (chainId || '').trim();
+      }
+      if (!chainId) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_INPUT', message: 'Chain ID is required.' },
+        });
+      }
+      const hotWalletService = await import('../services/hot-wallet.service.js').then(m => m);
+      const ip = (request.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || request.ip;
+      const userAgent = request.headers['user-agent'];
+      await hotWalletService.removeHotWallet(chainId, admin.adminId, ip, userAgent);
+      return reply.send({ success: true });
+    } catch (error: unknown) {
+      const err = error as { message?: string; code?: string };
+      const msg = err?.message ?? (error instanceof Error ? error.message : 'Unknown');
+      if (err?.code === 'HOT_WALLET_NOT_FOUND') {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'NOT_FOUND', message: msg },
+        });
+      }
+      logger.error('Remove hot wallet error', { error: msg });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'REMOVE_FAILED', message: msg },
       });
     }
   });

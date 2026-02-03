@@ -38,8 +38,8 @@ interface Transaction {
 
 export default function AssetsOverviewPage() {
   const router = useRouter();
-  const { accessToken } = useAuthStore();
-  
+  const { accessToken, _hasHydrated } = useAuthStore();
+
   const [showBalance, setShowBalance] = useState(true);
   const [activeTab, setActiveTab] = useState<'account' | 'asset'>('account');
   const [timePeriod, setTimePeriod] = useState('7D');
@@ -53,11 +53,11 @@ export default function AssetsOverviewPage() {
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
   useEffect(() => {
-    if (accessToken) {
+    if (_hasHydrated && accessToken) {
       fetchBalances();
       fetchRecentTransactions();
     }
-  }, [accessToken]);
+  }, [_hasHydrated, accessToken]);
 
   const fetchBalances = async () => {
     try {
@@ -81,9 +81,10 @@ export default function AssetsOverviewPage() {
   };
 
   const fetchRecentTransactions = async () => {
+    if (!accessToken) return;
     try {
       const [depositsRes, withdrawalsRes] = await Promise.all([
-        fetch(`${API_URL}/api/v1/wallet/deposits?limit=5`, {
+        fetch(`${API_URL}/api/v1/wallet/deposit-history?limit=5`, {
           headers: { Authorization: `Bearer ${accessToken}` },
         }),
         fetch(`${API_URL}/api/v1/wallet/withdrawals?limit=5`, {
@@ -91,13 +92,32 @@ export default function AssetsOverviewPage() {
         }),
       ]);
 
-      const deposits = depositsRes.ok ? (await depositsRes.json()).data || [] : [];
-      const withdrawals = withdrawalsRes.ok ? (await withdrawalsRes.json()).data || [] : [];
+      const depositsData = depositsRes.ok ? (await depositsRes.json()) : { success: false, data: [] };
+      const withdrawalsData = withdrawalsRes.ok ? (await withdrawalsRes.json()) : { success: false, data: [] };
 
-      const combined = [
-        ...deposits.map((d: any) => ({ ...d, type: 'deposit' })),
-        ...withdrawals.map((w: any) => ({ ...w, type: 'withdrawal' })),
-      ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 10);
+      const deposits = (depositsData.success && depositsData.data) ? depositsData.data : [];
+      const withdrawals = (withdrawalsData.success && withdrawalsData.data) ? withdrawalsData.data : [];
+
+      const combined: Transaction[] = [
+        ...deposits.map((d: any) => ({
+          id: d.id,
+          type: 'deposit' as const,
+          symbol: d.symbol || 'Unknown',
+          amount: d.amount || '0',
+          status: d.status || 'pending',
+          created_at: d.created_at || d.createdAt,
+        })),
+        ...withdrawals.map((w: any) => ({
+          id: w.id,
+          type: 'withdrawal' as const,
+          symbol: w.symbol || w.coin || 'Unknown',
+          amount: w.amount || w.quantity || '0',
+          status: w.status || 'pending',
+          created_at: w.created_at || w.date_time || w.createdAt,
+        })),
+      ]
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, 10);
 
       setRecentTransactions(combined);
     } catch (error) {
@@ -422,7 +442,7 @@ export default function AssetsOverviewPage() {
                     <div className="w-1 h-5 bg-yellow-400 rounded-full" />
                     <h3 className="font-semibold text-gray-900 dark:text-white">Recent Deposit & Withdrawal History</h3>
                   </div>
-                  <Link href="/dashboard/transactions" className="flex items-center gap-1 text-sm text-blue-500 hover:text-blue-600 font-medium">
+                  <Link href="/dashboard/assets/history" className="flex items-center gap-1 text-sm text-blue-500 hover:text-blue-600 font-medium">
                     All
                     <ArrowRight className="w-4 h-4" />
                   </Link>

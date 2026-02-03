@@ -60,7 +60,7 @@ const documentTypes: Record<string, DocumentType[]> = {
 
 export default function IdentityVerificationPage() {
   const router = useRouter();
-  const { user, accessToken } = useAuthStore();
+  const { user, accessToken, _hasHydrated } = useAuthStore();
   const [selectedCountry, setSelectedCountry] = useState<Country>(countries[0]);
   const [showCountryDropdown, setShowCountryDropdown] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<string>('');
@@ -73,8 +73,36 @@ export default function IdentityVerificationPage() {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [kycStatus, setKycStatus] = useState<string | null>(null);
+  const [kycLevel, setKycLevel] = useState<number>(0);
+  const [checkingKyc, setCheckingKyc] = useState(true);
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
+  // Check KYC status on mount
+  useEffect(() => {
+    const checkKycStatus = async () => {
+      if (!_hasHydrated || !accessToken) return;
+      
+      try {
+        const response = await fetch(`${API_URL}/api/v1/auth/profile`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const result = await response.json();
+        
+        if (result.success && result.data?.user) {
+          setKycStatus(result.data.user.kycStatus || 'not_submitted');
+          setKycLevel(result.data.user.kycLevel || 0);
+        }
+      } catch (err) {
+        console.error('Failed to check KYC status:', err);
+      } finally {
+        setCheckingKyc(false);
+      }
+    };
+    
+    checkKycStatus();
+  }, [accessToken, _hasHydrated]);
 
   const availableDocuments = documentTypes[selectedCountry.code] || documentTypes['default'];
   const quickVerification = availableDocuments.find(d => d.recommended);
@@ -124,6 +152,127 @@ export default function IdentityVerificationPage() {
       setLoading(false);
     }
   };
+
+  // Show loading while checking KYC
+  if (checkingKyc) {
+    return (
+      <div className="min-h-screen bg-white dark:bg-gray-950 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600 dark:text-gray-400">Checking verification status...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show verified state if KYC is approved
+  if (kycStatus === 'approved') {
+    return (
+      <div className="min-h-screen bg-white dark:bg-gray-950">
+        {/* Header */}
+        <header className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+          <div className="flex items-center gap-4">
+            <Link href="/dashboard" className="text-2xl font-bold text-gray-900 dark:text-white">
+              <span className="bg-blue-500 text-white px-2 py-1 rounded mr-1">M</span>
+              Methereum
+            </Link>
+            <span className="text-gray-400">|</span>
+            <h1 className="text-lg font-medium text-gray-900 dark:text-white">Identity Verification</h1>
+          </div>
+        </header>
+
+        {/* Verified Content */}
+        <main className="max-w-2xl mx-auto px-6 py-12">
+          <div className="bg-white dark:bg-gray-900 rounded-2xl p-8 shadow-sm border border-gray-200 dark:border-gray-800 text-center">
+            <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Check className="w-10 h-10 text-green-500" />
+            </div>
+            
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+              Identity Verified
+            </h2>
+            
+            <p className="text-gray-500 dark:text-gray-400 mb-6">
+              Your identity has been successfully verified. You now have full access to all platform features.
+            </p>
+
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-6 mb-6">
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-gray-600 dark:text-gray-400">Verification Level</span>
+                <span className="font-semibold text-gray-900 dark:text-white">Level {kycLevel}</span>
+              </div>
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-gray-600 dark:text-gray-400">Status</span>
+                <span className="flex items-center gap-2 text-green-500 font-semibold">
+                  <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+                  Verified
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-600 dark:text-gray-400">Daily Withdrawal Limit</span>
+                <span className="font-semibold text-gray-900 dark:text-white">Unlimited</span>
+              </div>
+            </div>
+
+            <Link
+              href="/dashboard/account"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-xl transition-colors"
+            >
+              Go to Account
+              <ChevronRight className="w-4 h-4" />
+            </Link>
+          </div>
+        </main>
+
+        {/* Footer */}
+        <footer className="py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+          <p>© 2018-2026 Methereum.com. All rights reserved.</p>
+        </footer>
+      </div>
+    );
+  }
+
+  // Show pending state if KYC is pending
+  if (kycStatus === 'pending') {
+    return (
+      <div className="min-h-screen bg-white dark:bg-gray-950">
+        <header className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+          <div className="flex items-center gap-4">
+            <Link href="/dashboard" className="text-2xl font-bold text-gray-900 dark:text-white">
+              <span className="bg-blue-500 text-white px-2 py-1 rounded mr-1">M</span>
+              Methereum
+            </Link>
+            <span className="text-gray-400">|</span>
+            <h1 className="text-lg font-medium text-gray-900 dark:text-white">Identity Verification</h1>
+          </div>
+        </header>
+
+        <main className="max-w-2xl mx-auto px-6 py-12">
+          <div className="bg-white dark:bg-gray-900 rounded-2xl p-8 shadow-sm border border-gray-200 dark:border-gray-800 text-center">
+            <div className="w-20 h-20 bg-yellow-100 dark:bg-yellow-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
+              <AlertCircle className="w-10 h-10 text-yellow-500" />
+            </div>
+            
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+              Verification In Progress
+            </h2>
+            
+            <p className="text-gray-500 dark:text-gray-400 mb-6">
+              Your documents are being reviewed. This usually takes 1-2 business days.
+            </p>
+
+            <Link
+              href="/dashboard/account"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 font-semibold rounded-xl transition-colors"
+            >
+              Go to Account
+              <ChevronRight className="w-4 h-4" />
+            </Link>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-white dark:bg-gray-950">

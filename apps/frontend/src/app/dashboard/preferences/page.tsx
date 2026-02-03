@@ -355,7 +355,7 @@ export default function PreferencesPage() {
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
                       Equivalent Currency
                     </label>
-                    <div className="relative dropdown-container">
+                    <div className="relative dropdown-container" style={{ zIndex: showCurrencyDropdown ? 50 : 1 }}>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -363,46 +363,52 @@ export default function PreferencesPage() {
                           setShowLanguageDropdown(false);
                           setShowPriceChangeDropdown(false);
                         }}
-                        className="w-full max-w-md px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl text-left flex items-center justify-between hover:border-blue-500 transition-colors"
+                        className="w-full max-w-md px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl text-left flex items-center justify-between hover:border-blue-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
                       >
                         <div className="flex items-center gap-3">
-                          <span className="text-xl">{currencies.find(c => c.value === settings.equivalentCurrency)?.flag || '🌐'}</span>
-                          <div>
-                            <span className="font-medium text-gray-900 dark:text-white">
+                          <span className="text-2xl">{currencies.find(c => c.value === settings.equivalentCurrency)?.flag || '🌐'}</span>
+                          <div className="flex flex-col">
+                            <span className="font-semibold text-gray-900 dark:text-white">
                               {currencies.find(c => c.value === settings.equivalentCurrency)?.label || 'Select'}
                             </span>
-                            <span className="text-gray-500 dark:text-gray-400 ml-2 text-sm">
+                            <span className="text-gray-500 dark:text-gray-400 text-sm">
                               {currencies.find(c => c.value === settings.equivalentCurrency)?.name}
                             </span>
                           </div>
                         </div>
-                        <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${showCurrencyDropdown ? 'rotate-180' : ''}`} />
+                        <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform duration-200 ${showCurrencyDropdown ? 'rotate-180' : ''}`} />
                       </button>
                       
                       {showCurrencyDropdown && (
-                        <div className="absolute top-full left-0 right-0 max-w-md mt-2 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-20 max-h-72 overflow-y-auto">
-                          {currencies.map(currency => (
-                            <button
-                              key={currency.value}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                updateSetting('equivalentCurrency', currency.value);
-                                setShowCurrencyDropdown(false);
-                              }}
-                              className={`w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${
-                                settings.equivalentCurrency === currency.value ? 'bg-blue-50 dark:bg-blue-900/20' : ''
-                              }`}
-                            >
-                              <span className="text-xl">{currency.flag}</span>
-                              <div className="flex-1">
-                                <span className="font-medium text-gray-900 dark:text-white">{currency.label}</span>
-                                <span className="text-gray-500 dark:text-gray-400 ml-2 text-sm">{currency.name}</span>
-                              </div>
-                              {settings.equivalentCurrency === currency.value && (
-                                <Check className="w-5 h-5 text-blue-500" />
-                              )}
-                            </button>
-                          ))}
+                        <div className="absolute top-full left-0 w-full max-w-md mt-2 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl overflow-hidden" style={{ zIndex: 100 }}>
+                          <div className="max-h-80 overflow-y-auto">
+                            {currencies.map((currency, index) => (
+                              <button
+                                key={currency.value}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  updateSetting('equivalentCurrency', currency.value);
+                                  setShowCurrencyDropdown(false);
+                                }}
+                                className={`w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-100 dark:hover:bg-gray-800/80 transition-colors ${
+                                  settings.equivalentCurrency === currency.value 
+                                    ? 'bg-blue-50 dark:bg-blue-900/30 border-l-4 border-blue-500' 
+                                    : 'border-l-4 border-transparent'
+                                } ${index !== currencies.length - 1 ? 'border-b border-gray-100 dark:border-gray-800' : ''}`}
+                              >
+                                <span className="text-2xl">{currency.flag}</span>
+                                <div className="flex-1">
+                                  <div className="font-semibold text-gray-900 dark:text-white">{currency.label}</div>
+                                  <div className="text-sm text-gray-500 dark:text-gray-400">{currency.name}</div>
+                                </div>
+                                {settings.equivalentCurrency === currency.value && (
+                                  <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
+                                    <Check className="w-4 h-4 text-white" />
+                                  </div>
+                                )}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -427,7 +433,7 @@ export default function PreferencesPage() {
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
                         Price Change Reference
                       </label>
-                      <div className="relative dropdown-container">
+                      <div className="relative dropdown-container" style={{ zIndex: showPriceChangeDropdown ? 50 : 1 }}>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -435,17 +441,17 @@ export default function PreferencesPage() {
                             setShowCurrencyDropdown(false);
                             setShowLanguageDropdown(false);
                           }}
-                          className="w-full max-w-md px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl text-left flex items-center justify-between hover:border-blue-500 transition-colors"
+                          className="w-full max-w-md px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl text-left flex items-center justify-between hover:border-blue-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
                         >
-                          <span className="font-medium text-gray-900 dark:text-white">
+                          <span className="font-semibold text-gray-900 dark:text-white">
                             {priceChangeOptions.find(o => o.value === settings.priceChangeReference)?.label || 'Last 24 hours'}
                           </span>
-                          <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${showPriceChangeDropdown ? 'rotate-180' : ''}`} />
+                          <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform duration-200 ${showPriceChangeDropdown ? 'rotate-180' : ''}`} />
                         </button>
                         
                         {showPriceChangeDropdown && (
-                          <div className="absolute top-full left-0 right-0 max-w-md mt-2 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-20">
-                            {priceChangeOptions.map(option => (
+                          <div className="absolute top-full left-0 w-full max-w-md mt-2 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl overflow-hidden" style={{ zIndex: 100 }}>
+                            {priceChangeOptions.map((option, index) => (
                               <button
                                 key={option.value}
                                 onClick={(e) => {
@@ -453,13 +459,17 @@ export default function PreferencesPage() {
                                   updateSetting('priceChangeReference', option.value);
                                   setShowPriceChangeDropdown(false);
                                 }}
-                                className={`w-full px-4 py-3 text-left flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${
-                                  settings.priceChangeReference === option.value ? 'bg-blue-50 dark:bg-blue-900/20' : ''
-                                }`}
+                                className={`w-full px-4 py-3.5 text-left flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-800/80 transition-colors ${
+                                  settings.priceChangeReference === option.value 
+                                    ? 'bg-blue-50 dark:bg-blue-900/30 border-l-4 border-blue-500' 
+                                    : 'border-l-4 border-transparent'
+                                } ${index !== priceChangeOptions.length - 1 ? 'border-b border-gray-100 dark:border-gray-800' : ''}`}
                               >
-                                <span className="font-medium text-gray-900 dark:text-white">{option.label}</span>
+                                <span className="font-semibold text-gray-900 dark:text-white">{option.label}</span>
                                 {settings.priceChangeReference === option.value && (
-                                  <Check className="w-5 h-5 text-blue-500" />
+                                  <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
+                                    <Check className="w-4 h-4 text-white" />
+                                  </div>
                                 )}
                               </button>
                             ))}
@@ -552,7 +562,7 @@ export default function PreferencesPage() {
                   </div>
                   
                   <div className="p-6">
-                    <div className="relative dropdown-container">
+                    <div className="relative dropdown-container" style={{ zIndex: showLanguageDropdown ? 50 : 1 }}>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -560,38 +570,44 @@ export default function PreferencesPage() {
                           setShowCurrencyDropdown(false);
                           setShowPriceChangeDropdown(false);
                         }}
-                        className="w-full max-w-md px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl text-left flex items-center justify-between hover:border-blue-500 transition-colors"
+                        className="w-full max-w-md px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl text-left flex items-center justify-between hover:border-blue-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
                       >
                         <div className="flex items-center gap-3">
-                          <span className="text-xl">{languages.find(l => l.value === settings.notificationLanguage)?.flag || '🌐'}</span>
-                          <span className="font-medium text-gray-900 dark:text-white">
+                          <span className="text-2xl">{languages.find(l => l.value === settings.notificationLanguage)?.flag || '🌐'}</span>
+                          <span className="font-semibold text-gray-900 dark:text-white">
                             {languages.find(l => l.value === settings.notificationLanguage)?.label || 'English'}
                           </span>
                         </div>
-                        <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${showLanguageDropdown ? 'rotate-180' : ''}`} />
+                        <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform duration-200 ${showLanguageDropdown ? 'rotate-180' : ''}`} />
                       </button>
                       
                       {showLanguageDropdown && (
-                        <div className="absolute top-full left-0 right-0 max-w-md mt-2 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-20 max-h-72 overflow-y-auto">
-                          {languages.map(lang => (
-                            <button
-                              key={lang.value}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                updateSetting('notificationLanguage', lang.value);
-                                setShowLanguageDropdown(false);
-                              }}
-                              className={`w-full px-4 py-3 text-left flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${
-                                settings.notificationLanguage === lang.value ? 'bg-blue-50 dark:bg-blue-900/20' : ''
-                              }`}
-                            >
-                              <span className="text-xl">{lang.flag}</span>
-                              <span className="flex-1 font-medium text-gray-900 dark:text-white">{lang.label}</span>
-                              {settings.notificationLanguage === lang.value && (
-                                <Check className="w-5 h-5 text-blue-500" />
-                              )}
-                            </button>
-                          ))}
+                        <div className="absolute top-full left-0 w-full max-w-md mt-2 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl overflow-hidden" style={{ zIndex: 100 }}>
+                          <div className="max-h-80 overflow-y-auto">
+                            {languages.map((lang, index) => (
+                              <button
+                                key={lang.value}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  updateSetting('notificationLanguage', lang.value);
+                                  setShowLanguageDropdown(false);
+                                }}
+                                className={`w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-100 dark:hover:bg-gray-800/80 transition-colors ${
+                                  settings.notificationLanguage === lang.value 
+                                    ? 'bg-blue-50 dark:bg-blue-900/30 border-l-4 border-blue-500' 
+                                    : 'border-l-4 border-transparent'
+                                } ${index !== languages.length - 1 ? 'border-b border-gray-100 dark:border-gray-800' : ''}`}
+                              >
+                                <span className="text-2xl">{lang.flag}</span>
+                                <span className="flex-1 font-semibold text-gray-900 dark:text-white">{lang.label}</span>
+                                {settings.notificationLanguage === lang.value && (
+                                  <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
+                                    <Check className="w-4 h-4 text-white" />
+                                  </div>
+                                )}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       )}
                     </div>

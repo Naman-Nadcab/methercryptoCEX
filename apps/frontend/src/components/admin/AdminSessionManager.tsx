@@ -90,12 +90,14 @@ export default function AdminSessionManager({
 
     // Handle storage events (cross-tab logout)
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'admin-auth-storage') {
+      if (e.key !== 'admin-auth-storage') return;
+      try {
         const newValue = e.newValue ? JSON.parse(e.newValue) : null;
         if (!newValue?.state?.accessToken) {
-          // Another tab logged out
           handleLogout();
         }
+      } catch {
+        // Ignore malformed storage data
       }
     };
 

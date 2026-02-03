@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store/auth';
+import { api } from '@/lib/api';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
@@ -35,7 +36,7 @@ interface TokenBalance {
 }
 
 export default function FundingAccountPage() {
-  const { accessToken } = useAuthStore();
+  const { accessToken, _hasHydrated } = useAuthStore();
   
   const [showBalance, setShowBalance] = useState(true);
   const [activeTab, setActiveTab] = useState<'crypto' | 'fiat'>('crypto');
@@ -50,28 +51,30 @@ export default function FundingAccountPage() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [ordersExpanded, setOrdersExpanded] = useState(false);
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-
+  // Wait for hydration before fetching
   useEffect(() => {
-    if (accessToken) {
+    if (_hasHydrated && accessToken) {
       fetchBalances();
+    } else if (_hasHydrated && !accessToken) {
+      setLoading(false);
     }
-  }, [accessToken]);
+  }, [_hasHydrated, accessToken]);
 
   const fetchBalances = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_URL}/api/v1/wallet/balances/funding`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) {
-          setBalances(data.data.balances || []);
-          setTotalEquity(data.data.totalEquity || { usd: 0, btc: 0 });
-          setAvailableBalance(data.data.availableBalance || { usd: 0, btc: 0 });
-          setInUse(data.data.inUse || { usd: 0, btc: 0 });
-        }
+      const response = await api.get<{
+        balances: TokenBalance[];
+        totalEquity: { usd: number; btc: number };
+        availableBalance: { usd: number; btc: number };
+        inUse: { usd: number; btc: number };
+      }>('/api/v1/wallet/balances/funding');
+
+      if (response.success && response.data) {
+        setBalances(response.data.balances || []);
+        setTotalEquity(response.data.totalEquity || { usd: 0, btc: 0 });
+        setAvailableBalance(response.data.availableBalance || { usd: 0, btc: 0 });
+        setInUse(response.data.inUse || { usd: 0, btc: 0 });
       }
     } catch (error) {
       console.error('Failed to fetch balances:', error);

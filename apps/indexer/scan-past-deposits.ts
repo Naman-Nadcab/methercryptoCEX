@@ -1,0 +1,145 @@
+import { ethers, JsonRpcProvider } from 'ethers';
+import { Pool } from 'pg';
+
+const USDC_POLYGON = '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359'; // Native USDC on Polygon
+const USDC_BRIDGED_POLYGON = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174'; // Bridged USDC.e
+
+const USER_ADDRESS = '0x5628Ff33ff1EcEE4B5FeC0f59e4f358DdD33e6fa'.toLowerCase();
+
+const pool = new Pool({
+  connectionString: 'postgresql://postgres:Aman%40961648@db.vhlfnekcmczlqaninefq.supabase.co:5432/postgres'
+});
+
+const provider = new JsonRpcProvider('https://rpc.ankr.com/polygon/d3f6ef0c0e41a88132c95e71c5dbbb0527827d73d26e52628851ae2c620303d4');
+
+const ERC20_TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+
+async function scanPastDeposits() {
+  console.log('🔍 Scanning past USDC deposits on Polygon...');
+  console.log('User address:', USER_ADDRESS);
+  
+  const currentBlock = await provider.getBlockNumber();
+  console.log('Current block:', currentBlock);
+  
+  // Scan last 1000 blocks (about 30 mins on Polygon)
+  const fromBlock = currentBlock - 1000;
+  
+  console.log(`Scanning blocks ${fromBlock} to ${currentBlock}...`);
+  
+  // Get all Transfer events to user address
+  const filter = {
+    fromBlock,
+    toBlock: currentBlock,
+    topics: [
+      ERC20_TRANSFER_TOPIC,
+      null, // from (any)
+      ethers.zeroPadValue(USER_ADDRESS, 32) // to user
+    ]
+  };
+  
+  const logs = await provider.getLogs(filter);
+  console.log(`Found ${logs.length} Transfer events to user`);
+  
+  for (const log of logs) {
+    const tokenAddress = log.address.toLowerCase();
+    const fromAddress = '0x' + log.topics[1]!.slice(26).toLowerCase();
+    const amount = ethers.formatUnits(log.data, 6); // USDC has 6 decimals
+    
+    console.log(`\n📥 Found deposit:`);
+    console.log(`  Token: ${tokenAddress}`);
+    console.log(`  From: ${fromAddress}`);
+    console.log(`  Amount: ${amount}`);
+    console.log(`  TxHash: ${log.transactionHash}`);
+    console.log(`  Block: ${log.blockNumber}`);
+    
+    // Check if this is USDC
+    if (tokenAddress === USDC_POLYGON.toLowerCase() || tokenAddress === USDC_BRIDGED_POLYGON.toLowerCase()) {
+      console.log('  ✅ This is USDC!');
+      
+      // Check if already in database
+      const existing = await pool.query('SELECT id FROM deposits WHERE tx_hash = $1', [log.transactionHash]);
+      if (existing.rows.length > 0) {
+        console.log('  ⏭️  Already in database');
+        continue;
+      }
+      
+      // Get user ID
+      const userResult = await pool.query(`
+        SELECT uw.user_id 
+        FROM user_wallets uw 
+        JOIN blockchains b ON uw.blockchain_id = b.id
+        WHERE LOWER(uw.address) = $1 AND b.chain_id = 137
+      `, [USER_ADDRESS]);
+      
+      if (userResult.rows.length === 0) {
+        console.log('  ❌ No user found for this address');
+        continue;
+      }
+      
+      const userId = userResult.rows[0].user_id;
+      
+      // Get currency ID for USDC
+      const currencyResult = await pool.query(`SELECT id FROM currencies WHERE UPPER(symbol) = 'USDC' LIMIT 1`);
+      const currencyId = currencyResult.rows[0]?.id;
+      
+      // Get blockchain ID
+      const blockchainResult = await pool.query(`SELECT id FROM blockchains WHERE chain_id = 137`);
+      const blockchainId = blockchainResult.rows[0]?.id;
+      
+      // Get wallet ID
+      const walletResult = await pool.query(`
+        SELECT uw.id 
+        FROM user_wallets uw 
+        JOIN blockchains b ON uw.blockchain_id = b.id
+        WHERE LOWER(uw.address) = $1 AND b.chain_id = 137
+      `, [USER_ADDRESS]);
+      const walletId = walletResult.rows[0]?.id;
+      
+      // Get block timestamp
+      const block = await provider.getBlock(log.blockNumber);
+      const blockTimestamp = block?.timestamp || Math.floor(Date.now() / 1000);
+      
+      // Insert deposit
+      await pool.query(`
+        INSERT INTO deposits (
+          id, user_id, currency_id, blockchain_id, wallet_id, tx_hash, 
+          from_address, to_address, amount, confirmations, 
+          required_confirmations, block_number, block_timestamp, 
+          status, created_at, updated_at
+        ) VALUES (
+          gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, 
+          $9, 128, $10, to_timestamp($11), 'completed', NOW(), NOW()
+        )
+      `, [
+        userId,
+        currencyId,
+        blockchainId,
+        walletId,
+        log.transactionHash,
+        fromAddress,
+        USER_ADDRESS,
+        amount,
+        currentBlock - log.blockNumber, // confirmations
+        log.blockNumber,
+        blockTimestamp
+      ]);
+      
+      console.log('  ✅ Deposit added to database!');
+      
+      // Credit user balance
+      await pool.query(`
+        INSERT INTO user_balances (id, user_id, currency_id, available_balance, locked_balance, account_type, updated_at)
+        VALUES (gen_random_uuid(), $1, $2, $3, 0, 'funding', NOW())
+        ON CONFLICT (user_id, currency_id, account_type) 
+        DO UPDATE SET available_balance = user_balances.available_balance + $3, updated_at = NOW()
+      `, [userId, currencyId, amount]);
+      
+      console.log('  ✅ Balance credited!');
+    }
+  }
+  
+  await pool.end();
+  console.log('\n🎉 Scan complete!');
+}
+
+scanPastDeposits().catch(console.error);

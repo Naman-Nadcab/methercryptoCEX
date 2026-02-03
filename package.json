@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "dev": "turbo run dev",
+    "dev:all": "docker-compose up -d redis rabbitmq && npm run dev",
     "build": "turbo run build",
     "start": "turbo run start",
     "lint": "turbo run lint",

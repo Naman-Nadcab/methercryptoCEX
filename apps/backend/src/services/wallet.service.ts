@@ -7,6 +7,14 @@ import { logger, auditLog } from '../lib/logger.js';
 import { config } from '../config/index.js';
 import { ChainId, Wallet, Balance } from '../types/index.js';
 import { PoolClient } from 'pg';
+// Lazy-loaded to avoid tronweb ESM/crash at server startup
+let multiChainAddress: typeof import('./multi-chain-address.js') | null = null;
+async function getMultiChainAddress() {
+  if (!multiChainAddress) {
+    multiChainAddress = await import('./multi-chain-address.js');
+  }
+  return multiChainAddress;
+}
 
 // HD Wallet paths (BIP44)
 const HD_PATHS: Record<string, string> = {
@@ -18,7 +26,8 @@ const HD_PATHS: Record<string, string> = {
   base: "m/44'/60'/0'/0",
   solana: "m/44'/501'/0'/0'",
   tron: "m/44'/195'/0'/0",
-  bitcoin: "m/44'/0'/0'/0",
+  bitcoin: "m/84'/0'/0'/0",
+  polkadot: "m/44'/354'/0'/0'",
 };
 
 class WalletService {
@@ -71,7 +80,7 @@ class WalletService {
   }
 
   /**
-   * Get next HD index for user and chain
+   * Get next HD index for user and chain (used only when creating a *new* wallet for that chain).
    */
   private async getNextHDIndex(userId: string, chainId: ChainId): Promise<number> {
     const result = await db.query<{ max_index: number | null }>(
@@ -83,7 +92,10 @@ class WalletService {
   }
 
   /**
-   * Create all wallets for a new user
+   * Create all wallets for a new user.
+   * IMPORTANT: User deposit addresses are immutable. Once generated, they must never change
+   * unless we explicitly change the code (e.g. new derivation path). We never UPDATE or
+   * replace an existing wallet address — we only INSERT when no wallet exists for (user, chain).
    */
   async createWalletsForUser(userId: string, client?: PoolClient): Promise<Wallet[]> {
     const queryRunner = client || db;
@@ -103,9 +115,15 @@ class WalletService {
       ];
 
       for (const chainId of evmChains) {
+        const existing = await queryRunner.query<Wallet>(
+          'SELECT id FROM wallets WHERE user_id = $1 AND chain_id = $2',
+          [userId, chainId]
+        );
+        if (existing.rows.length > 0) continue;
+
         const index = await this.getNextHDIndex(userId, chainId);
         const hdPath = `${HD_PATHS[chainId]}/${index}`;
-        
+
         const hdNode = HDNodeWallet.fromSeed(seed);
         const wallet = hdNode.derivePath(hdPath);
 
@@ -124,29 +142,52 @@ class WalletService {
         }
       }
 
-      // For Solana, Tron, Bitcoin - generate placeholder addresses
-      // In production, use proper libraries for each chain
-      const otherChains: ChainId[] = [ChainId.SOLANA, ChainId.TRON, ChainId.BITCOIN];
-      
+      // Bitcoin first (bc1), then Solana, Polkadot, Tron last - so BTC works even if TronWeb fails
+      const otherChains: ChainId[] = [ChainId.BITCOIN, ChainId.SOLANA, ChainId.POLKADOT, ChainId.TRON];
+      const { deriveSolanaAddress, deriveTronAddress, deriveBitcoinBech32Address, derivePolkadotAddress } = await getMultiChainAddress();
+
       for (const chainId of otherChains) {
+        const existing = await queryRunner.query<Wallet>(
+          'SELECT id FROM wallets WHERE user_id = $1 AND chain_id = $2',
+          [userId, chainId]
+        );
+        if (existing.rows.length > 0) continue;
+
         const index = await this.getNextHDIndex(userId, chainId);
-        const hdPath = `${HD_PATHS[chainId]}/${index}`;
-        
-        // Generate deterministic address from seed
-        const chainSeed = crypto.createHmac('sha256', seed)
-          .update(`${chainId}:${index}`)
-          .digest();
-        
+        const hdPath = `${HD_PATHS[chainId] ?? "m/44'/0'/0'/0"}/${index}`;
+
         let address: string;
-        if (chainId === ChainId.SOLANA) {
-          address = `So${chainSeed.toString('hex').slice(0, 42)}`;
-        } else if (chainId === ChainId.TRON) {
-          address = `T${chainSeed.toString('hex').slice(0, 33)}`;
-        } else {
-          address = `bc1q${chainSeed.toString('hex').slice(0, 38)}`;
+        let privateKeyHex: string;
+        try {
+          if (chainId === ChainId.SOLANA) {
+            const derived = deriveSolanaAddress(seed, chainId, index);
+            address = derived.address;
+            privateKeyHex = derived.privateKeyHex;
+          } else if (chainId === ChainId.TRON) {
+            const derived = deriveTronAddress(seed, chainId, index);
+            address = derived.address;
+            privateKeyHex = derived.privateKeyHex;
+          } else if (chainId === ChainId.BITCOIN) {
+            const derived = deriveBitcoinBech32Address(seed, chainId, index);
+            address = derived.address;
+            privateKeyHex = derived.privateKeyHex;
+          } else if (chainId === ChainId.POLKADOT) {
+            const derived = derivePolkadotAddress(seed, chainId, index);
+            address = derived.address;
+            privateKeyHex = derived.privateKeyHex;
+          } else {
+            continue;
+          }
+        } catch (err) {
+          logger.error('Multi-chain address derivation failed', {
+            chainId,
+            userId,
+            error: err instanceof Error ? err.message : 'Unknown',
+          });
+          continue;
         }
 
-        const encryptedKey = encryption.encryptPrivateKey(chainSeed.toString('hex'), userId);
+        const encryptedKey = encryption.encryptPrivateKey(privateKeyHex, userId);
 
         const result = await queryRunner.query<Wallet>(
           `INSERT INTO wallets (user_id, chain_id, address, encrypted_private_key, hd_path, hd_index)
@@ -192,10 +233,11 @@ class WalletService {
    */
   async getWallet(userId: string, chainId: ChainId): Promise<Wallet | null> {
     const cacheKey = `wallet:${userId}:${chainId}`;
-    
-    const cached = await redis.getJson<Wallet>(cacheKey);
-    if (cached) {
-      return cached;
+    try {
+      const cached = await redis.getJson<Wallet>(cacheKey);
+      if (cached) return cached;
+    } catch {
+      // Redis down or error: fall back to DB
     }
 
     const result = await db.query<Wallet>(
@@ -209,8 +251,11 @@ class WalletService {
     }
 
     const wallet = result.rows[0]!;
-    await redis.setJson(cacheKey, wallet, 3600);
-
+    try {
+      await redis.setJson(cacheKey, wallet, 3600);
+    } catch {
+      // Cache write optional
+    }
     return wallet;
   }
 
@@ -372,11 +417,12 @@ class WalletService {
   }
 
   /**
-   * Get deposit address for user
+   * Get deposit address for user. Address is immutable once created — same user + chain
+   * always returns the same address (derived from master seed + hd_index 0).
    */
   async getDepositAddress(userId: string, chainId: ChainId): Promise<string> {
     const wallet = await this.getWallet(userId, chainId);
-    
+
     if (!wallet) {
       throw new Error(`No wallet found for chain ${chainId}`);
     }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store/auth';
 import Link from 'next/link';
 import {
@@ -22,11 +22,96 @@ import {
   Settings,
   Link2,
   Smartphone,
+  Loader2,
+  CheckCircle,
+  Clock,
 } from 'lucide-react';
 
+interface UserProfile {
+  id: string;
+  email: string;
+  phone: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  avatar_url: string | null;
+  totp_enabled: boolean;
+  sms_auth_enabled: boolean;
+  passkeys_enabled: boolean;
+  has_fund_password: boolean;
+  kycStatus: string;
+  kycLevel: number;
+  passkeysCount: number;
+  activeDevices: number;
+  last_login_at: string | null;
+  created_at: string;
+}
+
 export default function AccountInfoPage() {
-  const { user } = useAuthStore();
+  const { user, accessToken, _hasHydrated } = useAuthStore();
   const [copiedUID, setCopiedUID] = useState(false);
+  const [profileData, setProfileData] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
+  // Fetch comprehensive profile data
+  useEffect(() => {
+    const fetchProfile = async () => {
+      if (!_hasHydrated || !accessToken) return;
+      
+      try {
+        const response = await fetch(`${apiUrl}/api/v1/auth/profile`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const result = await response.json();
+        if (result.success) {
+          setProfileData(result.data.user);
+        }
+      } catch (error) {
+        console.error('Failed to fetch profile:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchProfile();
+  }, [accessToken, _hasHydrated]);
+
+  // Calculate security level based on actual settings
+  const calculateSecurityLevel = () => {
+    if (!profileData) return { score: 0, status: 'Low', color: 'orange' };
+    
+    let score = 0;
+    if (profileData.email) score += 15; // Email verified
+    if (profileData.phone) score += 15; // Phone linked
+    if (profileData.sms_auth_enabled) score += 10; // SMS auth enabled
+    if (profileData.totp_enabled) score += 25; // 2FA enabled
+    if (profileData.passkeysCount > 0) score += 15; // Passkeys enabled
+    if (profileData.has_fund_password) score += 10; // Fund password set
+    if (profileData.kycStatus === 'approved') score += 10; // KYC verified
+    
+    if (score >= 80) return { score, status: 'High', color: 'green' };
+    if (score >= 50) return { score, status: 'Medium', color: 'yellow' };
+    return { score, status: 'Low', color: 'orange' };
+  };
+
+  const security = calculateSecurityLevel();
+
+  const getKycStatusDisplay = () => {
+    if (!profileData) return { text: 'Loading...', color: 'gray', icon: Clock };
+    switch (profileData.kycStatus) {
+      case 'approved':
+        return { text: 'Verified', color: 'green', icon: CheckCircle };
+      case 'pending':
+        return { text: 'Pending Review', color: 'yellow', icon: Clock };
+      case 'rejected':
+        return { text: 'Rejected', color: 'red', icon: AlertTriangle };
+      default:
+        return { text: 'Unverified', color: 'gray', icon: AlertTriangle };
+    }
+  };
+
+  const kycDisplay = getKycStatusDisplay();
 
   const maskEmail = (email: string) => {
     if (!email) return '***@****';
@@ -163,30 +248,54 @@ export default function AccountInfoPage() {
                     <div className="flex items-center gap-2">
                       <Monitor className="w-4 h-4 text-gray-400" />
                       <span className="text-sm text-gray-500 dark:text-gray-400">Last login:</span>
-                      <span className="text-sm text-gray-900 dark:text-white">{formatDate(user?.lastLoginAt)}</span>
+                      <span className="text-sm text-gray-900 dark:text-white">
+                        {loading ? 'Loading...' : formatDate(profileData?.last_login_at)}
+                      </span>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Right: Security Alert */}
-              <div className="flex items-start gap-4 p-4 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800/50 rounded-xl max-w-sm">
-                <div className="w-12 h-12 bg-orange-100 dark:bg-orange-900/40 rounded-xl flex items-center justify-center flex-shrink-0">
-                  <ShieldAlert className="w-6 h-6 text-orange-500" />
+              {/* Right: Security Alert - Dynamic based on security level */}
+              {security.status !== 'High' ? (
+                <div className="flex items-start gap-4 p-4 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800/50 rounded-xl max-w-sm">
+                  <div className="w-12 h-12 bg-orange-100 dark:bg-orange-900/40 rounded-xl flex items-center justify-center flex-shrink-0">
+                    <ShieldAlert className="w-6 h-6 text-orange-500" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-900 dark:text-white mb-1">Security Alert</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                      {security.status === 'Low' 
+                        ? 'Your account security level is low.' 
+                        : 'Improve your account security.'}
+                    </p>
+                    <Link 
+                      href="/dashboard/security"
+                      className="text-sm text-blue-500 hover:text-blue-600 font-medium flex items-center gap-1"
+                    >
+                      {!profileData?.totp_enabled ? 'Set up 2FA' : 'Improve Security'} <ChevronRight className="w-4 h-4" />
+                    </Link>
+                  </div>
                 </div>
-                <div>
-                  <p className="font-medium text-gray-900 dark:text-white mb-1">Security Alert</p>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-                    Your account security level is low.
-                  </p>
-                  <Link 
-                    href="/dashboard/security"
-                    className="text-sm text-blue-500 hover:text-blue-600 font-medium flex items-center gap-1"
-                  >
-                    Set up 2FA <ChevronRight className="w-4 h-4" />
-                  </Link>
+              ) : (
+                <div className="flex items-start gap-4 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800/50 rounded-xl max-w-sm">
+                  <div className="w-12 h-12 bg-green-100 dark:bg-green-900/40 rounded-xl flex items-center justify-center flex-shrink-0">
+                    <Shield className="w-6 h-6 text-green-500" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-900 dark:text-white mb-1">Account Secured</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                      Your account has strong security measures enabled.
+                    </p>
+                    <Link 
+                      href="/dashboard/security"
+                      className="text-sm text-green-500 hover:text-green-600 font-medium flex items-center gap-1"
+                    >
+                      View Settings <ChevronRight className="w-4 h-4" />
+                    </Link>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
 
@@ -194,10 +303,20 @@ export default function AccountInfoPage() {
           <div className="px-6 lg:px-8 py-4 bg-gray-50 dark:bg-[#1e2329] border-t border-gray-100 dark:border-gray-800">
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Security Level</span>
-              <span className="text-sm font-semibold text-orange-500">Low</span>
+              <span className={`text-sm font-semibold ${
+                security.color === 'green' ? 'text-green-500' : 
+                security.color === 'yellow' ? 'text-yellow-500' : 'text-orange-500'
+              }`}>{security.status}</span>
             </div>
             <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-              <div className="bg-gradient-to-r from-orange-500 to-orange-400 h-2 rounded-full" style={{ width: '25%' }}></div>
+              <div 
+                className={`h-2 rounded-full transition-all duration-500 ${
+                  security.color === 'green' ? 'bg-gradient-to-r from-green-500 to-green-400' : 
+                  security.color === 'yellow' ? 'bg-gradient-to-r from-yellow-500 to-yellow-400' : 
+                  'bg-gradient-to-r from-orange-500 to-orange-400'
+                }`} 
+                style={{ width: `${security.score}%` }}
+              ></div>
             </div>
           </div>
         </div>
@@ -227,10 +346,14 @@ export default function AccountInfoPage() {
               icon={Shield}
               title="Identity Verification"
               description="Complete KYC to increase withdrawal limits"
-              status="Unverified"
-              statusColor="text-gray-400"
-              actionLabel="Verify Now"
-              actionVariant="primary"
+              status={kycDisplay.text}
+              statusColor={
+                kycDisplay.color === 'green' ? 'text-green-500' : 
+                kycDisplay.color === 'yellow' ? 'text-yellow-500' : 
+                kycDisplay.color === 'red' ? 'text-red-500' : 'text-gray-400'
+              }
+              actionLabel={profileData?.kycStatus === 'approved' ? 'View' : 'Verify Now'}
+              actionVariant={profileData?.kycStatus === 'approved' ? 'default' : 'primary'}
               action={() => window.location.href = '/dashboard/identity'}
             />
           </div>
@@ -281,7 +404,7 @@ export default function AccountInfoPage() {
             <SettingRow
               icon={Monitor}
               title="Trusted Devices"
-              description="1 device currently logged in"
+              description={loading ? 'Loading...' : `${profileData?.activeDevices || 1} device${(profileData?.activeDevices || 1) > 1 ? 's' : ''} currently logged in`}
               actionLabel="Manage"
             />
             <SettingRow

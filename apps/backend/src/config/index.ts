@@ -96,7 +96,7 @@ const envSchema = z.object({
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(100),
 
   // Security
-  CORS_ORIGINS: z.string().default('http://localhost:3000'),
+  CORS_ORIGINS: z.string().default('http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001,http://localhost:4000,http://127.0.0.1:4000'),
   TRUSTED_PROXIES: z.coerce.number().default(1),
   ADMIN_IP_WHITELIST: z.string().default('127.0.0.1,::1'),
   SESSION_SECRET: z.string().min(32),

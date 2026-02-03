@@ -110,6 +110,7 @@ export enum ChainType {
   SOLANA = 'solana',
   TRON = 'tron',
   BITCOIN = 'bitcoin',
+  POLKADOT = 'polkadot',
 }
 
 export enum ChainId {
@@ -122,6 +123,7 @@ export enum ChainId {
   SOLANA = 'solana',
   TRON = 'tron',
   BITCOIN = 'bitcoin',
+  POLKADOT = 'polkadot',
 }
 
 export interface Chain {

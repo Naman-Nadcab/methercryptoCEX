@@ -5,6 +5,24 @@ import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
 import { otpService } from '../services/otp.service.js';
+import {
+  generateRegistrationOptions,
+  verifyRegistrationResponse,
+  generateAuthenticationOptions,
+  verifyAuthenticationResponse,
+} from '@simplewebauthn/server';
+import type {
+  RegistrationResponseJSON,
+  AuthenticationResponseJSON,
+  AuthenticatorTransportFuture,
+} from '@simplewebauthn/server/script/deps';
+import { isoBase64URL } from '@simplewebauthn/server/helpers';
+
+// WebAuthn configuration
+const RP_NAME = process.env.WEBAUTHN_RP_NAME || 'Methereum Exchange';
+const RP_ID = process.env.WEBAUTHN_RP_ID || 'localhost';
+const ORIGIN = process.env.WEBAUTHN_ORIGIN || 'http://localhost:3000';
+const CHALLENGE_TTL = 300; // 5 minutes
 
 // Types
 interface SendOTPBody {
@@ -263,7 +281,7 @@ export default async function authRoutes(app: FastifyInstance) {
       // For signup purpose, just verify and set flag - don't create user yet
       if (purpose === 'signup') {
         // Set a flag in Redis that OTP was verified for this identifier
-        await redis.set(`otp:verified:${cleanIdentifier}`, 'true', 'EX', 600); // 10 minutes validity
+        await redis.set(`otp:verified:${cleanIdentifier}`, 'true', 600); // 10 minutes validity
         
         // Check if user exists
         const existingUser = await db.query(
@@ -921,7 +939,12 @@ export default async function authRoutes(app: FastifyInstance) {
         sessionId,
       });
 
-      // Log activity
+      // Set initial last_login_at and log activity
+      await db.query(
+        `UPDATE users SET last_login_at = NOW() WHERE id = $1`,
+        [user.id]
+      );
+
       await db.query(
         `INSERT INTO user_activity_logs (user_id, session_id, activity_type, ip_address, user_agent)
          VALUES ($1, $2, $3, $4, $5)`,
@@ -965,7 +988,9 @@ export default async function authRoutes(app: FastifyInstance) {
 
   /**
    * POST /auth/login
-   * Login with OTP (after OTP verification)
+   * Multi-step login with security verification
+   * Step 1: Verify initial OTP (email/phone)
+   * Step 2+: Additional verification based on user settings (SMS, 2FA)
    */
   app.post<{
     Body: {
@@ -996,18 +1021,17 @@ export default async function authRoutes(app: FastifyInstance) {
         });
       }
 
-      const type = email ? 'email' : 'phone';
+      const loginMethod = email ? 'email' : 'phone';
       let cleanIdentifier: string;
       
-      if (type === 'email') {
+      if (loginMethod === 'email') {
         cleanIdentifier = email!.trim().toLowerCase();
       } else {
-        // Normalize phone number to match DB format
         cleanIdentifier = normalizePhoneNumber(phone!);
       }
 
       // Verify OTP
-      const verification = await otpService.verifyOTP(cleanIdentifier, type, otp);
+      const verification = await otpService.verifyOTP(cleanIdentifier, loginMethod, otp);
 
       if (!verification.valid) {
         return reply.status(400).send({
@@ -1016,7 +1040,7 @@ export default async function authRoutes(app: FastifyInstance) {
         });
       }
 
-      // Get user - for phone, also try without normalization as fallback
+      // Get user with security settings
       let userResult = await db.query<{
         id: string;
         email: string | null;
@@ -1026,17 +1050,32 @@ export default async function authRoutes(app: FastifyInstance) {
         email_verified: boolean;
         phone_verified: boolean;
         tier_level: number;
+        sms_auth_enabled: boolean;
+        email_auth_enabled: boolean;
+        totp_enabled: boolean;
+        totp_secret: string | null;
+        passkeys_enabled: boolean;
       }>(
-        `SELECT id, email, phone, username, status, email_verified, phone_verified, tier_level
-         FROM users WHERE ${type} = $1 AND deleted_at IS NULL`,
+        `SELECT id, email, phone, username, status, email_verified, phone_verified, tier_level,
+                COALESCE(sms_auth_enabled, FALSE) as sms_auth_enabled,
+                COALESCE(email_auth_enabled, TRUE) as email_auth_enabled,
+                COALESCE(totp_enabled, FALSE) as totp_enabled,
+                totp_secret,
+                COALESCE(passkeys_enabled, FALSE) as passkeys_enabled
+         FROM users WHERE ${loginMethod} = $1 AND deleted_at IS NULL`,
         [cleanIdentifier]
       );
 
-      // If not found and it's phone, try matching with LIKE for flexibility
-      if (userResult.rows.length === 0 && type === 'phone') {
+      // Fallback for phone search
+      if (userResult.rows.length === 0 && loginMethod === 'phone') {
         const phoneDigits = phone!.replace(/\D/g, '');
         userResult = await db.query(
-          `SELECT id, email, phone, username, status, email_verified, phone_verified, tier_level
+          `SELECT id, email, phone, username, status, email_verified, phone_verified, tier_level,
+                  COALESCE(sms_auth_enabled, FALSE) as sms_auth_enabled,
+                  COALESCE(email_auth_enabled, TRUE) as email_auth_enabled,
+                  COALESCE(totp_enabled, FALSE) as totp_enabled,
+                  totp_secret,
+                  COALESCE(passkeys_enabled, FALSE) as passkeys_enabled
            FROM users WHERE phone LIKE $1 AND deleted_at IS NULL`,
           [`%${phoneDigits.slice(-10)}`]
         );
@@ -1058,7 +1097,63 @@ export default async function authRoutes(app: FastifyInstance) {
         });
       }
 
-      // Create session
+      // Build required verification steps based on user settings
+      const stepsRequired: string[] = [];
+      
+      // If logged in with email and SMS auth is enabled, require SMS verification
+      if (loginMethod === 'email' && user.sms_auth_enabled && user.phone) {
+        stepsRequired.push('sms');
+      }
+      
+      // If logged in with phone and email auth is enabled, require email verification
+      if (loginMethod === 'phone' && user.email_auth_enabled && user.email) {
+        stepsRequired.push('email');
+      }
+      
+      // If 2FA is enabled, require 2FA verification
+      if (user.totp_enabled && user.totp_secret) {
+        stepsRequired.push('2fa');
+      }
+
+      // If additional verification steps are required
+      if (stepsRequired.length > 0) {
+        // Create verification token
+        const verificationToken = uuidv4();
+        const tokenExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+        await db.query(
+          `INSERT INTO login_verification_tokens (id, user_id, token, login_method, steps_required, ip_address, user_agent, expires_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [uuidv4(), user.id, verificationToken, loginMethod, JSON.stringify(stepsRequired), request.ip, request.headers['user-agent'], tokenExpiry]
+        );
+
+        // Send OTP for first required step
+        const firstStep = stepsRequired[0];
+        if (firstStep === 'sms' && user.phone) {
+          const { otp } = await otpService.createOTP(user.phone, 'phone');
+          await otpService.sendSMSOTP(user.phone, otp);
+        } else if (firstStep === 'email' && user.email) {
+          const { otp } = await otpService.createOTP(user.email, 'email');
+          await otpService.sendEmailOTP(user.email, otp);
+        }
+
+        logger.info('Multi-step login initiated', { userId: user.id, steps: stepsRequired });
+
+        return reply.send({
+          success: true,
+          data: {
+            requiresVerification: true,
+            verificationToken,
+            stepsRequired,
+            currentStep: 0,
+            nextStep: firstStep,
+            maskedPhone: user.phone ? `+${user.phone.slice(0, 3)}****${user.phone.slice(-4)}` : null,
+            maskedEmail: user.email ? `${user.email.slice(0, 3)}***@${user.email.split('@')[1]}` : null,
+          },
+        });
+      }
+
+      // No additional verification required - complete login
       const sessionId = uuidv4();
       const sessionToken = uuidv4();
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -1069,14 +1164,12 @@ export default async function authRoutes(app: FastifyInstance) {
         [sessionId, user.id, sessionToken, 'web', request.ip, request.headers['user-agent'], expiresAt]
       );
 
-      // Store session in Redis
       await redis.setJson(`session:${sessionId}`, {
         userId: user.id,
         isActive: true,
         createdAt: Date.now(),
       }, 7 * 24 * 60 * 60);
 
-      // Generate tokens
       const tokens = generateTokens(app, {
         userId: user.id,
         email: user.email || undefined,
@@ -1085,18 +1178,24 @@ export default async function authRoutes(app: FastifyInstance) {
         sessionId,
       });
 
-      // Log activity
+      // Update last_login_at and log activity
+      await db.query(
+        `UPDATE users SET last_login_at = NOW() WHERE id = $1`,
+        [user.id]
+      );
+
       await db.query(
         `INSERT INTO user_activity_logs (user_id, session_id, activity_type, ip_address, user_agent)
          VALUES ($1, $2, $3, $4, $5)`,
         [user.id, sessionId, 'login', request.ip, request.headers['user-agent']]
       );
 
-      logger.info('User logged in', { userId: user.id });
+      logger.info('User logged in (no additional verification)', { userId: user.id });
 
       return reply.send({
         success: true,
         data: {
+          requiresVerification: false,
           user: {
             id: user.id,
             email: user.email,
@@ -1119,6 +1218,1094 @@ export default async function authRoutes(app: FastifyInstance) {
       return reply.status(500).send({
         success: false,
         error: { code: 'INTERNAL_ERROR', message: 'Login failed' },
+      });
+    }
+  });
+
+  /**
+   * POST /auth/login/verify-step
+   * Verify a step in multi-step login
+   */
+  app.post<{
+    Body: {
+      verificationToken: string;
+      step: 'sms' | 'email' | '2fa';
+      code: string;
+    };
+  }>('/login/verify-step', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['verificationToken', 'step', 'code'],
+        properties: {
+          verificationToken: { type: 'string' },
+          step: { type: 'string', enum: ['sms', 'email', '2fa'] },
+          code: { type: 'string', minLength: 6, maxLength: 6 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    try {
+      const { verificationToken, step, code } = request.body;
+
+      // Get verification token
+      const tokenResult = await db.query<{
+        id: string;
+        user_id: string;
+        steps_completed: string[];
+        steps_required: string[];
+        current_step: number;
+        expires_at: Date;
+      }>(
+        `SELECT id, user_id, steps_completed, steps_required, current_step, expires_at
+         FROM login_verification_tokens
+         WHERE token = $1 AND completed_at IS NULL`,
+        [verificationToken]
+      );
+
+      if (tokenResult.rows.length === 0) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_TOKEN', message: 'Invalid or expired verification token' },
+        });
+      }
+
+      const verificationRecord = tokenResult.rows[0]!;
+
+      if (new Date() > verificationRecord.expires_at) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'TOKEN_EXPIRED', message: 'Verification token has expired. Please login again.' },
+        });
+      }
+
+      // Get user
+      const userResult = await db.query<{
+        id: string;
+        email: string | null;
+        phone: string | null;
+        username: string | null;
+        status: string;
+        email_verified: boolean;
+        phone_verified: boolean;
+        tier_level: number;
+        totp_secret: string | null;
+      }>(
+        `SELECT id, email, phone, username, status, email_verified, phone_verified, tier_level, totp_secret
+         FROM users WHERE id = $1 AND deleted_at IS NULL`,
+        [verificationRecord.user_id]
+      );
+
+      if (userResult.rows.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'USER_NOT_FOUND', message: 'User not found' },
+        });
+      }
+
+      const user = userResult.rows[0]!;
+
+      // Verify the step
+      let isValid = false;
+      
+      if (step === 'sms' && user.phone) {
+        const verification = await otpService.verifyOTP(user.phone, 'phone', code);
+        isValid = verification.valid;
+      } else if (step === 'email' && user.email) {
+        const verification = await otpService.verifyOTP(user.email, 'email', code);
+        isValid = verification.valid;
+      } else if (step === '2fa' && user.totp_secret) {
+        // Decrypt and verify TOTP
+        try {
+          const crypto = await import('crypto');
+          const encryptionKey = process.env.TOTP_ENCRYPTION_KEY || process.env.JWT_SECRET || 'default-encryption-key';
+          const [ivHex, encryptedSecret] = user.totp_secret.split(':');
+          const iv = Buffer.from(ivHex, 'hex');
+          const decipher = crypto.createDecipheriv('aes-256-cbc', crypto.scryptSync(encryptionKey, 'salt', 32), iv);
+          let decryptedSecret = decipher.update(encryptedSecret, 'hex', 'utf8');
+          decryptedSecret += decipher.final('utf8');
+
+          const OTPAuth = await import('otpauth');
+          const totp = new OTPAuth.TOTP({
+            issuer: 'Methereum',
+            label: 'user',
+            algorithm: 'SHA1',
+            digits: 6,
+            period: 30,
+            secret: OTPAuth.Secret.fromBase32(decryptedSecret),
+          });
+          const delta = totp.validate({ token: code, window: 1 });
+          isValid = delta !== null;
+        } catch (e) {
+          logger.error('2FA verification error', { error: e instanceof Error ? e.message : 'Unknown' });
+          isValid = false;
+        }
+      }
+
+      if (!isValid) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_CODE', message: 'Invalid verification code' },
+        });
+      }
+
+      // Mark step as completed
+      const stepsCompleted = [...(verificationRecord.steps_completed || []), step];
+      const currentStep = verificationRecord.current_step + 1;
+
+      await db.query(
+        `UPDATE login_verification_tokens
+         SET steps_completed = $1, current_step = $2
+         WHERE id = $3`,
+        [JSON.stringify(stepsCompleted), currentStep, verificationRecord.id]
+      );
+
+      // Check if all steps are completed
+      const allStepsCompleted = verificationRecord.steps_required.every(s => stepsCompleted.includes(s));
+
+      if (!allStepsCompleted) {
+        // Send OTP for next step
+        const nextStep = verificationRecord.steps_required.find(s => !stepsCompleted.includes(s));
+        
+        if (nextStep === 'sms' && user.phone) {
+          const { otp } = await otpService.createOTP(user.phone, 'phone');
+          await otpService.sendSMSOTP(user.phone, otp);
+        } else if (nextStep === 'email' && user.email) {
+          const { otp } = await otpService.createOTP(user.email, 'email');
+          await otpService.sendEmailOTP(user.email, otp);
+        }
+
+        return reply.send({
+          success: true,
+          data: {
+            stepCompleted: step,
+            allStepsCompleted: false,
+            nextStep,
+            stepsRemaining: verificationRecord.steps_required.filter(s => !stepsCompleted.includes(s)),
+          },
+        });
+      }
+
+      // All steps completed - complete login
+      await db.query(
+        `UPDATE login_verification_tokens SET completed_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        [verificationRecord.id]
+      );
+
+      const sessionId = uuidv4();
+      const sessionToken = uuidv4();
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+      await db.query(
+        `INSERT INTO user_sessions (id, user_id, session_token, device_type, ip_address, user_agent, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [sessionId, user.id, sessionToken, 'web', request.ip, request.headers['user-agent'], expiresAt]
+      );
+
+      await redis.setJson(`session:${sessionId}`, {
+        userId: user.id,
+        isActive: true,
+        createdAt: Date.now(),
+      }, 7 * 24 * 60 * 60);
+
+      const tokens = generateTokens(app, {
+        userId: user.id,
+        email: user.email || undefined,
+        phone: user.phone || undefined,
+        role: 'user',
+        sessionId,
+      });
+
+      // Update last_login_at and log activity
+      await db.query(
+        `UPDATE users SET last_login_at = NOW() WHERE id = $1`,
+        [user.id]
+      );
+
+      await db.query(
+        `INSERT INTO user_activity_logs (user_id, session_id, activity_type, ip_address, user_agent)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [user.id, sessionId, 'login', request.ip, request.headers['user-agent']]
+      );
+
+      logger.info('Multi-step login completed', { userId: user.id });
+
+      return reply.send({
+        success: true,
+        data: {
+          stepCompleted: step,
+          allStepsCompleted: true,
+          user: {
+            id: user.id,
+            email: user.email,
+            phone: user.phone,
+            username: user.username,
+            status: user.status,
+            emailVerified: user.email_verified,
+            phoneVerified: user.phone_verified,
+            tierLevel: user.tier_level,
+          },
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
+        },
+      });
+
+    } catch (error) {
+      logger.error('Login verification step error', {
+        error: error instanceof Error ? error.message : 'Unknown',
+      });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Verification failed' },
+      });
+    }
+  });
+
+  /**
+   * POST /auth/login/resend-otp
+   * Resend OTP for current verification step
+   */
+  app.post<{
+    Body: {
+      verificationToken: string;
+      step: 'sms' | 'email';
+    };
+  }>('/login/resend-otp', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['verificationToken', 'step'],
+        properties: {
+          verificationToken: { type: 'string' },
+          step: { type: 'string', enum: ['sms', 'email'] },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    try {
+      const { verificationToken, step } = request.body;
+
+      // Get verification token
+      const tokenResult = await db.query<{
+        user_id: string;
+        expires_at: Date;
+      }>(
+        `SELECT user_id, expires_at
+         FROM login_verification_tokens
+         WHERE token = $1 AND completed_at IS NULL`,
+        [verificationToken]
+      );
+
+      if (tokenResult.rows.length === 0) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_TOKEN', message: 'Invalid verification token' },
+        });
+      }
+
+      const record = tokenResult.rows[0]!;
+
+      if (new Date() > record.expires_at) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'TOKEN_EXPIRED', message: 'Verification token has expired' },
+        });
+      }
+
+      // Get user
+      const userResult = await db.query<{ email: string | null; phone: string | null }>(
+        `SELECT email, phone FROM users WHERE id = $1`,
+        [record.user_id]
+      );
+
+      if (userResult.rows.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'USER_NOT_FOUND', message: 'User not found' },
+        });
+      }
+
+      const user = userResult.rows[0]!;
+
+      // Send OTP
+      if (step === 'sms' && user.phone) {
+        const { otp } = await otpService.createOTP(user.phone, 'phone');
+        await otpService.sendSMSOTP(user.phone, otp);
+      } else if (step === 'email' && user.email) {
+        const { otp } = await otpService.createOTP(user.email, 'email');
+        await otpService.sendEmailOTP(user.email, otp);
+      } else {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_STEP', message: 'Cannot send OTP for this step' },
+        });
+      }
+
+      return reply.send({
+        success: true,
+        message: 'OTP sent successfully',
+      });
+
+    } catch (error) {
+      logger.error('Resend OTP error', {
+        error: error instanceof Error ? error.message : 'Unknown',
+      });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to resend OTP' },
+      });
+    }
+  });
+
+  /**
+   * GET /auth/login/check-passkeys
+   * Check if user has passkeys enabled for login
+   */
+  app.post<{
+    Body: {
+      email?: string;
+      phone?: string;
+    };
+  }>('/login/check-passkeys', {
+    schema: {
+      body: {
+        type: 'object',
+        properties: {
+          email: { type: 'string' },
+          phone: { type: 'string' },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    try {
+      const { email, phone } = request.body;
+
+      if (!email && !phone) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'MISSING_IDENTIFIER', message: 'Email or phone required' },
+        });
+      }
+
+      const type = email ? 'email' : 'phone';
+      const identifier = email || phone;
+
+      const normalizedIdentifier = type === 'email' ? identifier!.trim().toLowerCase() : normalizePhoneNumber(identifier!);
+      
+      const result = await db.query<{ id: string; passkeys_enabled: boolean }>(
+        `SELECT id, COALESCE(passkeys_enabled, FALSE) as passkeys_enabled
+         FROM users WHERE ${type} = $1 AND deleted_at IS NULL`,
+        [normalizedIdentifier]
+      );
+
+      if (result.rows.length === 0) {
+        return reply.send({
+          success: true,
+          data: { passkeysEnabled: false },
+        });
+      }
+
+      const userId = result.rows[0]!.id;
+      const passkeysEnabled = result.rows[0]!.passkeys_enabled;
+
+      // Also check that actual passkeys exist (not just the flag)
+      if (passkeysEnabled) {
+        const passkeysCount = await db.query(
+          `SELECT COUNT(*) as count FROM user_passkeys WHERE user_id = $1 AND deleted_at IS NULL`,
+          [userId]
+        );
+        
+        const actualCount = parseInt(passkeysCount.rows[0]?.count || '0');
+        
+        // If flag is enabled but no actual passkeys, fix the inconsistency
+        if (actualCount === 0) {
+          await db.query(
+            `UPDATE users SET passkeys_enabled = FALSE WHERE id = $1`,
+            [userId]
+          );
+          return reply.send({
+            success: true,
+            data: { passkeysEnabled: false },
+          });
+        }
+      }
+
+      return reply.send({
+        success: true,
+        data: { passkeysEnabled },
+      });
+
+    } catch (error) {
+      logger.error('Check passkeys error', {
+        error: error instanceof Error ? error.message : 'Unknown',
+      });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to check passkeys' },
+      });
+    }
+  });
+
+  // ===============================
+  // PASSKEY REGISTRATION - Generate Options
+  // ===============================
+  app.post('/passkey/register/options', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+
+      // Get user info
+      const userResult = await db.query<{ id: string; email: string; username: string | null }>(
+        `SELECT id, email, username FROM users WHERE id = $1 AND deleted_at IS NULL`,
+        [userId]
+      );
+
+      if (userResult.rows.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'USER_NOT_FOUND', message: 'User not found' },
+        });
+      }
+
+      const user = userResult.rows[0]!;
+
+      // Get existing passkeys for this user to exclude
+      const existingPasskeys = await db.query<{ credential_id: string; transports: string | null }>(
+        `SELECT credential_id, transports FROM user_passkeys WHERE user_id = $1 AND deleted_at IS NULL`,
+        [userId]
+      );
+
+      const excludeCredentials = existingPasskeys.rows.map(row => {
+        const transports = row.transports 
+          ? JSON.parse(row.transports) as AuthenticatorTransportFuture[]
+          : undefined;
+        return {
+          id: row.credential_id,
+          type: 'public-key' as const,
+          transports,
+        };
+      });
+
+      const options = await generateRegistrationOptions({
+        rpName: RP_NAME,
+        rpID: RP_ID,
+        userID: new TextEncoder().encode(userId),
+        userName: user.email,
+        userDisplayName: user.username || user.email,
+        attestationType: 'none',
+        excludeCredentials,
+        authenticatorSelection: {
+          // SECURITY: Required for discoverable credentials (passwordless)
+          residentKey: 'required',
+          // SECURITY: CRITICAL - Must be 'required' for financial apps
+          // 'preferred' would allow auth without biometric!
+          userVerification: 'required',
+          // Force platform authenticator (Touch ID / Face ID)
+          authenticatorAttachment: 'platform',
+        },
+        supportedAlgorithmIDs: [-7, -257], // ES256, RS256
+        timeout: 120000, // 2 minutes
+      });
+
+      // Store challenge in Redis with TTL
+      await redis.set(
+        `passkey_reg_challenge:${userId}`, 
+        JSON.stringify({ challenge: options.challenge, timestamp: Date.now() }), 
+        CHALLENGE_TTL
+      );
+
+      logger.info('Passkey registration options generated', { userId, rpId: RP_ID });
+
+      // Add WebAuthn Level 3 hints to prefer platform authenticator
+      // This helps browsers like Safari/Chrome to show Touch ID instead of QR
+      const optionsWithHints = {
+        ...options,
+        hints: ['client-device'], // Prefer this device's authenticator
+      };
+
+      return reply.send({
+        success: true,
+        data: optionsWithHints,
+      });
+
+    } catch (error) {
+      logger.error('Passkey registration options error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to generate passkey options' },
+      });
+    }
+  });
+
+  // ===============================
+  // PASSKEY REGISTRATION - Verify
+  // ===============================
+  app.post('/passkey/register/verify', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+      const { credential, deviceName } = request.body as { credential: RegistrationResponseJSON; deviceName?: string };
+
+      if (!credential) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_REQUEST', message: 'Credential data required' },
+        });
+      }
+
+      // Get stored challenge
+      const storedData = await redis.get(`passkey_reg_challenge:${userId}`);
+      if (!storedData) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'CHALLENGE_EXPIRED', message: 'Registration session expired. Please try again.' },
+        });
+      }
+
+      const { challenge: expectedChallenge } = JSON.parse(storedData);
+
+      // Verify the registration response
+      // SECURITY: All cryptographic verification MUST be server-side
+      let verification;
+      try {
+        verification = await verifyRegistrationResponse({
+          response: credential,
+          expectedChallenge,
+          expectedOrigin: ORIGIN,
+          expectedRPID: RP_ID,
+          requireUserVerification: true, // CRITICAL: Require biometric verification
+        });
+      } catch (verifyError) {
+        logger.error('Passkey verification cryptographic error', { 
+          error: verifyError instanceof Error ? verifyError.message : 'Unknown',
+          userId,
+        });
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'VERIFICATION_FAILED', message: 'Passkey verification failed. Invalid credential.' },
+        });
+      }
+
+      if (!verification.verified || !verification.registrationInfo) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'VERIFICATION_FAILED', message: 'Passkey registration verification failed' },
+        });
+      }
+
+      const { registrationInfo } = verification;
+      const { credential: cred, credentialDeviceType, credentialBackedUp } = registrationInfo;
+      
+      if (!cred) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'VERIFICATION_FAILED', message: 'Invalid credential data' },
+        });
+      }
+
+      // Store as base64url strings using simplewebauthn helper
+      const credentialIdB64 = isoBase64URL.fromBuffer(cred.id);
+      const publicKeyB64 = isoBase64URL.fromBuffer(cred.publicKey);
+
+      // Get transports from the response for future authentication hints
+      const transports = credential.response.transports || [];
+
+      // Check for duplicate credential (only check active ones, not deleted)
+      const existingCred = await db.query(
+        `SELECT id FROM user_passkeys WHERE credential_id = $1 AND deleted_at IS NULL`,
+        [credentialIdB64]
+      );
+
+      if (existingCred.rows.length > 0) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'CREDENTIAL_EXISTS', message: 'This passkey is already registered' },
+        });
+      }
+      
+      // Delete any soft-deleted credentials with the same ID (cleanup)
+      await db.query(
+        `DELETE FROM user_passkeys WHERE credential_id = $1 AND deleted_at IS NOT NULL`,
+        [credentialIdB64]
+      );
+
+      // Store the passkey in database
+      await db.query(
+        `INSERT INTO user_passkeys (
+          user_id, credential_id, public_key, counter, transports, 
+          device_name, aaguid, backup_eligible, backup_state, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)`,
+        [
+          userId, 
+          credentialIdB64, 
+          publicKeyB64, 
+          cred.counter, 
+          JSON.stringify(transports),
+          deviceName || 'Unknown Device',
+          registrationInfo.aaguid || null,
+          credentialDeviceType === 'multiDevice', // Synced passkey
+          credentialBackedUp,
+        ]
+      );
+
+      // Enable passkeys for the user
+      await db.query(
+        `UPDATE users SET passkeys_enabled = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = $1`, 
+        [userId]
+      );
+
+      // Clear the challenge
+      await redis.del(`passkey_reg_challenge:${userId}`);
+
+      // Log for audit
+      try {
+        await db.query(
+          `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [userId, 'settings_change', request.ip, request.headers['user-agent'], 
+           JSON.stringify({ type: 'passkey_registered', deviceName: deviceName || 'Unknown Device' })]
+        );
+      } catch (logError) {
+        logger.warn('Failed to log passkey registration', { error: logError });
+      }
+
+      logger.info('Passkey registered successfully', { 
+        userId, 
+        credentialType: credentialDeviceType,
+        backedUp: credentialBackedUp,
+      });
+
+      return reply.send({
+        success: true,
+        data: { message: 'Passkey registered successfully' },
+      });
+
+    } catch (error) {
+      logger.error('Passkey registration verify error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to verify passkey registration' },
+      });
+    }
+  });
+
+  // ===============================
+  // PASSKEY AUTHENTICATION - Generate Options
+  // ===============================
+  app.post('/passkey/authenticate/options', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { email, phone } = request.body as { email?: string; phone?: string };
+
+      if (!email && !phone) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'MISSING_IDENTIFIER', message: 'Email or phone required' },
+        });
+      }
+
+      const type = email ? 'email' : 'phone';
+      const identifier = email ? email.trim().toLowerCase() : normalizePhoneNumber(phone!);
+
+      // Get user - don't reveal if user exists
+      const userResult = await db.query<{ id: string; passkeys_enabled: boolean }>(
+        `SELECT id, COALESCE(passkeys_enabled, FALSE) as passkeys_enabled 
+         FROM users WHERE ${type} = $1 AND deleted_at IS NULL`,
+        [identifier]
+      );
+
+      if (userResult.rows.length === 0) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'PASSKEYS_NOT_AVAILABLE', message: 'Passkey login not available' },
+        });
+      }
+
+      if (!userResult.rows[0]!.passkeys_enabled) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'PASSKEYS_NOT_ENABLED', message: 'Passkeys not enabled for this account' },
+        });
+      }
+
+      const userId = userResult.rows[0]!.id;
+
+      // Get user's passkeys with transports
+      const passkeysResult = await db.query<{ credential_id: string; transports: string | null }>(
+        `SELECT credential_id, transports FROM user_passkeys WHERE user_id = $1 AND deleted_at IS NULL`,
+        [userId]
+      );
+
+      if (passkeysResult.rows.length === 0) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'NO_PASSKEYS', message: 'No passkeys registered for this account' },
+        });
+      }
+
+      // Build allowCredentials with transports for better UX
+      const allowCredentials = passkeysResult.rows.map(row => {
+        const transports = row.transports 
+          ? JSON.parse(row.transports) as AuthenticatorTransportFuture[]
+          : ['internal' as AuthenticatorTransportFuture];
+        
+        return {
+          id: row.credential_id,
+          type: 'public-key' as const,
+          transports,
+        };
+      });
+
+      const options = await generateAuthenticationOptions({
+        rpID: RP_ID,
+        // SECURITY: CRITICAL - Must be 'required' for financial apps
+        userVerification: 'required',
+        allowCredentials,
+        timeout: 120000, // 2 minutes
+      });
+
+      // Store challenge with user info
+      await redis.set(
+        `passkey_auth_challenge:${options.challenge}`, 
+        JSON.stringify({ userId, identifier, timestamp: Date.now() }), 
+        CHALLENGE_TTL
+      );
+
+      logger.info('Passkey authentication options generated', { identifier });
+
+      // Add WebAuthn Level 3 hints to prefer platform authenticator
+      const optionsWithHints = {
+        ...options,
+        hints: ['client-device'], // Prefer this device's authenticator
+      };
+
+      return reply.send({
+        success: true,
+        data: optionsWithHints,
+      });
+
+    } catch (error) {
+      logger.error('Passkey auth options error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to generate authentication options' },
+      });
+    }
+  });
+
+  // ===============================
+  // PASSKEY AUTHENTICATION - Verify
+  // ===============================
+  app.post('/passkey/authenticate/verify', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { credential, challenge } = request.body as { credential: AuthenticationResponseJSON; challenge: string };
+
+      if (!credential || !challenge) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_REQUEST', message: 'Credential and challenge required' },
+        });
+      }
+
+      // Get stored challenge data (use new key format)
+      const challengeData = await redis.get(`passkey_auth_challenge:${challenge}`);
+      if (!challengeData) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'CHALLENGE_EXPIRED', message: 'Authentication session expired. Please try again.' },
+        });
+      }
+
+      const { userId } = JSON.parse(challengeData);
+
+      // credential.id from WebAuthn response is base64url encoded
+      const credentialId = credential.id;
+      
+      // Get the passkey from database
+      const passkeyResult = await db.query<{ id: string; public_key: string; counter: number; backup_state: boolean }>(
+        `SELECT id, public_key, counter, COALESCE(backup_state, FALSE) as backup_state 
+         FROM user_passkeys WHERE user_id = $1 AND credential_id = $2 AND deleted_at IS NULL`,
+        [userId, credentialId]
+      );
+
+      if (passkeyResult.rows.length === 0) {
+        logger.warn('Passkey authentication failed - credential not found', { 
+          userId, 
+          credentialIdPrefix: credentialId.substring(0, 20),
+        });
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'PASSKEY_NOT_FOUND', message: 'Passkey not found or has been removed' },
+        });
+      }
+
+      const passkey = passkeyResult.rows[0]!;
+
+      // Decode public key from base64url to Uint8Array using simplewebauthn helper
+      const publicKeyBytes = isoBase64URL.toBuffer(passkey.public_key);
+
+      // Verify the authentication response
+      let verification;
+      try {
+        verification = await verifyAuthenticationResponse({
+          response: credential,
+          expectedChallenge: challenge,
+          expectedOrigin: ORIGIN,
+          expectedRPID: RP_ID,
+          credential: {
+            id: credentialId,
+            publicKey: publicKeyBytes,
+            counter: passkey.counter,
+          },
+          requireUserVerification: true, // CRITICAL: Require biometric
+        });
+      } catch (verifyError) {
+        logger.error('Passkey authentication cryptographic verification failed', { 
+          error: verifyError instanceof Error ? verifyError.message : 'Unknown',
+          userId,
+        });
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'VERIFICATION_FAILED', message: 'Passkey authentication failed. Invalid signature.' },
+        });
+      }
+
+      if (!verification.verified) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'VERIFICATION_FAILED', message: 'Passkey authentication failed' },
+        });
+      }
+
+      const { authenticationInfo } = verification;
+
+      // CRITICAL: Validate counter increment to prevent replay attacks
+      // Counter must always increase. If newCounter <= oldCounter, possible replay attack.
+      // Exception: Counter of 0 is allowed for synced passkeys that may not track counter.
+      if (passkey.counter > 0 && authenticationInfo.newCounter <= passkey.counter) {
+        logger.error('Passkey counter validation failed - possible replay attack', {
+          userId,
+          storedCounter: passkey.counter,
+          receivedCounter: authenticationInfo.newCounter,
+        });
+        
+        // Disable the passkey for safety
+        await db.query(
+          `UPDATE user_passkeys SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1`,
+          [passkey.id]
+        );
+
+        return reply.status(400).send({
+          success: false,
+          error: { 
+            code: 'COUNTER_MISMATCH', 
+            message: 'Security validation failed. This passkey has been disabled for your protection.',
+          },
+        });
+      }
+
+      // Update counter and last used timestamp
+      await db.query(
+        `UPDATE user_passkeys 
+         SET counter = $1, last_used_at = CURRENT_TIMESTAMP, backup_state = $3
+         WHERE id = $2`,
+        [authenticationInfo.newCounter, passkey.id, authenticationInfo.credentialBackedUp]
+      );
+
+      // Get user details for JWT
+      const userResult = await db.query<{
+        id: string;
+        email: string;
+        phone: string | null;
+        username: string | null;
+        status: string;
+        tier_level: string;
+      }>(`SELECT id, email, phone, username, status, tier_level FROM users WHERE id = $1`, [userId]);
+
+      if (userResult.rows.length === 0) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'USER_NOT_FOUND', message: 'User not found' },
+        });
+      }
+
+      const user = userResult.rows[0]!;
+
+      // Check if account is active
+      if (user.status !== 'active') {
+        return reply.status(403).send({
+          success: false,
+          error: { code: 'ACCOUNT_INACTIVE', message: 'Account is not active' },
+        });
+      }
+
+      // Generate tokens
+      const accessToken = request.server.jwt.sign(
+        { userId: user.id, email: user.email, type: 'access' },
+        { expiresIn: '15m' }
+      );
+
+      const refreshToken = request.server.jwt.sign(
+        { userId: user.id, email: user.email, type: 'refresh' },
+        { expiresIn: '7d' }
+      );
+
+      // Store refresh token
+      await redis.set(`refresh_token:${user.id}`, refreshToken, 7 * 24 * 60 * 60);
+
+      // Update last_login_at and log activity
+      try {
+        await db.query(
+          `UPDATE users SET last_login_at = NOW() WHERE id = $1`,
+          [user.id]
+        );
+        await db.query(
+          `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details) VALUES ($1, $2, $3, $4, $5)`,
+          [user.id, 'passkey_login', request.ip, request.headers['user-agent'], JSON.stringify({ method: 'passkey' })]
+        );
+      } catch (logError) {
+        logger.warn('Failed to log passkey login', { error: logError });
+      }
+
+      // Clear the challenge (one-time use)
+      await redis.del(`passkey_auth_challenge:${challenge}`);
+
+      logger.info('Passkey authentication successful', { userId: user.id });
+
+      return reply.send({
+        success: true,
+        data: {
+          accessToken,
+          refreshToken,
+          user: {
+            id: user.id,
+            email: user.email,
+            phone: user.phone,
+            username: user.username,
+            tierLevel: user.tier_level,
+          },
+        },
+      });
+
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : 'Unknown';
+      logger.error('Passkey auth verify error', { error: errMsg });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to verify passkey authentication' },
+      });
+    }
+  });
+
+  // ===============================
+  // GET USER PASSKEYS
+  // ===============================
+  app.get('/passkeys', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+
+      const result = await db.query<{ 
+        id: string; 
+        device_name: string; 
+        created_at: Date; 
+        last_used_at: Date | null;
+        backup_eligible: boolean;
+        backup_state: boolean;
+      }>(
+        `SELECT id, device_name, created_at, last_used_at, 
+                COALESCE(backup_eligible, FALSE) as backup_eligible,
+                COALESCE(backup_state, FALSE) as backup_state
+         FROM user_passkeys 
+         WHERE user_id = $1 AND deleted_at IS NULL 
+         ORDER BY created_at DESC`,
+        [userId]
+      );
+
+      return reply.send({
+        success: true,
+        data: { 
+          passkeys: result.rows.map(row => ({
+            id: row.id,
+            device_name: row.device_name,
+            created_at: row.created_at,
+            last_used_at: row.last_used_at,
+            is_synced: row.backup_eligible,
+            is_backed_up: row.backup_state,
+          })),
+        },
+      });
+
+    } catch (error) {
+      logger.error('Get passkeys error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to get passkeys' },
+      });
+    }
+  });
+
+  // ===============================
+  // DELETE PASSKEY
+  // ===============================
+  app.delete('/passkeys/:passkeyId', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+      const { passkeyId } = request.params as { passkeyId: string };
+
+      // Soft delete the passkey
+      const result = await db.query(
+        `UPDATE user_passkeys 
+         SET deleted_at = CURRENT_TIMESTAMP 
+         WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+         RETURNING id`,
+        [passkeyId, userId]
+      );
+
+      if (result.rows.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'PASSKEY_NOT_FOUND', message: 'Passkey not found' },
+        });
+      }
+
+      // Check if user has any remaining passkeys
+      const remainingPasskeys = await db.query(
+        `SELECT COUNT(*) as count FROM user_passkeys WHERE user_id = $1 AND deleted_at IS NULL`,
+        [userId]
+      );
+
+      // If no passkeys remaining, disable passkeys for user
+      if (parseInt(remainingPasskeys.rows[0]?.count || '0') === 0) {
+        await db.query(
+          `UPDATE users SET passkeys_enabled = FALSE, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+          [userId]
+        );
+      }
+
+      // Log the deletion
+      try {
+        await db.query(
+          `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [userId, 'settings_change', request.ip, request.headers['user-agent'], JSON.stringify({ type: 'passkey_deleted', passkeyId })]
+        );
+      } catch (logError) {
+        logger.warn('Failed to log passkey deletion', { error: logError });
+      }
+
+      logger.info('Passkey deleted', { userId, passkeyId });
+
+      return reply.send({
+        success: true,
+        data: { message: 'Passkey deleted successfully' },
+      });
+
+    } catch (error) {
+      logger.error('Delete passkey error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to delete passkey' },
       });
     }
   });
@@ -1298,6 +2485,152 @@ export default async function authRoutes(app: FastifyInstance) {
       return reply.status(500).send({
         success: false,
         error: { code: 'INTERNAL_ERROR', message: 'Failed to change password' },
+      });
+    }
+  });
+
+  // ===============================
+  // CHANGE EMAIL
+  // ===============================
+  app.post('/change-email', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+      const { newEmail, otp } = request.body as { newEmail: string; otp: string };
+
+      if (!newEmail || !otp) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'MISSING_DATA', message: 'New email and OTP are required' },
+        });
+      }
+
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(newEmail)) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_EMAIL', message: 'Invalid email format' },
+        });
+      }
+
+      // Check if email is already in use
+      const existingUser = await db.query(
+        `SELECT id FROM users WHERE email = $1 AND id != $2 AND deleted_at IS NULL`,
+        [newEmail.toLowerCase(), userId]
+      );
+
+      if (existingUser.rows.length > 0) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'EMAIL_IN_USE', message: 'This email is already in use' },
+        });
+      }
+
+      // Verify OTP
+      const verification = await otpService.verifyOTP(newEmail, 'email', otp);
+      if (!verification.valid) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_OTP', message: verification.message },
+        });
+      }
+
+      // Update email
+      await db.query(
+        `UPDATE users SET email = $1, email_verified = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+        [newEmail.toLowerCase(), userId]
+      );
+
+      // Log activity
+      await db.query(
+        `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [userId, 'email_change', request.ip, request.headers['user-agent'], JSON.stringify({ newEmail })]
+      );
+
+      logger.info('Email changed', { userId, newEmail });
+
+      return reply.send({
+        success: true,
+        data: { message: 'Email changed successfully' },
+      });
+
+    } catch (error) {
+      logger.error('Change email error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to change email' },
+      });
+    }
+  });
+
+  // ===============================
+  // CHANGE PHONE
+  // ===============================
+  app.post('/change-phone', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+      const { newPhone, otp } = request.body as { newPhone: string; otp: string };
+
+      if (!newPhone || !otp) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'MISSING_DATA', message: 'New phone and OTP are required' },
+        });
+      }
+
+      // Clean phone number
+      const cleanPhone = newPhone.replace(/\s/g, '');
+
+      // Check if phone is already in use
+      const existingUser = await db.query(
+        `SELECT id FROM users WHERE phone = $1 AND id != $2 AND deleted_at IS NULL`,
+        [cleanPhone, userId]
+      );
+
+      if (existingUser.rows.length > 0) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'PHONE_IN_USE', message: 'This phone number is already in use' },
+        });
+      }
+
+      // Verify OTP
+      const verification = await otpService.verifyOTP(cleanPhone, 'phone', otp);
+      if (!verification.valid) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_OTP', message: verification.message },
+        });
+      }
+
+      // Update phone
+      await db.query(
+        `UPDATE users SET phone = $1, phone_verified = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+        [cleanPhone, userId]
+      );
+
+      // Log activity
+      await db.query(
+        `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [userId, 'phone_change', request.ip, request.headers['user-agent'], JSON.stringify({ newPhone: cleanPhone })]
+      );
+
+      logger.info('Phone changed', { userId, newPhone: cleanPhone });
+
+      return reply.send({
+        success: true,
+        data: { message: 'Phone number changed successfully' },
+      });
+
+    } catch (error) {
+      logger.error('Change phone error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to change phone' },
       });
     }
   });
@@ -1533,6 +2866,7 @@ export default async function authRoutes(app: FastifyInstance) {
       await request.jwtVerify();
       const { userId } = request.user as { userId: string };
 
+      // Get comprehensive user profile
       const result = await db.query<{
         id: string;
         email: string;
@@ -1541,10 +2875,30 @@ export default async function authRoutes(app: FastifyInstance) {
         first_name: string | null;
         last_name: string | null;
         totp_enabled: boolean;
+        sms_auth_enabled: boolean;
+        passkeys_enabled: boolean;
+        has_fund_password: boolean;
+        anti_phishing_code: string | null;
+        withdrawal_whitelist_enabled: boolean;
+        address_book_enabled: boolean;
+        vip_level: number;
+        tier_level: number;
+        last_login_at: Date | null;
         created_at: Date;
+        avatar_url: string | null;
       }>(
-        `SELECT id, email, phone, phone_verified, first_name, last_name, 
-                COALESCE(totp_enabled, FALSE) as totp_enabled, created_at 
+        `SELECT id, email, phone, phone_verified, first_name, last_name, avatar_url,
+                COALESCE(totp_enabled, FALSE) as totp_enabled,
+                COALESCE(sms_auth_enabled, FALSE) as sms_auth_enabled,
+                COALESCE(passkeys_enabled, FALSE) as passkeys_enabled,
+                (fund_password_hash IS NOT NULL) as has_fund_password,
+                anti_phishing_code,
+                COALESCE(withdrawal_whitelist_enabled, FALSE) as withdrawal_whitelist_enabled,
+                COALESCE(address_book_enabled, FALSE) as address_book_enabled,
+                COALESCE(vip_level, 0) as vip_level,
+                COALESCE(tier_level, 0) as tier_level,
+                last_login_at,
+                created_at
          FROM users WHERE id = $1 AND deleted_at IS NULL`,
         [userId]
       );
@@ -1556,9 +2910,73 @@ export default async function authRoutes(app: FastifyInstance) {
         });
       }
 
+      const userData = result.rows[0]!;
+
+      // Get KYC status
+      const kycResult = await db.query<{ status: string; kyc_level: number }>(
+        `SELECT status, kyc_level FROM kyc_applications 
+         WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        [userId]
+      );
+      const kycStatus = kycResult.rows[0]?.status || 'not_submitted';
+      const kycLevel = kycResult.rows[0]?.kyc_level || 0;
+
+      // Get passkeys count
+      const passkeysResult = await db.query<{ count: string }>(
+        `SELECT COUNT(*) as count FROM user_passkeys WHERE user_id = $1 AND deleted_at IS NULL`,
+        [userId]
+      );
+      const passkeysCount = parseInt(passkeysResult.rows[0]?.count || '0');
+
+      // Get referral code
+      const referralResult = await db.query<{ code: string }>(
+        `SELECT code FROM referral_codes WHERE user_id = $1 AND is_active = TRUE LIMIT 1`,
+        [userId]
+      );
+      let referralCode = referralResult.rows[0]?.code;
+
+      // Create referral code if doesn't exist
+      if (!referralCode) {
+        const newCode = userData.email.split('@')[0]?.toUpperCase().slice(0, 6) + 
+                        Math.random().toString(36).substring(2, 6).toUpperCase();
+        try {
+          await db.query(
+            `INSERT INTO referral_codes (user_id, code, is_active, created_at, updated_at)
+             VALUES ($1, $2, TRUE, NOW(), NOW())
+             ON CONFLICT (code) DO NOTHING`,
+            [userId, newCode]
+          );
+          referralCode = newCode;
+        } catch {
+          // Code collision, try to get existing one
+          const existingRef = await db.query<{ code: string }>(
+            `SELECT code FROM referral_codes WHERE user_id = $1 LIMIT 1`,
+            [userId]
+          );
+          referralCode = existingRef.rows[0]?.code || newCode;
+        }
+      }
+
+      // Get active sessions/devices count (from unique user agents in last 30 days)
+      const devicesResult = await db.query<{ count: string }>(
+        `SELECT COUNT(DISTINCT user_agent) as count FROM user_activity_logs 
+         WHERE user_id = $1 AND created_at > NOW() - INTERVAL '30 days'`,
+        [userId]
+      );
+      const activeDevices = Math.max(1, parseInt(devicesResult.rows[0]?.count || '1'));
+
       return reply.send({
         success: true,
-        data: { user: result.rows[0] },
+        data: { 
+          user: {
+            ...userData,
+            kycStatus,
+            kycLevel,
+            passkeysCount,
+            referralCode,
+            activeDevices,
+          }
+        },
       });
 
     } catch (error) {
@@ -1921,308 +3339,6 @@ export default async function authRoutes(app: FastifyInstance) {
       return reply.status(500).send({
         success: false,
         error: { code: 'INTERNAL_ERROR', message: 'Failed to disable 2FA' },
-      });
-    }
-  });
-
-  // ===============================
-  // PASSKEYS - List all passkeys
-  // ===============================
-  app.get('/passkeys', async (request: FastifyRequest, reply: FastifyReply) => {
-    try {
-      await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
-
-      const result = await db.query<{
-        id: string;
-        name: string;
-        created_at: Date;
-        last_used_at: Date | null;
-      }>(
-        `SELECT id, name, created_at, last_used_at 
-         FROM user_passkeys 
-         WHERE user_id = $1 AND deleted_at IS NULL
-         ORDER BY created_at DESC`,
-        [userId]
-      );
-
-      return reply.send({
-        success: true,
-        data: { passkeys: result.rows },
-      });
-
-    } catch (error) {
-      logger.error('Get passkeys error', { error: error instanceof Error ? error.message : 'Unknown' });
-      return reply.status(500).send({
-        success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to get passkeys' },
-      });
-    }
-  });
-
-  // ===============================
-  // PASSKEYS - Get challenge for registration
-  // ===============================
-  app.post('/passkeys/challenge', async (request: FastifyRequest, reply: FastifyReply) => {
-    try {
-      await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
-
-      // Get user info
-      const userResult = await db.query<{ email: string; first_name: string | null; last_name: string | null }>(
-        `SELECT email, first_name, last_name FROM users WHERE id = $1 AND deleted_at IS NULL`,
-        [userId]
-      );
-
-      if (userResult.rows.length === 0) {
-        return reply.status(404).send({
-          success: false,
-          error: { code: 'USER_NOT_FOUND', message: 'User not found' },
-        });
-      }
-
-      const user = userResult.rows[0]!;
-      const crypto = await import('crypto');
-
-      // Generate challenge
-      const challenge = crypto.randomBytes(32);
-      const challengeBase64 = challenge.toString('base64');
-
-      // Store challenge in Redis (valid for 5 minutes)
-      await redis.set(`passkey_challenge:${userId}`, challengeBase64, 300);
-
-      // Encode user ID for WebAuthn
-      const userIdBuffer = Buffer.from(userId, 'utf8');
-      const userIdBase64 = userIdBuffer.toString('base64');
-
-      const displayName = user.first_name && user.last_name
-        ? `${user.first_name} ${user.last_name}`
-        : user.email;
-
-      // Get hostname for RP ID
-      const rpId = process.env.WEBAUTHN_RP_ID || 'localhost';
-      const rpName = process.env.WEBAUTHN_RP_NAME || 'Methereum';
-
-      return reply.send({
-        success: true,
-        data: {
-          challenge: challengeBase64,
-          userId: userIdBase64,
-          userName: user.email,
-          userDisplayName: displayName,
-          rpId,
-          rpName,
-        },
-      });
-
-    } catch (error) {
-      logger.error('Passkey challenge error', { error: error instanceof Error ? error.message : 'Unknown' });
-      return reply.status(500).send({
-        success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to generate challenge' },
-      });
-    }
-  });
-
-  // ===============================
-  // PASSKEYS - Register new passkey
-  // ===============================
-  app.post('/passkeys/register', async (request: FastifyRequest, reply: FastifyReply) => {
-    try {
-      await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
-      const { credentialId, clientDataJSON, attestationObject, name } = request.body as {
-        credentialId: string;
-        clientDataJSON: string;
-        attestationObject: string;
-        name: string;
-      };
-
-      if (!credentialId || !clientDataJSON || !attestationObject) {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'MISSING_DATA', message: 'Missing credential data' },
-        });
-      }
-
-      // Verify challenge exists
-      const storedChallenge = await redis.get(`passkey_challenge:${userId}`);
-      if (!storedChallenge) {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'INVALID_CHALLENGE', message: 'Challenge expired or invalid' },
-        });
-      }
-
-      // Parse and verify clientDataJSON (handle URL-safe base64)
-      const urlSafeToStandard = (str: string) => str.replace(/-/g, '+').replace(/_/g, '/');
-      const standardToUrlSafe = (str: string) => str.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-      
-      const clientDataBuffer = Buffer.from(urlSafeToStandard(clientDataJSON), 'base64');
-      const clientData = JSON.parse(clientDataBuffer.toString('utf8'));
-      
-      // Verify challenge matches (clientData.challenge is URL-safe base64, storedChallenge is standard base64)
-      const clientChallenge = clientData.challenge;
-      const storedChallengeUrlSafe = standardToUrlSafe(storedChallenge);
-      
-      if (clientChallenge !== storedChallengeUrlSafe && clientChallenge !== storedChallenge) {
-        logger.warn('Challenge mismatch', { clientChallenge, storedChallenge, storedChallengeUrlSafe });
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'CHALLENGE_MISMATCH', message: 'Challenge does not match' },
-        });
-      }
-
-      // Verify type is webauthn.create
-      if (clientData.type !== 'webauthn.create') {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'INVALID_TYPE', message: 'Invalid credential type' },
-        });
-      }
-
-      // Check if credential already exists
-      const existingCred = await db.query(
-        `SELECT id FROM user_passkeys WHERE credential_id = $1 AND deleted_at IS NULL`,
-        [credentialId]
-      );
-
-      if (existingCred.rows.length > 0) {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'CREDENTIAL_EXISTS', message: 'This passkey is already registered' },
-        });
-      }
-
-      // Store passkey in database
-      const result = await db.query<{ id: string }>(
-        `INSERT INTO user_passkeys (user_id, credential_id, public_key, name, attestation_object, client_data_json)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         RETURNING id`,
-        [userId, credentialId, attestationObject, name || 'Passkey', attestationObject, clientDataJSON]
-      );
-
-      // Clear challenge
-      await redis.del(`passkey_challenge:${userId}`);
-
-      // Log activity
-      await db.query(
-        `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [userId, 'passkey_add', request.ip, request.headers['user-agent'], JSON.stringify({ name })]
-      );
-
-      logger.info('Passkey registered', { userId, passkeyId: result.rows[0]?.id });
-
-      return reply.send({
-        success: true,
-        data: { message: 'Passkey registered successfully', id: result.rows[0]?.id },
-      });
-
-    } catch (error) {
-      logger.error('Passkey register error', { error: error instanceof Error ? error.message : 'Unknown' });
-      return reply.status(500).send({
-        success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to register passkey' },
-      });
-    }
-  });
-
-  // ===============================
-  // PASSKEYS - Rename passkey
-  // ===============================
-  app.patch('/passkeys/:id/rename', async (request: FastifyRequest, reply: FastifyReply) => {
-    try {
-      await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
-      const { id } = request.params as { id: string };
-      const { name } = request.body as { name: string };
-
-      if (!name || name.trim().length === 0) {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'INVALID_NAME', message: 'Name is required' },
-        });
-      }
-
-      if (name.length > 50) {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'NAME_TOO_LONG', message: 'Name must be 50 characters or less' },
-        });
-      }
-
-      const result = await db.query(
-        `UPDATE user_passkeys SET name = $1 
-         WHERE id = $2 AND user_id = $3 AND deleted_at IS NULL`,
-        [name.trim(), id, userId]
-      );
-
-      if (result.rowCount === 0) {
-        return reply.status(404).send({
-          success: false,
-          error: { code: 'NOT_FOUND', message: 'Passkey not found' },
-        });
-      }
-
-      logger.info('Passkey renamed', { userId, passkeyId: id, newName: name.trim() });
-
-      return reply.send({
-        success: true,
-        data: { message: 'Passkey renamed successfully' },
-      });
-
-    } catch (error) {
-      logger.error('Passkey rename error', { error: error instanceof Error ? error.message : 'Unknown' });
-      return reply.status(500).send({
-        success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to rename passkey' },
-      });
-    }
-  });
-
-  // ===============================
-  // PASSKEYS - Delete passkey
-  // ===============================
-  app.delete('/passkeys/:id', async (request: FastifyRequest, reply: FastifyReply) => {
-    try {
-      await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
-      const { id } = request.params as { id: string };
-
-      // Soft delete passkey
-      const result = await db.query(
-        `UPDATE user_passkeys SET deleted_at = CURRENT_TIMESTAMP 
-         WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
-        [id, userId]
-      );
-
-      if (result.rowCount === 0) {
-        return reply.status(404).send({
-          success: false,
-          error: { code: 'NOT_FOUND', message: 'Passkey not found' },
-        });
-      }
-
-      // Log activity
-      await db.query(
-        `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [userId, 'passkey_remove', request.ip, request.headers['user-agent'], JSON.stringify({ passkeyId: id })]
-      );
-
-      logger.info('Passkey deleted', { userId, passkeyId: id });
-
-      return reply.send({
-        success: true,
-        data: { message: 'Passkey deleted successfully' },
-      });
-
-    } catch (error) {
-      logger.error('Passkey delete error', { error: error instanceof Error ? error.message : 'Unknown' });
-      return reply.status(500).send({
-        success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to delete passkey' },
       });
     }
   });
@@ -3131,6 +4247,172 @@ export default async function authRoutes(app: FastifyInstance) {
       return reply.status(500).send({
         success: false,
         error: { code: 'INTERNAL_ERROR', message: 'Failed to get address book status' },
+      });
+    }
+  });
+
+  // ===============================
+  // SMS AUTH - Toggle
+  // ===============================
+  app.post('/sms-auth/toggle', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+      const { enabled } = request.body as { enabled: boolean };
+
+      if (typeof enabled !== 'boolean') {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_VALUE', message: 'Enabled must be a boolean' },
+        });
+      }
+
+      // Check if user has a phone number
+      const userResult = await db.query<{ phone: string | null }>(
+        `SELECT phone FROM users WHERE id = $1 AND deleted_at IS NULL`,
+        [userId]
+      );
+
+      if (userResult.rows.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'USER_NOT_FOUND', message: 'User not found' },
+        });
+      }
+
+      if (enabled && !userResult.rows[0]?.phone) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'NO_PHONE', message: 'Please add a phone number first' },
+        });
+      }
+
+      // Update SMS auth setting
+      await db.query(
+        `UPDATE users SET sms_auth_enabled = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+        [enabled, userId]
+      );
+
+      // Log activity (use try-catch to not fail the main operation)
+      try {
+        await db.query(
+          `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [userId, 'settings_change', request.ip, request.headers['user-agent'], JSON.stringify({ type: 'sms_auth', enabled })]
+        );
+      } catch (logError) {
+        logger.warn('Failed to log SMS auth toggle activity', { error: logError instanceof Error ? logError.message : 'Unknown' });
+      }
+
+      logger.info('SMS auth toggled', { userId, enabled });
+
+      return reply.send({
+        success: true,
+        data: { 
+          enabled,
+          message: `SMS authentication ${enabled ? 'enabled' : 'disabled'} successfully` 
+        },
+      });
+
+    } catch (error) {
+      logger.error('SMS auth toggle error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to toggle SMS authentication' },
+      });
+    }
+  });
+
+  // ===============================
+  // SMS AUTH - Get Status
+  // ===============================
+  app.get('/sms-auth/status', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+
+      const result = await db.query<{ sms_auth_enabled: boolean; phone: string | null }>(
+        `SELECT COALESCE(sms_auth_enabled, FALSE) as sms_auth_enabled, phone FROM users WHERE id = $1 AND deleted_at IS NULL`,
+        [userId]
+      );
+
+      if (result.rows.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'USER_NOT_FOUND', message: 'User not found' },
+        });
+      }
+
+      return reply.send({
+        success: true,
+        data: {
+          enabled: result.rows[0]!.sms_auth_enabled,
+          hasPhone: !!result.rows[0]!.phone,
+        },
+      });
+
+    } catch (error) {
+      logger.error('SMS auth status error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to get SMS auth status' },
+      });
+    }
+  });
+
+  // ===============================
+  // SECURITY SETTINGS - Get All
+  // ===============================
+  app.get('/security/settings', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const { userId } = request.user as { userId: string };
+
+      const result = await db.query<{
+        sms_auth_enabled: boolean;
+        email_auth_enabled: boolean;
+        totp_enabled: boolean;
+        passkeys_enabled: boolean;
+        phone: string | null;
+        email: string | null;
+      }>(
+        `SELECT 
+          COALESCE(sms_auth_enabled, FALSE) as sms_auth_enabled,
+          COALESCE(email_auth_enabled, TRUE) as email_auth_enabled,
+          COALESCE(totp_enabled, FALSE) as totp_enabled,
+          COALESCE(passkeys_enabled, FALSE) as passkeys_enabled,
+          phone,
+          email
+        FROM users WHERE id = $1 AND deleted_at IS NULL`,
+        [userId]
+      );
+
+      if (result.rows.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'USER_NOT_FOUND', message: 'User not found' },
+        });
+      }
+
+      const user = result.rows[0]!;
+
+      return reply.send({
+        success: true,
+        data: {
+          smsAuthEnabled: user.sms_auth_enabled,
+          emailAuthEnabled: user.email_auth_enabled,
+          twoFactorEnabled: user.totp_enabled,
+          passkeysEnabled: user.passkeys_enabled,
+          hasPhone: !!user.phone,
+          hasEmail: !!user.email,
+        },
+      });
+
+    } catch (error) {
+      logger.error('Security settings error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to get security settings' },
       });
     }
   });

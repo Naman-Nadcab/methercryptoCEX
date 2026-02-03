@@ -26,11 +26,11 @@ export default function AdminProtectedLayout({
 
     // Check if admin is authenticated
     const checkAuth = async () => {
-      // Get the latest token from store after hydration
       const store = useAdminAuthStore.getState();
       const token = store.accessToken;
-      
+
       if (!token) {
+        setChecking(false);
         router.push('/admin/login');
         return;
       }
@@ -38,20 +38,21 @@ export default function AdminProtectedLayout({
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
         const response = await fetch(`${apiUrl}/api/v1/admin/auth/me`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
+          headers: { Authorization: `Bearer ${token}` },
         });
 
         if (!response.ok) {
-          // Token invalid, clear store and redirect
           useAdminAuthStore.getState().logout();
+          setChecking(false);
           router.push('/admin/login');
           return;
         }
 
         setChecking(false);
-      } catch (error) {
+      } catch {
+        // Backend unreachable or network error: stay on loading and redirect to login
+        useAdminAuthStore.getState().logout();
+        setChecking(false);
         router.push('/admin/login');
       }
     };

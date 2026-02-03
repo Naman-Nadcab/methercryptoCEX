@@ -102,11 +102,10 @@ const menuItems: MenuItem[] = [
     id: 'withdrawals',
     label: 'Withdrawals',
     icon: <ArrowUpFromLine className="w-4 h-4" />,
-    badge: 5,
-    badgeColor: 'bg-red-500',
     children: [
-      { label: 'Pending Approval', href: '/admin/withdrawals/pending', badge: 5 },
+      { label: 'Pending', href: '/admin/withdrawals/pending' },
       { label: 'Processing', href: '/admin/withdrawals/processing' },
+      { label: 'Completed', href: '/admin/withdrawals/completed' },
       { label: 'All Withdrawals', href: '/admin/withdrawals' },
       { label: 'Failed', href: '/admin/withdrawals/failed' },
       { label: 'Settings', href: '/admin/withdrawals/settings' },

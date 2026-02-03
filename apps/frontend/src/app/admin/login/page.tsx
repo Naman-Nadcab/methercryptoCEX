@@ -42,10 +42,13 @@ export default function AdminLoginPage() {
         body: JSON.stringify(data),
       });
 
-      const result = await response.json();
+      const result = await response.json().catch(() => ({}));
 
       if (!result.success) {
-        setError(result.error?.message || 'Login failed');
+        const msg = typeof result.error === 'string'
+          ? result.error
+          : (result.error?.message || result.message || 'Login failed');
+        setError(msg);
         return;
       }
 
@@ -55,7 +58,9 @@ export default function AdminLoginPage() {
       // Redirect to dashboard
       router.push('/admin/dashboard');
     } catch (err) {
-      setError('Network error. Please try again.');
+      setError(
+        'Cannot reach the API. Start the backend (cd apps/backend && npm run dev) and ensure Redis is running (e.g. docker run -p 6379:6379 redis or npm run docker:up from repo root).'
+      );
     } finally {
       setLoading(false);
     }

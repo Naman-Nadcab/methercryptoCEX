@@ -77,23 +77,21 @@ export default function AdminDashboard() {
     
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-      console.log('Fetching dashboard stats from:', apiUrl);
-      
       const response = await fetch(`${apiUrl}/api/v1/admin/dashboard/stats`, {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-        },
+        headers: { Authorization: `Bearer ${accessToken}` },
       });
-      const result = await response.json();
-      console.log('Dashboard stats response:', result);
-      
-      if (result.success) {
-        setStats(result.data);
-      } else {
-        console.error('API returned error:', result.error);
+      let result: { success?: boolean; data?: DashboardStats; error?: unknown } = {};
+      try {
+        const text = await response.text();
+        if (text) result = JSON.parse(text) as typeof result;
+      } catch {
+        // Non-JSON (e.g. 502 HTML) - backend may be down
       }
-    } catch (error) {
-      console.error('Failed to fetch stats:', error);
+      if (result.success && result.data) {
+        setStats(result.data);
+      }
+    } catch {
+      // Network error - leave stats null
     } finally {
       setLoading(false);
     }
@@ -102,6 +100,8 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (accessToken) {
       fetchStats();
+    } else {
+      setLoading(false);
     }
   }, [accessToken]);
 

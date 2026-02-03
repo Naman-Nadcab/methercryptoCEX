@@ -56,11 +56,12 @@ interface Balance {
 }
 
 export default async function convertRoutes(app: FastifyInstance) {
-  // Get market prices for trending/newly listed coins
+  // Get market prices for trending/newly listed coins (unique base currencies only)
   app.get('/market-prices', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
+      // Get unique base currencies with their USDT price (or highest price if no USDT pair)
       const result = await db.query<MarketPrice>(`
-        SELECT 
+        SELECT DISTINCT ON (UPPER(bc.symbol))
           mp.id,
           mp.base_currency_id,
           bc.symbol as base_symbol,
@@ -75,22 +76,41 @@ export default async function convertRoutes(app: FastifyInstance) {
         FROM market_prices mp
         JOIN currencies bc ON mp.base_currency_id = bc.id
         JOIN currencies qc ON mp.quote_currency_id = qc.id
-        WHERE bc.is_active = TRUE AND qc.is_active = TRUE
-        ORDER BY mp.price DESC
+        WHERE bc.is_active = TRUE 
+          AND qc.is_active = TRUE
+          AND UPPER(bc.symbol) != 'USDT'
+        ORDER BY UPPER(bc.symbol), 
+          CASE WHEN UPPER(qc.symbol) = 'USDT' THEN 0 ELSE 1 END,
+          mp.price DESC
       `);
 
-      return { success: true, data: result.rows };
+      // Clean currency names - remove chain info like "(ETH)", "(BSC)", "(SOLANA)" etc
+      const cleanName = (name: string): string => {
+        return name.replace(/\s*\([A-Z0-9]+\)\s*$/i, '').trim();
+      };
+
+      // Fix logo URLs and clean names
+      const withFixedLogos = result.rows.map(row => ({
+        ...row,
+        base_name: cleanName(row.base_name),
+        quote_name: cleanName(row.quote_name),
+        base_logo: `https://cryptologos.cc/logos/${row.base_symbol.toLowerCase()}-${row.base_symbol.toLowerCase()}-logo.svg?v=040`,
+        quote_logo: `https://cryptologos.cc/logos/${row.quote_symbol.toLowerCase()}-${row.quote_symbol.toLowerCase()}-logo.svg?v=040`,
+      }));
+
+      return { success: true, data: withFixedLogos };
     } catch (error) {
       logger.error('Error fetching market prices', { error });
       return reply.status(500).send({ success: false, error: 'Failed to fetch market prices' });
     }
   });
 
-  // Get all currencies available for conversion
+  // Get all currencies available for conversion (unique symbols only)
   app.get('/currencies', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
+      // Select unique currencies by symbol, preferring the one with logo
       const result = await db.query<Currency>(`
-        SELECT 
+        SELECT DISTINCT ON (UPPER(symbol))
           id,
           symbol,
           name,
@@ -100,18 +120,37 @@ export default async function convertRoutes(app: FastifyInstance) {
         FROM currencies
         WHERE is_active = TRUE
         ORDER BY 
-          CASE UPPER(symbol)
-            WHEN 'BTC' THEN 1
-            WHEN 'ETH' THEN 2
-            WHEN 'USDT' THEN 3
-            WHEN 'USDC' THEN 4
-            WHEN 'SOL' THEN 5
-            ELSE 100
-          END,
-          symbol
+          UPPER(symbol),
+          CASE WHEN logo_url IS NOT NULL AND logo_url != '' THEN 0 ELSE 1 END,
+          created_at DESC
       `);
 
-      return { success: true, data: result.rows };
+      // Sort the results by priority
+      const sorted = result.rows.sort((a, b) => {
+        const priority: Record<string, number> = { 'BTC': 1, 'ETH': 2, 'USDT': 3, 'USDC': 4, 'SOL': 5, 'BNB': 6 };
+        const aPriority = priority[a.symbol.toUpperCase()] || 100;
+        const bPriority = priority[b.symbol.toUpperCase()] || 100;
+        if (aPriority !== bPriority) return aPriority - bPriority;
+        return a.symbol.localeCompare(b.symbol);
+      });
+
+      // Clean currency names - remove chain info like "(ETH)", "(BSC)", "(SOLANA)" etc
+      const cleanName = (name: string): string => {
+        return name.replace(/\s*\([A-Z0-9]+\)\s*$/i, '').trim();
+      };
+
+      // Fix logo URLs and clean names
+      const withFixedLogos = sorted.map(c => ({
+        ...c,
+        name: cleanName(c.name),
+        logo_url: c.logo_url 
+          ? (c.logo_url.startsWith('http') 
+              ? c.logo_url 
+              : `https://cryptologos.cc/logos/${c.symbol.toLowerCase()}-${c.symbol.toLowerCase()}-logo.svg?v=040`)
+          : `https://cryptologos.cc/logos/${c.symbol.toLowerCase()}-${c.symbol.toLowerCase()}-logo.svg?v=040`
+      }));
+
+      return { success: true, data: withFixedLogos };
     } catch (error) {
       logger.error('Error fetching currencies', { error });
       return reply.status(500).send({ success: false, error: 'Failed to fetch currencies' });
