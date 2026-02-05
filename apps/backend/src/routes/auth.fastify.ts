@@ -220,10 +220,25 @@ export default async function authRoutes(app: FastifyInstance) {
       });
 
     } catch (error) {
-      logger.error('Send OTP error', { error: error instanceof Error ? error.message : 'Unknown' });
+      const errMsg = error instanceof Error ? error.message : 'Unknown';
+      const isRateLimit = errMsg.includes('rate') || errMsg.includes('limit');
+      const isInvalid = errMsg.includes('identifier') || errMsg.includes('invalid');
+      logger.error('Send OTP error', { error: errMsg });
+      if (isRateLimit) {
+        return reply.status(429).send({
+          success: false,
+          error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please try again later.' },
+        });
+      }
+      if (isInvalid) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_INPUT', message: errMsg },
+        });
+      }
       return reply.status(500).send({
         success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'An error occurred. Please try again.' },
+        error: { code: 'OTP_SEND_FAILED', message: 'Could not send verification code. Please try again.' },
       });
     }
   });
@@ -1040,7 +1055,10 @@ export default async function authRoutes(app: FastifyInstance) {
         });
       }
 
-      // Get user with security settings
+      // Get user with security settings (email lookup case-insensitive)
+      const userWhereClause = loginMethod === 'email'
+        ? 'LOWER(email) = LOWER($1) AND deleted_at IS NULL'
+        : 'phone = $1 AND deleted_at IS NULL';
       let userResult = await db.query<{
         id: string;
         email: string | null;
@@ -1062,7 +1080,7 @@ export default async function authRoutes(app: FastifyInstance) {
                 COALESCE(totp_enabled, FALSE) as totp_enabled,
                 totp_secret,
                 COALESCE(passkeys_enabled, FALSE) as passkeys_enabled
-         FROM users WHERE ${loginMethod} = $1 AND deleted_at IS NULL`,
+         FROM users WHERE ${userWhereClause}`,
         [cleanIdentifier]
       );
 
@@ -1161,14 +1179,18 @@ export default async function authRoutes(app: FastifyInstance) {
       await db.query(
         `INSERT INTO user_sessions (id, user_id, session_token, device_type, ip_address, user_agent, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [sessionId, user.id, sessionToken, 'web', request.ip, request.headers['user-agent'], expiresAt]
+        [sessionId, user.id, sessionToken, 'web', request.ip ?? null, request.headers['user-agent'] ?? null, expiresAt]
       );
 
-      await redis.setJson(`session:${sessionId}`, {
-        userId: user.id,
-        isActive: true,
-        createdAt: Date.now(),
-      }, 7 * 24 * 60 * 60);
+      try {
+        await redis.setJson(`session:${sessionId}`, {
+          userId: user.id,
+          isActive: true,
+          createdAt: Date.now(),
+        }, 7 * 24 * 60 * 60);
+      } catch (redisErr) {
+        logger.warn('Session cache (Redis) write failed, login continues', { error: redisErr instanceof Error ? redisErr.message : 'Unknown' });
+      }
 
       const tokens = generateTokens(app, {
         userId: user.id,
@@ -1212,12 +1234,18 @@ export default async function authRoutes(app: FastifyInstance) {
       });
 
     } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
       logger.error('Login error', {
-        error: error instanceof Error ? error.message : 'Unknown',
+        message: err.message,
+        stack: err.stack,
       });
+      const isDev = process.env.NODE_ENV !== 'production';
       return reply.status(500).send({
         success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Login failed' },
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: isDev ? `Login failed: ${err.message}` : 'Login failed. Please try again.',
+        },
       });
     }
   });

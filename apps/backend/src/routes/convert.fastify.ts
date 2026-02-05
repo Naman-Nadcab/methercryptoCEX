@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db } from '../lib/database.js';
 import { logger, auditLog } from '../lib/logger.js';
+import { ensureUserBalanceRow, assertUserBalanceUpdated, CHAIN_ID_GLOBAL } from '../lib/user-balance-helper.js';
 
 interface MarketPrice {
   id: string;
@@ -309,11 +310,11 @@ export default async function convertRoutes(app: FastifyInstance) {
         return reply.status(400).send({ success: false, error: 'Invalid currencies' });
       }
 
-      // Check user balance
+      // Check user balance (single source of truth: user_balances, global chain row)
       const balanceResult = await client.query<{ available_balance: string }>(`
         SELECT available_balance::text FROM user_balances 
-        WHERE user_id = $1 AND currency_id = $2 AND account_type = $3
-      `, [userId, fromCurrencyId, accountType]);
+        WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = $4
+      `, [userId, fromCurrencyId, CHAIN_ID_GLOBAL, accountType]);
 
       const availableBalance = balanceResult.rows.length > 0 
         ? parseFloat(balanceResult.rows[0].available_balance) 
@@ -379,23 +380,23 @@ export default async function convertRoutes(app: FastifyInstance) {
 
       const toAmount = amount * rate;
 
-      // Deduct from balance
-      await client.query(`
+      // Deduct from balance (ensure row then update; no silent failures)
+      await ensureUserBalanceRow(userId, fromCurrencyId, CHAIN_ID_GLOBAL, accountType, client);
+      const deductUpd = await client.query(`
         UPDATE user_balances 
         SET available_balance = available_balance - $1, updated_at = NOW()
-        WHERE user_id = $2 AND currency_id = $3 AND account_type = $4
-      `, [amount, userId, fromCurrencyId, accountType]);
+        WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5
+      `, [amount, userId, fromCurrencyId, CHAIN_ID_GLOBAL, accountType]);
+      assertUserBalanceUpdated('convert_instant_deduct', deductUpd, userId, fromCurrencyId, accountType, CHAIN_ID_GLOBAL);
 
-      // Add to balance (insert or update)
-      await client.query(`
-        INSERT INTO user_balances (user_id, currency_id, account_type, available_balance, total_balance)
-        VALUES ($1, $2, $3, $4, $4)
-        ON CONFLICT (user_id, currency_id, account_type)
-        DO UPDATE SET 
-          available_balance = user_balances.available_balance + $4,
-          total_balance = user_balances.total_balance + $4,
-          updated_at = NOW()
-      `, [userId, toCurrencyId, accountType, toAmount]);
+      // Add to balance (ensure row then update)
+      await ensureUserBalanceRow(userId, toCurrencyId, CHAIN_ID_GLOBAL, accountType, client);
+      const addUpd = await client.query(`
+        UPDATE user_balances
+        SET available_balance = available_balance + $1, updated_at = NOW()
+        WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5
+      `, [toAmount, userId, toCurrencyId, CHAIN_ID_GLOBAL, accountType]);
+      assertUserBalanceUpdated('convert_instant_add', addUpd, userId, toCurrencyId, accountType, CHAIN_ID_GLOBAL);
 
       // Record the conversion
       const conversionResult = await client.query<{ id: string }>(`
@@ -497,11 +498,11 @@ export default async function convertRoutes(app: FastifyInstance) {
         return reply.status(400).send({ success: false, error: 'Invalid currencies' });
       }
 
-      // Check user balance
+      // Check user balance (single source of truth: user_balances, global chain row)
       const balanceResult = await client.query<{ available_balance: string }>(`
         SELECT available_balance::text FROM user_balances 
-        WHERE user_id = $1 AND currency_id = $2 AND account_type = $3
-      `, [userId, fromCurrencyId, accountType]);
+        WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = $4
+      `, [userId, fromCurrencyId, CHAIN_ID_GLOBAL, accountType]);
 
       const availableBalance = balanceResult.rows.length > 0 
         ? parseFloat(balanceResult.rows[0].available_balance) 
@@ -516,12 +517,14 @@ export default async function convertRoutes(app: FastifyInstance) {
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + expiresInDays);
 
-      // Lock the funds (reduce available balance but keep total)
-      await client.query(`
+      // Lock the funds (ensure row then update; no silent failures)
+      await ensureUserBalanceRow(userId, fromCurrencyId, CHAIN_ID_GLOBAL, accountType, client);
+      const lockUpd = await client.query(`
         UPDATE user_balances 
         SET available_balance = available_balance - $1, updated_at = NOW()
-        WHERE user_id = $2 AND currency_id = $3 AND account_type = $4
-      `, [amount, userId, fromCurrencyId, accountType]);
+        WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5
+      `, [amount, userId, fromCurrencyId, CHAIN_ID_GLOBAL, accountType]);
+      assertUserBalanceUpdated('convert_limit_lock', lockUpd, userId, fromCurrencyId, accountType, CHAIN_ID_GLOBAL);
 
       // Create limit order
       const orderResult = await client.query<{ id: string }>(`
@@ -599,12 +602,14 @@ export default async function convertRoutes(app: FastifyInstance) {
 
       const order = orderResult.rows[0];
 
-      // Refund the locked amount
-      await client.query(`
+      // Refund the locked amount (ensure row then update; no silent failures)
+      await ensureUserBalanceRow(userId, order.from_currency_id, CHAIN_ID_GLOBAL, order.account_type, client);
+      const refundUpd = await client.query(`
         UPDATE user_balances 
         SET available_balance = available_balance + $1, updated_at = NOW()
-        WHERE user_id = $2 AND currency_id = $3 AND account_type = $4
-      `, [order.from_amount, userId, order.from_currency_id, order.account_type]);
+        WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5
+      `, [order.from_amount, userId, order.from_currency_id, CHAIN_ID_GLOBAL, order.account_type]);
+      assertUserBalanceUpdated('convert_limit_cancel_refund', refundUpd, userId, order.from_currency_id, order.account_type, CHAIN_ID_GLOBAL);
 
       // Update order status
       await client.query(`

@@ -7,6 +7,8 @@ import { logger, auditLog } from '../lib/logger.js';
 import { config } from '../config/index.js';
 import { ChainId, Wallet, Balance } from '../types/index.js';
 import { PoolClient } from 'pg';
+import { getCurrencyIdForToken } from '../lib/currency-resolver.js';
+import { ensureUserBalanceRow, assertUserBalanceUpdated, CHAIN_ID_GLOBAL } from '../lib/user-balance-helper.js';
 // Lazy-loaded to avoid tronweb ESM/crash at server startup
 let multiChainAddress: typeof import('./multi-chain-address.js') | null = null;
 async function getMultiChainAddress() {
@@ -218,14 +220,18 @@ class WalletService {
   }
 
   /**
-   * Initialize zero balances for all active tokens
+   * Initialize zero user_balances rows for all active tokens (single source of truth).
+   * Does NOT touch the deprecated balances table.
    */
   private async initializeBalances(userId: string, client: PoolClient | typeof db): Promise<void> {
-    await client.query(`
-      INSERT INTO balances (user_id, token_id, available, locked)
-      SELECT $1, id, 0, 0 FROM tokens WHERE is_active = TRUE
-      ON CONFLICT (user_id, token_id) DO NOTHING
-    `, [userId]);
+    const tokens = await client.query<{ id: string }>('SELECT id FROM tokens WHERE is_active = TRUE', []);
+    const poolClient = client && typeof (client as PoolClient).release === 'function' ? (client as PoolClient) : undefined;
+    for (const row of tokens.rows) {
+      const currencyId = await getCurrencyIdForToken(row.id);
+      if (currencyId) {
+        await ensureUserBalanceRow(userId, currencyId, CHAIN_ID_GLOBAL, 'funding', poolClient);
+      }
+    }
   }
 
   /**
@@ -273,48 +279,84 @@ class WalletService {
   }
 
   /**
-   * Get user balances
+   * Get user balances from user_balances only (single source of truth).
+   * Aggregates available_balance + locked_balance per currency.
    */
   async getBalances(userId: string): Promise<Balance[]> {
-    const result = await db.query<Balance & { symbol: string; name: string; chain_id: string }>(
-      `SELECT b.*, t.symbol, t.name, t.chain_id
-       FROM balances b
-       JOIN tokens t ON b.token_id = t.id
-       WHERE b.user_id = $1
-       ORDER BY t.symbol`,
+    const result = await db.query<{
+      currency_id: string;
+      symbol: string;
+      name: string;
+      available: string;
+      locked: string;
+      updated_at: string;
+    }>(
+      `SELECT ub.currency_id, c.symbol, c.name,
+              COALESCE(SUM(ub.available_balance), 0)::text AS available,
+              COALESCE(SUM(ub.locked_balance), 0)::text AS locked,
+              MAX(ub.updated_at)::text AS updated_at
+       FROM user_balances ub
+       JOIN currencies c ON c.id = ub.currency_id
+       WHERE ub.user_id = $1
+       GROUP BY ub.currency_id, c.symbol, c.name
+       ORDER BY c.symbol`,
       [userId]
     );
 
-    return result.rows;
+    return result.rows.map((row) => ({
+      id: '',
+      userId,
+      tokenId: row.currency_id,
+      available: row.available,
+      locked: row.locked,
+      total: (parseFloat(row.available) + parseFloat(row.locked)).toString(),
+      updatedAt: row.updated_at ? new Date(row.updated_at) : new Date(),
+    }));
   }
 
   /**
-   * Get balance for specific token
+   * Get balance for specific token from user_balances only (single source of truth).
    */
   async getBalance(userId: string, tokenId: string): Promise<Balance | null> {
     const cacheKey = `balance:${userId}:${tokenId}`;
-    
     const cached = await redis.getJson<Balance>(cacheKey);
-    if (cached) {
-      return cached;
-    }
+    if (cached) return cached;
 
-    const result = await db.query<Balance>(
-      'SELECT * FROM balances WHERE user_id = $1 AND token_id = $2',
-      [userId, tokenId]
+    const currencyId = await getCurrencyIdForToken(tokenId);
+    if (!currencyId) return null;
+
+    const result = await db.query<{ available: string; locked: string; updated_at: string }>(
+      `SELECT COALESCE(SUM(available_balance), 0)::text AS available,
+              COALESCE(SUM(locked_balance), 0)::text AS locked,
+              MAX(updated_at)::text AS updated_at
+       FROM user_balances
+       WHERE user_id = $1 AND currency_id = $2
+       GROUP BY user_id, currency_id`,
+      [userId, currencyId]
     );
 
-    if (result.rows.length === 0) {
-      return null;
-    }
+    if (result.rows.length === 0) return null;
 
-    await redis.setJson(cacheKey, result.rows[0], 30);
-
-    return result.rows[0]!;
+    const row = result.rows[0]!;
+    const available = row.available;
+    const locked = row.locked;
+    const total = (parseFloat(available) + parseFloat(locked)).toString();
+    const bal: Balance = {
+      id: '',
+      userId,
+      tokenId,
+      available,
+      locked,
+      total,
+      updatedAt: row.updated_at ? new Date(row.updated_at) : new Date(),
+    };
+    await redis.setJson(cacheKey, bal, 30);
+    return bal;
   }
 
   /**
-   * Lock balance for trading/withdrawal
+   * Lock balance for trading/withdrawal. Uses user_balances (single source of truth).
+   * Tries chain-specific row first; if 0 rows updated, falls back to CHAIN_ID_GLOBAL, then throws if still 0.
    */
   async lockBalance(
     userId: string,
@@ -323,25 +365,42 @@ class WalletService {
     client?: PoolClient
   ): Promise<boolean> {
     const queryRunner = client || db;
-
-    const result = await queryRunner.query(
-      `UPDATE balances 
-       SET available = available - $3, locked = locked + $3, updated_at = NOW()
-       WHERE user_id = $1 AND token_id = $2 AND available >= $3
-       RETURNING *`,
-      [userId, tokenId, amount]
-    );
-
-    if (result.rowCount === 0) {
+    const currencyId = await getCurrencyIdForToken(tokenId);
+    if (!currencyId) {
+      logger.warn('lockBalance: no currency_id for token', { tokenId });
       return false;
     }
-
+    const chainResult = await queryRunner.query<{ chain_id: string }>(
+      'SELECT COALESCE(chain_id, \'\') AS chain_id FROM tokens WHERE id = $1',
+      [tokenId]
+    );
+    let chainId = chainResult.rows[0]?.chain_id ?? CHAIN_ID_GLOBAL;
+    await ensureUserBalanceRow(userId, currencyId, chainId, 'funding', client);
+    let result = await queryRunner.query(
+      `UPDATE user_balances
+       SET available_balance = available_balance - $4, locked_balance = locked_balance + $4, updated_at = NOW()
+       WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = 'funding' AND available_balance >= $4
+       RETURNING *`,
+      [userId, currencyId, chainId, amount]
+    );
+    if (result.rowCount === 0 && chainId !== CHAIN_ID_GLOBAL) {
+      await ensureUserBalanceRow(userId, currencyId, CHAIN_ID_GLOBAL, 'funding', client);
+      result = await queryRunner.query(
+        `UPDATE user_balances
+         SET available_balance = available_balance - $4, locked_balance = locked_balance + $4, updated_at = NOW()
+         WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = 'funding' AND available_balance >= $4
+         RETURNING *`,
+        [userId, currencyId, CHAIN_ID_GLOBAL, amount]
+      );
+      chainId = CHAIN_ID_GLOBAL;
+    }
+    assertUserBalanceUpdated('lockBalance', result, userId, currencyId, 'funding', chainId);
     await redis.del(`balance:${userId}:${tokenId}`);
     return true;
   }
 
   /**
-   * Unlock balance
+   * Unlock balance (user_balances only). Tries chain-specific row first; if 0 rows, fallback to CHAIN_ID_GLOBAL.
    */
   async unlockBalance(
     userId: string,
@@ -350,25 +409,42 @@ class WalletService {
     client?: PoolClient
   ): Promise<boolean> {
     const queryRunner = client || db;
-
-    const result = await queryRunner.query(
-      `UPDATE balances 
-       SET available = available + $3, locked = locked - $3, updated_at = NOW()
-       WHERE user_id = $1 AND token_id = $2 AND locked >= $3
-       RETURNING *`,
-      [userId, tokenId, amount]
-    );
-
-    if (result.rowCount === 0) {
+    const currencyId = await getCurrencyIdForToken(tokenId);
+    if (!currencyId) {
+      logger.warn('unlockBalance: no currency_id for token', { tokenId });
       return false;
     }
-
+    const chainResult = await queryRunner.query<{ chain_id: string }>(
+      'SELECT COALESCE(chain_id, \'\') AS chain_id FROM tokens WHERE id = $1',
+      [tokenId]
+    );
+    let chainId = chainResult.rows[0]?.chain_id ?? CHAIN_ID_GLOBAL;
+    await ensureUserBalanceRow(userId, currencyId, chainId, 'funding', client);
+    let result = await queryRunner.query(
+      `UPDATE user_balances
+       SET available_balance = available_balance + $4, locked_balance = locked_balance - $4, updated_at = NOW()
+       WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = 'funding' AND locked_balance >= $4
+       RETURNING *`,
+      [userId, currencyId, chainId, amount]
+    );
+    if (result.rowCount === 0 && chainId !== CHAIN_ID_GLOBAL) {
+      await ensureUserBalanceRow(userId, currencyId, CHAIN_ID_GLOBAL, 'funding', client);
+      result = await queryRunner.query(
+        `UPDATE user_balances
+         SET available_balance = available_balance + $4, locked_balance = locked_balance - $4, updated_at = NOW()
+         WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = 'funding' AND locked_balance >= $4
+         RETURNING *`,
+        [userId, currencyId, CHAIN_ID_GLOBAL, amount]
+      );
+      chainId = CHAIN_ID_GLOBAL;
+    }
+    assertUserBalanceUpdated('unlockBalance', result, userId, currencyId, 'funding', chainId);
     await redis.del(`balance:${userId}:${tokenId}`);
     return true;
   }
 
   /**
-   * Credit balance (deposits, trade receipts)
+   * Credit balance (user_balances only; deposits, trade receipts). Tries chain-specific first, then CHAIN_ID_GLOBAL.
    */
   async creditBalance(
     userId: string,
@@ -377,20 +453,41 @@ class WalletService {
     client?: PoolClient
   ): Promise<void> {
     const queryRunner = client || db;
-
-    await queryRunner.query(
-      `INSERT INTO balances (user_id, token_id, available, locked)
-       VALUES ($1, $2, $3, 0)
-       ON CONFLICT (user_id, token_id) 
-       DO UPDATE SET available = balances.available + $3, updated_at = NOW()`,
-      [userId, tokenId, amount]
+    const currencyId = await getCurrencyIdForToken(tokenId);
+    if (!currencyId) {
+      logger.warn('creditBalance: no currency_id for token', { tokenId });
+      throw new Error(`creditBalance: no currency_id for token ${tokenId}`);
+    }
+    const chainResult = await queryRunner.query<{ chain_id: string }>(
+      'SELECT COALESCE(chain_id, \'\') AS chain_id FROM tokens WHERE id = $1',
+      [tokenId]
     );
-
+    let chainId = chainResult.rows[0]?.chain_id ?? CHAIN_ID_GLOBAL;
+    await ensureUserBalanceRow(userId, currencyId, chainId, 'funding', client);
+    let result = await queryRunner.query(
+      `UPDATE user_balances
+       SET available_balance = available_balance + $4, updated_at = NOW()
+       WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = 'funding'
+       RETURNING *`,
+      [userId, currencyId, chainId, amount]
+    );
+    if (result.rowCount === 0 && chainId !== CHAIN_ID_GLOBAL) {
+      await ensureUserBalanceRow(userId, currencyId, CHAIN_ID_GLOBAL, 'funding', client);
+      result = await queryRunner.query(
+        `UPDATE user_balances
+         SET available_balance = available_balance + $4, updated_at = NOW()
+         WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = 'funding'
+         RETURNING *`,
+        [userId, currencyId, CHAIN_ID_GLOBAL, amount]
+      );
+      chainId = CHAIN_ID_GLOBAL;
+    }
+    assertUserBalanceUpdated('creditBalance', result, userId, currencyId, 'funding', chainId);
     await redis.del(`balance:${userId}:${tokenId}`);
   }
 
   /**
-   * Debit from locked balance (withdrawals, trade settlements)
+   * Debit from locked balance (user_balances only; withdrawals, trade settlements). Tries chain-specific, then CHAIN_ID_GLOBAL.
    */
   async debitLockedBalance(
     userId: string,
@@ -399,21 +496,84 @@ class WalletService {
     client?: PoolClient
   ): Promise<boolean> {
     const queryRunner = client || db;
-
-    const result = await queryRunner.query(
-      `UPDATE balances 
-       SET locked = locked - $3, updated_at = NOW()
-       WHERE user_id = $1 AND token_id = $2 AND locked >= $3
-       RETURNING *`,
-      [userId, tokenId, amount]
-    );
-
-    if (result.rowCount === 0) {
+    const currencyId = await getCurrencyIdForToken(tokenId);
+    if (!currencyId) {
+      logger.warn('debitLockedBalance: no currency_id for token', { tokenId });
       return false;
     }
-
+    const chainResult = await queryRunner.query<{ chain_id: string }>(
+      'SELECT COALESCE(chain_id, \'\') AS chain_id FROM tokens WHERE id = $1',
+      [tokenId]
+    );
+    let chainId = chainResult.rows[0]?.chain_id ?? CHAIN_ID_GLOBAL;
+    await ensureUserBalanceRow(userId, currencyId, chainId, 'funding', client);
+    let result = await queryRunner.query(
+      `UPDATE user_balances
+       SET locked_balance = locked_balance - $4, updated_at = NOW()
+       WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = 'funding' AND locked_balance >= $4
+       RETURNING *`,
+      [userId, currencyId, chainId, amount]
+    );
+    if (result.rowCount === 0 && chainId !== CHAIN_ID_GLOBAL) {
+      await ensureUserBalanceRow(userId, currencyId, CHAIN_ID_GLOBAL, 'funding', client);
+      result = await queryRunner.query(
+        `UPDATE user_balances
+         SET locked_balance = locked_balance - $4, updated_at = NOW()
+         WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = 'funding' AND locked_balance >= $4
+         RETURNING *`,
+        [userId, currencyId, CHAIN_ID_GLOBAL, amount]
+      );
+      chainId = CHAIN_ID_GLOBAL;
+    }
+    assertUserBalanceUpdated('debitLockedBalance', result, userId, currencyId, 'funding', chainId);
     await redis.del(`balance:${userId}:${tokenId}`);
     return true;
+  }
+
+  /**
+   * Debit available balance for an account type (e.g. internal transfer from funding to trading). Uses CHAIN_ID_GLOBAL.
+   * Call ensureUserBalanceRow before. Throws if 0 rows updated.
+   */
+  async debitAvailableBalance(
+    userId: string,
+    currencyId: string,
+    accountType: string,
+    amount: string,
+    client?: PoolClient
+  ): Promise<void> {
+    const queryRunner = client || db;
+    await ensureUserBalanceRow(userId, currencyId, CHAIN_ID_GLOBAL, accountType, client);
+    const result = await queryRunner.query(
+      `UPDATE user_balances
+       SET available_balance = available_balance - $4::numeric, updated_at = NOW()
+       WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = $5 AND available_balance >= $4::numeric
+       RETURNING *`,
+      [userId, currencyId, CHAIN_ID_GLOBAL, amount, accountType]
+    );
+    assertUserBalanceUpdated('debitAvailableBalance', result, userId, currencyId, accountType, CHAIN_ID_GLOBAL);
+  }
+
+  /**
+   * Credit available balance for an account type (e.g. internal transfer to trading). Uses CHAIN_ID_GLOBAL.
+   * Call ensureUserBalanceRow before. Throws if 0 rows updated.
+   */
+  async creditBalanceForAccount(
+    userId: string,
+    currencyId: string,
+    accountType: string,
+    amount: string,
+    client?: PoolClient
+  ): Promise<void> {
+    const queryRunner = client || db;
+    await ensureUserBalanceRow(userId, currencyId, CHAIN_ID_GLOBAL, accountType, client);
+    const result = await queryRunner.query(
+      `UPDATE user_balances
+       SET available_balance = available_balance + $4::numeric, updated_at = NOW()
+       WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = $5
+       RETURNING *`,
+      [userId, currencyId, CHAIN_ID_GLOBAL, amount, accountType]
+    );
+    assertUserBalanceUpdated('creditBalanceForAccount', result, userId, currencyId, accountType, CHAIN_ID_GLOBAL);
   }
 
   /**

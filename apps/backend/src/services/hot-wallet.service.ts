@@ -5,6 +5,7 @@
  * - No plaintext keys; never returned to frontend.
  * - All actions audited with actor_id and payload_hash.
  * - Explicit error codes; no silent failures. Fail closed.
+ * - One hot wallet per chain family (EVM, Bitcoin, Solana, Tron, Polkadot); same as user-side chains.
  */
 
 import { Wallet, JsonRpcProvider, Contract } from 'ethers';
@@ -12,10 +13,16 @@ import { db } from '../lib/database.js';
 import { encryption } from '../lib/encryption.js';
 import { logger } from '../lib/logger.js';
 import { logHotWalletAudit } from '../lib/hot-wallet-audit.js';
+import {
+  encryptPrivateKeyEnvelope,
+  decryptPrivateKeyEnvelope,
+  type EnvelopeEncryptedPayload,
+} from '../lib/hot-wallet-envelope.js';
+import { generateRandomAddressForChain } from './multi-chain-address.js';
 
 export const HotWalletErrors = {
   CHAIN_NOT_FOUND: 'CHAIN_NOT_FOUND',
-  ONLY_EVM_SUPPORTED: 'ONLY_EVM_SUPPORTED',
+  CREATION_NOT_SUPPORTED: 'CREATION_NOT_SUPPORTED',
   HOT_WALLET_ALREADY_EXISTS: 'HOT_WALLET_ALREADY_EXISTS',
   HOT_WALLET_NOT_FOUND: 'HOT_WALLET_NOT_FOUND',
   ENCRYPTION_FAILED: 'ENCRYPTION_FAILED',
@@ -23,6 +30,8 @@ export const HotWalletErrors = {
   DB_ERROR: 'DB_ERROR',
   RPC_REFRESH_FAILED: 'RPC_REFRESH_FAILED',
 } as const;
+
+const SUPPORTED_HOT_WALLET_TYPES = new Set(['evm', 'bitcoin', 'solana', 'tron', 'polkadot']);
 
 export class HotWalletServiceError extends Error {
   constructor(
@@ -69,7 +78,8 @@ function zeroizeString(s: string): void {
   }
 }
 
-function encryptHotWalletKey(privateKey: string): string {
+/** Legacy: encrypt with app key only (no envelope). Used only for migration path. */
+function encryptHotWalletKeyLegacy(privateKey: string): string {
   try {
     return encryption.encrypt(privateKey);
   } catch (err) {
@@ -84,7 +94,8 @@ function encryptHotWalletKey(privateKey: string): string {
   }
 }
 
-function decryptHotWalletKey(encryptedKey: string): string {
+/** Legacy: decrypt with app key only. Used when encrypted_dek IS NULL (pre-envelope rows). */
+function decryptHotWalletKeyLegacy(encryptedKey: string): string {
   try {
     return encryption.decrypt(encryptedKey);
   } catch (err) {
@@ -114,8 +125,11 @@ export async function createHotWallet(
     throw new HotWalletServiceError(HotWalletErrors.CHAIN_NOT_FOUND, 'Chain not found in database. Ensure chains table has this chain id.');
   }
   const chain = chainResult.rows[0]!;
-  if (chain.type !== 'evm') {
-    throw new HotWalletServiceError(HotWalletErrors.ONLY_EVM_SUPPORTED, 'Only EVM chains are supported for hot wallet creation.');
+  if (!SUPPORTED_HOT_WALLET_TYPES.has(chain.type)) {
+    throw new HotWalletServiceError(
+      HotWalletErrors.CREATION_NOT_SUPPORTED,
+      `Hot wallet creation not supported for chain type "${chain.type}". Supported: evm, bitcoin, solana, tron, polkadot.`
+    );
   }
 
   const existing = await db.query('SELECT id FROM hot_wallets WHERE chain_id = $1', [chainId]);
@@ -123,15 +137,23 @@ export async function createHotWallet(
     throw new HotWalletServiceError(HotWalletErrors.HOT_WALLET_ALREADY_EXISTS, 'Hot wallet already exists for this chain.');
   }
 
-  const wallet = Wallet.createRandom();
-  const address = wallet.address;
-  let privateKey = wallet.privateKey;
-  let encryptedKey: string;
+  let address: string;
+  let keyToEncrypt: string;
+  if (chain.type === 'evm') {
+    const wallet = Wallet.createRandom();
+    address = wallet.address;
+    keyToEncrypt = wallet.privateKey;
+  } else {
+    const derived = generateRandomAddressForChain(chain.type);
+    address = derived.address;
+    keyToEncrypt = derived.privateKeyHex;
+  }
+  let envelope: EnvelopeEncryptedPayload;
   try {
-    encryptedKey = encryptHotWalletKey(privateKey);
+    envelope = await encryptPrivateKeyEnvelope(keyToEncrypt);
   } finally {
-    zeroizeString(privateKey);
-    privateKey = '';
+    zeroizeString(keyToEncrypt);
+    keyToEncrypt = '';
   }
 
   try {
@@ -145,10 +167,10 @@ export async function createHotWallet(
       is_active: boolean;
       created_at: string;
     }>(
-      `INSERT INTO hot_wallets (chain_id, address, encrypted_private_key, balance_cache, min_balance_alert, min_hot_balance, cold_wallet_address, is_active)
-       VALUES ($1, $2, $3, '0', '0', '0', NULL, TRUE)
+      `INSERT INTO hot_wallets (chain_id, address, encrypted_private_key, encrypted_dek, key_version, balance_cache, min_balance_alert, min_hot_balance, cold_wallet_address, is_active)
+       VALUES ($1, $2, $3, $4, $5, '0', '0', '0', NULL, TRUE)
        RETURNING id, address, balance_cache, min_balance_alert, min_hot_balance, cold_wallet_address, is_active, created_at`,
-      [chainId, address, encryptedKey]
+      [chainId, address, envelope.encryptedPrivateKey, envelope.encryptedDEK, envelope.keyVersion]
     );
     const row = insertResult.rows[0]!;
     await logHotWalletAudit({
@@ -232,7 +254,7 @@ export async function listChainFamiliesInDb(): Promise<ChainFamilyInDb[]> {
      WHERE c.is_active = TRUE
      ORDER BY c.type, c.id`
   );
-  const creationSupportedTypes = new Set(['evm']);
+  const creationSupportedTypes = new Set(['evm', 'bitcoin', 'solana', 'tron', 'polkadot']);
   return result.rows.map((row) => ({
     type: row.type,
     label: CHAIN_FAMILY_LABELS[row.type] ?? row.type,
@@ -257,7 +279,7 @@ export async function getRepresentativeChainIdForFamily(chainFamily: string): Pr
 
 /**
  * Create hot wallet for a chain family. Picks representative chain from DB.
- * Only EVM is supported for keypair generation; other families throw ONLY_EVM_SUPPORTED.
+ * All chain families (EVM, Bitcoin, Solana, Tron, Polkadot) are supported; same as user-side wallets.
  */
 export async function createHotWalletByFamily(
   chainFamily: string,
@@ -321,6 +343,88 @@ export async function getHotWalletByChainId(chainId: string): Promise<{ id: stri
   return result.rows[0] ?? null;
 }
 
+/** Per-hot-wallet cap check result. */
+export const HotWalletCapCodes = {
+  OK: 'OK',
+  SINGLE_TX_CAP_EXCEEDED: 'HOT_WALLET_SINGLE_TX_CAP_EXCEEDED',
+  DAILY_CAP_EXCEEDED: 'HOT_WALLET_DAILY_CAP_EXCEEDED',
+} as const;
+
+export interface HotWalletCapCheck {
+  allowed: boolean;
+  code: string;
+  message?: string;
+}
+
+/**
+ * Get per-hot-wallet withdrawal caps for a chain (chain-aware via resolveHotWalletChainId).
+ */
+export async function getHotWalletCaps(chainId: string): Promise<{
+  max_single_tx: number | null;
+  max_daily_outflow: number | null;
+} | null> {
+  const resolved = await resolveHotWalletChainId(chainId);
+  if (!resolved) return null;
+  const result = await db.query<{ max_single_tx: string | null; max_daily_outflow: string | null }>(
+    'SELECT max_single_tx::text, max_daily_outflow::text FROM hot_wallets WHERE chain_id = $1 AND is_active = TRUE',
+    [resolved]
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    max_single_tx: row.max_single_tx != null ? parseFloat(row.max_single_tx) : null,
+    max_daily_outflow: row.max_daily_outflow != null ? parseFloat(row.max_daily_outflow) : null,
+  };
+}
+
+/**
+ * Rolling 24h outflow for a chain (sum of net_amount of completed withdrawals, chain-aware).
+ */
+export async function getDailyOutflowForChain(chainId: string): Promise<number> {
+  const resolved = await resolveHotWalletChainId(chainId);
+  if (!resolved) return 0;
+  const result = await db.query<{ total: string }>(
+    `SELECT COALESCE(SUM(net_amount), 0)::text AS total
+     FROM withdrawals
+     WHERE chain_id = $1 AND status = 'completed'
+       AND completed_at >= (NOW() - INTERVAL '24 hours')`,
+    [resolved]
+  );
+  return parseFloat(result.rows[0]?.total ?? '0');
+}
+
+/**
+ * Check per-hot-wallet caps before enqueue or sign. Chain-aware.
+ * Withdrawal amount is the net_amount (value sent from hot wallet).
+ */
+export async function checkHotWalletCaps(
+  chainId: string,
+  withdrawalNetAmount: number
+): Promise<HotWalletCapCheck> {
+  const caps = await getHotWalletCaps(chainId);
+  if (!caps) {
+    return { allowed: true, code: HotWalletCapCodes.OK };
+  }
+  if (caps.max_single_tx != null && withdrawalNetAmount > caps.max_single_tx) {
+    return {
+      allowed: false,
+      code: HotWalletCapCodes.SINGLE_TX_CAP_EXCEEDED,
+      message: `Single withdrawal exceeds hot wallet limit for this chain (max ${caps.max_single_tx})`,
+    };
+  }
+  if (caps.max_daily_outflow != null) {
+    const dailyOutflow = await getDailyOutflowForChain(chainId);
+    if (dailyOutflow + withdrawalNetAmount > caps.max_daily_outflow) {
+      return {
+        allowed: false,
+        code: HotWalletCapCodes.DAILY_CAP_EXCEEDED,
+        message: `Daily outflow limit exceeded for this chain (used ${dailyOutflow}, limit ${caps.max_daily_outflow})`,
+      };
+    }
+  }
+  return { allowed: true, code: HotWalletCapCodes.OK };
+}
+
 /**
  * Get signer for chain. Key is decrypted in memory, used, then zeroized.
  * NEVER expose or log the signer/private key. Audit log records decryption event only.
@@ -335,15 +439,28 @@ export async function getSignerForChain(
 } | null> {
   const resolved = await resolveHotWalletChainId(chainId);
   if (!resolved) return null;
-  const result = await db.query<{ address: string; encrypted_private_key: string }>(
-    'SELECT address, encrypted_private_key FROM hot_wallets WHERE chain_id = $1 AND is_active = TRUE',
+  const result = await db.query<{
+    address: string;
+    encrypted_private_key: string;
+    encrypted_dek: string | null;
+    key_version: string | null;
+  }>(
+    'SELECT address, encrypted_private_key, encrypted_dek, key_version FROM hot_wallets WHERE chain_id = $1 AND is_active = TRUE',
     [resolved]
   );
   if (result.rows.length === 0) return null;
   const row = result.rows[0]!;
   let privateKey: string;
   try {
-    privateKey = decryptHotWalletKey(row.encrypted_private_key);
+    if (row.encrypted_dek != null && row.encrypted_dek.trim() !== '' && row.key_version != null) {
+      privateKey = await decryptPrivateKeyEnvelope(
+        row.encrypted_private_key,
+        row.encrypted_dek,
+        row.key_version
+      );
+    } else {
+      privateKey = decryptHotWalletKeyLegacy(row.encrypted_private_key);
+    }
   } catch (err) {
     logger.error('Hot wallet decryption failed', { chainId, error: err instanceof Error ? err.message : 'Unknown' });
     throw err;
@@ -449,24 +566,33 @@ export async function replaceHotWallet(
   if (chainResult.rows.length === 0) {
     throw new HotWalletServiceError(HotWalletErrors.CHAIN_NOT_FOUND, 'Chain not found.');
   }
-  if (chainResult.rows[0]!.type !== 'evm') {
-    throw new HotWalletServiceError(HotWalletErrors.ONLY_EVM_SUPPORTED, 'Only EVM chains are supported.');
+  const chain = chainResult.rows[0]!;
+  if (!SUPPORTED_HOT_WALLET_TYPES.has(chain.type)) {
+    throw new HotWalletServiceError(HotWalletErrors.CREATION_NOT_SUPPORTED, `Replace not supported for chain type "${chain.type}".`);
   }
-  const wallet = Wallet.createRandom();
-  const address = wallet.address;
-  let privateKey = wallet.privateKey;
-  let encryptedKey: string;
+  let address: string;
+  let keyToEncrypt: string;
+  if (chain.type === 'evm') {
+    const wallet = Wallet.createRandom();
+    address = wallet.address;
+    keyToEncrypt = wallet.privateKey;
+  } else {
+    const derived = generateRandomAddressForChain(chain.type);
+    address = derived.address;
+    keyToEncrypt = derived.privateKeyHex;
+  }
+  let envelope: EnvelopeEncryptedPayload;
   try {
-    encryptedKey = encryptHotWalletKey(privateKey);
+    envelope = await encryptPrivateKeyEnvelope(keyToEncrypt);
   } finally {
-    zeroizeString(privateKey);
-    privateKey = '';
+    zeroizeString(keyToEncrypt);
+    keyToEncrypt = '';
   }
   const oldAddress = existing.rows[0]!.address;
   await db.query(
-    `UPDATE hot_wallets SET address = $1, encrypted_private_key = $2, balance_cache = '0', updated_at = CURRENT_TIMESTAMP
-     WHERE chain_id = $3`,
-    [address, encryptedKey, chainId]
+    `UPDATE hot_wallets SET address = $1, encrypted_private_key = $2, encrypted_dek = $3, key_version = $4, balance_cache = '0', updated_at = CURRENT_TIMESTAMP
+     WHERE chain_id = $5`,
+    [address, envelope.encryptedPrivateKey, envelope.encryptedDEK, envelope.keyVersion, chainId]
   );
   await logHotWalletAudit({
     actorId,
@@ -528,6 +654,62 @@ export async function removeHotWallet(
   logger.info('Hot wallet removed', { chainId, actorId });
 }
 
+/**
+ * Migrate a single hot wallet from legacy (app-key-only) encryption to envelope encryption.
+ * Idempotent: if encrypted_dek is already set, no-op. Call after schema has encrypted_dek, key_version.
+ * Never returns or logs private key or DEK.
+ */
+export async function migrateHotWalletToEnvelope(chainId: string): Promise<{ migrated: boolean; chainId: string }> {
+  const row = await db.query<{
+    id: string;
+    encrypted_private_key: string;
+    encrypted_dek: string | null;
+    key_version: string | null;
+  }>('SELECT id, encrypted_private_key, encrypted_dek, key_version FROM hot_wallets WHERE chain_id = $1', [
+    chainId,
+  ]);
+  if (row.rows.length === 0) {
+    throw new HotWalletServiceError(HotWalletErrors.HOT_WALLET_NOT_FOUND, 'Hot wallet not found.');
+  }
+  const r = row.rows[0]!;
+  if (r.encrypted_dek != null && r.encrypted_dek.trim() !== '') {
+    return { migrated: false, chainId };
+  }
+  const privateKey = decryptHotWalletKeyLegacy(r.encrypted_private_key);
+  let envelope: EnvelopeEncryptedPayload;
+  try {
+    envelope = await encryptPrivateKeyEnvelope(privateKey);
+  } finally {
+    zeroizeString(privateKey);
+  }
+  await db.query(
+    `UPDATE hot_wallets SET encrypted_private_key = $1, encrypted_dek = $2, key_version = $3, updated_at = CURRENT_TIMESTAMP WHERE id = $4`,
+    [envelope.encryptedPrivateKey, envelope.encryptedDEK, envelope.keyVersion, r.id]
+  );
+  logger.info('Hot wallet migrated to envelope encryption', { chainId, hotWalletId: r.id });
+  return { migrated: true, chainId };
+}
+
+/**
+ * Migrate all legacy hot wallets (encrypted_dek IS NULL) to envelope encryption.
+ */
+export async function migrateAllHotWalletsToEnvelope(): Promise<{ migrated: number; skipped: number }> {
+  const rows = await db.query<{ chain_id: string; encrypted_dek: string | null }>(
+    'SELECT chain_id, encrypted_dek FROM hot_wallets'
+  );
+  let migrated = 0;
+  let skipped = 0;
+  for (const r of rows.rows) {
+    if (r.encrypted_dek != null && r.encrypted_dek.trim() !== '') {
+      skipped++;
+      continue;
+    }
+    await migrateHotWalletToEnvelope(r.chain_id);
+    migrated++;
+  }
+  return { migrated, skipped };
+}
+
 const RPC_BALANCE_TIMEOUT_MS = 15_000;
 
 export async function refreshBalanceCache(
@@ -538,18 +720,22 @@ export async function refreshBalanceCache(
   if (!chainId) {
     throw new HotWalletServiceError(HotWalletErrors.HOT_WALLET_NOT_FOUND, 'Chain ID is required.');
   }
-  const walletRow = await db.query<{ address: string }>(
-    'SELECT address FROM hot_wallets WHERE chain_id = $1 AND is_active = TRUE',
+  const walletRow = await db.query<{ address: string; balance_cache: string }>(
+    'SELECT address, balance_cache FROM hot_wallets WHERE chain_id = $1 AND is_active = TRUE',
     [chainId]
   );
   if (walletRow.rows.length === 0) {
     throw new HotWalletServiceError(HotWalletErrors.HOT_WALLET_NOT_FOUND, 'Hot wallet not found or inactive.');
   }
-  const chainRow = await db.query<{ rpc_url: string }>('SELECT rpc_url FROM chains WHERE id = $1', [chainId]);
+  const chainRow = await db.query<{ type: string; rpc_url: string }>('SELECT type, rpc_url FROM chains WHERE id = $1', [chainId]);
   if (chainRow.rows.length === 0) {
     throw new HotWalletServiceError(HotWalletErrors.CHAIN_NOT_FOUND, 'Chain not found.');
   }
   const address = walletRow.rows[0]!.address;
+  const chainType = chainRow.rows[0]!.type;
+  if (chainType !== 'evm') {
+    return { balance: walletRow.rows[0]!.balance_cache || '0', updated: false };
+  }
   const rpcUrl = chainRow.rows[0]!.rpc_url;
   const provider = new JsonRpcProvider(rpcUrl);
   let balanceStr: string;

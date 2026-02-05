@@ -1351,15 +1351,8 @@ INSERT INTO user_wallets (user_id, blockchain_id, address, key_index) VALUES
 ('22222222-2222-2222-2222-222222222222', (SELECT id FROM blockchains WHERE chain_symbol = 'TRX'), 'TXyz1234567890abcdef1234567890abcd', 0),
 ('33333333-3333-3333-3333-333333333333', (SELECT id FROM blockchains WHERE chain_symbol = 'ETH'), '0x9876543210fedcba9876543210fedcba98765432', 0);
 
--- User Balances
-INSERT INTO user_balances (user_id, currency_id, available_balance, locked_balance, total_deposited) VALUES
-('11111111-1111-1111-1111-111111111111', (SELECT id FROM currencies WHERE symbol = 'BTC' AND currency_type = 'crypto' LIMIT 1), 0.5, 0.1, 0.6),
-('11111111-1111-1111-1111-111111111111', (SELECT id FROM currencies WHERE symbol = 'ETH' LIMIT 1), 5.0, 0, 5.0),
-('11111111-1111-1111-1111-111111111111', (SELECT id FROM currencies WHERE symbol = 'USDT' AND blockchain_id = (SELECT id FROM blockchains WHERE chain_symbol = 'ETH') LIMIT 1), 10000, 500, 10500),
-('22222222-2222-2222-2222-222222222222', (SELECT id FROM currencies WHERE symbol = 'BTC' AND currency_type = 'crypto' LIMIT 1), 1.2, 0, 1.2),
-('22222222-2222-2222-2222-222222222222', (SELECT id FROM currencies WHERE symbol = 'USDT' AND blockchain_id = (SELECT id FROM blockchains WHERE chain_symbol = 'ETH') LIMIT 1), 50000, 1000, 51000),
-('33333333-3333-3333-3333-333333333333', (SELECT id FROM currencies WHERE symbol = 'ETH' LIMIT 1), 10.0, 2.0, 12.0),
-('33333333-3333-3333-3333-333333333333', (SELECT id FROM currencies WHERE symbol = 'USDT' AND blockchain_id = (SELECT id FROM blockchains WHERE chain_symbol = 'ETH') LIMIT 1), 25000, 0, 25000);
+-- User Balances: no seed data – Funds Summary and ledger show only actual user balances (from deposits/trades)
+-- To clear existing seed balances: run scripts/clear-seed-balances.js
 
 -- P2P Merchant Stats
 INSERT INTO p2p_merchant_stats (user_id, total_orders, completed_orders, completion_rate, average_rating, is_merchant) VALUES

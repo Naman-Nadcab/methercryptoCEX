@@ -34,10 +34,21 @@ class Database {
     return Database.instance;
   }
 
+  /** Runtime guard: block any access to deprecated balances table (user_balances is the only source of truth). */
+  private static guardDeprecatedBalancesTable(text: string): void {
+    const normalized = text.replace(/\s+/g, ' ').trim();
+    // Match FROM balances, JOIN balances, INTO balances, UPDATE balances (not user_balances)
+    if (/\b(?:FROM|JOIN|INTO|UPDATE)\s+balances\b/i.test(normalized) && !/user_balances/i.test(normalized)) {
+      logger.error('[BALANCE_VIOLATION] legacy balances access detected', { query: text.substring(0, 200) });
+      throw new Error('balances table is deprecated – use user_balances only. Do not read or write balances in runtime code.');
+    }
+  }
+
   async query<T extends QueryResultRow = QueryResultRow>(
     text: string,
     params?: unknown[]
   ): Promise<QueryResult<T>> {
+    Database.guardDeprecatedBalancesTable(text);
     const start = Date.now();
     try {
       const result = await this.pool.query<T>(text, params);
@@ -57,24 +68,43 @@ class Database {
     }
   }
 
+  /** Wrap PoolClient so every query is checked for deprecated balances table access. */
+  private wrapClient(client: PoolClient): PoolClient {
+    const guard = Database.guardDeprecatedBalancesTable;
+    const origQuery = client.query.bind(client);
+    return new Proxy(client, {
+      get(target, prop: string) {
+        if (prop === 'query') {
+          return function (text: string, params?: unknown[]) {
+            guard(text);
+            return origQuery(text, params);
+          };
+        }
+        return (target as unknown as Record<string, unknown>)[prop];
+      },
+    }) as PoolClient;
+  }
+
   async getClient(): Promise<PoolClient> {
-    return this.pool.connect();
+    const client = await this.pool.connect();
+    return this.wrapClient(client);
   }
 
   async transaction<T>(
     callback: (client: PoolClient) => Promise<T>
   ): Promise<T> {
-    const client = await this.pool.connect();
+    const raw = await this.pool.connect();
+    const client = this.wrapClient(raw);
     try {
       await client.query('BEGIN');
       const result = await callback(client);
       await client.query('COMMIT');
       return result;
     } catch (error) {
-      await client.query('ROLLBACK');
+      await raw.query('ROLLBACK');
       throw error;
     } finally {
-      client.release();
+      raw.release();
     }
   }
 

@@ -106,6 +106,43 @@ const migrations = [
   `CREATE INDEX IF NOT EXISTS idx_sessions_refresh_token ON sessions(refresh_token_hash);`,
 
   // ============================================
+  // USER SESSIONS (for OTP / passkey / OAuth login flow)
+  // ============================================
+  `CREATE TABLE IF NOT EXISTS user_sessions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    session_token VARCHAR(255) NOT NULL UNIQUE,
+    device_type VARCHAR(50) NOT NULL DEFAULT 'web',
+    ip_address INET,
+    user_agent TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    revoked_at TIMESTAMP WITH TIME ZONE
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON user_sessions(session_token);`,
+  `CREATE INDEX IF NOT EXISTS idx_user_sessions_active ON user_sessions(is_active, expires_at) WHERE is_active = TRUE;`,
+
+  // ============================================
+  // USER ACTIVITY LOGS
+  // ============================================
+  `CREATE TABLE IF NOT EXISTS user_activity_logs (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    session_id UUID REFERENCES user_sessions(id) ON DELETE SET NULL,
+    activity_type VARCHAR(80) NOT NULL,
+    activity_details JSONB,
+    ip_address INET,
+    user_agent TEXT,
+    details JSONB,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_user_activity_logs_user_id ON user_activity_logs(user_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_user_activity_logs_activity_type ON user_activity_logs(activity_type);`,
+  `CREATE INDEX IF NOT EXISTS idx_user_activity_logs_created ON user_activity_logs(created_at DESC);`,
+
+  // ============================================
   // OTP VERIFICATIONS TABLE
   // ============================================
   `CREATE TABLE IF NOT EXISTS otp_verifications (
@@ -385,6 +422,17 @@ const migrations = [
     IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'balances' AND c.relkind = 'r') THEN
       CREATE INDEX IF NOT EXISTS idx_balances_user_id ON balances(user_id);
       CREATE INDEX IF NOT EXISTS idx_balances_token_id ON balances(token_id);
+    END IF;
+  END $$;`,
+
+  // balances table: add columns used by wallet routes (only if balances is a table, not a view)
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'balances' AND c.relkind = 'r') THEN
+      ALTER TABLE balances ADD COLUMN IF NOT EXISTS available_balance DECIMAL(36,18) DEFAULT 0;
+      ALTER TABLE balances ADD COLUMN IF NOT EXISTS locked_balance DECIMAL(36,18) DEFAULT 0;
+      ALTER TABLE balances ADD COLUMN IF NOT EXISTS account_type VARCHAR(50) NOT NULL DEFAULT 'funding';
+      UPDATE balances SET available_balance = COALESCE(available_balance, available, 0), locked_balance = COALESCE(locked_balance, locked, 0) WHERE available_balance IS NULL OR locked_balance IS NULL;
     END IF;
   END $$;`,
 
@@ -734,6 +782,15 @@ const migrations = [
     END IF;
   END $$;`,
 
+  // Withdrawal lifecycle audit: structured columns (never store private keys)
+  `ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS withdrawal_id UUID;`,
+  `ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS admin_id UUID;`,
+  `ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS token_id UUID;`,
+  `ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS chain_id VARCHAR(50);`,
+  `ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS amount NUMERIC(36,18);`,
+  `ALTER TABLE audit_logs ALTER COLUMN ip_address DROP NOT NULL;`,
+  `CREATE INDEX IF NOT EXISTS idx_audit_logs_withdrawal_id ON audit_logs(withdrawal_id) WHERE withdrawal_id IS NOT NULL;`,
+
   // Partition audit logs by month (for production scale)
   // `CREATE TABLE audit_logs_y2024m01 PARTITION OF audit_logs FOR VALUES FROM ('2024-01-01') TO ('2024-02-01');`,
 
@@ -1038,6 +1095,10 @@ const migrations = [
       ALTER TABLE hot_wallets ADD COLUMN IF NOT EXISTS cold_wallet_address VARCHAR(255);
       ALTER TABLE hot_wallets ADD COLUMN IF NOT EXISTS last_sweep_tx_hash VARCHAR(255);
       ALTER TABLE hot_wallets ADD COLUMN IF NOT EXISTS last_sweep_at TIMESTAMP WITH TIME ZONE;
+      ALTER TABLE hot_wallets ADD COLUMN IF NOT EXISTS max_single_tx DECIMAL(36,18);
+      ALTER TABLE hot_wallets ADD COLUMN IF NOT EXISTS max_daily_outflow DECIMAL(36,18);
+      ALTER TABLE hot_wallets ADD COLUMN IF NOT EXISTS encrypted_dek TEXT;
+      ALTER TABLE hot_wallets ADD COLUMN IF NOT EXISTS key_version VARCHAR(20);
       DROP TRIGGER IF EXISTS update_hot_wallets_updated_at ON hot_wallets;
       CREATE TRIGGER update_hot_wallets_updated_at BEFORE UPDATE ON hot_wallets FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
     END IF;
@@ -1060,6 +1121,24 @@ const migrations = [
   `CREATE INDEX IF NOT EXISTS idx_hot_wallet_audit_actor ON hot_wallet_audit_log(actor_id);`,
   `CREATE INDEX IF NOT EXISTS idx_hot_wallet_audit_action ON hot_wallet_audit_log(action);`,
   `CREATE INDEX IF NOT EXISTS idx_hot_wallet_audit_created ON hot_wallet_audit_log(created_at DESC);`,
+
+  // DEPOSIT SWEEPS: user deposit address → hot wallet consolidation (idempotent by chain_id + from_address)
+  `CREATE TABLE IF NOT EXISTS deposit_sweeps (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    chain_id VARCHAR(64) NOT NULL,
+    from_address VARCHAR(255) NOT NULL,
+    to_address VARCHAR(255) NOT NULL,
+    amount DECIMAL(36,18) NOT NULL DEFAULT 0,
+    amount_raw TEXT,
+    tx_hash VARCHAR(255),
+    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'failed')),
+    error_message TEXT,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP WITH TIME ZONE,
+    UNIQUE(chain_id, from_address)
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_deposit_sweeps_chain_status ON deposit_sweeps(chain_id, status);`,
+  `CREATE INDEX IF NOT EXISTS idx_deposit_sweeps_created ON deposit_sweeps(created_at DESC);`,
 
   // WITHDRAWAL SIGNING QUEUE: async, rate-limited, idempotent. Optional chains FK if chains is view.
   `DO $$
@@ -1235,6 +1314,64 @@ const migrations = [
       );
     END IF;
   END $$;`,
+
+  // ============================================
+  // WITHDRAWAL ADMIN APPROVAL (pending_approval → approved → signed)
+  // ============================================
+  `ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS approved_by UUID REFERENCES admin_users(id);`,
+  `ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP WITH TIME ZONE;`,
+  `ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS rejected_by UUID REFERENCES admin_users(id);`,
+  `ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMP WITH TIME ZONE;`,
+  `ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS rejection_reason TEXT;`,
+  `CREATE INDEX IF NOT EXISTS idx_withdrawals_pending_approval ON withdrawals(status) WHERE status = 'pending_approval';`,
+  `ALTER TABLE tokens ADD COLUMN IF NOT EXISTS is_high_risk BOOLEAN NOT NULL DEFAULT FALSE;`,
+
+  // Withdrawal type: onchain | internal; internal_user_id for internal transfers; to_address nullable for internal
+  `ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS type VARCHAR(20) NOT NULL DEFAULT 'onchain';`,
+  `ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS internal_user_id UUID REFERENCES users(id);`,
+  `DO $$ BEGIN ALTER TABLE withdrawals ALTER COLUMN to_address DROP NOT NULL; EXCEPTION WHEN OTHERS THEN NULL; END $$;`,
+
+  // ============================================
+  // HARD GUARD: Only pending withdrawals can be enqueued for signing
+  // ============================================
+  `CREATE OR REPLACE FUNCTION check_withdrawal_pending_before_queue_insert()
+   RETURNS TRIGGER AS $$
+   DECLARE
+     w_status TEXT;
+   BEGIN
+     SELECT status INTO w_status FROM withdrawals WHERE id = NEW.withdrawal_id;
+     IF w_status IS NULL THEN
+       RAISE EXCEPTION 'withdrawal_signing_queue: withdrawal_id % not found in withdrawals', NEW.withdrawal_id;
+     END IF;
+     IF w_status != 'pending' THEN
+       RAISE EXCEPTION 'withdrawal_signing_queue: only withdrawals with status pending can be enqueued; withdrawal % has status %', NEW.withdrawal_id, w_status;
+     END IF;
+     RETURN NEW;
+   END;
+   $$ LANGUAGE plpgsql;`,
+  `DROP TRIGGER IF EXISTS trg_withdrawal_queue_only_pending ON withdrawal_signing_queue;`,
+  `CREATE TRIGGER trg_withdrawal_queue_only_pending
+   BEFORE INSERT ON withdrawal_signing_queue
+   FOR EACH ROW
+   EXECUTE FUNCTION check_withdrawal_pending_before_queue_insert();`,
+
+  // ============================================
+  // FREEZE BALANCE FOUNDATION: user_balances as single source of truth
+  // Add chain_id and 'spot' account type; unique (user_id, currency_id, chain_id, account_type)
+  // ============================================
+  `DO $$ BEGIN ALTER TYPE balance_account_type ADD VALUE 'spot'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;`,
+  `DO $$
+   BEGIN
+     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_balances') THEN
+       IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'user_balances' AND column_name = 'chain_id') THEN
+         ALTER TABLE user_balances ADD COLUMN chain_id VARCHAR(20) NOT NULL DEFAULT '';
+       END IF;
+       ALTER TABLE user_balances DROP CONSTRAINT IF EXISTS user_balances_user_id_currency_id_account_type_key;
+       IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_balances_user_currency_chain_account_key') THEN
+         ALTER TABLE user_balances ADD CONSTRAINT user_balances_user_currency_chain_account_key UNIQUE (user_id, currency_id, chain_id, account_type);
+       END IF;
+     END IF;
+   END $$;`,
 ];
 
 async function migrate(direction: 'up' | 'down' = 'up'): Promise<void> {
@@ -1259,6 +1396,7 @@ async function migrate(direction: 'up' | 'down' = 'up'): Promise<void> {
       // Drop all tables (for development only)
       const dropTables = `
         DROP TABLE IF EXISTS 
+          deposit_sweeps,
           withdrawal_signing_queue,
           hot_wallet_audit_log,
           withdrawal_addresses,

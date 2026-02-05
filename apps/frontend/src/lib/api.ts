@@ -4,8 +4,9 @@
  */
 
 import { useAuthStore } from '@/store/auth';
+import { getApiBaseUrl } from './getApiUrl';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const API_URL = getApiBaseUrl();
 
 interface ApiResponse<T = unknown> {
   success: boolean;

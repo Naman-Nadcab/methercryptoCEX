@@ -4,12 +4,13 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Eye, EyeOff, Globe, ChevronDown, Users, DollarSign, Coins, ExternalLink, Shield, Smartphone, Mail, Key, Fingerprint, Loader2 } from 'lucide-react';
-import { useAuthStore } from '@/store/auth';
+import { useAuthStore, type User } from '@/store/auth';
 import { 
   getPasskeyAssertion,
   isPlatformAuthenticatorAvailable,
   isWebAuthnSupported,
 } from '@/lib/webauthn';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 
 type Step = 'identifier' | 'otp' | 'verification';
 type VerificationStep = 'sms' | 'email' | '2fa';
@@ -40,7 +41,16 @@ export default function LoginPage() {
   
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
   const verificationRefs = useRef<(HTMLInputElement | null)[]>([]);
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const API_URL = getApiBaseUrl();
+
+  /** Log and return user-facing message for login network/response errors. */
+  const getLoginErrorMessage = (err: unknown, context: string): string => {
+    if (err instanceof TypeError && err.message === 'Failed to fetch') {
+      return `Cannot reach server at ${API_URL}. Check NEXT_PUBLIC_API_URL or NEXT_PUBLIC_API_BASE_URL and ensure the backend is running.`;
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    return msg || 'Network error. Please try again.';
+  };
 
   // Redirect if already authenticated
   useEffect(() => {
@@ -76,7 +86,8 @@ export default function LoginPage() {
 
         const data = await response.json();
         setPasskeysAvailable(data.success && data.data?.passkeysEnabled);
-      } catch {
+      } catch (err) {
+        console.error('[Login] check-passkeys', err);
         setPasskeysAvailable(false);
       }
     };
@@ -173,8 +184,8 @@ export default function LoginPage() {
         setError(verifyData.error?.message || 'Passkey verification failed');
       }
     } catch (err) {
-      console.error('[Passkey] Unexpected login error:', err);
-      setError('An unexpected error occurred. Please try again.');
+      console.error('[Login] passkey', err);
+      setError(getLoginErrorMessage(err, 'passkey'));
     } finally {
       setPasskeyLoading(false);
     }
@@ -197,8 +208,19 @@ export default function LoginPage() {
         }),
       });
 
-      const data = await response.json();
+      const raw = await response.text();
+      if (!response.ok) {
+        console.error('[Login] send-otp failed', response.status, response.statusText, raw);
+        try {
+          const data = JSON.parse(raw);
+          setError(data.error?.message || `Request failed (${response.status})`);
+        } catch {
+          setError(`Request failed (${response.status}). ${raw.slice(0, 80)}`);
+        }
+        return;
+      }
 
+      const data = JSON.parse(raw);
       if (data.success) {
         setStep('otp');
         setCountdown(120);
@@ -206,7 +228,8 @@ export default function LoginPage() {
         setError(data.error?.message || 'Failed to send verification code');
       }
     } catch (err) {
-      setError('Network error. Please try again.');
+      console.error('[Login] send-otp', err);
+      setError(getLoginErrorMessage(err, 'send-otp'));
     } finally {
       setLoading(false);
     }
@@ -268,32 +291,54 @@ export default function LoginPage() {
         }),
       });
 
-      const data = await response.json();
+      const raw = await response.text();
+      if (!response.ok) {
+        console.error('[Login] login failed', response.status, response.statusText, raw);
+        try {
+          const parsed = JSON.parse(raw);
+          setError(parsed.error?.message || `Login failed (${response.status})`);
+        } catch {
+          setError(`Login failed (${response.status}). ${raw.slice(0, 80)}`);
+        }
+        return;
+      }
 
-      if (data.success) {
+      let data: { success?: boolean; data?: { requiresVerification?: boolean; user?: unknown; accessToken?: string; refreshToken?: string; verificationToken?: string; stepsRequired?: string[]; currentStep?: number; nextStep?: string; maskedPhone?: string | null; maskedEmail?: string | null }; error?: { message?: string } };
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        console.error('[Login] login invalid JSON', raw.slice(0, 200));
+        setError('Invalid response from server. Please try again.');
+        return;
+      }
+
+      if (data.success && data.data) {
         if (data.data.requiresVerification) {
           // Multi-step verification required
           setVerificationState({
-            token: data.data.verificationToken,
-            stepsRequired: data.data.stepsRequired,
-            currentStep: data.data.currentStep,
-            nextStep: data.data.nextStep,
-            maskedPhone: data.data.maskedPhone,
-            maskedEmail: data.data.maskedEmail,
+            token: data.data.verificationToken!,
+            stepsRequired: data.data.stepsRequired ?? [],
+            currentStep: data.data.currentStep ?? 0,
+            nextStep: data.data.nextStep ?? null,
+            maskedPhone: data.data.maskedPhone ?? null,
+            maskedEmail: data.data.maskedEmail ?? null,
           });
           setStep('verification');
           setVerificationCode(['', '', '', '', '', '']);
           setCountdown(120);
-        } else {
+        } else if (data.data.user && data.data.accessToken && data.data.refreshToken) {
           // No additional verification needed
-          login(data.data.user, data.data.accessToken, data.data.refreshToken);
+          login(data.data.user as User, data.data.accessToken, data.data.refreshToken);
           router.push('/dashboard');
+        } else {
+          setError('Invalid login response. Please try again.');
         }
       } else {
         setError(data.error?.message || 'Login failed');
       }
     } catch (err) {
-      setError('Network error. Please try again.');
+      console.error('[Login] login', err);
+      setError(getLoginErrorMessage(err, 'login'));
     } finally {
       setLoading(false);
     }
@@ -324,8 +369,19 @@ export default function LoginPage() {
         }),
       });
 
-      const data = await response.json();
+      const raw = await response.text();
+      if (!response.ok) {
+        console.error('[Login] verify-step failed', response.status, response.statusText, raw);
+        try {
+          const parsed = JSON.parse(raw);
+          setError(parsed.error?.message || `Verification failed (${response.status})`);
+        } catch {
+          setError(`Verification failed (${response.status}). ${raw.slice(0, 80)}`);
+        }
+        return;
+      }
 
+      const data = JSON.parse(raw);
       if (data.success) {
         if (data.data.allStepsCompleted) {
           // All steps completed, login successful
@@ -345,7 +401,8 @@ export default function LoginPage() {
         setError(data.error?.message || 'Verification failed');
       }
     } catch (err) {
-      setError('Network error. Please try again.');
+      console.error('[Login] verify-step', err);
+      setError(getLoginErrorMessage(err, 'verify-step'));
     } finally {
       setLoading(false);
     }
@@ -385,7 +442,18 @@ export default function LoginPage() {
       }
 
       if (response) {
-        const data = await response.json();
+        const raw = await response.text();
+        if (!response.ok) {
+          console.error('[Login] resend failed', response.status, response.statusText, raw);
+          try {
+            const parsed = JSON.parse(raw);
+            setError(parsed.error?.message || `Resend failed (${response.status})`);
+          } catch {
+            setError(`Resend failed (${response.status}). ${raw.slice(0, 80)}`);
+          }
+          return;
+        }
+        const data = JSON.parse(raw);
         if (data.success) {
           setCountdown(120);
           if (step === 'otp') {
@@ -398,7 +466,8 @@ export default function LoginPage() {
         }
       }
     } catch (err) {
-      setError('Network error. Please try again.');
+      console.error('[Login] resend', err);
+      setError(getLoginErrorMessage(err, 'resend'));
     } finally {
       setLoading(false);
     }

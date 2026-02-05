@@ -71,10 +71,40 @@ export default function FundingAccountPage() {
       }>('/api/v1/wallet/balances/funding');
 
       if (response.success && response.data) {
-        setBalances(response.data.balances || []);
-        setTotalEquity(response.data.totalEquity || { usd: 0, btc: 0 });
-        setAvailableBalance(response.data.availableBalance || { usd: 0, btc: 0 });
-        setInUse(response.data.inUse || { usd: 0, btc: 0 });
+        const bal = response.data.balances || [];
+        if (bal.length > 0) {
+          setBalances(bal);
+          setTotalEquity(response.data.totalEquity || { usd: 0, btc: 0 });
+          setAvailableBalance(response.data.availableBalance || { usd: 0, btc: 0 });
+          setInUse(response.data.inUse || { usd: 0, btc: 0 });
+          return;
+        }
+      }
+
+      // Fallback: fetch by-account (same source as withdraw) and show as funding list
+      const byRes = await api.get<{ symbol: string; name: string; funding: string; trading: string; total: string }[]>('/api/v1/wallet/balances/by-account');
+      if (byRes.success && Array.isArray(byRes.data) && byRes.data.length > 0) {
+        const btcPrice = 97500;
+        const mapped: TokenBalance[] = byRes.data.map((row) => {
+          const total = parseFloat(row.total || '0');
+          const available = parseFloat(row.funding || '0') + parseFloat(row.trading || '0');
+          const usdVal = total;
+          return {
+            token_id: '',
+            symbol: row.symbol,
+            name: row.name || row.symbol,
+            total_balance: row.total || '0',
+            available_balance: String(available),
+            locked_balance: '0',
+            btc_value: (usdVal / btcPrice).toFixed(8),
+            usd_value: usdVal.toFixed(2),
+          };
+        });
+        const totalUsd = mapped.reduce((s, b) => s + parseFloat(b.usd_value), 0);
+        setBalances(mapped);
+        setTotalEquity({ usd: totalUsd, btc: totalUsd / btcPrice });
+        setAvailableBalance({ usd: totalUsd, btc: totalUsd / btcPrice });
+        setInUse({ usd: 0, btc: 0 });
       }
     } catch (error) {
       console.error('Failed to fetch balances:', error);

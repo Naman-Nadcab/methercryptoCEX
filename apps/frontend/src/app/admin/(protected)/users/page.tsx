@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import Link from 'next/link';
 import { useAdminAuthStore } from '@/store/admin-auth';
-import { Users, Search, Filter, Loader2, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { Users, Search, Loader2, CheckCircle, XCircle, ChevronRight } from 'lucide-react';
 
 interface User {
   id: string;
@@ -295,6 +296,7 @@ export default function UsersPage() {
                   <th className="text-left px-6 py-4 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">KYC Level</th>
                   <th className="text-left px-6 py-4 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Verified</th>
                   <th className="text-left px-6 py-4 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Joined</th>
+                  <th className="text-left px-6 py-4 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -303,11 +305,11 @@ export default function UsersPage() {
                   return (
                     <tr key={user.id} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-100 dark:hover:bg-gray-700/20">
                       <td className="px-6 py-4">
-                        <div>
-                          <p className="text-gray-900 dark:text-white font-medium">{user.email}</p>
+                        <Link href={`/admin/users/${user.id}`} className="block group">
+                          <p className="text-gray-900 dark:text-white font-medium group-hover:text-blue-500 dark:group-hover:text-blue-400">{user.email}</p>
                           <p className="text-xs text-gray-500">{user.phone || 'No phone'}</p>
                           {user.username && <p className="text-xs text-gray-500 dark:text-gray-400">@{user.username}</p>}
-                        </div>
+                        </Link>
                       </td>
                       <td className="px-6 py-4">
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadge(user.status)}`}>
@@ -335,6 +337,15 @@ export default function UsersPage() {
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
                         {new Date(user.created_at).toLocaleDateString()}
+                      </td>
+                      <td className="px-6 py-4">
+                        <Link
+                          href={`/admin/users/${user.id}`}
+                          className="inline-flex items-center gap-1 text-sm text-blue-500 hover:text-blue-400"
+                        >
+                          View
+                          <ChevronRight className="w-4 h-4" />
+                        </Link>
                       </td>
                     </tr>
                   );

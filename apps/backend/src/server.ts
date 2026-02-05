@@ -13,6 +13,7 @@ import { validateHotWalletEnv } from './lib/hot-wallet-env.js';
 import { validateRequiredTables } from './lib/validate-migrations.js';
 import { processSigningQueue } from './services/withdrawal-signing.service.js';
 import { runAutoSweep } from './services/hot-wallet-sweep.service.js';
+import { runDepositSweep } from './services/deposit-sweep.service.js';
 
 // Routes
 import authRoutes from './routes/auth.fastify.js';
@@ -25,6 +26,7 @@ import uploadRoutes from './routes/upload.fastify.js';
 import walletRoutes from './routes/wallet.fastify.js';
 import convertRoutes from './routes/convert.fastify.js';
 import kycRoutes from './routes/kyc.js';
+import debugRoutes from './routes/debug.fastify.js';
 
 // Extend FastifyRequest with user
 declare module 'fastify' {
@@ -116,6 +118,16 @@ export async function buildServer(): Promise<FastifyInstance> {
 
   await app.register(websocket);
 
+  // Root – avoid 404 when hitting base URL
+  app.get('/', async (_request, reply) => {
+    return reply.send({
+      service: 'Exchange API',
+      version: config.apiVersion,
+      docs: '/api/v1',
+      health: '/health',
+    });
+  });
+
   // Health check
   app.get('/health', async (request, reply) => {
     const dbHealth = await db.query('SELECT 1').then(() => 'up').catch(() => 'down');
@@ -176,6 +188,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(walletRoutes, { prefix: '/api/v1/wallet' });
   await app.register(convertRoutes, { prefix: '/api/v1/convert' });
   await app.register(kycRoutes, { prefix: '/api/v1/kyc' });
+  await app.register(debugRoutes, { prefix: '/api/v1/debug' });
 
   // Error handler
   app.setErrorHandler((error, request, reply) => {
@@ -208,19 +221,47 @@ async function start() {
 
     await db.query('SELECT 1');
     logger.info('✓ Database connected');
+    logger.info('[BALANCE_MODE] user_balances_only=true');
 
     validateHotWalletEnv();
     await validateRequiredTables();
 
     const app = await buildServer();
 
-    await app.listen({ port: config.port, host: '0.0.0.0' });
-    logger.info(`🚀 Server running on port ${config.port}`);
+    const port = typeof process.env.PORT !== 'undefined' && process.env.PORT !== ''
+      ? parseInt(process.env.PORT, 10) || 4000
+      : config.port;
+
+    try {
+      await app.listen({ port, host: '0.0.0.0' });
+    } catch (err: unknown) {
+      const code = err && typeof err === 'object' && 'code' in err ? (err as NodeJS.ErrnoException).code : undefined;
+      if (code === 'EADDRINUSE') {
+        logger.error(`Port ${port} is already in use. Another backend instance may be running.`);
+        process.exit(1);
+      }
+      throw err;
+    }
+
+    logger.info(`🚀 Server running on port ${port}`);
+    logger.info(`   Base URL: http://localhost:${port}`);
     logger.info(`   Environment: ${config.env}`);
     logger.info(`   API Version: ${config.apiVersion}`);
 
     setInterval(() => processSigningQueue().catch((err) => logger.error('Signing queue error', { error: err instanceof Error ? err.message : 'Unknown' })), 5000);
     setInterval(() => runAutoSweep().catch((err) => logger.error('Auto-sweep error', { error: err instanceof Error ? err.message : 'Unknown' })), 60_000);
+    const depositSweepIntervalMs = 120_000;
+    setInterval(async () => {
+      try {
+        const result = await runDepositSweep();
+        if (result.sweptCount > 0 || result.errors.length > 0) {
+          logger.info('Deposit sweep scheduled run completed', { sweptCount: result.sweptCount, error_count: result.errors.length, errors: result.errors.slice(0, 5) });
+        }
+      } catch (err) {
+        logger.error('Deposit sweep error', { error: err instanceof Error ? err.message : 'Unknown' });
+      }
+    }, depositSweepIntervalMs);
+    logger.info(`Deposit sweep worker scheduled (every ${depositSweepIntervalMs / 1000}s)`);
 
   } catch (error) {
     logger.error('Failed to start server', { error: error instanceof Error ? error.message : 'Unknown' });

@@ -33,11 +33,15 @@ const envSchema = z.object({
   ENCRYPTION_KEY: z.string().min(32),
   ENCRYPTION_IV_LENGTH: z.coerce.number().default(16),
 
-  // HSM
+  // HSM / KMS (envelope encryption for hot wallets)
   HSM_ENABLED: z.coerce.boolean().default(false),
   HSM_SLOT_ID: z.coerce.number().default(0),
   HSM_PIN: z.string().optional(),
   HSM_LIBRARY_PATH: z.string().optional(),
+  KMS_TYPE: z.enum(['local', 'aws']).default('local'),
+  KMS_KEY_VERSION: z.string().default('1'),
+  AWS_KMS_KEY_ID: z.string().optional(),
+  AWS_REGION: z.string().optional(),
 
   // OAuth
   GOOGLE_CLIENT_ID: z.string().optional(),
@@ -113,6 +117,13 @@ const envSchema = z.object({
   FEATURE_SPOT_TRADING_ENABLED: z.string().transform(v => v === 'true').default('true'),
   FEATURE_MARGIN_TRADING_ENABLED: z.string().transform(v => v === 'true').default('false'),
   MAINTENANCE_MODE: z.string().transform(v => v === 'true').default('false'),
+
+  // Withdrawal approval: amount (in token units) above this requires admin approval
+  WITHDRAWAL_APPROVAL_THRESHOLD: z.coerce.number().default(10000),
+
+  // Deposit consolidation: sweep user deposit addresses to hot wallet
+  DEPOSIT_SWEEP_ENABLED: z.string().transform(v => v === 'true').default('true'),
+  DEPOSIT_SWEEP_MIN_WEI: z.string().default('1000000000000000'),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -164,6 +175,15 @@ export const config = {
     slotId: parsed.data.HSM_SLOT_ID,
     pin: parsed.data.HSM_PIN,
     libraryPath: parsed.data.HSM_LIBRARY_PATH,
+  },
+
+  kms: {
+    type: parsed.data.KMS_TYPE,
+    keyVersion: parsed.data.KMS_KEY_VERSION,
+    aws: {
+      keyId: parsed.data.AWS_KMS_KEY_ID,
+      region: parsed.data.AWS_REGION,
+    },
   },
 
   oauth: {
@@ -259,6 +279,13 @@ export const config = {
     spotTradingEnabled: parsed.data.FEATURE_SPOT_TRADING_ENABLED,
     marginTradingEnabled: parsed.data.FEATURE_MARGIN_TRADING_ENABLED,
     maintenanceMode: parsed.data.MAINTENANCE_MODE,
+  },
+
+  withdrawalApprovalThreshold: parsed.data.WITHDRAWAL_APPROVAL_THRESHOLD,
+
+  depositSweep: {
+    enabled: parsed.data.DEPOSIT_SWEEP_ENABLED,
+    minWei: parsed.data.DEPOSIT_SWEEP_MIN_WEI,
   },
 } as const;
 

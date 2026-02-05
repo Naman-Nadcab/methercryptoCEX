@@ -9,7 +9,7 @@ async function check() {
     // Check chains join
     const result = await db.query(`
       SELECT DISTINCT 
-             c.id, c.id_text, c.name, c.type
+             c.id, c.id as id_text, c.name, c.type
       FROM tokens t
       JOIN chains c ON t.chain_id = c.id
       WHERE UPPER(t.symbol) = 'USDT' AND t.is_active = TRUE AND c.is_active = TRUE

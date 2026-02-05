@@ -1,8 +1,11 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
+import { getCurrencyIdBySymbol } from '../lib/currency-resolver.js';
+import { ensureUserBalanceRow, assertUserBalanceUpdated, DEFAULT_ACCOUNT_TYPE, CHAIN_ID_GLOBAL } from '../lib/user-balance-helper.js';
 import { walletService } from '../services/wallet.service.js';
 import { logger, auditLog } from '../lib/logger.js';
+import { logWithdrawalLifecycle } from '../lib/withdrawal-audit.js';
 import { ChainId } from '../types/index.js';
 
 interface ChainDB {
@@ -486,13 +489,165 @@ export default async function walletRoutes(app: FastifyInstance) {
     }
   });
 
-  // Get user balances (authenticated)
+  // Diagnostic: why funds/history might not show (authenticated, for debugging)
+  app.get('/balance-diagnostic', {
+    preHandler: [app.authenticate]
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const userId = request.user!.id;
+      const out: Record<string, number | string | boolean> = { userId: userId.slice(0, 8) + '...' };
+      try {
+        const ub = await db.query<{ count: string }>(`SELECT COUNT(*) as count FROM user_balances WHERE user_id = $1`, [userId]);
+        out.user_balances_rows = parseInt(ub.rows[0]?.count || '0', 10);
+      } catch {
+        out.user_balances_rows = 'table_missing_or_error';
+      }
+      let user_balances_funding_sum: number | string = 0;
+      try {
+        const ubSum = await db.query<{ total: string }>(`
+          SELECT COALESCE(SUM(COALESCE(ub.available_balance, 0) + COALESCE(ub.locked_balance, 0)), 0)::text as total
+          FROM user_balances ub WHERE ub.user_id = $1 AND COALESCE(ub.account_type::text, 'funding') IN ('funding', 'spot')
+        `, [userId]);
+        user_balances_funding_sum = parseFloat(ubSum.rows[0]?.total || '0');
+      } catch {
+        user_balances_funding_sum = 'query_error';
+      }
+      out.user_balances_funding_sum = user_balances_funding_sum;
+      try {
+        const d = await db.query<{ count: string }>(`SELECT COUNT(*) as count FROM deposits WHERE user_id = $1`, [userId]);
+        out.deposits_count = parseInt(d.rows[0]?.count || '0', 10);
+      } catch {
+        out.deposits_count = 'table_missing_or_error';
+      }
+      try {
+        const w = await db.query<{ count: string }>(`SELECT COUNT(*) as count FROM withdrawals WHERE user_id = $1`, [userId]);
+        out.withdrawals_count = parseInt(w.rows[0]?.count || '0', 10);
+      } catch {
+        out.withdrawals_count = 'table_missing_or_error';
+      }
+      const ubRows = Number(out.user_balances_rows) || 0;
+      const ubFunding = typeof user_balances_funding_sum === 'number' ? user_balances_funding_sum : 0;
+      out.reason_funds_zero = ubRows === 0
+        ? 'BUG: ZERO rows in user_balances (source of truth). Deposit credit or ensureUserBalanceRow must create row.'
+        : ubFunding === 0
+          ? 'user_balances rows exist but SUM(available_balance+locked_balance) for funding is 0. Check account_type = funding.'
+          : 'user_balances data exists; dashboard API should return non-zero. Check filters.';
+      const depCount = Number(out.deposits_count) || 0;
+      const withCount = Number(out.withdrawals_count) || 0;
+      out.reason_history_empty = depCount === 0 && withCount === 0
+        ? 'No deposits or withdrawals for this user in DB.'
+        : 'Data exists; deposit-history or withdrawals API may use different schema (e.g. currency_id vs token_id).';
+      return reply.send({ success: true, data: out });
+    } catch (e) {
+      logger.error('Balance diagnostic failed', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Diagnostic failed' } });
+    }
+  });
+
+  // CRITICAL DEBUG: Data truth check — resolve user by email, return full user_balances rows and dashboard summary.
+  // GET /balance-debug?email=nmnsingh02@gmail.com (email must be current user's email)
+  // Returns: user_id, user_balances_rows (full), dashboard_summary (what API returns), reason_if_zero.
+  app.get('/balance-debug', {
+    preHandler: [app.authenticate]
+  }, async (request: FastifyRequest<{
+    Querystring: { email?: string }
+  }>, reply: FastifyReply) => {
+    try {
+      const currentUserId = request.user!.id;
+      let userId: string;
+      if (request.query.email) {
+        const u = await db.query<{ id: string; email: string }>(
+          `SELECT id, email FROM users WHERE LOWER(TRIM(email)) = LOWER(TRIM($1)) AND deleted_at IS NULL LIMIT 1`,
+          [request.query.email]
+        );
+        if (u.rows.length === 0) {
+          return reply.status(404).send({ success: false, error: { code: 'USER_NOT_FOUND', message: 'User not found for this email' } });
+        }
+        userId = u.rows[0]!.id;
+        if (userId !== currentUserId) {
+          return reply.status(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'You can only debug your own balance' } });
+        }
+      } else {
+        userId = currentUserId;
+      }
+
+      const ubRows = await db.query<{
+        user_id: string;
+        currency_id: string;
+        account_type: string;
+        available_balance: string;
+        locked_balance: string;
+        pending_balance: string;
+        total_deposited: string;
+        updated_at: string;
+      }>(`SELECT user_id, currency_id, account_type::text as account_type, available_balance::text, locked_balance::text, pending_balance::text, total_deposited::text, updated_at::text FROM user_balances WHERE user_id = $1`, [userId]);
+
+      const fundingSum = await db.query<{ total: string }>(`
+        SELECT COALESCE(SUM(COALESCE(ub.available_balance, 0) + COALESCE(ub.locked_balance, 0)), 0)::text as total
+        FROM user_balances ub
+        WHERE ub.user_id = $1 AND COALESCE(ub.account_type::text, 'funding') IN ('funding', 'spot')
+      `, [userId]);
+      const tradingSum = await db.query<{ total: string }>(`
+        SELECT COALESCE(SUM(COALESCE(ub.available_balance, 0) + COALESCE(ub.locked_balance, 0)), 0)::text as total
+        FROM user_balances ub
+        WHERE ub.user_id = $1 AND COALESCE(ub.account_type::text, 'funding') IN ('trading', 'unified')
+      `, [userId]);
+
+      const fundingTotal = parseFloat(fundingSum.rows[0]?.total || '0');
+      const tradingTotal = parseFloat(tradingSum.rows[0]?.total || '0');
+      const reason_if_zero = ubRows.rows.length === 0
+        ? 'BUG: ZERO rows in user_balances for this user — deposit credit or ensureUserBalanceRow did not create row.'
+        : fundingTotal === 0 && tradingTotal === 0
+          ? 'Rows exist but SUM(available_balance + locked_balance) is 0 for funding and trading. Check account_type matches (canonical: funding).'
+          : null;
+
+      // Runtime must never read from deprecated balances table. user_balances is the only source of truth.
+      const balances_table_warning = 'user_balances is the only source of truth; legacy balances table must not be used.';
+
+      return reply.send({
+        success: true,
+        data: {
+          user_id: userId,
+          user_balances_rows: ubRows.rows,
+          user_balances_row_count: ubRows.rows.length,
+          dashboard_summary: {
+            funding_total: fundingTotal,
+            trading_total: tradingTotal,
+            total: fundingTotal + tradingTotal
+          },
+          reason_if_zero: reason_if_zero ?? 'Balance data present; dashboard should show non-zero.',
+          balances_table_warning
+        }
+      });
+    } catch (e) {
+      logger.error('Balance debug failed', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Balance debug failed' } });
+    }
+  });
+
+  // Get user balances (authenticated). Read ONLY from user_balances. SUM(available_balance + locked_balance) per currency.
   app.get('/balances', {
     preHandler: [app.authenticate]
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const userId = request.user!.id;
-      const balances = await walletService.getBalances(userId);
+      const result = await db.query<{ currency_id: string; symbol: string; name: string; available_balance: string; locked_balance: string }>(`
+        SELECT ub.currency_id, COALESCE(c.symbol, '') AS symbol, COALESCE(c.name, '') AS name,
+               SUM(COALESCE(ub.available_balance, 0))::text AS available_balance,
+               SUM(COALESCE(ub.locked_balance, 0))::text AS locked_balance
+        FROM user_balances ub
+        LEFT JOIN currencies c ON c.id = ub.currency_id
+        WHERE ub.user_id = $1
+        GROUP BY ub.currency_id, c.symbol, c.name
+      `, [userId]);
+      const balances = result.rows.map(row => ({
+        currency_id: row.currency_id,
+        symbol: row.symbol,
+        name: row.name,
+        available_balance: parseFloat(row.available_balance || '0'),
+        locked_balance: parseFloat(row.locked_balance || '0'),
+        total: parseFloat(row.available_balance || '0') + parseFloat(row.locked_balance || '0')
+      }));
 
       return {
         success: true,
@@ -541,11 +696,15 @@ export default async function walletRoutes(app: FastifyInstance) {
         SELECT 
           w.id, w.user_id, w.token_id, w.chain_id, w.amount, w.fee, w.net_amount,
           w.to_address, w.tx_hash, w.status, w.created_at, w.processed_at, w.completed_at,
+          w.failed_reason, w.rejection_reason,
+          w.type as withdrawal_type, w.internal_user_id,
           t.symbol, t.name as token_name, t.icon_url as logo_url,
-          c.name as chain_name, c.native_currency as chain_type
+          c.name as chain_name, c.native_currency as chain_type,
+          u_internal.email as internal_recipient_email
         FROM withdrawals w
         LEFT JOIN tokens t ON w.token_id = t.id
         LEFT JOIN chains c ON w.chain_id = c.id
+        LEFT JOIN users u_internal ON w.internal_user_id = u_internal.id
         WHERE w.user_id = $1
       `;
       const params: unknown[] = [userId];
@@ -578,19 +737,61 @@ export default async function walletRoutes(app: FastifyInstance) {
       }
       const countResult = await db.query<{ count: string }>(countQuery, countParams);
 
-      // Map to consistent format
-      const mappedData = result.rows.map(w => ({
-        id: w.id,
-        type: 'withdraw',
-        coin: w.symbol || 'Unknown',
-        coin_logo: w.logo_url || `/assets/upload/currency-logo/${(w.symbol || 'btc').toLowerCase()}.svg`,
-        chain_type: w.chain_name || 'Unknown',
-        quantity: w.amount,
-        address: w.to_address || '',
-        txid: w.tx_hash || '',
-        status: w.status,
-        date_time: w.created_at
-      }));
+      // Map status for display: all transitions reflected to user
+      const displayStatus = (s: string) => {
+        const v = (s || '').toLowerCase();
+        if (v === 'pending_approval') return 'Pending approval';
+        if (['pending', 'queued', 'signed', 'broadcasted', 'processing'].includes(v)) return 'Processing';
+        if (v === 'completed') return 'Completed';
+        if (v === 'rejected') return 'Rejected';
+        if (v === 'failed') return 'Failed';
+        if (v === 'cancelled') return 'Cancelled';
+        return s || 'Unknown';
+      };
+      type WithdrawalRow = {
+        id: string;
+        symbol?: string;
+        logo_url?: string;
+        chain_name?: string;
+        amount: string;
+        fee?: string | null;
+        net_amount?: string | null;
+        to_address?: string | null;
+        tx_hash?: string | null;
+        status: string;
+        created_at: string;
+        withdrawal_type?: string;
+        internal_user_id?: string | null;
+        internal_recipient_email?: string | null;
+        failed_reason?: string | null;
+        rejection_reason?: string | null;
+      };
+      const mappedData = result.rows.map((w: WithdrawalRow) => {
+        const rejectionReason = w.rejection_reason ?? w.failed_reason ?? null;
+        return {
+          id: w.id,
+          type: 'withdraw',
+          amount: w.amount,
+          fee: w.fee ?? '0',
+          net_amount: w.net_amount ?? w.amount,
+          status: w.status,
+          displayStatus: displayStatus(w.status),
+          chain: w.chain_name ?? 'Unknown',
+          token: w.symbol ?? 'Unknown',
+          tx_hash: w.tx_hash ?? null,
+          rejection_reason: rejectionReason,
+          coin: w.symbol || 'Unknown',
+          coin_logo: w.logo_url || `/assets/upload/currency-logo/${(w.symbol || 'btc').toLowerCase()}.svg`,
+          chain_type: w.chain_name || 'Unknown',
+          quantity: w.amount,
+          address: w.to_address ?? '',
+          txid: w.tx_hash || '',
+          date_time: w.created_at,
+          withdrawal_type: w.withdrawal_type || 'onchain',
+          internal_user_id: w.internal_user_id ?? null,
+          internal_recipient_email: w.internal_recipient_email ?? null,
+        };
+      });
 
       return {
         success: true,
@@ -614,57 +815,44 @@ export default async function walletRoutes(app: FastifyInstance) {
     }
   });
 
-  // Get user balances by account type (authenticated)
+  // Get user balances by account type (authenticated). Read ONLY from user_balances. SUM(available_balance + locked_balance).
   app.get('/balances/by-account', {
     preHandler: [app.authenticate]
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const userId = request.user!.id;
+      const balancesByToken: Record<string, { symbol: string; name: string; funding: string; trading: string; total: string }> = {};
 
-      // Get balances grouped by account type
-      const result = await db.query(`
+      const ubResult = await db.query(`
         SELECT 
-          b.token_id,
-          t.symbol,
-          t.name as token_name,
-          b.account_type,
-          b.available_balance,
-          b.locked_balance,
-          (b.available_balance + b.locked_balance) as total_balance
-        FROM balances b
-        JOIN tokens t ON b.token_id = t.id
-        WHERE b.user_id = $1 AND (b.available_balance > 0 OR b.locked_balance > 0)
-        ORDER BY t.symbol, b.account_type
+          c.symbol,
+          REGEXP_REPLACE(COALESCE(c.name, c.symbol), '\\s*\\([A-Z0-9]+\\)\\s*$', '', 'i') as token_name,
+          COALESCE(ub.account_type::text, 'funding') as account_type,
+          (COALESCE(ub.available_balance, 0) + COALESCE(ub.locked_balance, 0))::text as balance
+        FROM user_balances ub
+        JOIN currencies c ON c.id = ub.currency_id
+        WHERE ub.user_id = $1 AND (COALESCE(ub.available_balance, 0) > 0 OR COALESCE(ub.locked_balance, 0) > 0)
+        ORDER BY c.symbol, ub.account_type
       `, [userId]);
-
-      // Group by token
-      const balancesByToken: Record<string, {
-        symbol: string;
-        name: string;
-        funding: string;
-        trading: string;
-        total: string;
-      }> = {};
-
-      for (const row of result.rows) {
-        if (!balancesByToken[row.symbol]) {
-          balancesByToken[row.symbol] = {
-            symbol: row.symbol,
-            name: row.token_name,
-            funding: '0',
-            trading: '0',
-            total: '0'
-          };
+      for (const row of ubResult.rows) {
+        const sym = row.symbol || '?';
+        if (!balancesByToken[sym]) {
+          balancesByToken[sym] = { symbol: sym, name: row.token_name || sym, funding: '0', trading: '0', total: '0' };
         }
-        if (row.account_type === 'funding') {
-          balancesByToken[row.symbol].funding = row.available_balance;
+        const bal = row.balance || '0';
+        if (row.account_type === 'funding' || row.account_type === 'spot') {
+          const cur = parseFloat(balancesByToken[sym].funding);
+          balancesByToken[sym].funding = (cur + parseFloat(bal)).toString();
         } else if (row.account_type === 'trading' || row.account_type === 'unified') {
-          balancesByToken[row.symbol].trading = row.available_balance;
+          const cur = parseFloat(balancesByToken[sym].trading);
+          balancesByToken[sym].trading = (cur + parseFloat(bal)).toString();
+        } else {
+          const cur = parseFloat(balancesByToken[sym].funding);
+          balancesByToken[sym].funding = (cur + parseFloat(bal)).toString();
         }
-        balancesByToken[row.symbol].total = (
-          parseFloat(balancesByToken[row.symbol].funding) + 
-          parseFloat(balancesByToken[row.symbol].trading)
-        ).toString();
+        const f = parseFloat(balancesByToken[sym].funding);
+        const t = parseFloat(balancesByToken[sym].trading);
+        balancesByToken[sym].total = (f + t).toString();
       }
 
       return {
@@ -776,7 +964,7 @@ export default async function walletRoutes(app: FastifyInstance) {
         FROM tokens t
         JOIN chains c ON t.chain_id = c.id
         WHERE UPPER(t.symbol) = UPPER($1) 
-          AND (c.id::text = $2 OR LOWER(COALESCE(c.id_text, c.name)) = LOWER($2))
+          AND (c.id = $2 OR LOWER(COALESCE(c.id, c.name)) = LOWER($2))
           AND t.is_active = TRUE
         LIMIT 1
       `, [symbol, chainId]);
@@ -808,32 +996,114 @@ export default async function walletRoutes(app: FastifyInstance) {
     }
   });
 
+  // Withdrawal preview: fee and net amount (authenticated, for UI)
+  app.get('/withdraw/preview', {
+    preHandler: [app.authenticate]
+  }, async (request: FastifyRequest<{
+    Querystring: { symbol: string; chainId?: string; amount: string; type?: 'onchain' | 'internal' }
+  }>, reply: FastifyReply) => {
+    try {
+      const { symbol, chainId, amount: amountStr, type = 'onchain' } = request.query;
+      const amount = parseFloat(amountStr || '0');
+      if (!symbol || isNaN(amount) || amount < 0) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_INPUT', message: 'symbol and amount required' }
+        });
+      }
+      if (type === 'internal') {
+        return reply.send({
+          success: true,
+          data: { fee: '0', net_amount: amountStr, min_withdrawal: '0', fee_exceeds_amount: false }
+        });
+      }
+      if (!chainId) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_INPUT', message: 'chainId required for on-chain preview' }
+        });
+      }
+      const result = await db.query(`
+        SELECT t.withdrawal_fee, t.min_withdrawal
+        FROM tokens t
+        JOIN chains c ON t.chain_id = c.id
+        WHERE UPPER(t.symbol) = UPPER($1)
+          AND (c.id = $2 OR LOWER(COALESCE(c.id, c.name)) = LOWER($2))
+          AND t.is_active = TRUE
+        LIMIT 1
+      `, [symbol, chainId]);
+      if (result.rows.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Token or chain not found' }
+        });
+      }
+      const row = result.rows[0];
+      const fee = parseFloat(row.withdrawal_fee || '0');
+      const netAmount = Math.max(0, amount - fee);
+      const feeExceedsAmount = amount > 0 && fee >= amount;
+      return reply.send({
+        success: true,
+        data: {
+          fee: fee.toString(),
+          net_amount: netAmount.toString(),
+          min_withdrawal: row.min_withdrawal || '0',
+          fee_exceeds_amount: feeExceedsAmount
+        }
+      });
+    } catch (error) {
+      logger.error('Withdraw preview failed', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to get preview' }
+      });
+    }
+  });
+
   // Create withdrawal request (authenticated)
-  // Security: if user has 2FA or withdrawal whitelist enabled, those conditions must be satisfied before withdrawal is created.
+  // type: 'onchain' | 'internal'. Internal: use internal_user_identifier (email/uid/phone); no toAddress. On-chain: toAddress required.
   app.post('/withdrawals', {
     preHandler: [app.authenticate]
   }, async (request: FastifyRequest<{
     Body: {
       symbol: string;
-      chainId: string;
+      chainId?: string;
       amount: string;
-      toAddress: string;
+      toAddress?: string;
       accountType?: string;
       memo?: string;
       twoFactorCode?: string;
       withdrawalAddressId?: string;
+      type?: 'onchain' | 'internal';
+      internal_user_identifier?: string;
     }
   }>, reply: FastifyReply) => {
     try {
       const userId = request.user!.id;
-      const { symbol, chainId, amount, toAddress, accountType = 'funding', memo, twoFactorCode, withdrawalAddressId } = request.body;
+      const withdrawType = (request.body.type ?? 'onchain') as 'onchain' | 'internal';
+      const { symbol, chainId, amount, toAddress, accountType = 'funding', memo, twoFactorCode, withdrawalAddressId, internal_user_identifier } = request.body;
 
       // Validate input
-      if (!symbol || !chainId || !amount || !toAddress) {
+      if (!symbol || !amount) {
         return reply.status(400).send({
           success: false,
-          error: { code: 'INVALID_INPUT', message: 'Missing required fields' }
+          error: { code: 'INVALID_INPUT', message: 'Missing required fields: symbol, amount' }
         });
+      }
+      if (withdrawType === 'internal') {
+        if (!internal_user_identifier || typeof internal_user_identifier !== 'string' || !internal_user_identifier.trim()) {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'INVALID_INPUT', message: 'Internal transfer requires internal_user_identifier (email, user id, or phone)' }
+          });
+        }
+      } else {
+        if (!chainId || !toAddress) {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'INVALID_INPUT', message: 'On-chain withdrawal requires chainId and toAddress' }
+          });
+        }
       }
 
       const withdrawAmount = parseFloat(amount);
@@ -844,20 +1114,173 @@ export default async function walletRoutes(app: FastifyInstance) {
         });
       }
 
-      // Get token and chain info
+      // ---------- INTERNAL TRANSFER ----------
+      if (withdrawType === 'internal') {
+        const identifier = internal_user_identifier!.trim();
+        const tokenResult = await db.query(`
+          SELECT t.id as token_id, t.symbol, t.decimals, t.withdrawal_fee, t.min_withdrawal, t.chain_id,
+                 c.id as chain_id, c.name as chain_name
+          FROM tokens t
+          JOIN chains c ON t.chain_id = c.id
+          WHERE UPPER(t.symbol) = UPPER($1) AND t.is_active = TRUE AND c.is_active = TRUE
+          LIMIT 1
+        `, [symbol]);
+        if (tokenResult.rows.length === 0) {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'INVALID_TOKEN', message: 'Invalid token' }
+          });
+        }
+        const token = tokenResult.rows[0];
+        const recipientRow = await db.query<{ id: string }>(
+          `SELECT id FROM users WHERE status = 'active' AND deleted_at IS NULL AND (
+            id::text = $1 OR LOWER(TRIM(email)) = LOWER(TRIM($1)) OR TRIM(phone) = TRIM($1)
+          ) LIMIT 1`,
+          [identifier]
+        );
+        if (recipientRow.rows.length === 0) {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'INVALID_INTERNAL_USER', message: 'Recipient not found' }
+          });
+        }
+        const recipientId = recipientRow.rows[0]!.id;
+        if (recipientId === userId) {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'INVALID_INTERNAL_USER', message: 'Cannot transfer to yourself' }
+          });
+        }
+        const fee = 0;
+        const minWithdrawal = parseFloat(token.min_withdrawal || '0');
+        if (withdrawAmount < minWithdrawal) {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'BELOW_MINIMUM', message: `Minimum is ${minWithdrawal} ${symbol}` }
+          });
+        }
+        const currencyId = await getCurrencyIdBySymbol(token.symbol);
+        if (!currencyId) {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'INVALID_TOKEN', message: 'Currency not found for this token; internal transfer uses user_balances' }
+          });
+        }
+        const balanceResult = await db.query<{ available_balance: string }>(`
+          SELECT COALESCE(SUM(available_balance), 0)::text as available_balance
+          FROM user_balances
+          WHERE user_id = $1 AND currency_id = $2 AND COALESCE(account_type::text, 'funding') IN ('funding', 'spot')
+        `, [userId, currencyId]);
+        const availableBalance = parseFloat(balanceResult.rows[0]?.available_balance || '0');
+        if (availableBalance < withdrawAmount) {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'INSUFFICIENT_BALANCE', message: 'Insufficient balance' }
+          });
+        }
+        const chainIdForUb = token.chain_id ?? CHAIN_ID_GLOBAL;
+        const withdrawalInternal = await db.transaction(async (client) => {
+          await ensureUserBalanceRow(userId, currencyId, chainIdForUb, 'funding', client);
+          await ensureUserBalanceRow(recipientId, currencyId, CHAIN_ID_GLOBAL, 'funding', client);
+          const ins = await client.query<{ id: string; created_at: string }>(`
+            INSERT INTO withdrawals (
+              user_id, token_id, chain_id, amount, fee, net_amount, to_address, status, account_type,
+              type, internal_user_id, email_verified, two_fa_verified
+            ) VALUES ($1, $2, $3, $4, $5, $6, NULL, 'completed', 'funding', 'internal', $7, FALSE, FALSE)
+            RETURNING id, created_at
+          `, [userId, token.token_id, token.chain_id, withdrawAmount.toString(), fee.toString(), withdrawAmount.toString(), recipientId]);
+          const w = ins.rows[0]!;
+          let senderUpd = await client.query(`
+            UPDATE user_balances
+            SET available_balance = available_balance - $1::numeric, updated_at = NOW()
+            WHERE id = (
+              SELECT id FROM user_balances
+              WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4
+                AND COALESCE(account_type::text, 'funding') IN ('funding', 'spot')
+                AND available_balance >= $1::numeric
+              ORDER BY available_balance DESC NULLS LAST
+              LIMIT 1
+            )
+          `, [withdrawAmount.toString(), userId, currencyId, chainIdForUb]);
+          if (senderUpd.rowCount === 0 && chainIdForUb !== CHAIN_ID_GLOBAL) {
+            await ensureUserBalanceRow(userId, currencyId, CHAIN_ID_GLOBAL, 'funding', client);
+            senderUpd = await client.query(`
+              UPDATE user_balances
+              SET available_balance = available_balance - $1::numeric, updated_at = NOW()
+              WHERE id = (
+                SELECT id FROM user_balances
+                WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4
+                  AND COALESCE(account_type::text, 'funding') IN ('funding', 'spot')
+                  AND available_balance >= $1::numeric
+                ORDER BY available_balance DESC NULLS LAST
+                LIMIT 1
+              )
+            `, [withdrawAmount.toString(), userId, currencyId, CHAIN_ID_GLOBAL]);
+            assertUserBalanceUpdated('internal_transfer_debit', senderUpd, userId, currencyId, 'funding', CHAIN_ID_GLOBAL);
+          } else {
+            assertUserBalanceUpdated('internal_transfer_debit', senderUpd, userId, currencyId, 'funding', chainIdForUb);
+          }
+          const receiverUpd = await client.query(`
+            UPDATE user_balances SET available_balance = available_balance + $1::numeric, updated_at = NOW()
+            WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND COALESCE(account_type::text, 'funding') = 'funding'
+          `, [withdrawAmount.toString(), recipientId, currencyId, CHAIN_ID_GLOBAL]);
+          assertUserBalanceUpdated('internal_transfer_credit', receiverUpd, recipientId, currencyId, 'funding', CHAIN_ID_GLOBAL);
+          return w;
+        });
+        await logWithdrawalLifecycle('withdrawal_internal_completed', {
+          withdrawal_id: withdrawalInternal.id,
+          user_id: userId,
+          admin_id: null,
+          token_id: token.token_id,
+          chain_id: token.chain_id,
+          amount: withdrawAmount.toString(),
+          ip: request.ip ?? undefined,
+          user_agent: request.headers['user-agent'] ?? undefined,
+        });
+        auditLog('withdrawal_internal_completed', userId, {
+          withdrawalId: withdrawalInternal.id,
+          symbol,
+          amount: withdrawAmount,
+          recipientId,
+        });
+        return reply.send({
+          success: true,
+          data: {
+            id: withdrawalInternal.id,
+            symbol,
+            chain: token.chain_name,
+            amount: withdrawAmount,
+            fee: 0,
+            netAmount: withdrawAmount,
+            toAddress: null,
+            type: 'internal',
+            status: 'completed',
+            createdAt: withdrawalInternal.created_at,
+          },
+        });
+      }
+
+      // ---------- ON-CHAIN WITHDRAWAL ----------
+      // Get token and chain info (include is_high_risk for approval flow)
       const tokenResult = await db.query(`
         SELECT 
           t.id as token_id, t.symbol, t.decimals, t.withdrawal_fee, t.min_withdrawal,
+          COALESCE(t.is_high_risk, FALSE) as is_high_risk,
           c.id as chain_id, c.name as chain_name, c.type as chain_type
         FROM tokens t
         JOIN chains c ON t.chain_id = c.id
         WHERE UPPER(t.symbol) = UPPER($1) 
-          AND (c.id::text = $2 OR LOWER(COALESCE(c.id_text, c.name)) = LOWER($2))
+          AND (c.id = $2 OR LOWER(COALESCE(c.id, c.name)) = LOWER($2))
           AND t.is_active = TRUE AND c.is_active = TRUE
         LIMIT 1
-      `, [symbol, chainId]);
+      `, [symbol, chainId!]);
 
       if (tokenResult.rows.length === 0) {
+        logger.warn('Withdrawal creation failed: INVALID_TOKEN (token or chain not found)', {
+          user_id: userId,
+          chain_id: chainId,
+          symbol,
+        });
         return reply.status(400).send({
           success: false,
           error: { code: 'INVALID_TOKEN', message: 'Invalid token or chain' }
@@ -865,40 +1288,96 @@ export default async function walletRoutes(app: FastifyInstance) {
       }
 
       const token = tokenResult.rows[0];
-      const fee = parseFloat(token.withdrawal_fee || '0');
+      const rawFee = token.withdrawal_fee;
+      if (rawFee == null || rawFee === '') {
+        logger.warn('tokens.withdrawal_fee is NULL or empty, defaulting to 0', {
+          symbol: token.symbol,
+          chain_id: token.chain_id,
+        });
+      }
+      const fee = parseFloat(rawFee || '0');
       const minWithdrawal = parseFloat(token.min_withdrawal || '0');
 
       // Check minimum withdrawal
       if (withdrawAmount < minWithdrawal) {
+        logger.warn('Withdrawal creation failed: BELOW_MINIMUM', {
+          user_id: userId,
+          chain_id: token.chain_id,
+          symbol,
+          amount: withdrawAmount,
+          minWithdrawal,
+        });
         return reply.status(400).send({
           success: false,
           error: { code: 'BELOW_MINIMUM', message: `Minimum withdrawal is ${minWithdrawal} ${symbol}` }
         });
       }
 
-      // Check user balance
-      const balanceResult = await db.query(`
-        SELECT available_balance 
-        FROM balances 
-        WHERE user_id = $1 AND token_id = $2 AND account_type = $3
-      `, [userId, token.token_id, accountType]);
+      // Check user balance from user_balances (single source of truth)
+      const currencyId = await getCurrencyIdBySymbol(token.symbol);
+      if (!currencyId) {
+        logger.warn('Withdrawal creation failed: INVALID_TOKEN (currency not found)', {
+          user_id: userId,
+          chain_id: token.chain_id,
+          symbol,
+        });
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_TOKEN', message: 'Currency not found for this token' }
+        });
+      }
+      const chainIdCheck = token.chain_id ?? CHAIN_ID_GLOBAL;
+      const balanceResult = await db.query<{ available_balance: string }>(`
+        SELECT COALESCE(SUM(available_balance), 0)::text as available_balance
+        FROM user_balances
+        WHERE user_id = $1 AND currency_id = $2 AND account_type = $3
+      `, [userId, currencyId, accountType]);
 
       const availableBalance = parseFloat(balanceResult.rows[0]?.available_balance || '0');
       const totalRequired = withdrawAmount + fee;
+      const netAmount = withdrawAmount - fee;
+
+      if (netAmount <= 0) {
+        logger.warn('Withdrawal creation failed: NET_AMOUNT_INVALID (amount - fee <= 0)', {
+          user_id: userId,
+          chain_id: token.chain_id,
+          currency_id: currencyId,
+          amount: withdrawAmount,
+          fee,
+          net_amount: netAmount,
+          account_type: accountType,
+        });
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'FEE_CONFIG_MISSING', message: 'Net amount would be zero or negative. Check withdrawal fee configuration.' }
+        });
+      }
+
+      const withdrawalLogContext = {
+        user_id: userId,
+        chain_id: token.chain_id,
+        currency_id: currencyId,
+        available_balance: availableBalance,
+        amount: withdrawAmount,
+        fee,
+        totalRequired,
+        account_type: accountType,
+      };
 
       if (availableBalance < totalRequired) {
+        logger.warn('Withdrawal creation failed: INSUFFICIENT_BALANCE', withdrawalLogContext);
         return reply.status(400).send({
           success: false,
           error: { code: 'INSUFFICIENT_BALANCE', message: 'Insufficient balance' }
         });
       }
 
-      // Check withdrawal limits
+      // Check withdrawal limits (include pending_approval so they count toward daily limit)
       const todayResult = await db.query<{ total: string }>(`
         SELECT COALESCE(SUM(amount), 0) as total
         FROM withdrawals
         WHERE user_id = $1 
-          AND status IN ('pending', 'processing', 'completed')
+          AND status IN ('pending_approval', 'pending', 'processing', 'completed')
           AND created_at >= CURRENT_DATE
       `, [userId]);
 
@@ -910,6 +1389,7 @@ export default async function walletRoutes(app: FastifyInstance) {
       const todayUsed = parseFloat(todayResult.rows[0]?.total || '0');
 
       if (todayUsed + withdrawAmount > dailyLimit) {
+        logger.warn('Withdrawal creation failed: LIMIT_EXCEEDED', withdrawalLogContext);
         return reply.status(400).send({
           success: false,
           error: { code: 'LIMIT_EXCEEDED', message: 'Daily withdrawal limit exceeded' }
@@ -921,6 +1401,7 @@ export default async function walletRoutes(app: FastifyInstance) {
       const has2FA = await userHas2FA(userId);
       if (has2FA) {
         if (!twoFactorCode || typeof twoFactorCode !== 'string') {
+          logger.warn('Withdrawal creation failed: 2FA_REQUIRED', withdrawalLogContext);
           return reply.status(400).send({
             success: false,
             error: { code: '2FA_REQUIRED', message: 'Two-factor code is required for withdrawal' }
@@ -928,6 +1409,7 @@ export default async function walletRoutes(app: FastifyInstance) {
         }
         const valid2FA = await verifyUser2FA(userId, twoFactorCode.trim());
         if (!valid2FA) {
+          logger.warn('Withdrawal creation failed: INVALID_2FA', withdrawalLogContext);
           return reply.status(400).send({
             success: false,
             error: { code: 'INVALID_2FA', message: 'Invalid two-factor code' }
@@ -947,6 +1429,7 @@ export default async function walletRoutes(app: FastifyInstance) {
           [userId, toAddress]
         );
         if (addrCheck.rows.length === 0) {
+          logger.warn('Withdrawal creation failed: ADDRESS_NOT_WHITELISTED', withdrawalLogContext);
           return reply.status(400).send({
             success: false,
             error: { code: 'ADDRESS_NOT_WHITELISTED', message: 'This address is not in your withdrawal whitelist' }
@@ -955,29 +1438,76 @@ export default async function walletRoutes(app: FastifyInstance) {
         withdrawalAddressIdRes = addrCheck.rows[0]!.id;
       }
 
-      const netAmount = withdrawAmount - fee;
+      // Backend source of truth: amount (user requested), fee (from token), net_amount = amount - fee (already validated > 0)
       const twoFaVerified = has2FA;
 
-      // Create withdrawal record
+      // Admin approval: required if amount > threshold OR asset is high-risk
+      const { requiresWithdrawalApproval } = await import('../services/withdrawal-approval.service.js');
+      const needsApproval = requiresWithdrawalApproval(withdrawAmount, {
+        is_high_risk: token.is_high_risk,
+      });
+      const initialStatus = needsApproval ? 'pending_approval' : 'pending';
+
+      // Create withdrawal record (on-chain). Stores amount, fee, net_amount; balance lock uses amount + fee.
       const withdrawalResult = await db.query(`
         INSERT INTO withdrawals (
           user_id, token_id, chain_id, amount, fee, net_amount, to_address, memo, status, account_type,
-          email_verified, two_fa_verified, withdrawal_address_id
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, FALSE, $10, $11)
+          type, email_verified, two_fa_verified, withdrawal_address_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'onchain', FALSE, $11, $12)
         RETURNING id, created_at
-      `, [userId, token.token_id, token.chain_id, withdrawAmount.toString(), fee.toString(), netAmount.toString(), toAddress, memo || null, accountType, twoFaVerified, withdrawalAddressIdRes]);
+      `, [userId, token.token_id, token.chain_id, withdrawAmount.toString(), fee.toString(), netAmount.toString(), toAddress!, memo || null, initialStatus, accountType, twoFaVerified, withdrawalAddressIdRes]);
 
       const withdrawal = withdrawalResult.rows[0];
 
-      // Deduct from balance (lock the funds)
-      await db.query(`
-        UPDATE balances 
-        SET 
-          available_balance = available_balance - $1,
-          locked_balance = locked_balance + $1,
-          updated_at = NOW()
-        WHERE user_id = $2 AND token_id = $3 AND account_type = $4
-      `, [totalRequired.toString(), userId, token.token_id, accountType]);
+      const chainIdForLock = token.chain_id ?? CHAIN_ID_GLOBAL;
+      try {
+        await ensureUserBalanceRow(userId, currencyId, chainIdForLock, accountType);
+        let upd = await db.query(`
+          UPDATE user_balances
+          SET
+            available_balance = available_balance - $1::numeric,
+            locked_balance = locked_balance + $1::numeric,
+            updated_at = NOW()
+          WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5
+            AND available_balance >= $1::numeric
+        `, [totalRequired.toString(), userId, currencyId, chainIdForLock, accountType]);
+        if (upd.rowCount === 0 && chainIdForLock !== CHAIN_ID_GLOBAL) {
+          await ensureUserBalanceRow(userId, currencyId, CHAIN_ID_GLOBAL, accountType);
+          upd = await db.query(`
+            UPDATE user_balances
+            SET
+              available_balance = available_balance - $1::numeric,
+              locked_balance = locked_balance + $1::numeric,
+              updated_at = NOW()
+            WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5
+              AND available_balance >= $1::numeric
+          `, [totalRequired.toString(), userId, currencyId, CHAIN_ID_GLOBAL, accountType]);
+        }
+        if (upd.rowCount === 0) {
+          logger.error('Withdrawal creation failed: BALANCE_ROW_NOT_FOUND_OR_MISMATCH', withdrawalLogContext);
+          await db.query(`DELETE FROM withdrawals WHERE id = $1`, [withdrawal.id]);
+          return reply.status(400).send({
+            success: false,
+            error: {
+              code: 'BALANCE_ROW_NOT_FOUND_OR_MISMATCH',
+              message: 'No matching balance row with sufficient available balance. Check user_balances for (user, currency, chain, account_type).',
+            },
+          });
+        }
+      } catch (err) {
+        await db.query(`DELETE FROM withdrawals WHERE id = $1`, [withdrawal.id]);
+        logger.error('Withdrawal creation failed: BALANCE_LOCK_FAILED', {
+          ...withdrawalLogContext,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return reply.status(500).send({
+          success: false,
+          error: {
+            code: 'BALANCE_LOCK_FAILED',
+            message: err instanceof Error ? err.message : 'Balance lock failed',
+          },
+        });
+      }
 
       // Log activity
       auditLog('withdrawal_request', userId, {
@@ -986,44 +1516,82 @@ export default async function walletRoutes(app: FastifyInstance) {
         chain: token.chain_name,
         amount: withdrawAmount,
         fee,
-        toAddress
+        toAddress,
+        status: initialStatus,
+      });
+
+      await logWithdrawalLifecycle('withdrawal_created', {
+        withdrawal_id: withdrawal.id,
+        user_id: userId,
+        admin_id: null,
+        token_id: token.token_id,
+        chain_id: token.chain_id,
+        amount: withdrawAmount.toString(),
+        ip: request.ip ?? undefined,
+        user_agent: request.headers['user-agent'] ?? undefined,
       });
 
       logger.info('Withdrawal request created', {
         userId,
         withdrawalId: withdrawal.id,
         symbol,
-        amount: withdrawAmount
+        amount: withdrawAmount,
+        status: initialStatus,
+      });
+      // E2E withdrawal lifecycle: stage 1 — created (balance locked)
+      logger.info('[E2E_WITHDRAWAL] stage=created', {
+        withdrawal_id: withdrawal.id,
+        status: initialStatus,
+        chain_id: token.chain_id,
+        symbol,
       });
 
-      const { enqueueWithdrawal } = await import('../services/withdrawal-signing.service.js');
-      const enqueueResult = await enqueueWithdrawal(withdrawal.id);
-      if (!enqueueResult.enqueued && enqueueResult.reason) {
-        logger.warn('Withdrawal not enqueued for signing', { withdrawalId: withdrawal.id, reason: enqueueResult.reason });
+      let enqueueCode: string | undefined;
+      let enqueueReason: string | undefined;
+      if (initialStatus === 'pending') {
+        const { enqueueWithdrawal } = await import('../services/withdrawal-signing.service.js');
+        const enqueueResult = await enqueueWithdrawal(withdrawal.id);
+        if (!enqueueResult.enqueued && enqueueResult.reason) {
+          logger.warn('Withdrawal not enqueued for signing', { withdrawalId: withdrawal.id, reason: enqueueResult.reason });
+          enqueueCode = enqueueResult.code;
+          enqueueReason = enqueueResult.reason;
+        }
       }
 
       return {
         success: true,
         data: {
           id: withdrawal.id,
+          type: 'onchain',
           symbol,
           chain: token.chain_name,
           amount: withdrawAmount,
           fee,
-          netAmount: withdrawAmount - fee,
+          netAmount,
           toAddress,
-          status: 'pending',
-          createdAt: withdrawal.created_at
+          status: initialStatus,
+          createdAt: withdrawal.created_at,
+          ...(enqueueCode && { enqueueCode, enqueueReason }),
         }
       };
     } catch (error) {
-      logger.error('Failed to create withdrawal', { 
-        error: error instanceof Error ? error.message : 'Unknown',
-        userId: request.user?.id 
+      const err = error instanceof Error ? error : new Error(String(error));
+      logger.error('Withdrawal creation failed: unhandled error', {
+        user_id: request.user?.id,
+        error: err.message,
+        stack: err.stack,
       });
+      const code = (err as { code?: string }).code;
+      const message = code === 'INSUFFICIENT_BALANCE' ? 'Insufficient balance'
+        : code === 'BALANCE_LOCK_FAILED' ? 'Balance lock failed'
+        : code === 'BALANCE_ROW_NOT_FOUND_OR_MISMATCH' ? 'No matching balance row'
+        : err.message || 'Failed to create withdrawal';
       return reply.status(500).send({
         success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to create withdrawal' }
+        error: {
+          code: code && /^[A-Z_]+$/.test(code) ? code : 'INTERNAL_ERROR',
+          message,
+        },
       });
     }
   });
@@ -1068,16 +1636,23 @@ export default async function walletRoutes(app: FastifyInstance) {
         WHERE id = $1
       `, [id]);
 
-      // Refund to balance
+      // Refund to user_balances (single source of truth)
       const totalLocked = parseFloat(withdrawal.amount) + parseFloat(withdrawal.fee);
-      await db.query(`
-        UPDATE balances 
-        SET 
-          available_balance = available_balance + $1,
-          locked_balance = locked_balance - $1,
-          updated_at = NOW()
-        WHERE user_id = $2 AND token_id = $3 AND account_type = $4
-      `, [totalLocked.toString(), userId, withdrawal.token_id, withdrawal.account_type || 'funding']);
+      const currencyId = await getCurrencyIdBySymbol(withdrawal.symbol);
+      const cancelAccountType = withdrawal.account_type || 'spot';
+      const chainIdCancel = withdrawal.chain_id ?? CHAIN_ID_GLOBAL;
+      if (currencyId) {
+        await ensureUserBalanceRow(userId, currencyId, chainIdCancel, cancelAccountType);
+        const cancelUpd = await db.query(`
+          UPDATE user_balances
+          SET
+            available_balance = available_balance + $1,
+            locked_balance = locked_balance - $1,
+            updated_at = NOW()
+          WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5
+        `, [totalLocked.toString(), userId, currencyId, chainIdCancel, cancelAccountType]);
+        assertUserBalanceUpdated('withdrawal_cancel', cancelUpd, userId, currencyId, cancelAccountType, withdrawal.chain_id);
+      }
 
       auditLog('withdrawal_cancelled', userId, {
         withdrawalId: id,
@@ -1106,35 +1681,39 @@ export default async function walletRoutes(app: FastifyInstance) {
   // ============================================
 
   // Get balances summary for assets overview (authenticated)
+  // Read ONLY from user_balances. SUM(available_balance + locked_balance) per account type.
   app.get('/balances/summary', {
     preHandler: [app.authenticate]
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const userId = request.user!.id;
+      let fundingTotal = 0;
+      let tradingTotal = 0;
 
-      // Get funding account balances
-      const fundingResult = await db.query(`
-        SELECT 
-          COALESCE(SUM(b.available_balance + b.locked_balance), 0) as total
-        FROM balances b
-        WHERE b.user_id = $1 AND b.account_type = 'funding'
-      `, [userId]);
+      try {
+        const fundingResult = await db.query<{ total: string }>(`
+          SELECT COALESCE(SUM(COALESCE(ub.available_balance, 0) + COALESCE(ub.locked_balance, 0)), 0)::text as total
+          FROM user_balances ub
+          WHERE ub.user_id = $1 AND COALESCE(ub.account_type::text, 'funding') IN ('funding', 'spot')
+        `, [userId]);
+        fundingTotal = parseFloat(fundingResult.rows[0]?.total || '0');
+      } catch (e) {
+        logger.warn('Balances summary (funding) failed', { userId, error: e instanceof Error ? e.message : 'Unknown' });
+      }
 
-      // Get trading account balances
-      const tradingResult = await db.query(`
-        SELECT 
-          COALESCE(SUM(b.available_balance + b.locked_balance), 0) as total
-        FROM balances b
-        WHERE b.user_id = $1 AND (b.account_type = 'trading' OR b.account_type = 'unified')
-      `, [userId]);
+      try {
+        const tradingResult = await db.query<{ total: string }>(`
+          SELECT COALESCE(SUM(COALESCE(ub.available_balance, 0) + COALESCE(ub.locked_balance, 0)), 0)::text as total
+          FROM user_balances ub
+          WHERE ub.user_id = $1 AND COALESCE(ub.account_type::text, 'funding') IN ('trading', 'unified')
+        `, [userId]);
+        tradingTotal = parseFloat(tradingResult.rows[0]?.total || '0');
+      } catch (e) {
+        logger.warn('Balances summary (trading) failed', { userId, error: e instanceof Error ? e.message : 'Unknown' });
+      }
 
-      const fundingTotal = parseFloat(fundingResult.rows[0]?.total || '0');
-      const tradingTotal = parseFloat(tradingResult.rows[0]?.total || '0');
-
-      // Mock BTC price for conversion (in production, fetch from price service)
       const btcPrice = 82000;
-
-      return {
+      return reply.send({
         success: true,
         data: {
           funding: {
@@ -1152,7 +1731,7 @@ export default async function walletRoutes(app: FastifyInstance) {
             totalBtc: (fundingTotal + tradingTotal) / btcPrice
           }
         }
-      };
+      });
     } catch (error) {
       logger.error('Failed to get balances summary', { 
         error: error instanceof Error ? error.message : 'Unknown',
@@ -1165,56 +1744,55 @@ export default async function walletRoutes(app: FastifyInstance) {
     }
   });
 
-  // Get funding account balances (authenticated)
+  // Get funding account balances (authenticated). Read ONLY from user_balances. SUM(available_balance + locked_balance).
   app.get('/balances/funding', {
     preHandler: [app.authenticate]
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const userId = request.user!.id;
+      const btcPrice = 97500;
+      const priceMap: Record<string, number> = { 'USDT': 1, 'USDC': 1 };
 
-      // Get ONLY currencies where user has actual balance (from deposits/transfers)
-      const result = await db.query(`
-        SELECT DISTINCT ON (UPPER(c.symbol))
+      const result = await db.query<{ token_id: string; symbol: string; name: string; available_balance: string; locked_balance: string; total_balance: string }>(`
+        SELECT
           c.id as token_id,
           c.symbol,
-          REGEXP_REPLACE(c.name, '\\s*\\([A-Z0-9]+\\)\\s*$', '', 'i') as name,
-          ub.available_balance::text as available_balance,
-          ub.locked_balance::text as locked_balance,
-          (ub.available_balance + ub.locked_balance)::text as total_balance
+          REGEXP_REPLACE(COALESCE(c.name, c.symbol), '\\s*\\([A-Z0-9]+\\)\\s*$', '', 'i') as name,
+          SUM(COALESCE(ub.available_balance, 0))::text as available_balance,
+          SUM(COALESCE(ub.locked_balance, 0))::text as locked_balance,
+          (SUM(COALESCE(ub.available_balance, 0)) + SUM(COALESCE(ub.locked_balance, 0)))::text as total_balance
         FROM user_balances ub
         JOIN currencies c ON c.id = ub.currency_id
-        WHERE ub.user_id = $1 
-          AND ub.account_type = 'funding'
-          AND (ub.available_balance > 0 OR ub.locked_balance > 0 OR ub.pending_balance > 0)
-          AND c.is_active = TRUE
-        ORDER BY UPPER(c.symbol), ub.available_balance DESC
+        WHERE ub.user_id = $1
+          AND COALESCE(ub.account_type::text, 'funding') IN ('funding', 'spot')
+          AND (COALESCE(ub.available_balance, 0) > 0 OR COALESCE(ub.locked_balance, 0) > 0 OR COALESCE(ub.pending_balance, 0) > 0)
+          AND COALESCE(c.is_active, TRUE) = TRUE
+        GROUP BY c.id, c.symbol, c.name
+        ORDER BY (SUM(COALESCE(ub.available_balance, 0)) + SUM(COALESCE(ub.locked_balance, 0))) DESC, UPPER(c.symbol)
       `, [userId]);
 
-      // BTC price for conversion
-      const btcPrice = 97500;
-
-      // Get USDT prices for each currency
-      const pricesResult = await db.query(`
-        SELECT DISTINCT ON (UPPER(bc.symbol))
-          bc.symbol,
-          mp.price::numeric as usd_price
-        FROM market_prices mp
-        JOIN currencies bc ON mp.base_currency_id = bc.id
-        JOIN currencies qc ON mp.quote_currency_id = qc.id
-        WHERE UPPER(qc.symbol) = 'USDT'
-        ORDER BY UPPER(bc.symbol), mp.price DESC
-      `);
-      
-      const priceMap: Record<string, number> = { 'USDT': 1, 'USDC': 1 };
-      pricesResult.rows.forEach(row => {
-        priceMap[row.symbol.toUpperCase()] = parseFloat(row.usd_price) || 1;
-      });
+      try {
+        const pricesResult = await db.query<{ symbol: string; usd_price: string }>(`
+          SELECT DISTINCT ON (UPPER(bc.symbol))
+            bc.symbol,
+            mp.price::numeric as usd_price
+          FROM market_prices mp
+          JOIN currencies bc ON mp.base_currency_id = bc.id
+          JOIN currencies qc ON mp.quote_currency_id = qc.id
+          WHERE UPPER(qc.symbol) = 'USDT'
+          ORDER BY UPPER(bc.symbol), mp.price DESC
+        `);
+        pricesResult.rows.forEach(row => {
+          priceMap[row.symbol.toUpperCase()] = parseFloat(row.usd_price) || 1;
+        });
+      } catch {
+        // market_prices may not exist
+      }
 
       const balances = result.rows.map(row => {
         const price = priceMap[row.symbol.toUpperCase()] || 1;
         const totalBalance = parseFloat(row.total_balance || '0');
         const usdValue = totalBalance * price;
-        
         return {
           token_id: row.token_id,
           symbol: row.symbol,
@@ -1227,7 +1805,6 @@ export default async function walletRoutes(app: FastifyInstance) {
         };
       });
 
-      // Sort: coins with balance first, then alphabetically
       balances.sort((a, b) => {
         const aHasBalance = parseFloat(a.total_balance) > 0;
         const bHasBalance = parseFloat(b.total_balance) > 0;
@@ -1246,7 +1823,7 @@ export default async function walletRoutes(app: FastifyInstance) {
         return sum + parseFloat(b.locked_balance) * price;
       }, 0);
 
-      return {
+      return reply.send({
         success: true,
         data: {
           balances,
@@ -1254,7 +1831,7 @@ export default async function walletRoutes(app: FastifyInstance) {
           availableBalance: { usd: availableUsd, btc: availableUsd / btcPrice },
           inUse: { usd: lockedUsd, btc: lockedUsd / btcPrice }
         }
-      };
+      });
     } catch (error) {
       logger.error('Failed to get funding balances', { 
         error: error instanceof Error ? error.message : 'Unknown',
@@ -1267,40 +1844,33 @@ export default async function walletRoutes(app: FastifyInstance) {
     }
   });
 
-  // Get trading account balances (authenticated)
+  // Get trading account balances (authenticated). Read ONLY from user_balances. SUM(available_balance + locked_balance).
   app.get('/balances/trading', {
     preHandler: [app.authenticate]
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const userId = request.user!.id;
 
-      // Get all token balances for trading account
       const result = await db.query(`
         SELECT 
-          b.token_id,
-          t.symbol,
-          t.name,
-          COALESCE(b.available_balance, 0) as equity,
-          COALESCE(b.available_balance, 0) as wallet_balance,
-          0 as borrowed_amount,
-          0 as used_as_collateral
-        FROM tokens t
-        LEFT JOIN balances b ON t.id = b.token_id AND b.user_id = $1 AND (b.account_type = 'trading' OR b.account_type = 'unified')
-        WHERE t.is_active = TRUE
-        ORDER BY 
-          CASE WHEN COALESCE(b.available_balance, 0) > 0 THEN 0 ELSE 1 END,
-          t.symbol ASC
+          c.id as token_id,
+          c.symbol,
+          REGEXP_REPLACE(COALESCE(c.name, c.symbol), '\\s*\\([A-Z0-9]+\\)\\s*$', '', 'i') as name,
+          (COALESCE(ub.available_balance, 0) + COALESCE(ub.locked_balance, 0))::text as equity
+        FROM user_balances ub
+        JOIN currencies c ON c.id = ub.currency_id
+        WHERE ub.user_id = $1 AND COALESCE(ub.account_type::text, 'funding') IN ('trading', 'unified')
+          AND (COALESCE(ub.available_balance, 0) > 0 OR COALESCE(ub.locked_balance, 0) > 0)
+          AND COALESCE(c.is_active, TRUE) = TRUE
+        ORDER BY (COALESCE(ub.available_balance, 0) + COALESCE(ub.locked_balance, 0)) DESC, c.symbol
       `, [userId]);
-
-      // Mock BTC price for conversion
-      const btcPrice = 82000;
 
       const balances = result.rows.map(row => ({
         token_id: row.token_id,
         symbol: row.symbol,
         name: row.name,
         equity: row.equity || '0',
-        wallet_balance: row.wallet_balance || '0',
+        wallet_balance: row.equity || '0',
         borrowed_amount: '0',
         used_as_collateral: '0',
         usd_value: row.equity || '0'
@@ -1334,7 +1904,7 @@ export default async function walletRoutes(app: FastifyInstance) {
   // INTERNAL TRANSFER ENDPOINTS
   // ============================================
 
-  // Get transferable balances between accounts
+  // Get transferable balances between accounts. Read ONLY from user_balances. SUM(available_balance + locked_balance).
   app.get('/transfer/balances', {
     preHandler: [app.authenticate]
   }, async (request: FastifyRequest<{
@@ -1342,27 +1912,23 @@ export default async function walletRoutes(app: FastifyInstance) {
   }>, reply: FastifyReply) => {
     try {
       const userId = request.user!.id;
-      // Note: fromAccount is stored for future multi-account support
-      // Currently returns all tokens with balances
 
-      // Get available coins with their balances from the tokens table
-      // This query works with the actual database schema (tokens + balances tables)
       const result = await db.query(`
         SELECT 
-          t.id as token_id,
-          t.symbol,
-          t.name,
-          t.decimals,
-          t.chain_id,
-          c.name as chain_name,
-          COALESCE(b.available, 0) as available_balance
-        FROM tokens t
-        LEFT JOIN balances b ON t.id = b.token_id AND b.user_id = $1
-        LEFT JOIN chains c ON t.chain_id = c.id
-        WHERE t.is_active = TRUE
-        ORDER BY 
-          CASE WHEN COALESCE(b.available, 0) > 0 THEN 0 ELSE 1 END,
-          t.symbol ASC
+          c.id as token_id,
+          c.symbol,
+          REGEXP_REPLACE(COALESCE(c.name, c.symbol), '\\s*\\([A-Z0-9]+\\)\\s*$', '', 'i') as name,
+          c.decimals,
+          b.id as chain_id,
+          b.chain_name,
+          (COALESCE(ub.available_balance, 0) + COALESCE(ub.locked_balance, 0))::text as available_balance
+        FROM user_balances ub
+        JOIN currencies c ON c.id = ub.currency_id
+        LEFT JOIN blockchains b ON c.blockchain_id = b.id
+        WHERE ub.user_id = $1
+          AND (COALESCE(ub.available_balance, 0) > 0 OR COALESCE(ub.locked_balance, 0) > 0)
+          AND COALESCE(c.is_active, TRUE) = TRUE
+        ORDER BY (COALESCE(ub.available_balance, 0) + COALESCE(ub.locked_balance, 0)) DESC, c.symbol
       `, [userId]);
 
       return {
@@ -1371,10 +1937,10 @@ export default async function walletRoutes(app: FastifyInstance) {
           tokenId: row.token_id,
           symbol: row.symbol,
           name: row.name,
-          iconUrl: `/assets/upload/currency-logo/${row.symbol.toLowerCase()}.svg`,
-          decimals: row.decimals,
-          chainId: row.chain_id,
-          chainName: row.chain_name,
+          iconUrl: `/assets/upload/currency-logo/${row.symbol?.toLowerCase?.() ?? ''}.svg`,
+          decimals: row.decimals ?? 8,
+          chainId: row.chain_id ?? null,
+          chainName: row.chain_name ?? null,
           availableBalance: row.available_balance?.toString() || '0'
         }))
       };
@@ -1442,13 +2008,20 @@ export default async function walletRoutes(app: FastifyInstance) {
       }
 
       const token = tokenResult.rows[0];
+      const currencyId = await getCurrencyIdBySymbol(token.symbol);
+      if (!currencyId) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_TOKEN', message: 'Currency not found for token' }
+        });
+      }
 
-      // Check available balance (use balances table)
-      // Note: Currently using single balance per token, multi-account support can be added later
-      const balanceResult = await db.query(`
-        SELECT available FROM balances 
-        WHERE user_id = $1 AND token_id = $2
-      `, [userId, tokenId]);
+      // Check available balance in SOURCE account only (user_balances, single source of truth)
+      const balanceResult = await db.query<{ available: string }>(`
+        SELECT COALESCE(SUM(ub.available_balance), 0)::text AS available
+        FROM user_balances ub
+        WHERE ub.user_id = $1 AND ub.currency_id = $2 AND COALESCE(ub.account_type::text, 'funding') = $3
+      `, [userId, currencyId, fromAccount]);
 
       const availableBalance = parseFloat(balanceResult.rows[0]?.available || '0');
 
@@ -1459,11 +2032,14 @@ export default async function walletRoutes(app: FastifyInstance) {
         });
       }
 
-      // For now, internal transfers between funding/trading are conceptual
-      // Since we use a single balance table, we'll just log the transfer
-      // In production, you'd have separate balance records per account type
+      const amountStr = transferAmount.toString();
 
-      // Log the transfer
+      // Debit fromAccount, credit toAccount in user_balances (transaction; abort if debit fails)
+      await db.transaction(async (client) => {
+        await walletService.debitAvailableBalance(userId, currencyId, fromAccount, amountStr, client);
+        await walletService.creditBalanceForAccount(userId, currencyId, toAccount, amountStr, client);
+      });
+
       auditLog(userId, 'internal_transfer', {
         fromAccount,
         toAccount,
@@ -1472,14 +2048,12 @@ export default async function walletRoutes(app: FastifyInstance) {
         amount: transferAmount
       });
 
-      // Create internal_transfers table entry if it exists
       try {
         await db.query(`
           INSERT INTO internal_transfers (from_user_id, to_user_id, currency_id, amount, transfer_type, status, notes)
           VALUES ($1, $1, $2, $3, 'internal', 'completed', $4)
-        `, [userId, tokenId, transferAmount, `Transfer from ${fromAccount} to ${toAccount}`]);
+        `, [userId, currencyId, transferAmount, `Transfer from ${fromAccount} to ${toAccount}`]);
       } catch {
-        // Table might not exist, continue without recording
         logger.debug('internal_transfers table not available, skipping record');
       }
 
@@ -1698,20 +2272,16 @@ export default async function walletRoutes(app: FastifyInstance) {
             [row.id]
           );
           const amount = String(row.amount ?? 0);
+          await ensureUserBalanceRow(row.user_id, row.currency_id, CHAIN_ID_GLOBAL, 'funding');
           const upd = await db.query(`
             UPDATE user_balances
             SET available_balance = available_balance + $1::numeric,
                 pending_balance = GREATEST(pending_balance - $1::numeric, 0),
                 total_deposited = COALESCE(total_deposited, 0) + $1::numeric,
                 updated_at = NOW()
-            WHERE user_id = $2 AND currency_id = $3 AND account_type = 'funding'
-          `, [amount, row.user_id, row.currency_id]);
-          if (upd.rowCount === 0) {
-            await db.query(`
-              INSERT INTO user_balances (id, user_id, currency_id, available_balance, locked_balance, pending_balance, total_deposited, account_type, updated_at)
-              VALUES (gen_random_uuid(), $1, $2, $3::numeric, 0, 0, $3::numeric, 'funding', NOW())
-            `, [row.user_id, row.currency_id, amount]);
-          }
+            WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = 'funding'
+          `, [amount, row.user_id, row.currency_id, CHAIN_ID_GLOBAL]);
+          assertUserBalanceUpdated('deposit_credit_repair', upd, row.user_id, row.currency_id, 'funding', CHAIN_ID_GLOBAL);
           await db.query('COMMIT');
           logger.info('Deposit completed (overdue confirmations)', { depositId: row.id, userId: row.user_id });
         } catch (e) {
@@ -1729,42 +2299,50 @@ export default async function walletRoutes(app: FastifyInstance) {
         whereClause += ` AND d.status = $${params.length}`;
       }
 
-      const result = await db.query(`
-        SELECT 
-          d.id,
-          d.tx_hash,
-          d.from_address,
-          d.to_address,
-          d.amount::text,
-          d.confirmations,
-          d.required_confirmations,
-          d.block_number,
-          d.block_timestamp,
-          d.status,
-          d.credited_at,
-          d.created_at,
-          d.updated_at,
-          c.symbol,
-          c.name as currency_name,
-          c.logo_url,
-          b.chain_name,
-          b.chain_symbol,
-          b.chain_id as chain_numeric_id
-        FROM deposits d
-        LEFT JOIN currencies c ON d.currency_id = c.id
-        LEFT JOIN blockchains b ON d.blockchain_id = b.id
-        WHERE ${whereClause}
-        ORDER BY d.created_at DESC
-        LIMIT $${params.length + 1} OFFSET $${params.length + 2}
-      `, [...params, limit, offset]);
+      let result: { rows: any[] };
+      let countResult: { rows: { count: string }[] };
+      try {
+        result = await db.query(`
+          SELECT 
+            d.id,
+            d.tx_hash,
+            d.from_address,
+            d.to_address,
+            d.amount::text,
+            d.confirmations,
+            d.required_confirmations,
+            d.block_number,
+            d.block_timestamp,
+            d.status,
+            d.credited_at,
+            d.created_at,
+            d.updated_at,
+            c.symbol,
+            c.name as currency_name,
+            c.logo_url,
+            b.chain_name,
+            b.chain_symbol,
+            b.chain_id as chain_numeric_id
+          FROM deposits d
+          LEFT JOIN currencies c ON d.currency_id = c.id
+          LEFT JOIN blockchains b ON d.blockchain_id = b.id
+          WHERE ${whereClause}
+          ORDER BY d.created_at DESC
+          LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+        `, [...params, limit, offset]);
+        countResult = await db.query<{ count: string }>(
+          `SELECT COUNT(*) as count FROM deposits WHERE user_id = $1 AND (amount IS NULL OR amount::numeric > 0)`,
+          [userId]
+        );
+      } catch (queryError) {
+        logger.warn('Deposit history query failed (schema or tables)', { userId, error: queryError instanceof Error ? queryError.message : 'Unknown' });
+        return reply.send({
+          success: true,
+          data: [],
+          pagination: { page: 1, limit, total: 0, totalPages: 0 }
+        });
+      }
 
-      // Get total count (exclude zero amount)
-      const countResult = await db.query<{ count: string }>(
-        `SELECT COUNT(*) as count FROM deposits WHERE user_id = $1 AND (amount IS NULL OR amount::numeric > 0)`,
-        [userId]
-      );
-
-      // Get explorer URLs for each chain
       const explorerMap: Record<string, string> = {
         'ETH': 'https://etherscan.io/tx/',
         'BSC': 'https://bscscan.com/tx/',
@@ -1800,7 +2378,7 @@ export default async function walletRoutes(app: FastifyInstance) {
         };
       });
 
-      return {
+      return reply.send({
         success: true,
         data: deposits,
         pagination: {
@@ -1809,7 +2387,7 @@ export default async function walletRoutes(app: FastifyInstance) {
           total: parseInt(countResult.rows[0]?.count || '0'),
           totalPages: Math.ceil(parseInt(countResult.rows[0]?.count || '0') / limit)
         }
-      };
+      });
     } catch (error) {
       logger.error('Failed to get deposit history', { 
         error: error instanceof Error ? error.message : 'Unknown',
@@ -1860,20 +2438,16 @@ export default async function walletRoutes(app: FastifyInstance) {
               [row.id]
             );
             const amount = String(row.amount ?? 0);
+            await ensureUserBalanceRow(row.user_id, row.currency_id, CHAIN_ID_GLOBAL, 'funding');
             const upd = await db.query(`
               UPDATE user_balances
               SET available_balance = available_balance + $1::numeric,
                   pending_balance = GREATEST(pending_balance - $1::numeric, 0),
                   total_deposited = COALESCE(total_deposited, 0) + $1::numeric,
                   updated_at = NOW()
-              WHERE user_id = $2 AND currency_id = $3 AND account_type = 'funding'
-            `, [amount, row.user_id, row.currency_id]);
-            if (upd.rowCount === 0) {
-              await db.query(`
-                INSERT INTO user_balances (id, user_id, currency_id, available_balance, locked_balance, pending_balance, total_deposited, account_type, updated_at)
-                VALUES (gen_random_uuid(), $1, $2, $3::numeric, 0, 0, $3::numeric, 'funding', NOW())
-              `, [row.user_id, row.currency_id, amount]);
-            }
+              WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = 'funding'
+            `, [amount, row.user_id, row.currency_id, CHAIN_ID_GLOBAL]);
+            assertUserBalanceUpdated('deposit_credit_repair', upd, row.user_id, row.currency_id, 'funding', CHAIN_ID_GLOBAL);
             await db.query('COMMIT');
             logger.info('Deposit completed (overdue confirmations)', { depositId: row.id, userId: row.user_id });
           } catch (e) {
@@ -1884,93 +2458,96 @@ export default async function walletRoutes(app: FastifyInstance) {
       }
 
       const allTransactions: any[] = [];
-
-      // 1. Get DEPOSITS (exclude zero amount; address = sender = from_address)
-      let depositQuery = `
-        SELECT 
-          d.id,
-          'deposit' as type,
-          d.tx_hash,
-          d.from_address,
-          d.to_address,
-          d.amount,
-          d.status,
-          d.confirmations,
-          d.required_confirmations,
-          d.created_at,
-          c.symbol,
-          c.name as currency_name,
-          c.logo_url,
-          b.chain_name
-        FROM deposits d
-        LEFT JOIN currencies c ON d.currency_id = c.id
-        LEFT JOIN blockchains b ON d.blockchain_id = b.id
-        WHERE d.user_id = $1 AND (d.amount IS NULL OR d.amount::numeric > 0)
-      `;
-      const depositParams: any[] = [userId];
       let paramIndex = 2;
 
-      if (statusFilter && statusFilter !== 'all') {
-        depositQuery += ` AND LOWER(d.status) = $${paramIndex}`;
-        depositParams.push(statusFilter);
-        paramIndex++;
-      }
-      if (coinFilter && coinFilter !== 'ALL') {
-        depositQuery += ` AND UPPER(c.symbol) = $${paramIndex}`;
-        depositParams.push(coinFilter);
-      }
-
-      const depositsResult = await db.query(depositQuery, depositParams);
-      depositsResult.rows.forEach(row => {
-        allTransactions.push({
-          id: row.id,
-          type: 'deposit',
-          coin: row.symbol || 'Unknown',
-          coin_logo: row.logo_url || `/assets/upload/currency-logo/${(row.symbol || 'btc').toLowerCase()}.svg`,
-          chain_type: row.chain_name || 'Unknown',
-          quantity: row.amount,
-          address: row.from_address || '',  // sender address
-          txid: row.tx_hash || '',
-          status: row.status,
-          date_time: row.created_at,
-          confirmations: row.confirmations || 0,
-          requiredConfirmations: row.required_confirmations || 25
-        });
-      });
-
-      // 2. Get WITHDRAWALS
-      let withdrawQuery = `
-        SELECT 
-          w.id,
-          'withdraw' as type,
-          w.tx_hash,
-          w.to_address as address,
-          w.amount,
-          w.status,
-          w.created_at,
-          c.symbol,
-          c.name as currency_name,
-          c.logo_url,
-          b.chain_name
-        FROM withdrawals w
-        LEFT JOIN currencies c ON w.currency_id = c.id
-        LEFT JOIN blockchains b ON w.blockchain_id = b.id
-        WHERE w.user_id = $1
-      `;
-      const withdrawParams: any[] = [userId];
-      paramIndex = 2;
-
-      if (statusFilter && statusFilter !== 'all') {
-        withdrawQuery += ` AND LOWER(w.status) = $${paramIndex}`;
-        withdrawParams.push(statusFilter);
-        paramIndex++;
-      }
-      if (coinFilter && coinFilter !== 'ALL') {
-        withdrawQuery += ` AND UPPER(c.symbol) = $${paramIndex}`;
-        withdrawParams.push(coinFilter);
-      }
-
+      // 1. Get DEPOSITS (exclude zero amount; address = sender = from_address)
       try {
+        let depositQuery = `
+          SELECT 
+            d.id,
+            'deposit' as type,
+            d.tx_hash,
+            d.from_address,
+            d.to_address,
+            d.amount,
+            d.status,
+            d.confirmations,
+            d.required_confirmations,
+            d.created_at,
+            c.symbol,
+            c.name as currency_name,
+            c.logo_url,
+            b.chain_name
+          FROM deposits d
+          LEFT JOIN currencies c ON d.currency_id = c.id
+          LEFT JOIN blockchains b ON d.blockchain_id = b.id
+          WHERE d.user_id = $1 AND (d.amount IS NULL OR d.amount::numeric > 0)
+        `;
+        const depositParams: any[] = [userId];
+        let dpIdx = 2;
+        if (statusFilter && statusFilter !== 'all') {
+          depositQuery += ` AND LOWER(d.status) = $${dpIdx}`;
+          depositParams.push(statusFilter);
+          dpIdx++;
+        }
+        if (coinFilter && coinFilter !== 'ALL') {
+          depositQuery += ` AND UPPER(c.symbol) = $${dpIdx}`;
+          depositParams.push(coinFilter);
+        }
+        const depositsResult = await db.query(depositQuery, depositParams);
+        depositsResult.rows.forEach(row => {
+          allTransactions.push({
+            id: row.id,
+            type: 'deposit',
+            coin: row.symbol || 'Unknown',
+            coin_logo: row.logo_url || `/assets/upload/currency-logo/${(row.symbol || 'btc').toLowerCase()}.svg`,
+            chain_type: row.chain_name || 'Unknown',
+            quantity: row.amount,
+            address: row.from_address || '',
+            txid: row.tx_hash || '',
+            status: row.status,
+            date_time: row.created_at,
+            confirmations: row.confirmations || 0,
+            requiredConfirmations: row.required_confirmations || 25
+          });
+        });
+      } catch (e) {
+        logger.warn('Transactions/all: deposits query failed', { userId, error: e instanceof Error ? e.message : 'Unknown' });
+      }
+
+      // 2. Get WITHDRAWALS (try tokens/chains schema first; fallback to currencies/blockchains)
+      try {
+        // Withdrawals table in this app uses token_id, chain_id (tokens, chains)
+        const withdrawQueryTokens = `
+          SELECT 
+            w.id,
+            'withdraw' as type,
+            w.tx_hash,
+            w.to_address as address,
+            w.amount,
+            w.status,
+            w.created_at,
+            t.symbol,
+            t.name as currency_name,
+            t.icon_url as logo_url,
+            c.name as chain_name
+          FROM withdrawals w
+          LEFT JOIN tokens t ON w.token_id = t.id
+          LEFT JOIN chains c ON w.chain_id = c.id
+          WHERE w.user_id = $1
+        `;
+        const withdrawParams: any[] = [userId];
+        let wpIdx = 2;
+        let withdrawQuery = withdrawQueryTokens;
+        if (statusFilter && statusFilter !== 'all') {
+          withdrawQuery += ` AND LOWER(w.status) = $${wpIdx}`;
+          withdrawParams.push(statusFilter);
+          wpIdx++;
+        }
+        if (coinFilter && coinFilter !== 'ALL') {
+          withdrawQuery += ` AND UPPER(t.symbol) = $${wpIdx}`;
+          withdrawParams.push(coinFilter);
+        }
         const withdrawalsResult = await db.query(withdrawQuery, withdrawParams);
         withdrawalsResult.rows.forEach(row => {
           allTransactions.push({
@@ -1987,7 +2564,7 @@ export default async function walletRoutes(app: FastifyInstance) {
           });
         });
       } catch (e) {
-        // Withdrawals table may not exist
+        logger.warn('Transactions/all: withdrawals query failed', { userId, error: e instanceof Error ? e.message : 'Unknown' });
       }
 
       // 3. Get TRANSFERS

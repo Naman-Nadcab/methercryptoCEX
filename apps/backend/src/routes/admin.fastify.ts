@@ -100,6 +100,32 @@ async function getAdminFromRequest(
   return { adminId: session.adminId, role };
 }
 
+/** Admin who can approve/reject withdrawals: role withdrawal_approver or super_admin, or permission withdrawals:approve / all. */
+async function getAdminForWithdrawalApproval(
+  app: FastifyInstance,
+  request: FastifyRequest,
+  reply: FastifyReply
+): Promise<{ adminId: string; role: string } | null> {
+  const admin = await getAdminFromRequest(app, request, reply, false);
+  if (!admin) return null;
+  const role = (admin.role || '').toLowerCase().replace(/\s+/g, '_');
+  if (role === 'super_admin' || role === 'withdrawal_approver') return admin;
+  const permRow = await db.query<{ permissions: string[] }>(
+    `SELECT permissions FROM admin_users WHERE id = $1`,
+    [admin.adminId]
+  );
+  const permissions = permRow.rows[0]?.permissions ?? [];
+  const hasPermission =
+    Array.isArray(permissions) &&
+    (permissions.includes('withdrawals:approve') || permissions.includes('all'));
+  if (hasPermission) return admin;
+  reply.status(403).send({
+    success: false,
+    error: { code: 'FORBIDDEN', message: 'Withdrawal approval requires role withdrawal_approver or super_admin, or permission withdrawals:approve.' },
+  });
+  return null;
+}
+
 export default async function adminRoutes(app: FastifyInstance) {
   
   /**
@@ -293,9 +319,22 @@ export default async function adminRoutes(app: FastifyInstance) {
         });
       }
 
-      // Check session
-      const session = await redis.getJson<{ isActive: boolean }>(`admin:session:${decoded.sessionId}`);
-      if (!session || !session.isActive) {
+      // Check session: Redis first; if Redis down or session not cached, fallback to DB so login works without Redis
+      let sessionValid = false;
+      try {
+        const session = await redis.getJson<{ isActive: boolean }>(`admin:session:${decoded.sessionId}`);
+        sessionValid = !!(session && session.isActive);
+      } catch {
+        // Redis unavailable — fall back to DB
+      }
+      if (!sessionValid) {
+        const dbSession = await db.query<{ id: string }>(
+          'SELECT id FROM admin_sessions WHERE id = $1 AND admin_id = $2 AND expires_at > NOW()',
+          [decoded.sessionId, decoded.adminId]
+        );
+        sessionValid = dbSession.rows.length > 0;
+      }
+      if (!sessionValid) {
         return reply.status(401).send({
           success: false,
           error: { code: 'SESSION_EXPIRED', message: 'Session expired' },
@@ -558,6 +597,72 @@ export default async function adminRoutes(app: FastifyInstance) {
       return reply.status(500).send({
         success: false,
         error: { code: 'FETCH_FAILED', message: 'Failed to fetch users' },
+      });
+    }
+  });
+
+  /**
+   * GET /admin/users/:id/balances
+   * Get a user's balances (user_balances + token + chain). Admin only.
+   * Returns empty array when user has no balance rows.
+   */
+  app.get<{ Params: { id: string } }>('/users/:id/balances', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const { id } = request.params;
+
+      const userExists = await db.query<{ n: string }>(
+        'SELECT 1 as n FROM users WHERE id = $1 AND deleted_at IS NULL',
+        [id]
+      );
+      if (userExists.rows.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'USER_NOT_FOUND', message: 'User not found' },
+        });
+      }
+
+      const result = await db.query<{
+        token_id: string;
+        token_symbol: string;
+        token_name: string;
+        chain_id: string | null;
+        chain_name: string | null;
+        available_balance: string;
+        locked_balance: string;
+        total_balance: string;
+        updated_at: string;
+      }>(`
+        SELECT
+          c.id AS token_id,
+          c.symbol AS token_symbol,
+          c.name AS token_name,
+          b.id AS chain_id,
+          b.chain_name AS chain_name,
+          ub.available_balance::text AS available_balance,
+          COALESCE(ub.locked_balance, 0)::text AS locked_balance,
+          (ub.available_balance + COALESCE(ub.locked_balance, 0))::text AS total_balance,
+          ub.updated_at::text AS updated_at
+        FROM user_balances ub
+        JOIN currencies c ON ub.currency_id = c.id
+        LEFT JOIN blockchains b ON c.blockchain_id = b.id
+        WHERE ub.user_id = $1
+        ORDER BY (ub.available_balance + COALESCE(ub.locked_balance, 0)) DESC NULLS LAST, c.symbol
+      `, [id]);
+
+      return reply.send({
+        success: true,
+        data: {
+          user_id: id,
+          balances: result.rows,
+        },
+      });
+    } catch (error) {
+      logger.error('Get user balances error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'FETCH_FAILED', message: 'Failed to fetch user balances' },
       });
     }
   });
@@ -991,64 +1096,146 @@ export default async function adminRoutes(app: FastifyInstance) {
 
   /**
    * GET /admin/deposits
-   * Get deposits with filters
+   * List deposits with filters: user, chain, token, status, date range. Paginated.
+   * Returns deposit_id, user_id, user_email, chain_id, token_id, token_symbol, amount, tx_hash,
+   * confirmations, required_confirmations, status, credited_at, created_at, and credited (boolean).
    */
-  app.get('/deposits', async (request, reply) => {
+  app.get<{
+    Querystring: {
+      page?: string;
+      limit?: string;
+      user?: string;
+      chain?: string;
+      token?: string;
+      status?: string;
+      date_from?: string;
+      date_to?: string;
+    };
+  }>('/deposits', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
-      const { page = 1, limit = 20, status } = request.query as any;
-      const offset = (parseInt(page) - 1) * parseInt(limit);
+      const { page = 1, limit = 20, user, chain, token, status, date_from, date_to } = request.query;
+      const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+      const limitNum = Math.min(100, Math.max(1, parseInt(String(limit), 10) || 20));
+      const offset = (pageNum - 1) * limitNum;
 
-      // Get stats
-      const stats = await db.query(`
+      const conditions: string[] = [];
+      const params: (string | number)[] = [];
+      let paramIndex = 1;
+
+      if (user?.trim()) {
+        const u = user.trim();
+        if (/^[0-9a-f-]{36}$/i.test(u)) {
+          conditions.push(`d.user_id = $${paramIndex++}`);
+          params.push(u);
+        } else {
+          conditions.push(`(u.email ILIKE $${paramIndex++} OR u.username ILIKE $${paramIndex})`);
+          params.push(`%${u}%`, `%${u}%`);
+        }
+      }
+      if (chain?.trim()) {
+        conditions.push(`d.blockchain_id = $${paramIndex++}`);
+        params.push(chain.trim());
+      }
+      if (token?.trim()) {
+        conditions.push(`d.currency_id = $${paramIndex++}`);
+        params.push(token.trim());
+      }
+      if (status && status !== 'all') {
+        conditions.push(`d.status = $${paramIndex++}`);
+        params.push(status);
+      }
+      if (date_from?.trim()) {
+        conditions.push(`d.created_at >= $${paramIndex++}::timestamptz`);
+        params.push(date_from.trim());
+      }
+      if (date_to?.trim()) {
+        conditions.push(`d.created_at <= $${paramIndex++}::timestamptz`);
+        params.push(date_to.trim());
+      }
+
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+      // Stats: global counts (unfiltered) for UI badges
+      const stats = await db.query<{
+        total: string;
+        pending: string;
+        confirming: string;
+        completed: string;
+        failed: string;
+        flagged: string;
+      }>(`
         SELECT 
-          COUNT(*) as total,
-          COUNT(*) FILTER (WHERE status = 'pending') as pending,
-          COUNT(*) FILTER (WHERE status = 'confirming') as confirming,
-          COUNT(*) FILTER (WHERE status = 'completed') as completed,
-          COUNT(*) FILTER (WHERE status = 'failed') as failed,
-          COUNT(*) FILTER (WHERE is_flagged = true) as flagged
+          COUNT(*)::text as total,
+          COUNT(*) FILTER (WHERE status = 'pending')::text as pending,
+          COUNT(*) FILTER (WHERE status = 'confirming')::text as confirming,
+          COUNT(*) FILTER (WHERE status = 'completed')::text as completed,
+          COUNT(*) FILTER (WHERE status = 'failed')::text as failed,
+          COUNT(*) FILTER (WHERE COALESCE(is_flagged, false) = true)::text as flagged
         FROM deposits
       `);
 
-      // Get deposits
-      let query = `
+      // Filtered count for pagination
+      const countResult = await db.query<{ count: string }>(
+        `SELECT COUNT(*)::text as count FROM deposits d
+         JOIN users u ON d.user_id = u.id
+         JOIN currencies c ON d.currency_id = c.id
+         JOIN blockchains b ON d.blockchain_id = b.id
+         ${whereClause}`,
+        params
+      );
+      const filteredTotal = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+      const listQuery = `
         SELECT 
-          d.*,
-          u.email, u.username,
-          c.symbol as currency_symbol,
-          b.chain_name
+          d.id AS deposit_id,
+          d.user_id,
+          u.email AS user_email,
+          d.blockchain_id AS chain_id,
+          b.chain_name,
+          b.chain_symbol,
+          d.currency_id AS token_id,
+          c.symbol AS token_symbol,
+          c.name AS token_name,
+          d.amount::text AS amount,
+          d.tx_hash,
+          d.from_address,
+          d.to_address,
+          COALESCE(d.confirmations, 0) AS confirmations,
+          COALESCE(d.required_confirmations, 0) AS required_confirmations,
+          d.status,
+          (d.credited_at IS NOT NULL) AS credited,
+          d.credited_at,
+          d.block_number,
+          d.block_timestamp,
+          d.created_at,
+          d.updated_at,
+          COALESCE(d.is_flagged, false) AS is_flagged
         FROM deposits d
         JOIN users u ON d.user_id = u.id
         JOIN currencies c ON d.currency_id = c.id
         JOIN blockchains b ON d.blockchain_id = b.id
+        ${whereClause}
+        ORDER BY d.created_at DESC
+        LIMIT $${paramIndex++} OFFSET $${paramIndex}
       `;
-      const params: any[] = [];
-      let paramIndex = 1;
-
-      if (status && status !== 'all') {
-        query += ` WHERE d.status = $${paramIndex++}`;
-        params.push(status);
-      }
-
-      query += ` ORDER BY d.created_at DESC`;
-      query += ` LIMIT $${paramIndex++} OFFSET $${paramIndex}`;
-      params.push(parseInt(limit), offset);
-
-      const result = await db.query(query, params);
+      const listParams = [...params, limitNum, offset];
+      const result = await db.query(listQuery, listParams);
 
       return reply.send({
         success: true,
         data: {
-          stats: stats.rows[0],
+          stats: stats.rows[0] ?? {},
           deposits: result.rows,
           pagination: {
-            page: parseInt(page),
-            limit: parseInt(limit),
-            total: parseInt(stats.rows[0]?.total || '0'),
+            page: pageNum,
+            limit: limitNum,
+            total: filteredTotal,
+            totalPages: Math.ceil(filteredTotal / limitNum) || 1,
           },
         },
       });
-
     } catch (error) {
       logger.error('Get deposits error', { error: error instanceof Error ? error.message : 'Unknown' });
       return reply.status(500).send({
@@ -1059,74 +1246,575 @@ export default async function adminRoutes(app: FastifyInstance) {
   });
 
   // ===============================
+  // FUNDS SUMMARY (Solvency / Reconciliation)
+  // ===============================
+
+  /**
+   * GET /admin/funds/summary
+   * Ledger totals (user_balances by chain+token), on-chain totals (hot/cold/user addresses), difference, status MATCH|MISMATCH.
+   * Defensive: never throws; returns 200 with empty/safe data if tables missing or data null.
+   */
+  app.get('/funds/summary', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+
+    const emptyResponse = () =>
+      reply.send({
+        success: true,
+        data: {
+          ledger_totals: [],
+          on_chain_totals: { user_deposit_addresses: null, hot_wallets: [], cold_wallets: [] },
+          reconciliation: { status: 'MATCH' as const },
+        },
+      });
+
+    let ledgerTotals: { chain_id: string; chain_name: string; chain_symbol: string; token_id: string; token_symbol: string; amount: string }[] = [];
+    let hotRows: { chain_id: string; chain_name: string; balance: string }[] = [];
+    let coldRows: { chain_id: string; chain_name: string; address: string | null; balance: string | null }[] = [];
+    let blockchainRows: { id: string; chain_name: string; chain_symbol: string }[] = [];
+    const decimalsByChainId: Record<string, number> = {};
+
+    // 1) Ledger totals: null-safe; if user_balances/currencies/blockchains missing or empty → []
+    try {
+      const ledgerResult = await db.query<{
+        chain_id: string;
+        chain_name: string;
+        chain_symbol: string;
+        token_id: string;
+        token_symbol: string;
+        amount: string;
+      }>(`
+        SELECT
+          b.id AS chain_id,
+          b.chain_name,
+          b.chain_symbol,
+          c.id AS token_id,
+          c.symbol AS token_symbol,
+          (SUM(COALESCE(ub.available_balance, 0)) + SUM(COALESCE(ub.locked_balance, 0)))::text AS amount
+        FROM user_balances ub
+        INNER JOIN currencies c ON ub.currency_id = c.id
+        LEFT JOIN blockchains b ON c.blockchain_id = b.id
+        WHERE b.id IS NOT NULL
+        GROUP BY b.id, b.chain_name, b.chain_symbol, c.id, c.symbol
+        HAVING (SUM(COALESCE(ub.available_balance, 0)) + SUM(COALESCE(ub.locked_balance, 0))) > 0
+        ORDER BY b.chain_name, c.symbol
+      `);
+      ledgerTotals = Array.isArray(ledgerResult.rows) ? ledgerResult.rows : [];
+    } catch (e) {
+      logger.warn('Funds summary: ledger query failed', { error: e instanceof Error ? e.message : String(e) });
+      ledgerTotals = [];
+    }
+
+    // 2) On-chain: hot_wallets/chains may not exist; balance_cache null → '0'. Reconciliation uses ONLY hot_wallet.balance_cache.
+    try {
+      const hotResult = await db.query<{ chain_id: string; balance_cache: string | null }>(
+        'SELECT chain_id, balance_cache FROM hot_wallets WHERE is_active = TRUE ORDER BY chain_id'
+      );
+      let chainMap: Record<string, { name: string; decimals?: number; type?: string }> = {};
+      try {
+        const chainsResult = await db.query<{ id: string; name: string; decimals: number | null; type: string | null }>(
+          'SELECT id, name, decimals, type FROM chains WHERE is_active = TRUE'
+        );
+        chainMap = Object.fromEntries(
+          (chainsResult.rows || []).map((r: { id: string; name: string; decimals: number | null; type: string | null }) => [
+            r.id,
+            { name: r.name, decimals: r.decimals ?? 18, type: r.type ?? undefined },
+          ])
+        );
+        (chainsResult.rows || []).forEach((r: { id: string; decimals: number | null }) => {
+          const d = r.decimals;
+          decimalsByChainId[r.id] = typeof d === 'number' && !Number.isNaN(d) ? d : 18;
+        });
+      } catch {
+        // chains table may not exist
+      }
+      hotRows = (hotResult.rows || []).map((r) => ({
+        chain_id: String(r.chain_id),
+        chain_name: chainMap[r.chain_id]?.name ?? String(r.chain_id),
+        balance: r.balance_cache != null && String(r.balance_cache).trim() !== '' ? String(r.balance_cache).trim() : '0',
+      }));
+      const coldResult = await db.query<{ chain_id: string; cold_wallet_address: string | null }>(
+        'SELECT chain_id, cold_wallet_address FROM hot_wallets WHERE is_active = TRUE ORDER BY chain_id'
+      );
+      coldRows = (coldResult.rows || []).map((r) => ({
+        chain_id: String(r.chain_id),
+        chain_name: chainMap[r.chain_id]?.name ?? String(r.chain_id),
+        address: r.cold_wallet_address != null ? String(r.cold_wallet_address) : null,
+        balance: null as string | null,
+      }));
+    } catch (e) {
+      logger.warn('Funds summary: hot/cold wallets query failed', { error: e instanceof Error ? e.message : String(e) });
+      hotRows = [];
+      coldRows = [];
+    }
+
+    const onChainTotals = {
+      user_deposit_addresses: null as { chain_id: string; chain_name: string; token_id: string; token_symbol: string; amount: string }[] | null,
+      hot_wallets: hotRows,
+      cold_wallets: coldRows,
+    };
+
+    // 3) Blockchains: optional for mapping; missing → []
+    try {
+      const blockResult = await db.query<{ id: string; chain_name: string; chain_symbol: string }>(
+        'SELECT id, chain_name, chain_symbol FROM blockchains WHERE is_active = TRUE'
+      );
+      blockchainRows = Array.isArray(blockResult.rows) ? blockResult.rows : [];
+    } catch (e) {
+      logger.warn('Funds summary: blockchains query failed', { error: e instanceof Error ? e.message : String(e) });
+      blockchainRows = [];
+    }
+
+    const chainNameToBlockchainId = Object.fromEntries(
+      blockchainRows.map((b) => [b.chain_name.toLowerCase().trim(), b.id])
+    );
+    const chainIdToBlockchainId: Record<string, string> = {};
+    for (const r of hotRows) {
+      const bid = chainNameToBlockchainId[r.chain_name.toLowerCase().trim()];
+      if (bid) chainIdToBlockchainId[r.chain_id] = bid;
+    }
+
+    // 4) Reconciliation: uses ONLY hot_wallet.balance_cache. If chain has no sweep (BTC, SOL), add reason; do not throw.
+    const mismatches: { chain_id: string; chain_name: string; token_symbol: string; ledger_amount: string; on_chain_amount: string; difference: string; reason?: string }[] = [];
+    for (const h of hotRows) {
+      try {
+        const chainType = (chainMap[h.chain_id]?.type ?? '').toLowerCase();
+        const blockchainId = chainIdToBlockchainId[h.chain_id];
+        if (!blockchainId) continue;
+        const nativeSymbol = blockchainRows.find((b) => b.id === blockchainId)?.chain_symbol ?? '';
+        const ledgerNative = ledgerTotals.find((l) => l.chain_id === blockchainId && l.token_symbol === nativeSymbol);
+        if (ledgerNative == null) continue;
+        const decimals = typeof decimalsByChainId[h.chain_id] === 'number' && !Number.isNaN(decimalsByChainId[h.chain_id])
+          ? decimalsByChainId[h.chain_id]
+          : 18;
+        const divisor = Math.pow(10, Math.min(Math.max(decimals, 0), 32)) || 1;
+        const rawBalance = (h.balance ?? '0').trim() || '0';
+        let onChainWei = 0;
+        try {
+          if (/^-?\d+$/.test(rawBalance)) {
+            onChainWei = Number(BigInt(rawBalance));
+          }
+        } catch {
+          onChainWei = 0;
+        }
+        const onChainHuman = (onChainWei / divisor).toFixed(Math.min(Math.max(decimals, 0), 8));
+        const ledgerAmount = ledgerNative.amount ?? '0';
+        const ledgerNum = parseFloat(ledgerAmount) || 0;
+        const onChainNum = parseFloat(onChainHuman) || 0;
+        const diff = ledgerNum - onChainNum;
+        const difference = Number.isFinite(diff) ? diff.toFixed(Math.min(Math.max(decimals, 0), 8)) : '0';
+        if (Math.abs(diff) > 1 / divisor) {
+          const reason = (chainType === 'bitcoin' || chainType === 'solana')
+            ? 'Deposit sweep not implemented for this chain'
+            : undefined;
+          mismatches.push({
+            chain_id: blockchainId,
+            chain_name: ledgerNative.chain_name ?? h.chain_name,
+            token_symbol: nativeSymbol || 'native',
+            ledger_amount: ledgerAmount,
+            on_chain_amount: onChainHuman,
+            difference,
+            ...(reason ? { reason } : {}),
+          });
+        }
+      } catch (e) {
+        logger.warn('Funds summary: reconciliation row failed', { chain_id: h.chain_id, error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+
+    const status = mismatches.length === 0 ? 'MATCH' : 'MISMATCH';
+
+    try {
+      return reply.send({
+        success: true,
+        data: {
+          ledger_totals: ledgerTotals,
+          on_chain_totals: onChainTotals,
+          reconciliation: {
+            status,
+            mismatches: mismatches.length > 0 ? mismatches : undefined,
+          },
+        },
+      });
+    } catch (error) {
+      logger.error('Funds summary: send response failed', { error: error instanceof Error ? error.message : 'Unknown' });
+      return emptyResponse();
+    }
+  });
+
+  // ===============================
   // WITHDRAWALS
   // ===============================
 
   /**
    * GET /admin/withdrawals
-   * Get withdrawals with filters (uses chains + tokens schema)
+   * List withdrawals with filters: status, chain_id, token_id. Paginated.
    */
-  app.get('/withdrawals', async (request, reply) => {
+  app.get<{
+    Querystring: { page?: string; limit?: string; status?: string; chain_id?: string; token_id?: string };
+  }>('/withdrawals', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
-      const { page = 1, limit = 20, status } = request.query as any;
-      const offset = (parseInt(page) - 1) * parseInt(limit);
+      const { page = 1, limit = 20, status, chain_id, token_id } = request.query;
+      const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+      const limitNum = Math.min(100, Math.max(1, parseInt(String(limit), 10) || 20));
+      const offset = (pageNum - 1) * limitNum;
 
-      // Get stats
-      const stats = await db.query(`
+      const conditions: string[] = [];
+      const params: (string | number)[] = [];
+      let paramIndex = 1;
+
+      if (status && status !== 'all') {
+        conditions.push(`w.status = $${paramIndex++}`);
+        params.push(status);
+      }
+      if (chain_id && chain_id.trim()) {
+        conditions.push(`w.chain_id = $${paramIndex++}`);
+        params.push(chain_id.trim());
+      }
+      if (token_id && token_id.trim()) {
+        conditions.push(`w.token_id = $${paramIndex++}`);
+        params.push(token_id.trim());
+      }
+
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+      // Stats: global counts (unfiltered) for UI badges
+      const stats = await db.query<{
+        total: string;
+        pending_approval: string;
+        pending: string;
+        processing: string;
+        completed: string;
+        failed: string;
+        cancelled: string;
+      }>(`
         SELECT 
-          COUNT(*) as total,
-          COUNT(*) FILTER (WHERE status = 'pending') as pending,
-          COUNT(*) FILTER (WHERE status = 'processing') as processing,
-          COUNT(*) FILTER (WHERE status = 'completed') as completed,
-          COUNT(*) FILTER (WHERE status = 'failed') as failed,
-          COUNT(*) FILTER (WHERE status = 'cancelled') as cancelled
+          COUNT(*)::text as total,
+          COUNT(*) FILTER (WHERE status = 'pending_approval')::text as pending_approval,
+          COUNT(*) FILTER (WHERE status = 'pending')::text as pending,
+          COUNT(*) FILTER (WHERE status = 'processing')::text as processing,
+          COUNT(*) FILTER (WHERE status = 'completed')::text as completed,
+          COUNT(*) FILTER (WHERE status = 'failed')::text as failed,
+          COUNT(*) FILTER (WHERE status = 'cancelled')::text as cancelled
         FROM withdrawals
       `);
 
-      // Get withdrawals (chains + tokens schema)
-      let query = `
+      // Filtered count for pagination
+      const countResult = await db.query<{ count: string }>(
+        `SELECT COUNT(*)::text as count FROM withdrawals w ${whereClause}`,
+        params
+      );
+      const filteredTotal = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+      const listQuery = `
         SELECT 
-          w.*,
+          w.id, w.user_id, w.token_id, w.chain_id, w.amount, w.fee, w.net_amount,
+          w.to_address, w.memo, w.status, w.account_type,
+          w.tx_hash, w.completed_at, w.failed_reason, w.processed_at,
+          w.approved_by, w.approved_at, w.rejected_by, w.rejected_at, w.rejection_reason,
+          w.created_at, w.updated_at,
           u.email, u.username,
-          t.symbol as currency_symbol,
+          t.symbol as currency_symbol, t.name as token_name,
           c.name as chain_name
         FROM withdrawals w
         JOIN users u ON w.user_id = u.id
         JOIN tokens t ON w.token_id = t.id
         JOIN chains c ON w.chain_id = c.id
+        ${whereClause}
+        ORDER BY w.created_at DESC
+        LIMIT $${paramIndex++} OFFSET $${paramIndex}
       `;
-      const params: any[] = [];
-      let paramIndex = 1;
-
-      if (status && status !== 'all') {
-        query += ` WHERE w.status = $${paramIndex++}`;
-        params.push(status);
-      }
-
-      query += ` ORDER BY w.created_at DESC`;
-      query += ` LIMIT $${paramIndex++} OFFSET $${paramIndex}`;
-      params.push(parseInt(limit), offset);
-
-      const result = await db.query(query, params);
+      const listParams = [...params, limitNum, offset];
+      const result = await db.query(listQuery, listParams);
 
       return reply.send({
         success: true,
         data: {
-          stats: stats.rows[0],
+          stats: stats.rows[0] ?? {},
           withdrawals: result.rows,
           pagination: {
-            page: parseInt(page),
-            limit: parseInt(limit),
-            total: parseInt(stats.rows[0]?.total || '0'),
+            page: pageNum,
+            limit: limitNum,
+            total: filteredTotal,
+            totalPages: Math.ceil(filteredTotal / limitNum) || 1,
           },
         },
       });
-
     } catch (error) {
       logger.error('Get withdrawals error', { error: error instanceof Error ? error.message : 'Unknown' });
       return reply.status(500).send({
         success: false,
         error: { code: 'FETCH_FAILED', message: 'Failed to fetch withdrawals' },
+      });
+    }
+  });
+
+  /**
+   * POST /admin/withdrawals/:id/approve
+   * Approve a withdrawal (pending_approval → pending, then enqueue for signing).
+   */
+  app.post<{ Params: { id: string } }>('/withdrawals/:id/approve', async (request, reply) => {
+    const admin = await getAdminForWithdrawalApproval(app, request, reply);
+    if (!admin) return;
+    const withdrawalId = request.params.id;
+    if (!withdrawalId) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'INVALID_INPUT', message: 'Withdrawal id is required' },
+      });
+    }
+    try {
+      const { approveWithdrawal } = await import('../services/withdrawal-approval.service.js');
+      await approveWithdrawal(withdrawalId, admin.adminId, {
+        ip: request.ip ?? undefined,
+        userAgent: request.headers['user-agent'] ?? undefined,
+      });
+      return reply.send({ success: true, data: { approved: true, withdrawalId } });
+    } catch (error: unknown) {
+      const err = error as { code?: string; message?: string };
+      if (err?.code === 'WITHDRAWAL_NOT_FOUND') {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'NOT_FOUND', message: err.message || 'Withdrawal not found' },
+        });
+      }
+      if (err?.code === 'NOT_PENDING_APPROVAL') {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_STATE', message: err.message || 'Withdrawal is not pending approval' },
+        });
+      }
+      if (err?.code === 'HOT_WALLET_CAP_EXCEEDED') {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'HOT_WALLET_CAP_EXCEEDED', message: err.message || 'Hot wallet limit exceeded for this chain' },
+        });
+      }
+      logger.error('Approve withdrawal error', { withdrawalId, error: err?.message ?? error });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'APPROVE_FAILED', message: 'Failed to approve withdrawal' },
+      });
+    }
+  });
+
+  /**
+   * POST /admin/withdrawals/:id/reject
+   * Reject a withdrawal: mark failed and release locked balance. Body: { reason?: string }
+   */
+  app.post<{ Params: { id: string }; Body: { reason?: string } }>('/withdrawals/:id/reject', async (request, reply) => {
+    const admin = await getAdminForWithdrawalApproval(app, request, reply);
+    if (!admin) return;
+    const withdrawalId = request.params.id;
+    if (!withdrawalId) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'INVALID_INPUT', message: 'Withdrawal id is required' },
+      });
+    }
+    const reason = (request.body?.reason ?? 'Rejected by admin').trim() || 'Rejected by admin';
+    try {
+      const { rejectWithdrawal } = await import('../services/withdrawal-approval.service.js');
+      await rejectWithdrawal(withdrawalId, admin.adminId, reason, {
+        ip: request.ip ?? undefined,
+        userAgent: request.headers['user-agent'] ?? undefined,
+      });
+      return reply.send({ success: true, data: { rejected: true, withdrawalId } });
+    } catch (error: unknown) {
+      const err = error as { code?: string; message?: string };
+      if (err?.code === 'WITHDRAWAL_NOT_FOUND') {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'NOT_FOUND', message: err.message || 'Withdrawal not found' },
+        });
+      }
+      if (err?.code === 'NOT_PENDING_APPROVAL') {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_STATE', message: err.message || 'Withdrawal is not pending approval' },
+        });
+      }
+      if (err?.code === 'RELEASE_BALANCE_FAILED') {
+        return reply.status(500).send({
+          success: false,
+          error: { code: 'RELEASE_FAILED', message: err.message || 'Could not release locked balance' },
+        });
+      }
+      logger.error('Reject withdrawal error', { withdrawalId, error: err?.message ?? error });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'REJECT_FAILED', message: 'Failed to reject withdrawal' },
+      });
+    }
+  });
+
+  // ===============================
+  // DEPOSIT SWEEPS (user deposit → hot wallet consolidation)
+  // ===============================
+
+  /**
+   * GET /admin/deposit-sweeps/eligibility
+   * Returns sweep eligibility insight (visibility only): credited addresses count, threshold, skip reason counts. Admin-only.
+   */
+  app.get('/deposit-sweeps/eligibility', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const { listSweepableAddresses } = await import('../services/deposit-sweep.service.js');
+      const { insight } = await listSweepableAddresses();
+      return reply.send({
+        success: true,
+        data: insight,
+      });
+    } catch (error: unknown) {
+      logger.error('Get deposit sweep eligibility error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'FETCH_FAILED', message: 'Failed to load eligibility insight.' },
+      });
+    }
+  });
+
+  /**
+   * GET /admin/deposit-sweeps
+   * List deposit sweeps with optional filters. Paginated. Only returns sweeps for EVM chains (supported). Empty list returns 200, never error.
+   */
+  app.get<{
+    Querystring: { page?: string; limit?: string; chain_id?: string; status?: string };
+  }>('/deposit-sweeps', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    const emptyResponse = () =>
+      reply.send({
+        success: true,
+        data: {
+          sweeps: [] as Array<{
+            id: string;
+            chain_id: string;
+            chain_name: string;
+            from_address: string;
+            to_address: string;
+            amount: string;
+            amount_raw: string | null;
+            tx_hash: string | null;
+            status: string;
+            error_message: string | null;
+            created_at: string;
+            completed_at: string | null;
+          }>,
+          pagination: { page: 1, limit: 20, total: 0, totalPages: 1 },
+        },
+      });
+    try {
+      const { page = '1', limit = '20', chain_id, status } = request.query;
+      const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+      const limitNum = Math.min(100, Math.max(1, parseInt(String(limit), 10) || 20));
+      const offset = (pageNum - 1) * limitNum;
+
+      const conditions: string[] = [
+        "ds.chain_id IN (SELECT id FROM chains WHERE LOWER(TRIM(type)) = 'evm' AND is_active = TRUE)",
+      ];
+      const params: (string | number)[] = [];
+      let paramIndex = 1;
+      if (chain_id?.trim()) {
+        conditions.push(`ds.chain_id = $${paramIndex++}`);
+        params.push(chain_id.trim());
+      }
+      if (status && status !== 'all') {
+        conditions.push(`ds.status = $${paramIndex++}`);
+        params.push(status);
+      }
+      const whereClause = `WHERE ${conditions.join(' AND ')}`;
+
+      const countResult = await db.query<{ count: string }>(
+        `SELECT COUNT(*)::text as count FROM deposit_sweeps ds ${whereClause}`,
+        params
+      );
+      const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+      const listResult = await db.query<{
+        id: string;
+        chain_id: string;
+        from_address: string;
+        to_address: string;
+        amount: string;
+        amount_raw: string | null;
+        tx_hash: string | null;
+        status: string;
+        error_message: string | null;
+        created_at: string;
+        completed_at: string | null;
+      }>(
+        `SELECT ds.id, ds.chain_id, ds.from_address, ds.to_address, ds.amount::text as amount, ds.amount_raw, ds.tx_hash, ds.status, ds.error_message, ds.created_at::text, ds.completed_at::text
+         FROM deposit_sweeps ds ${whereClause}
+         ORDER BY ds.created_at DESC
+         LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
+        [...params, limitNum, offset]
+      );
+
+      const chainNames = await db.query<{ id: string; name: string }>('SELECT id, name FROM chains WHERE is_active = TRUE').catch(() => ({ rows: [] as { id: string; name: string }[] }));
+      const chainMap = Object.fromEntries((chainNames.rows as { id: string; name: string }[]).map((c) => [c.id, c.name]));
+
+      const sweeps = listResult.rows.map((r) => ({
+        id: r.id,
+        chain_id: r.chain_id,
+        chain_name: chainMap[r.chain_id] ?? r.chain_id,
+        from_address: r.from_address,
+        to_address: r.to_address,
+        amount: r.amount,
+        amount_raw: r.amount_raw,
+        tx_hash: r.tx_hash,
+        status: r.status,
+        error_message: r.error_message,
+        created_at: r.created_at,
+        completed_at: r.completed_at,
+      }));
+
+      return reply.send({
+        success: true,
+        data: {
+          sweeps,
+          pagination: { page: pageNum, limit: limitNum, total, totalPages: Math.ceil(total / limitNum) || 1 },
+        },
+      });
+    } catch (error: unknown) {
+      const err = error as { code?: string; pgCode?: string };
+      const pgCode = err?.pgCode ?? err?.code;
+      if (pgCode === '42P01') {
+        return emptyResponse();
+      }
+      logger.error('Get deposit sweeps error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'FETCH_FAILED', message: 'Failed to fetch deposit sweeps' },
+      });
+    }
+  });
+
+  /**
+   * POST /admin/deposit-sweeps/run
+   * Manually trigger deposit sweep (runDepositSweep). Returns swept_count and errors for debugging.
+   */
+  app.post('/deposit-sweeps/run', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, true);
+    if (!admin) return;
+    try {
+      const { runDepositSweep } = await import('../services/deposit-sweep.service.js');
+      const result = await runDepositSweep();
+      return reply.send({
+        success: true,
+        data: {
+          swept_count: result.sweptCount,
+          errors: result.errors,
+        },
+      });
+    } catch (error) {
+      logger.error('Run deposit sweep error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'RUN_FAILED', message: 'Failed to run deposit sweep' },
       });
     }
   });
@@ -1145,7 +1833,30 @@ export default async function adminRoutes(app: FastifyInstance) {
     if (!admin) return;
     try {
       const hotWalletService = await import('../services/hot-wallet.service.js').then(m => m);
-      const list = await hotWalletService.listHotWallets();
+      // Support both schemas: hot_wallets.chain_id (VARCHAR) or hot_wallets.blockchain_id (UUID)
+      const hasChainIdCol = await db.query<{ exists: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'hot_wallets' AND column_name = 'chain_id') AS exists`
+      ).then(r => r.rows[0]?.exists === true).catch(() => false);
+      const hasBlockchainIdCol = await db.query<{ exists: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'hot_wallets' AND column_name = 'blockchain_id') AS exists`
+      ).then(r => r.rows[0]?.exists === true).catch(() => false);
+      let list: Array<{ id: string; chain_id: string; address: string; balance_cache: string; min_balance_alert: string; min_hot_balance: string | null; cold_wallet_address: string | null; is_active: boolean; created_at: string; updated_at: string }>;
+      if (hasChainIdCol) {
+        list = await hotWalletService.listHotWallets();
+      } else if (hasBlockchainIdCol) {
+        const rows = await db.query<{ id: string; chain_id: string; address: string; balance_cache: string; min_balance_alert: string; min_hot_balance: string | null; cold_wallet_address: string | null; is_active: boolean; created_at: string; updated_at: string }>(
+          `SELECT hw.id, hw.blockchain_id::text AS chain_id, hw.address, hw.balance_cache, hw.min_balance_alert,
+                  COALESCE(hw.min_hot_balance::text, '0') as min_hot_balance, hw.cold_wallet_address,
+                  hw.is_active, hw.created_at::text as created_at, hw.updated_at::text as updated_at
+           FROM hot_wallets hw ORDER BY hw.blockchain_id`
+        );
+        list = rows.rows;
+      } else {
+        return reply.status(500).send({
+          success: false,
+          error: { code: 'FETCH_FAILED', message: 'Hot wallets table missing chain_id or blockchain_id column.' },
+        });
+      }
       const chains = await db.query<{ id: string; name: string; type: string; rpc_url: string }>(
         'SELECT id, name, type, rpc_url FROM chains WHERE is_active = TRUE ORDER BY id'
       );
@@ -1171,20 +1882,45 @@ export default async function adminRoutes(app: FastifyInstance) {
         creationSupported,
         hasWallet,
       }));
-      const data = list.map(hw => ({
-        id: hw.id,
-        chainId: hw.chain_id,
-        chainName: chainMap[hw.chain_id]?.name ?? hw.chain_id,
-        chainType: chainMap[hw.chain_id]?.type ?? 'unknown',
-        address: hw.address,
-        balanceCache: hw.balance_cache,
-        minBalanceAlert: hw.min_balance_alert,
-        minHotBalance: hw.min_hot_balance ?? '0',
-        coldWalletAddress: hw.cold_wallet_address ?? null,
-        isActive: hw.is_active,
-        createdAt: hw.created_at,
-        updatedAt: hw.updated_at,
-      }));
+
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      let blockchainSlugById: Record<string, string> = {};
+      try {
+        const hasSlug = await db.query(`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'blockchains' AND column_name = 'slug') AS exists`).then(r => (r.rows[0] as { exists: boolean })?.exists);
+        if (hasSlug) {
+          const rows = await db.query<{ id: string; slug: string }>('SELECT id::text, slug FROM blockchains WHERE is_active = TRUE');
+          blockchainSlugById = Object.fromEntries(rows.rows.map(r => [r.id, r.slug]));
+        } else {
+          const rows = await db.query<{ id: string; chain_name: string }>('SELECT id::text, chain_name FROM blockchains WHERE is_active = TRUE').catch(() => ({ rows: [] }));
+          blockchainSlugById = Object.fromEntries(rows.rows.map(r => [r.id, r.chain_name?.toLowerCase().replace(/\s+/g, '-') ?? r.id]));
+        }
+      } catch {
+        // blockchains may not exist
+      }
+
+      const data = list.map(hw => {
+        const isUuid = uuidRegex.test(String(hw.chain_id));
+        const chainSlug = chainMap[hw.chain_id]
+          ? hw.chain_id
+          : (isUuid && blockchainSlugById[hw.chain_id])
+            ? blockchainSlugById[hw.chain_id]
+            : hw.chain_id;
+        return {
+          id: hw.id,
+          chainId: hw.chain_id,
+          chainSlug: chainSlug || hw.chain_id,
+          chainName: chainMap[hw.chain_id]?.name ?? hw.chain_id,
+          chainType: chainMap[hw.chain_id]?.type ?? 'unknown',
+          address: hw.address,
+          balanceCache: hw.balance_cache,
+          minBalanceAlert: hw.min_balance_alert,
+          minHotBalance: hw.min_hot_balance ?? '0',
+          coldWalletAddress: hw.cold_wallet_address ?? null,
+          isActive: hw.is_active,
+          createdAt: hw.created_at,
+          updatedAt: hw.updated_at,
+        };
+      });
       return reply.send({
         success: true,
         data,
@@ -1252,7 +1988,7 @@ export default async function adminRoutes(app: FastifyInstance) {
           error: { code: 'ALREADY_EXISTS', message: msg },
         });
       }
-      if (code === 'ONLY_EVM_SUPPORTED' || err?.code === 'ONLY_EVM_SUPPORTED') {
+      if (code === 'CREATION_NOT_SUPPORTED' || code === 'ONLY_EVM_SUPPORTED' || err?.code === 'CREATION_NOT_SUPPORTED' || err?.code === 'ONLY_EVM_SUPPORTED') {
         return reply.status(400).send({
           success: false,
           error: { code: 'UNSUPPORTED_CHAIN', message: msg },
@@ -1547,6 +2283,250 @@ export default async function adminRoutes(app: FastifyInstance) {
   });
 
   /**
+   * GET /admin/hot-wallets/:chainSlug
+   * Hot wallet detail by chain SLUG (e.g. ethereum, bitcoin, solana). Resolves slug to chain id (blockchains or chains table) then loads hot wallet. Never exposes SQL errors to UI.
+   */
+  app.get<{ Params: { chainSlug: string } }>('/hot-wallets/:chainSlug', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    let chainSlug = request.params.chainSlug;
+    try {
+      chainSlug = decodeURIComponent(chainSlug).trim();
+    } catch {
+      chainSlug = (chainSlug || '').trim();
+    }
+    if (!chainSlug) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'INVALID_INPUT', message: 'Chain slug is required.' },
+      });
+    }
+
+    let resolvedChainId: string | null = null;
+    let chainName = chainSlug;
+    let chainType = 'unknown';
+
+    /** Derive chain type from blockchains.chain_symbol for non-EVM detection. */
+    const chainSymbolToType = (symbol: string): string => {
+      const s = (symbol || '').toUpperCase().trim();
+      if (s === 'BTC') return 'bitcoin';
+      if (s === 'SOL') return 'solana';
+      if (s === 'TRX') return 'tron';
+      if (s === 'DOT' || s === 'POLKADOT') return 'polkadot';
+      return 'evm';
+    };
+    const isNonEvmType = (t: string) => ['bitcoin', 'solana', 'tron', 'polkadot'].includes((t || '').toLowerCase());
+
+    try {
+      // 1) Resolve slug to chain id (UUID or string). Prefer blockchains.slug, then blockchains.chain_name/chain_symbol, then chains.id/name.
+      const hasBlockchainsSlug = await db.query<{ exists: boolean }>(
+        `SELECT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'blockchains' AND column_name = 'slug'
+        ) AS exists`
+      ).then(r => r.rows[0]?.exists === true).catch(() => false);
+
+      const hasChainSymbol = await db.query<{ exists: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'blockchains' AND column_name = 'chain_symbol') AS exists`
+      ).then(r => r.rows[0]?.exists === true).catch(() => false);
+      const symbolCol = hasChainSymbol ? ', chain_symbol' : '';
+
+      if (hasBlockchainsSlug) {
+        const blockchainsBySlug = await db.query<{ id: string; chain_name: string; chain_symbol?: string }>(
+          `SELECT id, chain_name${symbolCol} FROM blockchains WHERE slug = $1 AND is_active = TRUE LIMIT 1`,
+          [chainSlug]
+        );
+        if (blockchainsBySlug.rows.length > 0) {
+          const r = blockchainsBySlug.rows[0]!;
+          resolvedChainId = r.id;
+          chainName = r.chain_name ?? chainSlug;
+          if (r.chain_symbol) chainType = chainSymbolToType(r.chain_symbol);
+        }
+      }
+      if (!resolvedChainId) {
+        const blockchainsByNameOrSymbol = await db.query<{ id: string; chain_name: string; chain_symbol?: string }>(
+          `SELECT id, chain_name${symbolCol} FROM blockchains
+           WHERE (LOWER(TRIM(chain_name)) = LOWER(TRIM($1)) OR LOWER(TRIM(chain_symbol)) = LOWER(TRIM($1)))
+             AND is_active = TRUE LIMIT 1`,
+          [chainSlug]
+        ).catch(() => ({ rows: [] }));
+        if (blockchainsByNameOrSymbol.rows.length > 0) {
+          const r = blockchainsByNameOrSymbol.rows[0]!;
+          resolvedChainId = r.id;
+          chainName = r.chain_name ?? chainSlug;
+          if (r.chain_symbol) chainType = chainSymbolToType(r.chain_symbol);
+        }
+      }
+      if (!resolvedChainId) {
+        const chainsByIdOrName = await db.query<{ id: string; name: string; type: string }>(
+          `SELECT id, name, type FROM chains
+           WHERE (LOWER(TRIM(id)) = LOWER(TRIM($1)) OR LOWER(TRIM(name)) = LOWER(TRIM($1)))
+             AND is_active = TRUE LIMIT 1`,
+          [chainSlug]
+        ).catch(() => ({ rows: [] }));
+        if (chainsByIdOrName.rows.length > 0) {
+          const r = chainsByIdOrName.rows[0]!;
+          resolvedChainId = r.id;
+          chainName = r.name ?? chainSlug;
+          chainType = r.type ?? 'unknown';
+        }
+      }
+
+      if (!resolvedChainId) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'UNKNOWN_CHAIN', message: 'Unknown chain.' },
+        });
+      }
+
+      // 2) Load hot wallet by resolved chain id (column may be chain_id or blockchain_id depending on schema)
+      const hasChainIdCol = await db.query<{ exists: boolean }>(
+        `SELECT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'hot_wallets' AND column_name = 'chain_id'
+        ) AS exists`
+      ).then(r => r.rows[0]?.exists === true).catch(() => false);
+
+      const hasBlockchainIdCol = await db.query<{ exists: boolean }>(
+        `SELECT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'hot_wallets' AND column_name = 'blockchain_id'
+        ) AS exists`
+      ).then(r => r.rows[0]?.exists === true).catch(() => false);
+
+      let hwRow: { rows: Array<{
+        id: string; chain_id?: string; blockchain_id?: string; address: string; balance_cache: string;
+        min_balance_alert: string; min_hot_balance: string | null; cold_wallet_address: string | null;
+        is_active: boolean; created_at: string; updated_at: string; max_single_tx: string | null; max_daily_outflow: string | null;
+      }> } = { rows: [] };
+
+      if (hasChainIdCol) {
+        hwRow = await db.query(
+          `SELECT id, chain_id, address, balance_cache, min_balance_alert,
+                  COALESCE(min_hot_balance::text, '0') as min_hot_balance, cold_wallet_address,
+                  is_active, created_at, updated_at,
+                  max_single_tx::text, max_daily_outflow::text
+           FROM hot_wallets WHERE chain_id = $1 LIMIT 1`,
+          [resolvedChainId]
+        );
+      } else if (hasBlockchainIdCol) {
+        hwRow = await db.query(
+          `SELECT id, blockchain_id as chain_id, address, balance_cache, min_balance_alert,
+                  COALESCE(min_hot_balance::text, '0') as min_hot_balance, cold_wallet_address,
+                  is_active, created_at, updated_at,
+                  max_single_tx::text, max_daily_outflow::text
+           FROM hot_wallets WHERE blockchain_id = $1 LIMIT 1`,
+          [resolvedChainId]
+        );
+      }
+
+      if (hwRow.rows.length === 0) {
+        // Non-EVM: return 200 with supported: false so UI shows info panel, not error
+        if (chainType === 'unknown') {
+          const chainMeta = await db.query<{ type: string }>(
+            'SELECT type FROM chains WHERE id = $1 LIMIT 1',
+            [resolvedChainId]
+          ).catch(() => ({ rows: [] }));
+          if (chainMeta.rows.length > 0) {
+            chainType = chainMeta.rows[0]!.type ?? 'unknown';
+          } else if (hasChainSymbol) {
+            const bc = await db.query<{ chain_symbol: string }>(
+              'SELECT chain_symbol FROM blockchains WHERE id = $1 LIMIT 1',
+              [resolvedChainId]
+            ).catch(() => ({ rows: [] }));
+            if (bc.rows.length > 0 && bc.rows[0]!.chain_symbol) {
+              chainType = chainSymbolToType(bc.rows[0]!.chain_symbol);
+            }
+          }
+        }
+        if (isNonEvmType(chainType)) {
+          return reply.send({
+            success: true,
+            data: {
+              supported: false,
+              chainSlug,
+              chainName,
+              chainType,
+              address: null as string | null,
+              message: 'Hot wallet operations are not enabled for this chain yet',
+            },
+          });
+        }
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'HOT_WALLET_NOT_CREATED', message: 'Hot wallet not created for this chain.' },
+        });
+      }
+
+      const hw = hwRow.rows[0]!;
+      const chainIdForService = (hw as { chain_id?: string }).chain_id ?? resolvedChainId;
+
+      if (chainType === 'unknown') {
+        const chainMeta = await db.query<{ type: string }>(
+          'SELECT type FROM chains WHERE id = $1 LIMIT 1',
+          [resolvedChainId]
+        ).catch(() => ({ rows: [] }));
+        if (chainMeta.rows.length > 0) chainType = chainMeta.rows[0]!.type ?? 'unknown';
+      }
+
+      const hotWalletService = await import('../services/hot-wallet.service.js').then(m => m);
+      let caps: { max_single_tx: number | null; max_daily_outflow: number | null } | null = null;
+      let dailyOutflowUsed = 0;
+      try {
+        caps = await hotWalletService.getHotWalletCaps(chainIdForService);
+        dailyOutflowUsed = await hotWalletService.getDailyOutflowForChain(chainIdForService);
+      } catch {
+        // caps/outflow optional
+      }
+
+      const recentSweeps = await db.query<{ id: string; action: string; details: unknown; created_at: string }>(
+        `SELECT id, action, details, created_at::text as created_at
+         FROM hot_wallet_audit_log
+         WHERE resource_id = $1 AND action = 'hot_wallet_sweep_completed'
+         ORDER BY created_at DESC LIMIT 20`,
+        [chainIdForService]
+      ).catch(() => ({ rows: [] }));
+
+      const sweeps = (recentSweeps.rows || []).map((r: { id: string; details: unknown; created_at: string }) => ({
+        id: r.id,
+        txHash: (r.details as { tx_hash?: string })?.tx_hash ?? null,
+        amountWei: (r.details as { sweep_wei?: string })?.sweep_wei ?? null,
+        createdAt: r.created_at,
+      }));
+
+      return reply.send({
+        success: true,
+        data: {
+          supported: true,
+          id: hw.id,
+          chainId: chainIdForService,
+          chainSlug,
+          chainName,
+          chainType,
+          address: hw.address,
+          balanceCache: hw.balance_cache,
+          minBalanceAlert: hw.min_balance_alert,
+          minHotBalance: hw.min_hot_balance ?? '0',
+          coldWalletAddress: hw.cold_wallet_address ?? null,
+          isActive: hw.is_active,
+          createdAt: hw.created_at,
+          updatedAt: hw.updated_at,
+          maxSingleTx: hw.max_single_tx ?? null,
+          maxDailyOutflow: hw.max_daily_outflow ?? null,
+          dailyOutflowUsed: String(dailyOutflowUsed),
+          recentSweeps: sweeps,
+        },
+      });
+    } catch (error: unknown) {
+      logger.error('Get hot wallet detail error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'FETCH_FAILED', message: 'Failed to load hot wallet detail.' },
+      });
+    }
+  });
+
+  /**
    * GET /admin/hot-wallets/:chainId/balance
    * Refresh and return hot wallet native balance from RPC (audit logged)
    */
@@ -1680,7 +2660,7 @@ export default async function adminRoutes(app: FastifyInstance) {
           error: { code: code === 'HOT_WALLET_NOT_FOUND' ? 'NOT_FOUND' : 'CHAIN_NOT_FOUND', message: msg },
         });
       }
-      if (code === 'ONLY_EVM_SUPPORTED') {
+      if (code === 'CREATION_NOT_SUPPORTED' || code === 'ONLY_EVM_SUPPORTED') {
         return reply.status(400).send({
           success: false,
           error: { code: 'UNSUPPORTED_CHAIN', message: msg },

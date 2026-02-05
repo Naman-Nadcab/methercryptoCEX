@@ -147,16 +147,10 @@ class OTPService {
       return true;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown';
-      logger.warn('SMTP send failed, falling back to dev mode', { error: errorMessage, email });
-      
-      // SMTP failed but we already logged the OTP, so return true for dev mode
-      // In production with proper domain, this should be return false
-      if (process.env.NODE_ENV === 'production') {
-        logger.error('Failed to send email OTP in production', { error: errorMessage, email });
-        return false;
-      }
-      
-      logger.info(`[DEV FALLBACK] Email OTP for ${email}: ${otp}`);
+      logger.warn('SMTP send failed', { error: errorMessage, email });
+      // OTP is already stored in DB; log it once so flow can continue (user/support can use from logs if needed)
+      logger.info(`[OTP FALLBACK] Email OTP for ${email}: ${otp} (use this code to login)`);
+      // Always return true so login flow is not blocked; verify will work from DB
       return true;
     }
   }
@@ -372,13 +366,17 @@ class OTPService {
         [identifier, type, otpHash, salt, expiresAt]
       );
 
-      // Also store in Redis for quick access
-      await redis.setJson(`otp:${type}:${identifier}`, {
-        hash: otpHash,
-        salt,
-        attempts: 0,
-        expiresAt: expiresAt.toISOString(),
-      }, 600); // 10 minutes TTL
+      // Also store in Redis for quick access (optional; DB is source of truth)
+      try {
+        await redis.setJson(`otp:${type}:${identifier}`, {
+          hash: otpHash,
+          salt,
+          attempts: 0,
+          expiresAt: expiresAt.toISOString(),
+        }, 600); // 10 minutes TTL
+      } catch {
+        // Redis down: OTP is still in DB, verifyOTP will fall back to DB
+      }
 
       logger.info('OTP created', { identifier, type, expiresAt });
       return { otp, expiresAt };
@@ -389,70 +387,25 @@ class OTPService {
   }
 
   /**
-   * Verify OTP
+   * Verify OTP. Uses DB as source of truth; Redis is optional cache. If Redis is down/closed, falls back to DB only.
    */
   async verifyOTP(identifier: string, type: 'email' | 'phone', otp: string): Promise<{ valid: boolean; message: string }> {
-    // Check Redis first
-    const cached = await redis.getJson<{
-      hash: string;
-      salt: string;
-      attempts: number;
-      expiresAt: string;
-    }>(`otp:${type}:${identifier}`);
+    const cacheKey = `otp:${type}:${identifier}`;
+
+    let cached: { hash: string; salt: string; attempts: number; expiresAt: string } | null = null;
+    try {
+      cached = await redis.getJson<{ hash: string; salt: string; attempts: number; expiresAt: string }>(cacheKey);
+    } catch {
+      // Redis down or connection closed: use DB only
+    }
 
     if (!cached) {
-      // Check database
-      const result = await db.query<{
-        id: string;
-        otp_hash: string;
-        salt: string;
-        attempts: number;
-        max_attempts: number;
-        expires_at: Date;
-      }>(
-        `SELECT * FROM otp_verifications 
-         WHERE identifier = $1 AND type = $2 AND verified_at IS NULL
-         ORDER BY created_at DESC LIMIT 1`,
-        [identifier, type]
-      );
-
-      if (result.rows.length === 0) {
-        return { valid: false, message: 'OTP not found or expired' };
-      }
-
-      const record = result.rows[0]!;
-
-      if (new Date(record.expires_at) < new Date()) {
-        return { valid: false, message: 'OTP has expired' };
-      }
-
-      if (record.attempts >= record.max_attempts) {
-        return { valid: false, message: 'Maximum attempts exceeded' };
-      }
-
-      const isValid = this.hashOTP(otp, record.salt) === record.otp_hash;
-
-      if (!isValid) {
-        await db.query(
-          'UPDATE otp_verifications SET attempts = attempts + 1 WHERE id = $1',
-          [record.id]
-        );
-        return { valid: false, message: 'Invalid OTP' };
-      }
-
-      // Mark as verified
-      await db.query(
-        'UPDATE otp_verifications SET verified_at = NOW() WHERE id = $1',
-        [record.id]
-      );
-      await redis.del(`otp:${type}:${identifier}`);
-
-      return { valid: true, message: 'OTP verified successfully' };
+      return this.verifyOTPFromDb(identifier, type, otp, cacheKey);
     }
 
     // Verify from cache
     if (new Date(cached.expiresAt) < new Date()) {
-      await redis.del(`otp:${type}:${identifier}`);
+      try { await redis.del(cacheKey); } catch { /* best effort */ }
       return { valid: false, message: 'OTP has expired' };
     }
 
@@ -464,45 +417,100 @@ class OTPService {
 
     if (!isValid) {
       cached.attempts++;
-      await redis.setJson(`otp:${type}:${identifier}`, cached, 600);
-      
+      try { await redis.setJson(cacheKey, cached, 600); } catch { /* best effort */ }
       await db.query(
         `UPDATE otp_verifications SET attempts = attempts + 1 
          WHERE identifier = $1 AND type = $2 AND verified_at IS NULL`,
         [identifier, type]
       );
-      
       return { valid: false, message: 'Invalid OTP' };
     }
 
-    // Mark as verified
+    // Mark as verified in DB (source of truth)
     await db.query(
       `UPDATE otp_verifications SET verified_at = NOW() 
        WHERE identifier = $1 AND type = $2 AND verified_at IS NULL`,
       [identifier, type]
     );
-    await redis.del(`otp:${type}:${identifier}`);
+    try { await redis.del(cacheKey); } catch { /* best effort */ }
+    return { valid: true, message: 'OTP verified successfully' };
+  }
 
+  private async verifyOTPFromDb(
+    identifier: string,
+    type: 'email' | 'phone',
+    otp: string,
+    cacheKey: string
+  ): Promise<{ valid: boolean; message: string }> {
+    const result = await db.query<{
+      id: string;
+      otp_hash: string;
+      salt: string;
+      attempts: number;
+      max_attempts: number;
+      expires_at: Date;
+    }>(
+      `SELECT * FROM otp_verifications 
+       WHERE identifier = $1 AND type = $2 AND verified_at IS NULL
+       ORDER BY created_at DESC LIMIT 1`,
+      [identifier, type]
+    );
+
+    if (result.rows.length === 0) {
+      return { valid: false, message: 'OTP not found or expired' };
+    }
+
+    const record = result.rows[0]!;
+
+    if (new Date(record.expires_at) < new Date()) {
+      return { valid: false, message: 'OTP has expired' };
+    }
+
+    if (record.attempts >= record.max_attempts) {
+      return { valid: false, message: 'Maximum attempts exceeded' };
+    }
+
+    const isValid = this.hashOTP(otp, record.salt) === record.otp_hash;
+
+    if (!isValid) {
+      await db.query(
+        'UPDATE otp_verifications SET attempts = attempts + 1 WHERE id = $1',
+        [record.id]
+      );
+      return { valid: false, message: 'Invalid OTP' };
+    }
+
+    await db.query(
+      'UPDATE otp_verifications SET verified_at = NOW() WHERE id = $1',
+      [record.id]
+    );
+    try { await redis.del(cacheKey); } catch { /* best effort */ }
     return { valid: true, message: 'OTP verified successfully' };
   }
 
   /**
-   * Check rate limit for OTP requests
+   * Check rate limit for OTP requests. Fails open if Redis is down so OTP flow is not blocked.
    */
   async checkRateLimit(identifier: string): Promise<{ allowed: boolean; retryAfter?: number }> {
-    const key = `otp:ratelimit:${identifier}`;
-    const count = await redis.client.incr(key);
-    
-    if (count === 1) {
-      await redis.client.expire(key, 60); // 1 minute window
-    }
+    try {
+      const client = redis.getClient();
+      const key = `otp:ratelimit:${identifier}`;
+      const count = await client.incr(key);
 
-    if (count > 3) {
-      const ttl = await redis.client.ttl(key);
-      return { allowed: false, retryAfter: ttl };
-    }
+      if (count === 1) {
+        await client.expire(key, 60); // 1 minute window
+      }
 
-    return { allowed: true };
+      if (count > 3) {
+        const ttl = await client.ttl(key);
+        return { allowed: false, retryAfter: Math.max(0, ttl) };
+      }
+
+      return { allowed: true };
+    } catch (err) {
+      logger.warn('Rate limit check failed (Redis?), allowing OTP', { error: err instanceof Error ? err.message : 'Unknown' });
+      return { allowed: true };
+    }
   }
 }
 

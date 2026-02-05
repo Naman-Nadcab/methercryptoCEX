@@ -9,7 +9,10 @@ import { JsonRpcProvider } from 'ethers';
 import { db } from '../lib/database.js';
 import { logger } from '../lib/logger.js';
 import { logHotWalletAudit } from '../lib/hot-wallet-audit.js';
-import { getSignerForChain, getHotWalletByChainId, refreshBalanceCache } from './hot-wallet.service.js';
+import { logWithdrawalLifecycle } from '../lib/withdrawal-audit.js';
+import { getCurrencyIdForToken } from '../lib/currency-resolver.js';
+import { ensureUserBalanceRow, assertUserBalanceUpdated, CHAIN_ID_GLOBAL } from '../lib/user-balance-helper.js';
+import { getSignerForChain, getHotWalletByChainId, checkHotWalletCaps, refreshBalanceCache } from './hot-wallet.service.js';
 
 const ACTOR_SYSTEM = 'withdrawal-signing-processor';
 const RATE_LIMIT_MS_PER_CHAIN = 2000;
@@ -18,45 +21,71 @@ const MAX_ATTEMPTS = 3;
 export interface EnqueueResult {
   enqueued: boolean;
   reason?: string;
+  /** Set when enqueued: false due to hot wallet caps */
+  code?: string;
 }
+
+/** Only withdrawals with this status may be enqueued or signed. */
+const ENQUEUEABLE_STATUS = 'pending';
 
 /**
  * Idempotent enqueue: one queue row per withdrawal (idempotency_key = withdrawal_id).
- * Call after withdrawal is created and balance locked. No-op if no hot wallet for chain.
+ * HARD GUARD: Only withdrawals with status = 'pending' can be enqueued; otherwise throws.
+ * Uses SELECT ... FOR UPDATE so status cannot change between check and insert.
  */
 export async function enqueueWithdrawal(withdrawalId: string): Promise<EnqueueResult> {
-  const row = await db.query<{ chain_id: string }>(
-    `SELECT chain_id FROM withdrawals WHERE id = $1 AND status = 'pending'`,
-    [withdrawalId]
-  );
-  if (row.rows.length === 0) {
-    return { enqueued: false, reason: 'Withdrawal not found or not pending' };
-  }
-  const chainId = row.rows[0]!.chain_id;
-  const hot = await getHotWalletByChainId(chainId);
-  if (!hot) {
-    return { enqueued: false, reason: 'No hot wallet for chain' };
-  }
   try {
-    await db.query(
-      `INSERT INTO withdrawal_signing_queue (withdrawal_id, chain_id, status, idempotency_key)
-       VALUES ($1, $2, 'pending', $3)
-       ON CONFLICT (idempotency_key) DO NOTHING`,
-      [withdrawalId, chainId, withdrawalId]
-    );
-    const check = await db.query(
-      `SELECT 1 FROM withdrawal_signing_queue WHERE withdrawal_id = $1 AND status = 'pending'`,
-      [withdrawalId]
-    );
-    return { enqueued: check.rows.length > 0 };
+    return await db.transaction(async (client) => {
+      const row = await client.query<{ status: string; chain_id: string; net_amount: string }>(
+        `SELECT status, chain_id, net_amount FROM withdrawals WHERE id = $1 FOR UPDATE`,
+        [withdrawalId]
+      );
+      if (row.rows.length === 0) {
+        return { enqueued: false, reason: 'Withdrawal not found' };
+      }
+      const { status, chain_id: chainId, net_amount: netAmount } = row.rows[0]!;
+      if (status !== ENQUEUEABLE_STATUS) {
+        throw new Error(
+          `Only pending withdrawals can be enqueued; withdrawal ${withdrawalId} has status '${status}'`
+        );
+      }
+      const hot = await getHotWalletByChainId(chainId);
+      if (!hot) {
+        return { enqueued: false, reason: 'No hot wallet for chain' };
+      }
+      const capCheck = await checkHotWalletCaps(chainId, parseFloat(netAmount));
+      if (!capCheck.allowed) {
+        return {
+          enqueued: false,
+          reason: capCheck.message ?? capCheck.code,
+          code: capCheck.code,
+        };
+      }
+      await client.query(
+        `INSERT INTO withdrawal_signing_queue (withdrawal_id, chain_id, status, idempotency_key)
+         VALUES ($1, $2, 'pending', $3)
+         ON CONFLICT (idempotency_key) DO NOTHING`,
+        [withdrawalId, chainId, withdrawalId]
+      );
+      const check = await client.query<{ n: number }>(
+        `SELECT 1 AS n FROM withdrawal_signing_queue WHERE withdrawal_id = $1 AND status = 'pending'`,
+        [withdrawalId]
+      );
+      return { enqueued: check.rows.length > 0 };
+    });
   } catch (err) {
-    logger.error('Enqueue withdrawal failed', { withdrawalId, error: err instanceof Error ? err.message : 'Unknown' });
-    return { enqueued: false, reason: err instanceof Error ? err.message : 'Enqueue failed' };
+    const msg = err instanceof Error ? err.message : 'Unknown';
+    logger.error('Enqueue withdrawal failed', { withdrawalId, error: msg });
+    if (err instanceof Error && msg.includes('Only pending withdrawals can be enqueued')) {
+      throw err;
+    }
+    return { enqueued: false, reason: msg };
   }
 }
 
 interface WithdrawalRow {
   id: string;
+  status: string;
   user_id: string;
   token_id: string;
   chain_id: string;
@@ -100,10 +129,15 @@ export async function processSigningQueue(): Promise<void> {
   const item = pending.rows[0]!;
   const queueId = item.id;
   const withdrawalId = item.withdrawal_id;
-  const chainId = item.chain_id;
+  // E2E withdrawal lifecycle: stage 3 — signing started (hot wallet will sign and broadcast)
+  logger.info('[E2E_WITHDRAWAL] stage=signing_started', {
+    withdrawal_id: withdrawalId,
+    chain_id: item.chain_id,
+    queue_id: queueId,
+  });
 
   const withdrawalResult = await db.query<WithdrawalRow>(
-    `SELECT id, user_id, token_id, chain_id, amount, fee, net_amount, to_address, account_type
+    `SELECT id, status, user_id, token_id, chain_id, amount, fee, net_amount, to_address, account_type
      FROM withdrawals WHERE id = $1`,
     [withdrawalId]
   );
@@ -112,6 +146,18 @@ export async function processSigningQueue(): Promise<void> {
     return;
   }
   const w = withdrawalResult.rows[0]!;
+  const chainId = w.chain_id ?? CHAIN_ID_GLOBAL;
+
+  if (w.status !== ENQUEUEABLE_STATUS) {
+    await markQueueFailed(queueId, `Withdrawal status is '${w.status}'; only pending withdrawals can be signed`);
+    return;
+  }
+
+  const capCheck = await checkHotWalletCaps(chainId, parseFloat(w.net_amount));
+  if (!capCheck.allowed) {
+    await markQueueFailed(queueId, capCheck.message ?? capCheck.code);
+    return;
+  }
 
   const tokenResult = await db.query<TokenRow>(
     `SELECT is_native, decimals FROM tokens WHERE id = $1`,
@@ -245,12 +291,18 @@ export async function processSigningQueue(): Promise<void> {
      WHERE id = $2`,
     [txHash, withdrawalId]
   );
-  await db.query(
-    `UPDATE balances
-     SET locked_balance = locked_balance - $1, updated_at = NOW()
-     WHERE user_id = $2 AND token_id = $3 AND account_type = $4`,
-    [totalRequired, w.user_id, w.token_id, w.account_type || 'funding']
-  );
+  const currencyId = await getCurrencyIdForToken(w.token_id);
+  const accountType = w.account_type || 'funding';
+  if (currencyId) {
+    await ensureUserBalanceRow(w.user_id, currencyId, chainId, accountType);
+    const completeUpd = await db.query(
+      `UPDATE user_balances
+       SET locked_balance = locked_balance - $1, updated_at = NOW()
+       WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5`,
+      [totalRequired, w.user_id, currencyId, chainId, accountType]
+    );
+    assertUserBalanceUpdated('withdrawal_complete_deduct', completeUpd, w.user_id, currencyId, accountType, w.chain_id ?? undefined);
+  }
 
   await logHotWalletAudit({
     actorId: ACTOR_SYSTEM,
@@ -260,7 +312,26 @@ export async function processSigningQueue(): Promise<void> {
     resourceId: withdrawalId,
     details: { withdrawal_id: withdrawalId, tx_hash: txHash },
   });
+
+  await logWithdrawalLifecycle('withdrawal_signed', {
+    withdrawal_id: withdrawalId,
+    user_id: w.user_id,
+    admin_id: null,
+    token_id: w.token_id,
+    chain_id: w.chain_id,
+    amount: totalRequired,
+    ip: null,
+    user_agent: null,
+  });
+
   logger.info('Withdrawal signed and broadcast', { withdrawalId, chainId, txHash });
+  // E2E withdrawal lifecycle: stage 4 — completed (tx_hash saved, locked balance deducted)
+  logger.info('[E2E_WITHDRAWAL] stage=completed', {
+    withdrawal_id: withdrawalId,
+    status: 'completed',
+    chain_id: w.chain_id,
+    tx_hash: txHash,
+  });
 }
 
 async function markQueueFailed(queueId: string, errorMessage: string): Promise<void> {
@@ -278,8 +349,8 @@ async function markQueueFailed(queueId: string, errorMessage: string): Promise<v
     [isFinal ? 'failed' : 'pending', errorMessage, isFinal, queueId]
   );
   if (isFinal) {
-    const totalResult = await db.query<{ amount: string; fee: string; user_id: string; token_id: string; account_type: string }>(
-      `SELECT amount, fee, user_id, token_id, account_type FROM withdrawals WHERE id = $1`,
+    const totalResult = await db.query<{ amount: string; fee: string; user_id: string; token_id: string; account_type: string; chain_id: string }>(
+      `SELECT amount, fee, user_id, token_id, account_type, chain_id FROM withdrawals WHERE id = $1`,
       [row.withdrawal_id]
     );
     const w = totalResult.rows[0];
@@ -289,12 +360,19 @@ async function markQueueFailed(queueId: string, errorMessage: string): Promise<v
         `UPDATE withdrawals SET status = 'failed', failed_reason = $1, processed_at = CURRENT_TIMESTAMP WHERE id = $2`,
         [errorMessage, row.withdrawal_id]
       );
-      await db.query(
-        `UPDATE balances
-         SET available_balance = available_balance + $1, locked_balance = locked_balance - $1, updated_at = NOW()
-         WHERE user_id = $2 AND token_id = $3 AND account_type = $4`,
-        [total, w.user_id, w.token_id, w.account_type || 'funding']
-      );
+      const currencyId = await getCurrencyIdForToken(w.token_id);
+      const accountType = w.account_type || 'funding';
+      const chainId = w.chain_id ?? CHAIN_ID_GLOBAL;
+      if (currencyId) {
+        await ensureUserBalanceRow(w.user_id, currencyId, chainId, accountType);
+        const refundUpd = await db.query(
+          `UPDATE user_balances
+           SET available_balance = available_balance + $1, locked_balance = locked_balance - $1, updated_at = NOW()
+           WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5`,
+          [total, w.user_id, currencyId, chainId, accountType]
+        );
+        assertUserBalanceUpdated('withdrawal_fail_refund', refundUpd, w.user_id, currencyId, accountType, w.chain_id ?? undefined);
+      }
     }
   }
 }

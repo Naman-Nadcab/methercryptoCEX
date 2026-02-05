@@ -76,17 +76,32 @@ interface WithdrawalFee {
   chainName: string;
 }
 
+interface WithdrawPreview {
+  fee: string;
+  net_amount: string;
+  min_withdrawal: string;
+  fee_exceeds_amount: boolean;
+}
+
 interface Withdrawal {
   id: string;
-  symbol: string;
-  chain_name: string;
-  chain_type: string;
-  amount: string;
-  fee: string;
-  to_address: string;
+  coin?: string;
+  symbol?: string;
+  chain_name?: string;
+  chain_type?: string;
+  amount?: string;
+  quantity?: string;
+  fee?: string;
+  to_address?: string;
+  address?: string;
   tx_hash?: string;
+  txid?: string;
   status: string;
-  created_at: string;
+  displayStatus?: string;
+  created_at?: string;
+  date_time?: string;
+  withdrawal_type?: string;
+  internal_recipient_email?: string | null;
 }
 
 const FAQ_LINKS = [
@@ -118,16 +133,20 @@ export default function WithdrawCryptoPage() {
   const [balances, setBalances] = useState<Balance[]>([]);
   const [withdrawalLimits, setWithdrawalLimits] = useState<WithdrawalLimits | null>(null);
   const [withdrawalFee, setWithdrawalFee] = useState<WithdrawalFee | null>(null);
+  const [previewData, setPreviewData] = useState<WithdrawPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [recentWithdrawals, setRecentWithdrawals] = useState<Withdrawal[]>([]);
 
   // Form state
   const [withdrawType, setWithdrawType] = useState<'on-chain' | 'internal'>('on-chain');
   const [toAddress, setToAddress] = useState('');
+  const [internalRecipient, setInternalRecipient] = useState('');
   const [amount, setAmount] = useState('');
   const [selectedAccounts, setSelectedAccounts] = useState({
     funding: true,
     trading: false,
   });
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // UI state
   const [loading, setLoading] = useState(true);
@@ -187,6 +206,48 @@ export default function WithdrawCryptoPage() {
       fetchWithdrawalFee(selectedToken.symbol, selectedChain.id);
     }
   }, [selectedToken, selectedChain]);
+
+  // Debounced withdrawal preview when amount changes (fee + net amount)
+  useEffect(() => {
+    if (!accessToken || !selectedToken || !amount || parseFloat(amount) <= 0) {
+      setPreviewData(null);
+      return;
+    }
+    const isInternal = withdrawType === 'internal';
+    if (isInternal) {
+      setPreviewData({ fee: '0', net_amount: amount, min_withdrawal: '0', fee_exceeds_amount: false });
+      return;
+    }
+    if (!selectedChain) {
+      setPreviewData(null);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setPreviewLoading(true);
+      try {
+        const params = new URLSearchParams({
+          symbol: selectedToken.symbol,
+          chainId: selectedChain.id,
+          amount,
+          type: 'onchain',
+        });
+        const res = await fetch(`${API_URL}/api/v1/wallet/withdraw/preview?${params}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const data = await res.json();
+        if (data.success && data.data) {
+          setPreviewData(data.data);
+        } else {
+          setPreviewData(null);
+        }
+      } catch {
+        setPreviewData(null);
+      } finally {
+        setPreviewLoading(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [accessToken, selectedToken, selectedChain, amount, withdrawType]);
 
   const fetchTokens = async () => {
     try {
@@ -318,52 +379,96 @@ export default function WithdrawCryptoPage() {
     return total;
   };
 
-  const getReceivedAmount = () => {
-    if (!amount || !withdrawalFee) return 0;
+  const getWithdrawFee = (): number => {
+    if (withdrawType === 'internal') return 0;
+    if (previewData) return parseFloat(previewData.fee);
+    if (withdrawalFee) return parseFloat(withdrawalFee.fee);
+    return 0;
+  };
+
+  const getReceivedAmount = (): number => {
+    if (!amount) return 0;
     const amountNum = parseFloat(amount);
-    const fee = parseFloat(withdrawalFee.fee);
-    return Math.max(0, amountNum - fee);
+    if (withdrawType === 'internal') return amountNum;
+    if (previewData) return parseFloat(previewData.net_amount);
+    if (withdrawalFee) return Math.max(0, amountNum - parseFloat(withdrawalFee.fee));
+    return 0;
   };
 
   const setMaxAmount = () => {
     const available = getAvailableBalance();
-    setAmount(available.toString());
+    const fee = getWithdrawFee();
+    if (withdrawType === 'internal') {
+      setAmount(available.toString());
+    } else {
+      const maxSend = Math.max(0, available - fee);
+      setAmount(maxSend.toString());
+    }
   };
 
   const handleSubmit = async () => {
-    if (!selectedToken || !selectedChain || !amount || !toAddress) {
-      setError('Please fill in all fields');
+    const isInternal = withdrawType === 'internal';
+    if (!selectedToken || !amount) {
+      setError('Please select a coin and enter amount');
       return;
+    }
+    if (isInternal) {
+      if (!internalRecipient.trim()) {
+        setError('Please enter recipient (email, UID, or phone)');
+        return;
+      }
+    } else {
+      if (!selectedChain || !toAddress.trim()) {
+        setError('Please select chain and enter wallet address');
+        return;
+      }
     }
     if (!accessToken) {
       router.push('/login');
       return;
     }
     setError('');
+    setSuccessMessage(null);
     setSubmitting(true);
     try {
+      const body: Record<string, string> = {
+        symbol: selectedToken.symbol,
+        amount,
+        type: isInternal ? 'internal' : 'onchain',
+        accountType: selectedAccounts.funding ? 'funding' : 'trading',
+      };
+      if (isInternal) {
+        body.internal_user_identifier = internalRecipient.trim();
+      } else {
+        body.chainId = selectedChain!.id;
+        body.toAddress = toAddress.trim();
+      }
       const res = await fetch(`${API_URL}/api/v1/wallet/withdrawals`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({
-          symbol: selectedToken.symbol,
-          chainId: selectedChain.id,
-          amount,
-          toAddress,
-          accountType: selectedAccounts.funding ? 'funding' : 'trading',
-        }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (data.success) {
         setAmount('');
         setToAddress('');
+        setInternalRecipient('');
         fetchBalances();
         fetchWithdrawalLimits();
         fetchRecentWithdrawals();
-        alert('Withdrawal request submitted successfully!');
+        const status = data.data?.status;
+        const type = data.data?.type;
+        if (type === 'internal' && status === 'completed') {
+          setSuccessMessage('Transfer completed.');
+        } else if (status === 'pending_approval') {
+          setSuccessMessage('Withdrawal submitted for approval.');
+        } else {
+          setSuccessMessage('Withdrawal submitted.');
+        }
+        setTimeout(() => setSuccessMessage(null), 5000);
       } else {
         setError(data.error?.message || 'Failed to submit withdrawal');
       }
@@ -400,14 +505,20 @@ export default function WithdrawCryptoPage() {
   );
 
   const getStatusBadge = (status: string) => {
+    const s = (status || '').toLowerCase();
     const styles: Record<string, string> = {
       completed: 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400',
       processing: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
       pending: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400',
+      pending_approval: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400',
+      queued: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
+      signed: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
+      broadcasted: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
       failed: 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400',
+      rejected: 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400',
       cancelled: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400',
     };
-    return styles[status] || styles.cancelled;
+    return styles[s] || styles.cancelled;
   };
 
   const formatAddress = (address: string) => {
@@ -654,11 +765,11 @@ export default function WithdrawCryptoPage() {
                     </>
                   ) : (
                     <div className="mb-6">
-                      <label className="text-sm text-gray-500 mb-2 block">Recipient UID / Email / Phone</label>
+                      <label className="text-sm text-gray-500 mb-2 block">Recipient (UID / Email / Phone)</label>
                       <input
                         type="text"
-                        value={toAddress}
-                        onChange={(e) => setToAddress(e.target.value)}
+                        value={internalRecipient}
+                        onChange={(e) => setInternalRecipient(e.target.value)}
                         placeholder="Enter UID, email, or phone number"
                         className="w-full px-4 py-3.5 bg-gray-50 dark:bg-[#2b2f36] border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white placeholder-gray-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 outline-none transition-all"
                       />
@@ -735,21 +846,39 @@ export default function WithdrawCryptoPage() {
                     </div>
                   </div>
 
-                  {/* Fee & Received */}
+                  {/* Fee & Received (from preview when amount entered) */}
                   <div className="bg-blue-50 dark:bg-blue-900/10 rounded-xl p-4 border border-blue-100 dark:border-blue-800/30 mb-6">
                     <div className="flex items-center justify-between text-sm mb-2">
                       <span className="text-gray-600 dark:text-gray-400">Transaction Fee</span>
                       <span className="font-medium text-gray-900 dark:text-white">
-                        {withdrawalFee ? `${withdrawalFee.fee} ${selectedToken?.symbol || ''}` : '--'}
+                        {withdrawType === 'internal'
+                          ? `0 ${selectedToken?.symbol || ''}`
+                          : previewLoading
+                            ? '...'
+                            : (previewData ? `${previewData.fee} ${selectedToken?.symbol || ''}` : withdrawalFee ? `${withdrawalFee.fee} ${selectedToken?.symbol || ''}` : '--')}
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-gray-600 dark:text-gray-400">Amount Received</span>
                       <span className="font-semibold text-gray-900 dark:text-white">
-                        {amount && withdrawalFee ? getReceivedAmount().toFixed(8) : '--'} {selectedToken?.symbol || ''}
+                        {withdrawType === 'internal'
+                          ? (amount ? `${amount} ${selectedToken?.symbol || ''}` : '--')
+                          : previewLoading
+                            ? '...'
+                            : (amount ? `${getReceivedAmount().toFixed(8)} ${selectedToken?.symbol || ''}` : '--')}
                       </span>
                     </div>
+                    {previewData?.fee_exceeds_amount && (
+                      <p className="text-amber-600 dark:text-amber-400 text-sm mt-2">Fee exceeds amount. Increase amount or choose another option.</p>
+                    )}
                   </div>
+
+                  {/* Success */}
+                  {successMessage && (
+                    <div className="flex items-center gap-2 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl mb-6">
+                      <p className="text-sm text-green-700 dark:text-green-300">{successMessage}</p>
+                    </div>
+                  )}
 
                   {/* Error */}
                   {error && (
@@ -760,11 +889,23 @@ export default function WithdrawCryptoPage() {
                   )}
 
                   {/* Submit Button */}
+                  {(() => {
+                    const isInternal = withdrawType === 'internal';
+                    const amountNum = parseFloat(amount || '0');
+                    const amountInvalid = !amount || isNaN(amountNum) || amountNum <= 0;
+                    const fee = getWithdrawFee();
+                    const totalRequired = isInternal ? amountNum : amountNum + fee;
+                    const balanceInsufficient = totalRequired > getAvailableBalance();
+                    const feeExceedsAmount = !!previewData?.fee_exceeds_amount;
+                    const validInternal = selectedToken && amount && internalRecipient.trim() && !amountInvalid && !balanceInsufficient;
+                    const validOnChain = selectedToken && selectedChain && amount && toAddress.trim() && !amountInvalid && !balanceInsufficient && !feeExceedsAmount;
+                    const isValid = isInternal ? validInternal : validOnChain;
+                    return (
                   <button
                     onClick={handleSubmit}
-                    disabled={!selectedToken || !selectedChain || !amount || !toAddress || submitting}
+                    disabled={!isValid || submitting}
                     className={`w-full py-3.5 rounded-xl font-semibold transition-all ${
-                      selectedToken && selectedChain && amount && toAddress && !submitting
+                      isValid && !submitting
                         ? 'bg-blue-500 hover:bg-blue-600 text-white shadow-lg shadow-blue-500/25'
                         : 'bg-gray-200 dark:bg-gray-700 text-gray-400 cursor-not-allowed'
                     }`}
@@ -775,6 +916,8 @@ export default function WithdrawCryptoPage() {
                       'Confirm'
                     )}
                   </button>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
@@ -863,35 +1006,47 @@ export default function WithdrawCryptoPage() {
               {/* Table Body */}
               {recentWithdrawals.length > 0 ? (
                 <div className="divide-y divide-gray-100 dark:divide-gray-800">
-                  {recentWithdrawals.map((withdrawal) => (
+                  {recentWithdrawals.map((withdrawal) => {
+                    const coin = withdrawal.coin ?? withdrawal.symbol ?? '—';
+                    const chainLabel = withdrawal.chain_type ?? withdrawal.chain_name ?? '—';
+                    const qty = withdrawal.quantity ?? withdrawal.amount ?? '0';
+                    const toLabel = withdrawal.withdrawal_type === 'internal'
+                      ? (withdrawal.internal_recipient_email ?? 'Internal')
+                      : (withdrawal.address ?? withdrawal.to_address ?? '—');
+                    const txHash = withdrawal.txid ?? withdrawal.tx_hash;
+                    const dateStr = withdrawal.date_time ?? withdrawal.created_at ?? '';
+                    const displayStatus = withdrawal.displayStatus ?? (withdrawal.status ? withdrawal.status.charAt(0).toUpperCase() + withdrawal.status.slice(1).replace(/_/g, ' ') : '—');
+                    return (
                     <div key={withdrawal.id} className="grid grid-cols-8 gap-4 px-6 py-4 text-sm items-center hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
                       <div className="flex items-center gap-2">
                         <Image
-                          src={getTokenIcon(withdrawal.symbol)}
-                          alt={withdrawal.symbol}
+                          src={getTokenIcon(coin)}
+                          alt={coin}
                           width={24}
                           height={24}
                           className="rounded-full"
                           unoptimized
                         />
-                        <span className="font-medium text-gray-900 dark:text-white">{withdrawal.symbol}</span>
+                        <span className="font-medium text-gray-900 dark:text-white">{coin}</span>
                       </div>
-                      <span className="text-gray-600 dark:text-gray-400">{withdrawal.chain_name}</span>
-                      <span className="font-medium text-gray-900 dark:text-white">{parseFloat(withdrawal.amount).toFixed(6)}</span>
-                      <span className="text-gray-500">{withdrawal.fee}</span>
+                      <span className="text-gray-600 dark:text-gray-400">{chainLabel}</span>
+                      <span className="font-medium text-gray-900 dark:text-white">{parseFloat(String(qty)).toFixed(6)}</span>
+                      <span className="text-gray-500">{withdrawal.fee ?? '0'}</span>
                       <div className="flex items-center gap-1">
-                        <span className="text-gray-600 dark:text-gray-400 font-mono text-xs">{formatAddress(withdrawal.to_address)}</span>
-                        <button
-                          onClick={() => copyToClipboard(withdrawal.to_address, `addr-${withdrawal.id}`)}
-                          className="text-gray-400 hover:text-blue-500 transition-colors"
-                        >
-                          {copied === `addr-${withdrawal.id}` ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
-                        </button>
+                        <span className="text-gray-600 dark:text-gray-400 font-mono text-xs" title={toLabel}>{withdrawal.withdrawal_type === 'internal' ? toLabel : formatAddress(toLabel)}</span>
+                        {withdrawal.withdrawal_type !== 'internal' && (
+                          <button
+                            onClick={() => copyToClipboard(toLabel, `addr-${withdrawal.id}`)}
+                            className="text-gray-400 hover:text-blue-500 transition-colors"
+                          >
+                            {copied === `addr-${withdrawal.id}` ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+                          </button>
+                        )}
                       </div>
                       <div className="flex items-center gap-1">
-                        {withdrawal.tx_hash ? (
+                        {txHash ? (
                           <>
-                            <span className="text-blue-500 font-mono text-xs">{formatAddress(withdrawal.tx_hash)}</span>
+                            <span className="text-blue-500 font-mono text-xs">{formatAddress(txHash)}</span>
                             <button className="text-gray-400 hover:text-blue-500 transition-colors">
                               <ExternalLink className="w-3.5 h-3.5" />
                             </button>
@@ -901,14 +1056,13 @@ export default function WithdrawCryptoPage() {
                         )}
                       </div>
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadge(withdrawal.status)}`}>
-                        {withdrawal.status.charAt(0).toUpperCase() + withdrawal.status.slice(1)}
+                        {displayStatus}
                       </span>
                       <div className="flex items-center justify-between">
                         <span className="text-gray-500 text-xs">
-                          {new Date(withdrawal.created_at).toLocaleDateString()}{' '}
-                          {new Date(withdrawal.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {dateStr ? `${new Date(dateStr).toLocaleDateString()} ${new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : '—'}
                         </span>
-                        {withdrawal.status === 'pending' && (
+                        {withdrawal.status === 'pending' && withdrawal.withdrawal_type !== 'internal' && (
                           <button
                             onClick={() => cancelWithdrawal(withdrawal.id)}
                             className="text-xs text-red-500 hover:text-red-600 font-medium"
@@ -918,7 +1072,8 @@ export default function WithdrawCryptoPage() {
                         )}
                       </div>
                     </div>
-                  ))}
+                  );
+                  })}
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center py-16">

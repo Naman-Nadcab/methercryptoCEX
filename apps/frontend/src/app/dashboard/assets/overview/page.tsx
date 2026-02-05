@@ -49,8 +49,33 @@ export default function AssetsOverviewPage() {
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<string>('');
   const [ordersExpanded, setOrdersExpanded] = useState(false);
+  const [showWhyZero, setShowWhyZero] = useState(false);
+  const [whyZeroReason, setWhyZeroReason] = useState<{ funds: string; history: string } | null>(null);
+  const [whyZeroLoading, setWhyZeroLoading] = useState(false);
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
+  const fetchWhyZero = async () => {
+    if (!accessToken) return;
+    setWhyZeroLoading(true);
+    setWhyZeroReason(null);
+    try {
+      const res = await fetch(`${API_URL}/api/v1/wallet/balance-diagnostic`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = res.ok ? await res.json() : {};
+      if (data.success && data.data) {
+        setWhyZeroReason({
+          funds: data.data.reason_funds_zero || 'Unknown',
+          history: data.data.reason_history_empty || 'Unknown',
+        });
+      }
+    } catch {
+      setWhyZeroReason({ funds: 'Could not load reason.', history: 'Could not load reason.' });
+    } finally {
+      setWhyZeroLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (_hasHydrated && accessToken) {
@@ -60,18 +85,40 @@ export default function AssetsOverviewPage() {
   }, [_hasHydrated, accessToken]);
 
   const fetchBalances = async () => {
+    if (!accessToken) return;
     try {
       setLoading(true);
       const res = await fetch(`${API_URL}/api/v1/wallet/balances/summary`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) {
-          setFundingBalance(data.data.funding || { type: 'funding', totalUsd: 0, totalBtc: 0 });
-          setTradingBalance(data.data.trading || { type: 'trading', totalUsd: 0, totalBtc: 0 });
-          setLastUpdated(new Date().toISOString());
+      const data = res.ok ? await res.json() : { success: false };
+      if (data.success && data.data) {
+        const funding = data.data.funding || { type: 'funding', totalUsd: 0, totalBtc: 0 };
+        const trading = data.data.trading || { type: 'trading', totalUsd: 0, totalBtc: 0 };
+        let fundingUsd = Number(funding.totalUsd) || 0;
+        let tradingUsd = Number(trading.totalUsd) || 0;
+        // If summary returned all zeros, try by-account and derive totals (same source of truth)
+        if (fundingUsd === 0 && tradingUsd === 0) {
+          const byRes = await fetch(`${API_URL}/api/v1/wallet/balances/by-account`, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          });
+          if (byRes.ok) {
+            const byData = await byRes.json();
+            if (byData.success && Array.isArray(byData.data)) {
+              let sumTotal = 0;
+              byData.data.forEach((row: { funding?: string; trading?: string; total?: string }) => {
+                sumTotal += parseFloat(row.total || '0');
+              });
+              if (sumTotal > 0) {
+                fundingUsd = sumTotal;
+                tradingUsd = 0;
+              }
+            }
+          }
         }
+        setFundingBalance({ type: 'funding', totalUsd: fundingUsd, totalBtc: fundingUsd / 82000 });
+        setTradingBalance({ type: 'trading', totalUsd: tradingUsd, totalBtc: tradingUsd / 82000 });
+        setLastUpdated(new Date().toISOString());
       }
     } catch (error) {
       console.error('Failed to fetch balances:', error);
@@ -290,6 +337,28 @@ export default function AssetsOverviewPage() {
               <span className="text-sm font-medium text-gray-900 dark:text-white">{showBalance ? '0.00' : '****'}</span>
               <ChevronRight className="w-4 h-4 text-gray-400" />
             </div>
+            {showBalance && totalUsd === 0 && totalBtc === 0 && (
+              <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800">
+                <button
+                  type="button"
+                  onClick={() => { setShowWhyZero(!showWhyZero); if (!whyZeroReason && !whyZeroLoading) fetchWhyZero(); }}
+                  className="text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400 font-medium"
+                >
+                  {showWhyZero ? 'Hide' : 'Why is my balance 0? Why no history?'}
+                </button>
+                {showWhyZero && (
+                  <div className="mt-3 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl text-sm text-gray-700 dark:text-gray-300 space-y-2">
+                    {whyZeroLoading && <p>Checking...</p>}
+                    {whyZeroReason && !whyZeroLoading && (
+                      <>
+                        <p><strong>Funds:</strong> {whyZeroReason.funds}</p>
+                        <p><strong>History:</strong> {whyZeroReason.history}</p>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Tabs and Time Period */}

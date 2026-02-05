@@ -47,7 +47,7 @@ export default function AdminLoginPage() {
       if (!result.success) {
         const msg = typeof result.error === 'string'
           ? result.error
-          : (result.error?.message || result.message || 'Login failed');
+          : (result.error?.message ?? result.error?.detail ?? result.message ?? 'Login failed');
         setError(msg);
         return;
       }
@@ -59,7 +59,7 @@ export default function AdminLoginPage() {
       router.push('/admin/dashboard');
     } catch (err) {
       setError(
-        'Cannot reach the API. Start the backend (cd apps/backend && npm run dev) and ensure Redis is running (e.g. docker run -p 6379:6379 redis or npm run docker:up from repo root).'
+        'Cannot reach the API. Start the backend (cd apps/backend && npm run dev). If no admin exists, run: cd apps/backend && npx tsx seed-admin.ts'
       );
     } finally {
       setLoading(false);
@@ -168,6 +168,11 @@ export default function AdminLoginPage() {
         <p className="mt-6 text-center text-sm text-gray-600">
           Protected area. Authorized personnel only.
         </p>
+        {process.env.NODE_ENV === 'development' && (
+          <p className="mt-3 text-center text-xs text-gray-500">
+            Default: admin@example.com / admin123 (run <code className="bg-gray-800 px-1 rounded">npx tsx seed-admin.ts</code> in apps/backend if needed)
+          </p>
+        )}
       </div>
     </div>
   );

@@ -9,6 +9,7 @@ import { JsonRpcProvider } from 'ethers';
 import { db } from '../lib/database.js';
 import { logger } from '../lib/logger.js';
 import { logHotWalletAudit } from '../lib/hot-wallet-audit.js';
+import { logWithdrawalLifecycle } from '../lib/withdrawal-audit.js';
 import { getSignerForChain, updateBalanceCache } from './hot-wallet.service.js';
 
 const ACTOR_SYSTEM = 'hot-wallet-sweep';
@@ -115,5 +116,17 @@ async function sweepOneChain(
     resourceId: chainId,
     details: { chain_id: chainId, tx_hash: txHash, sweep_wei: sweepAmount.toString() },
   });
+
+  await logWithdrawalLifecycle('hot_wallet_sweep', {
+    withdrawal_id: null,
+    user_id: null,
+    admin_id: null,
+    token_id: null,
+    chain_id: chainId,
+    amount: sweepAmount.toString(),
+    ip: null,
+    user_agent: null,
+  });
+
   logger.info('Hot wallet sweep completed', { chainId, txHash, sweepWei: sweepAmount.toString() });
 }

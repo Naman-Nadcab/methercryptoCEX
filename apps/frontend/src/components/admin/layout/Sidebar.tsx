@@ -81,6 +81,8 @@ const menuItems: MenuItem[] = [
     icon: <Wallet className="w-4 h-4" />,
     children: [
       { label: 'Overview', href: '/admin/wallets' },
+      { label: 'Funds Summary', href: '/admin/wallets/funds-summary' },
+      { label: 'Deposit Sweeps', href: '/admin/wallets/deposit-sweeps' },
       { label: 'Hot Wallets', href: '/admin/wallets/hot' },
       { label: 'Cold Wallets', href: '/admin/wallets/cold' },
       { label: 'Currencies', href: '/admin/wallets/currencies' },
@@ -103,6 +105,7 @@ const menuItems: MenuItem[] = [
     label: 'Withdrawals',
     icon: <ArrowUpFromLine className="w-4 h-4" />,
     children: [
+      { label: 'Pending Approval', href: '/admin/withdrawals/pending-approval' },
       { label: 'Pending', href: '/admin/withdrawals/pending' },
       { label: 'Processing', href: '/admin/withdrawals/processing' },
       { label: 'Completed', href: '/admin/withdrawals/completed' },

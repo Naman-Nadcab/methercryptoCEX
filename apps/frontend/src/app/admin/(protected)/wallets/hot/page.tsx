@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Image from 'next/image';
+import Link from 'next/link';
 import { useAdminAuthStore } from '@/store/admin-auth';
 import {
   Wallet,
@@ -13,11 +15,31 @@ import {
   AlertCircle,
   RotateCw,
   Trash2,
+  ExternalLink,
 } from 'lucide-react';
+
+/** Chain logo path for hot wallet cards (blockchain-logo or currency-logo). */
+function getChainLogo(chainType: string, chainName: string): string {
+  const name = (chainName || '').toLowerCase();
+  const type = (chainType || '').toLowerCase();
+  if (name.includes('arbitrum')) return '/assets/upload/blockchain-logo/arbitrum.svg';
+  if (name.includes('ethereum') || name.includes('eth')) return '/assets/upload/blockchain-logo/ethereum.svg';
+  if (name.includes('polygon') || name.includes('matic')) return '/assets/upload/blockchain-logo/polygon.svg';
+  if (name.includes('bnb') || name.includes('bsc')) return '/assets/upload/blockchain-logo/bnb.svg';
+  if (name.includes('base')) return '/assets/upload/blockchain-logo/ethereum.svg';
+  if (name.includes('optimism')) return '/assets/upload/blockchain-logo/ethereum.svg';
+  if (type === 'evm') return '/assets/upload/blockchain-logo/ethereum.svg';
+  if (type === 'bitcoin') return '/assets/upload/blockchain-logo/bitcoin.svg';
+  if (type === 'solana') return '/assets/upload/blockchain-logo/solana.svg';
+  if (type === 'tron') return '/assets/upload/blockchain-logo/tron.svg';
+  if (type === 'polkadot') return '/assets/upload/currency-logo/dot.svg';
+  return '/assets/upload/blockchain-logo/ethereum.svg';
+}
 
 interface HotWalletItem {
   id: string;
   chainId: string;
+  chainSlug?: string;
   chainName: string;
   chainType: string;
   address: string;
@@ -594,7 +616,7 @@ export default function HotWalletsPage() {
             Create hot wallet
           </h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            One wallet per chain family (only families that exist in DB). EVM creation supported; other families show when configured.
+            One wallet per chain family (EVM, Bitcoin, Solana, Tron, Polkadot). Same structure as user-side deposit wallets. Create one per family that exists in DB.
           </p>
           <div className="flex flex-wrap items-center gap-3 mt-4">
             <select
@@ -611,7 +633,7 @@ export default function HotWalletsPage() {
                     value={hasWallet ? '' : f.type}
                     disabled={hasWallet || !f.creationSupported}
                   >
-                    {f.label} ({f.chainName}){hasWallet ? ' — already has wallet' : !f.creationSupported ? ' — creation not yet supported' : ''}
+                    {f.label} ({f.chainName}){hasWallet ? ' — already has wallet' : !f.creationSupported ? ' — not in DB' : ''}
                   </option>
                 );
               })}
@@ -656,100 +678,114 @@ export default function HotWalletsPage() {
           </div>
         ) : (
           (() => {
-            const byFamily = list.reduce<Record<string, HotWalletItem[]>>((acc, w) => {
-              const t = w.chainType || 'other';
-              if (!acc[t]) acc[t] = [];
-              acc[t].push(w);
-              return acc;
-            }, {});
             const familyOrder = ['evm', 'bitcoin', 'solana', 'tron', 'polkadot', 'other'];
-            const sortedFamilies = [...new Set([...familyOrder.filter((f) => byFamily[f]), ...Object.keys(byFamily).filter((f) => !familyOrder.includes(f))])];
-            return sortedFamilies.map((familyType) => (
-              <div key={familyType}>
-                <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2 capitalize">
-                  {familyType === 'evm' ? 'EVM' : familyType}
-                </h3>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {(byFamily[familyType] ?? []).map((w) => (
-            <div
-              key={w.id}
-              className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">{w.chainName}</p>
-                  <p className="text-lg font-bold text-gray-900 dark:text-white mt-1">
-                    {formatNativeBalance(w.balanceCache, w.chainType)} native
-                  </p>
-                  <div className="mt-2 flex items-center gap-2">
-                    <code className="text-xs text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded truncate max-w-[220px]">
-                      {w.address}
-                    </code>
-                    <button
-                      type="button"
-                      onClick={() => copyAddress(w.address)}
-                      className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500"
-                      title="Copy address"
-                    >
-                      {copiedAddress === w.address ? (
-                        <Check className="w-4 h-4 text-green-500" />
-                      ) : (
-                        <Copy className="w-4 h-4" />
-                      )}
-                    </button>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Deposit funds to this address. Withdrawals are signed from this wallet. Balance cached from DB.
-                  </p>
-                </div>
-                <div className="flex flex-col items-end gap-2">
-                  <span
-                    className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      w.isActive ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'
-                    }`}
+            const sortedList = [...list].sort(
+              (a, b) =>
+                familyOrder.indexOf(a.chainType || 'other') - familyOrder.indexOf(b.chainType || 'other')
+            );
+            return (
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                {sortedList.map((w) => (
+                  <div
+                    key={w.id}
+                    className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4 flex flex-col"
                   >
-                    {w.isActive ? 'Active' : 'Inactive'}
-                  </span>
-                  <div className="flex flex-wrap items-center gap-1 justify-end">
-                    <button
-                      type="button"
-                      onClick={() => handleRefreshBalance(w.chainId)}
-                      disabled={refreshingChain === w.chainId}
-                      className="inline-flex items-center gap-1 text-sm text-blue-500 hover:text-blue-400 disabled:opacity-50"
-                    >
-                      {refreshingChain === w.chainId ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <RefreshCw className="w-4 h-4" />
-                      )}
-                      Refresh
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setReplaceChain(w)}
-                      className="inline-flex items-center gap-1 text-sm text-amber-500 hover:text-amber-400"
-                      title="Replace with new keypair"
-                    >
-                      <RotateCw className="w-4 h-4" />
-                      Replace
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRemoveChain(w)}
-                      className="inline-flex items-center gap-1 text-sm text-red-500 hover:text-red-400"
-                      title="Remove wallet (withdraw funds first)"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      Remove
-                    </button>
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-100 dark:bg-gray-700 flex-shrink-0">
+                        <Image
+                          src={getChainLogo(w.chainType, w.chainName)}
+                          alt={w.chainName}
+                          width={40}
+                          height={40}
+                          className="object-contain w-full h-full"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none';
+                          }}
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <Link
+                          href={`/admin/wallets/hot/${encodeURIComponent(w.chainSlug ?? w.chainId)}`}
+                          className="font-semibold text-gray-900 dark:text-white truncate hover:text-blue-500 dark:hover:text-blue-400 block"
+                        >
+                          {w.chainName}
+                        </Link>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                          {formatNativeBalance(w.balanceCache, w.chainType)} native
+                        </p>
+                      </div>
+                      <span
+                        className={`px-2 py-1 rounded-full text-xs font-medium flex-shrink-0 ${
+                          w.isActive ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'
+                        }`}
+                      >
+                        {w.isActive ? 'Active' : 'Inactive'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-2">
+                      <code className="text-xs text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded truncate flex-1">
+                        {w.address}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => copyAddress(w.address)}
+                        className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 flex-shrink-0"
+                        title="Copy address"
+                      >
+                        {copiedAddress === w.address ? (
+                          <Check className="w-4 h-4 text-green-500" />
+                        ) : (
+                          <Copy className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2">
+                      Deposit to this address. Withdrawals signed from this wallet.
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+                      <Link
+                        href={`/admin/wallets/hot/${encodeURIComponent(w.chainSlug ?? w.chainId)}`}
+                        className="inline-flex items-center gap-1 text-sm text-blue-500 hover:text-blue-400"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                        View
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => handleRefreshBalance(w.chainId)}
+                        disabled={refreshingChain === w.chainId}
+                        className="inline-flex items-center gap-1 text-sm text-blue-500 hover:text-blue-400 disabled:opacity-50"
+                      >
+                        {refreshingChain === w.chainId ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <RefreshCw className="w-4 h-4" />
+                        )}
+                        Refresh
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setReplaceChain(w)}
+                        className="inline-flex items-center gap-1 text-sm text-amber-500 hover:text-amber-400"
+                        title="Replace with new keypair"
+                      >
+                        <RotateCw className="w-4 h-4" />
+                        Replace
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRemoveChain(w)}
+                        className="inline-flex items-center gap-1 text-sm text-red-500 hover:text-red-400"
+                        title="Remove wallet (withdraw funds first)"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Remove
+                      </button>
+                    </div>
                   </div>
-                </div>
+                ))}
               </div>
-            </div>
-                  ))}
-                </div>
-              </div>
-            ));
+            );
           })()
         )}
       </div>

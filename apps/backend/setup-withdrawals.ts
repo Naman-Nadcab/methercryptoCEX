@@ -5,6 +5,12 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/exchange'
 });
 
+/**
+ * Sets up withdrawals table and optionally inserts TEST/DUMMY data (withdrawals + balances).
+ * Do NOT run in production if you want only real data. After running, use:
+ *   node scripts/cleanup-dummy-financial-data.js
+ * to remove all dummy financial data while keeping the protected user (nmnsingh02@gmail.com).
+ */
 async function setup() {
   const client = await pool.connect();
   try {
@@ -230,18 +236,18 @@ async function setup() {
       console.log('✓ Added account_type column to balances');
     }
 
-    // Add some test balances for the user
-    const existingBalances = await client.query(`
-      SELECT COUNT(*) as count FROM balances WHERE user_id = $1
+    // Add some test user_balances for the user (single source of truth; do not use balances table)
+    const existingUb = await client.query(`
+      SELECT COUNT(*) as count FROM user_balances WHERE user_id = $1
     `, [testUserId]);
 
-    if (parseInt(existingBalances.rows[0].count) === 0) {
-      // Get some tokens
+    if (parseInt(existingUb.rows[0].count) === 0) {
       const tokens = await client.query(`
-        SELECT DISTINCT ON (UPPER(symbol)) id, symbol 
-        FROM tokens 
-        WHERE is_active = TRUE 
-        ORDER BY UPPER(symbol), id 
+        SELECT DISTINCT ON (UPPER(symbol)) t.id, t.symbol, c.id as currency_id
+        FROM tokens t
+        LEFT JOIN currencies c ON UPPER(TRIM(c.symbol)) = UPPER(TRIM(t.symbol))
+        WHERE t.is_active = TRUE AND c.id IS NOT NULL
+        ORDER BY UPPER(t.symbol), t.id
         LIMIT 5
       `);
 
@@ -253,18 +259,18 @@ async function setup() {
         else balance = '1000';
 
         await client.query(`
-          INSERT INTO balances (user_id, token_id, available_balance, locked_balance, account_type)
-          VALUES ($1, $2, $3, 0, 'funding')
-          ON CONFLICT (user_id, token_id) DO UPDATE SET available_balance = $3
-        `, [testUserId, token.id, balance]);
+          INSERT INTO user_balances (id, user_id, currency_id, chain_id, account_type, available_balance, locked_balance, pending_balance, total_deposited, updated_at)
+          VALUES (gen_random_uuid(), $1, $2, '', 'funding', $3, 0, 0, 0, NOW())
+          ON CONFLICT (user_id, currency_id, chain_id, account_type) DO UPDATE SET available_balance = EXCLUDED.available_balance, updated_at = NOW()
+        `, [testUserId, token.currency_id, balance]);
 
         await client.query(`
-          INSERT INTO balances (user_id, token_id, available_balance, locked_balance, account_type)
-          VALUES ($1, $2, $3, 0, 'trading')
-          ON CONFLICT DO NOTHING
-        `, [testUserId, token.id, (parseFloat(balance) * 0.5).toString()]);
+          INSERT INTO user_balances (id, user_id, currency_id, chain_id, account_type, available_balance, locked_balance, pending_balance, total_deposited, updated_at)
+          VALUES (gen_random_uuid(), $1, $2, '', 'trading', $3, 0, 0, 0, NOW())
+          ON CONFLICT (user_id, currency_id, chain_id, account_type) DO NOTHING
+        `, [testUserId, token.currency_id, (parseFloat(balance) * 0.5).toString()]);
       }
-      console.log('✓ Created test balances for user');
+      console.log('✓ Created test user_balances for user');
     }
 
     console.log('\n✅ Withdrawal setup completed successfully!');

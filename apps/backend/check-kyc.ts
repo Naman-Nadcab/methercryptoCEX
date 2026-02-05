@@ -16,7 +16,7 @@ async function check() {
     
     // Get chains for specific tokens
     const ethChains = await db.query(`
-      SELECT DISTINCT t.symbol, c.name as chain_name, c.id_text as chain_code, c.type, c.required_confirmations
+      SELECT DISTINCT t.symbol, c.name as chain_name, c.id as chain_code, c.type, c.required_confirmations
       FROM tokens t 
       JOIN chains c ON t.chain_id = c.id 
       WHERE t.symbol = 'ETH' AND t.is_active = true
@@ -24,7 +24,7 @@ async function check() {
     console.log('\nETH available on chains:', ethChains.rows);
     
     const usdtChains = await db.query(`
-      SELECT DISTINCT t.symbol, c.name as chain_name, c.id_text as chain_code, c.type, c.required_confirmations
+      SELECT DISTINCT t.symbol, c.name as chain_name, c.id as chain_code, c.type, c.required_confirmations
       FROM tokens t 
       JOIN chains c ON t.chain_id = c.id 
       WHERE t.symbol = 'USDT' AND t.is_active = true
