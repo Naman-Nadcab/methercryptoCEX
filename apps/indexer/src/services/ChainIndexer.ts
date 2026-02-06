@@ -458,12 +458,13 @@ export class ChainIndexer {
         logger.warn(`Currency ${currencyId} not in currencies, skipping pending balance update`);
         return;
       }
+      const CHAIN_ID_GLOBAL = '';
       await query(`
-        INSERT INTO user_balances (id, user_id, currency_id, available_balance, pending_balance, account_type, updated_at)
-        VALUES (gen_random_uuid(), $1, $2, 0, $3, 'funding', NOW())
-        ON CONFLICT (user_id, currency_id, account_type) 
-        DO UPDATE SET pending_balance = user_balances.pending_balance + $3, updated_at = NOW()
-      `, [userId, currencyId, amount]);
+        INSERT INTO user_balances (id, user_id, currency_id, chain_id, available_balance, pending_balance, account_type, updated_at)
+        VALUES (gen_random_uuid(), $1, $2, $3, 0, $4, 'funding', NOW())
+        ON CONFLICT (user_id, currency_id, chain_id, account_type)
+        DO UPDATE SET pending_balance = user_balances.pending_balance + $4, updated_at = NOW()
+      `, [userId, currencyId, CHAIN_ID_GLOBAL, amount]);
     } catch (error) {
       logger.error(`Failed to update pending balance`, { userId, currencyId, amount, error });
     }

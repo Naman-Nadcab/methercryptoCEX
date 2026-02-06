@@ -15,6 +15,14 @@ async function repair(): Promise<void> {
   logger.info('Starting one-time repair: balances → user_balances (only where user_balances is empty)');
 
   const pool = db.getPool();
+  const tableExists = await pool.query<{ n: number }>(
+    `SELECT 1 AS n FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'balances' LIMIT 1`
+  );
+  if (tableExists.rows.length === 0) {
+    logger.info('Legacy balances table does not exist; nothing to repair.');
+    return;
+  }
+
   const usersWithBalancesOnly = await pool.query<{ user_id: string }>(`
     SELECT DISTINCT b.user_id
     FROM balances b

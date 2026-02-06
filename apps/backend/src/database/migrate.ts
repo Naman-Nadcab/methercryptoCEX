@@ -325,6 +325,15 @@ const migrations = [
     END IF;
   END $$;`,
 
+  // Token withdrawal limits: canonical columns (required for admin + withdrawal validation)
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'tokens' AND c.relkind = 'r') THEN
+      ALTER TABLE tokens ADD COLUMN IF NOT EXISTS min_withdrawal DECIMAL(36,18) NOT NULL DEFAULT 0;
+      ALTER TABLE tokens ADD COLUMN IF NOT EXISTS max_withdrawal DECIMAL(36,18) NULL;
+    END IF;
+  END $$;`,
+
   // ============================================
   // USER MASTER KEYS TABLE (for HD wallet derivation)
   // ============================================
@@ -1331,6 +1340,16 @@ const migrations = [
   `ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS internal_user_id UUID REFERENCES users(id);`,
   `DO $$ BEGIN ALTER TABLE withdrawals ALTER COLUMN to_address DROP NOT NULL; EXCEPTION WHEN OTHERS THEN NULL; END $$;`,
 
+  // withdrawals may have been created with currency_id/blockchain_id (full-schema); ensure token_id/chain_id exist for wallet API
+  `ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS token_id UUID;`,
+  `ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS chain_id VARCHAR(50);`,
+  `ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS account_type VARCHAR(50) NOT NULL DEFAULT 'funding';`,
+  `ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS memo TEXT;`,
+  `DO $$ BEGIN ALTER TABLE withdrawals ALTER COLUMN token_id DROP NOT NULL; EXCEPTION WHEN OTHERS THEN NULL; END $$;`,
+  `DO $$ BEGIN ALTER TABLE withdrawals ALTER COLUMN chain_id DROP NOT NULL; EXCEPTION WHEN OTHERS THEN NULL; END $$;`,
+  `DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'withdrawals' AND column_name = 'currency_id') THEN ALTER TABLE withdrawals ALTER COLUMN currency_id DROP NOT NULL; END IF; END $$;`,
+  `DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'withdrawals' AND column_name = 'blockchain_id') THEN ALTER TABLE withdrawals ALTER COLUMN blockchain_id DROP NOT NULL; END IF; END $$;`,
+
   // ============================================
   // HARD GUARD: Only pending withdrawals can be enqueued for signing
   // ============================================
@@ -1356,10 +1375,30 @@ const migrations = [
    EXECUTE FUNCTION check_withdrawal_pending_before_queue_insert();`,
 
   // ============================================
-  // FREEZE BALANCE FOUNDATION: user_balances as single source of truth
-  // Add chain_id and 'spot' account type; unique (user_id, currency_id, chain_id, account_type)
+  // ENUM balance_account_type: must exist before ADD VALUE or user_balances (if created elsewhere)
   // ============================================
-  `DO $$ BEGIN ALTER TYPE balance_account_type ADD VALUE 'spot'; EXCEPTION WHEN duplicate_object THEN NULL; END $$;`,
+  `DO $$
+  BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'balance_account_type') THEN
+      CREATE TYPE balance_account_type AS ENUM ('funding', 'trading');
+    END IF;
+  END $$;`,
+  // ============================================
+  // FREEZE BALANCE FOUNDATION: user_balances as single source of truth
+  // Add 'spot' to enum; add chain_id and unique (user_id, currency_id, chain_id, account_type)
+  // ============================================
+  `DO $$
+  BEGIN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM pg_enum e
+      JOIN pg_type t ON e.enumtypid = t.oid
+      WHERE t.typname = 'balance_account_type'
+        AND e.enumlabel = 'spot'
+    ) THEN
+      ALTER TYPE balance_account_type ADD VALUE 'spot';
+    END IF;
+  END $$;`,
   `DO $$
    BEGIN
      IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_balances') THEN
@@ -1367,22 +1406,47 @@ const migrations = [
          ALTER TABLE user_balances ADD COLUMN chain_id VARCHAR(20) NOT NULL DEFAULT '';
        END IF;
        ALTER TABLE user_balances DROP CONSTRAINT IF EXISTS user_balances_user_id_currency_id_account_type_key;
+       ALTER TABLE user_balances DROP CONSTRAINT IF EXISTS user_balances_user_id_currency_id_key;
        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_balances_user_currency_chain_account_key') THEN
          ALTER TABLE user_balances ADD CONSTRAINT user_balances_user_currency_chain_account_key UNIQUE (user_id, currency_id, chain_id, account_type);
        END IF;
      END IF;
    END $$;`,
+  // Track when a completed deposit has been applied to user_balances (avoids double-credit on repair).
+  `ALTER TABLE deposits ADD COLUMN IF NOT EXISTS balance_applied_at TIMESTAMP WITH TIME ZONE;`,
+
+  // Drop legacy balances (view or table). user_balances is the only source of truth; runtime never uses balances.
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'balances' AND c.relkind = 'v') THEN
+      DROP VIEW balances CASCADE;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'balances' AND c.relkind = 'r') THEN
+      DROP TABLE balances;
+    END IF;
+  END $$;`,
 ];
+
+/** True if this migration SQL touches the legacy "balances" table (not user_balances). Run such steps via raw pool so runtime guard does not block. */
+function touchesLegacyBalancesTable(sql: string): boolean {
+  const normalized = sql.replace(/\s+/g, ' ').trim();
+  return /\bbalances\b/i.test(normalized) && !/user_balances/i.test(normalized);
+}
 
 async function migrate(direction: 'up' | 'down' = 'up'): Promise<void> {
   logger.info(`Running database migrations (${direction})...`);
+  const pool = db.getPool();
 
   try {
     if (direction === 'up') {
       for (let i = 0; i < migrations.length; i++) {
         const migration = migrations[i]!;
         try {
-          await db.query(migration);
+          if (touchesLegacyBalancesTable(migration)) {
+            await pool.query(migration);
+          } else {
+            await db.query(migration);
+          }
           logger.debug(`Migration ${i + 1}/${migrations.length} completed`);
         } catch (error) {
           logger.error(`Migration ${i + 1} failed`, { 

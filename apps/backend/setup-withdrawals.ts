@@ -223,25 +223,18 @@ async function setup() {
       console.log(`✓ Created ${dummyWithdrawals.length} dummy withdrawal records`);
     }
 
-    // Ensure balances table has account_type column
-    const balanceColCheck = await client.query(`
-      SELECT column_name FROM information_schema.columns 
-      WHERE table_name = 'balances' AND column_name = 'account_type'
-    `);
+    // Legacy balances table is unused; user_balances is the only source of truth. Do not touch balances.
 
-    if (balanceColCheck.rows.length === 0) {
-      await client.query(`
-        ALTER TABLE balances ADD COLUMN IF NOT EXISTS account_type VARCHAR(50) DEFAULT 'funding'
-      `);
-      console.log('✓ Added account_type column to balances');
-    }
-
-    // Add some test user_balances for the user (single source of truth; do not use balances table)
+    // Add test user_balances only in non-production (real funds = deposits + internal transfer - withdrawals only).
+    const isProduction = process.env.NODE_ENV === 'production' || process.env.SKIP_DUMMY_BALANCES === '1';
     const existingUb = await client.query(`
       SELECT COUNT(*) as count FROM user_balances WHERE user_id = $1
     `, [testUserId]);
 
-    if (parseInt(existingUb.rows[0].count) === 0) {
+    if (isProduction) {
+      console.log('Skipping test user_balances in production (real funds only: deposits + internal transfer - withdrawals).');
+    }
+    if (!isProduction && parseInt(existingUb.rows[0].count) === 0) {
       const tokens = await client.query(`
         SELECT DISTINCT ON (UPPER(symbol)) t.id, t.symbol, c.id as currency_id
         FROM tokens t

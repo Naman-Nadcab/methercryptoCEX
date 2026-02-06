@@ -5,6 +5,8 @@ import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
 import { config } from '../config/index.js';
+import { ensureUserBalanceRow, CHAIN_ID_GLOBAL } from '../lib/user-balance-helper.js';
+import { getCurrencyIdBySymbol } from '../lib/currency-resolver.js';
 
 // Types
 interface AdminLoginBody {
@@ -1108,6 +1110,7 @@ export default async function adminRoutes(app: FastifyInstance) {
       chain?: string;
       token?: string;
       status?: string;
+      flagged?: string;
       date_from?: string;
       date_to?: string;
     };
@@ -1115,7 +1118,7 @@ export default async function adminRoutes(app: FastifyInstance) {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
     try {
-      const { page = 1, limit = 20, user, chain, token, status, date_from, date_to } = request.query;
+      const { page = 1, limit = 20, user, chain, token, status, flagged, date_from, date_to } = request.query;
       const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
       const limitNum = Math.min(100, Math.max(1, parseInt(String(limit), 10) || 20));
       const offset = (pageNum - 1) * limitNum;
@@ -1145,6 +1148,9 @@ export default async function adminRoutes(app: FastifyInstance) {
       if (status && status !== 'all') {
         conditions.push(`d.status = $${paramIndex++}`);
         params.push(status);
+      }
+      if (flagged === 'true' || flagged === '1') {
+        conditions.push(`COALESCE(d.is_flagged, false) = true`);
       }
       if (date_from?.trim()) {
         conditions.push(`d.created_at >= $${paramIndex++}::timestamptz`);
@@ -1241,6 +1247,83 @@ export default async function adminRoutes(app: FastifyInstance) {
       return reply.status(500).send({
         success: false,
         error: { code: 'FETCH_FAILED', message: 'Failed to fetch deposits' },
+      });
+    }
+  });
+
+  /**
+   * POST /admin/deposits/manual-credit
+   * Admin-only: credit a user's funding balance (e.g. support adjustment, compensation).
+   * Body: { user: string (email or user id), currency: string (symbol), amount: string, reason?: string }
+   */
+  app.post<{
+    Body: { user: string; currency: string; amount: string; reason?: string };
+  }>('/deposits/manual-credit', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const { user: userInput, currency: symbol, amount: amountStr, reason } = request.body || {};
+      if (!userInput?.trim() || !symbol?.trim() || !amountStr?.trim()) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_INPUT', message: 'user, currency, and amount are required' },
+        });
+      }
+      const amount = parseFloat(amountStr.trim());
+      if (isNaN(amount) || amount <= 0) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_AMOUNT', message: 'amount must be a positive number' },
+        });
+      }
+      const userRow = await db.query<{ id: string; email: string }>(
+        `SELECT id, email FROM users WHERE status = 'active' AND deleted_at IS NULL
+         AND (id::text = $1 OR LOWER(TRIM(email)) = LOWER(TRIM($1))) LIMIT 1`,
+        [userInput.trim()]
+      );
+      if (userRow.rows.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'USER_NOT_FOUND', message: 'User not found' },
+        });
+      }
+      const userId = userRow.rows[0]!.id;
+      const currencyId = await getCurrencyIdBySymbol(symbol.trim());
+      if (!currencyId) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_CURRENCY', message: 'Currency not found' },
+        });
+      }
+      await ensureUserBalanceRow(userId, currencyId, CHAIN_ID_GLOBAL, 'funding');
+      const upd = await db.query(
+        `UPDATE user_balances SET available_balance = available_balance + $1::numeric, updated_at = NOW()
+         WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND COALESCE(account_type::text, 'funding') = 'funding'`,
+        [amount.toString(), userId, currencyId, CHAIN_ID_GLOBAL]
+      );
+      if ((upd.rowCount ?? 0) < 1) {
+        return reply.status(500).send({
+          success: false,
+          error: { code: 'CREDIT_FAILED', message: 'Balance update failed' },
+        });
+      }
+      logger.info('Admin manual credit', {
+        adminId: admin.adminId,
+        userId,
+        currencyId,
+        symbol: symbol.trim(),
+        amount,
+        reason: reason ?? null,
+      });
+      return reply.send({
+        success: true,
+        data: { userId, email: userRow.rows[0]!.email, currency: symbol.trim(), amount, reason: reason ?? null },
+      });
+    } catch (error) {
+      logger.error('Manual credit error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'CREDIT_FAILED', message: 'Manual credit failed' },
       });
     }
   });
@@ -1447,16 +1530,140 @@ export default async function adminRoutes(app: FastifyInstance) {
   // ===============================
 
   /**
+   * GET /admin/withdrawals/reports
+   * Industry-standard withdrawal report: stats, type breakdown, period counts, volume.
+   * Must be registered before GET /withdrawals so path is matched correctly.
+   */
+  app.get<{ Querystring: { date_from?: string; date_to?: string } }>('/withdrawals/reports', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const { date_from, date_to } = request.query;
+      const conditions: string[] = [];
+      const params: (string | number)[] = [];
+      let paramIndex = 1;
+      if (date_from?.trim()) {
+        conditions.push(`w.created_at >= $${paramIndex++}::timestamptz`);
+        params.push(date_from.trim());
+      }
+      if (date_to?.trim()) {
+        conditions.push(`w.created_at <= $${paramIndex++}::timestamptz`);
+        params.push(date_to.trim());
+      }
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+      const fromW = `FROM withdrawals w ${whereClause}`;
+
+      const [statsResult, typeResult, periodResult, volumeResult, byCurrencyResult] = await Promise.all([
+        db.query<{
+          total: string;
+          pending_approval: string;
+          pending: string;
+          processing: string;
+          completed: string;
+          failed: string;
+          cancelled: string;
+        }>(`
+          SELECT
+            COUNT(*)::text as total,
+            COUNT(*) FILTER (WHERE w.status = 'pending_approval')::text as pending_approval,
+            COUNT(*) FILTER (WHERE w.status = 'pending')::text as pending,
+            COUNT(*) FILTER (WHERE w.status = 'processing')::text as processing,
+            COUNT(*) FILTER (WHERE w.status = 'completed')::text as completed,
+            COUNT(*) FILTER (WHERE w.status = 'failed')::text as failed,
+            COUNT(*) FILTER (WHERE w.status = 'cancelled')::text as cancelled
+          ${fromW}
+        `, params),
+        db.query<{ internal: string; onchain: string }>(`
+          SELECT
+            COUNT(*) FILTER (WHERE COALESCE(w.type, 'onchain') = 'internal')::text as internal,
+            COUNT(*) FILTER (WHERE COALESCE(w.type, 'onchain') = 'onchain')::text as onchain
+          ${fromW}
+        `, params),
+        db.query<{ today: string; last_7_days: string; last_30_days: string }>(`
+          SELECT
+            COUNT(*) FILTER (WHERE w.created_at >= CURRENT_DATE)::text as today,
+            COUNT(*) FILTER (WHERE w.created_at >= NOW() - INTERVAL '7 days')::text as last_7_days,
+            COUNT(*) FILTER (WHERE w.created_at >= NOW() - INTERVAL '30 days')::text as last_30_days
+          ${fromW}
+        `, params),
+        db.query<{ completed_count: string; completed_volume: string }>(`
+          SELECT
+            COUNT(*) FILTER (WHERE w.status = 'completed')::text as completed_count,
+            COALESCE(SUM(w.amount) FILTER (WHERE w.status = 'completed'), 0)::text as completed_volume
+          ${fromW}
+        `, params),
+        db.query<{ symbol: string; count: string; total_amount: string }>(`
+          SELECT
+            COALESCE(t.symbol, 'Internal') as symbol,
+            COUNT(*)::text as count,
+            COALESCE(SUM(w.amount), 0)::text as total_amount
+          FROM withdrawals w
+          LEFT JOIN tokens t ON w.token_id = t.id
+          ${whereClause}
+          GROUP BY COALESCE(t.symbol, 'Internal')
+          ORDER BY SUM(w.amount) DESC
+          LIMIT 20
+        `, params),
+      ]);
+
+      const stats = statsResult.rows[0] ?? {};
+      const byType = typeResult.rows[0] ?? { internal: '0', onchain: '0' };
+      const period = periodResult.rows[0] ?? { today: '0', last_7_days: '0', last_30_days: '0' };
+      const volume = volumeResult.rows[0] ?? { completed_count: '0', completed_volume: '0' };
+
+      return reply.send({
+        success: true,
+        data: {
+          stats: {
+            total: stats.total ?? '0',
+            pending_approval: stats.pending_approval ?? '0',
+            pending: stats.pending ?? '0',
+            processing: stats.processing ?? '0',
+            completed: stats.completed ?? '0',
+            failed: stats.failed ?? '0',
+            cancelled: stats.cancelled ?? '0',
+          },
+          by_type: {
+            internal: byType.internal ?? '0',
+            onchain: byType.onchain ?? '0',
+          },
+          period: {
+            today: period.today ?? '0',
+            last_7_days: period.last_7_days ?? '0',
+            last_30_days: period.last_30_days ?? '0',
+          },
+          volume: {
+            completed_count: volume.completed_count ?? '0',
+            completed_volume: volume.completed_volume ?? '0',
+          },
+          by_currency: (byCurrencyResult.rows ?? []).map((r) => ({
+            symbol: r.symbol,
+            count: r.count,
+            total_amount: r.total_amount,
+          })),
+          date_range: date_from || date_to ? { date_from: date_from ?? null, date_to: date_to ?? null } : null,
+        },
+      });
+    } catch (error) {
+      logger.error('Withdrawal reports error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'FETCH_FAILED', message: 'Failed to fetch withdrawal reports' },
+      });
+    }
+  });
+
+  /**
    * GET /admin/withdrawals
    * List withdrawals with filters: status, chain_id, token_id. Paginated.
    */
   app.get<{
-    Querystring: { page?: string; limit?: string; status?: string; chain_id?: string; token_id?: string };
+    Querystring: { page?: string; limit?: string; status?: string; chain_id?: string; token_id?: string; type?: string; user?: string };
   }>('/withdrawals', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
     try {
-      const { page = 1, limit = 20, status, chain_id, token_id } = request.query;
+      const { page = 1, limit = 20, status, chain_id, token_id, type, user } = request.query;
       const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
       const limitNum = Math.min(100, Math.max(1, parseInt(String(limit), 10) || 20));
       const offset = (pageNum - 1) * limitNum;
@@ -1476,6 +1683,21 @@ export default async function adminRoutes(app: FastifyInstance) {
       if (token_id && token_id.trim()) {
         conditions.push(`w.token_id = $${paramIndex++}`);
         params.push(token_id.trim());
+      }
+      if (type === 'internal') {
+        conditions.push(`COALESCE(w.type, 'onchain') = 'internal'`);
+      } else if (type === 'onchain') {
+        conditions.push(`COALESCE(w.type, 'onchain') = 'onchain'`);
+      }
+      if (user?.trim()) {
+        const u = user.trim();
+        if (/^[0-9a-f-]{36}$/i.test(u)) {
+          conditions.push(`w.user_id = $${paramIndex++}`);
+          params.push(u);
+        } else {
+          conditions.push(`(u.email ILIKE $${paramIndex++} OR u.username ILIKE $${paramIndex++})`);
+          params.push(`%${u}%`, `%${u}%`);
+        }
       }
 
       const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -1501,9 +1723,12 @@ export default async function adminRoutes(app: FastifyInstance) {
         FROM withdrawals
       `);
 
-      // Filtered count for pagination
+      // Filtered count for pagination (same JOINs as list when filters reference u/type)
+      const countFrom = conditions.some(c => c.includes(' u.') || c.includes('u.email') || c.includes('u.username'))
+        ? `FROM withdrawals w JOIN users u ON w.user_id = u.id LEFT JOIN tokens t ON w.token_id = t.id LEFT JOIN chains c ON w.chain_id = c.id ${whereClause}`
+        : `FROM withdrawals w ${whereClause}`;
       const countResult = await db.query<{ count: string }>(
-        `SELECT COUNT(*)::text as count FROM withdrawals w ${whereClause}`,
+        `SELECT COUNT(*)::text as count ${countFrom}`,
         params
       );
       const filteredTotal = parseInt(countResult.rows[0]?.count ?? '0', 10);
@@ -1512,16 +1737,21 @@ export default async function adminRoutes(app: FastifyInstance) {
         SELECT 
           w.id, w.user_id, w.token_id, w.chain_id, w.amount, w.fee, w.net_amount,
           w.to_address, w.memo, w.status, w.account_type,
+          COALESCE(w.type, 'onchain') as withdrawal_type,
+          w.internal_user_id,
+          u_recipient.email as internal_recipient_email,
           w.tx_hash, w.completed_at, w.failed_reason, w.processed_at,
           w.approved_by, w.approved_at, w.rejected_by, w.rejected_at, w.rejection_reason,
           w.created_at, w.updated_at,
           u.email, u.username,
-          t.symbol as currency_symbol, t.name as token_name,
-          c.name as chain_name
+          COALESCE(t.symbol, '') as currency_symbol,
+          COALESCE(t.name, t.symbol, '') as token_name,
+          COALESCE(c.name, 'Internal') as chain_name
         FROM withdrawals w
         JOIN users u ON w.user_id = u.id
-        JOIN tokens t ON w.token_id = t.id
-        JOIN chains c ON w.chain_id = c.id
+        LEFT JOIN tokens t ON w.token_id = t.id
+        LEFT JOIN chains c ON w.chain_id = c.id
+        LEFT JOIN users u_recipient ON w.internal_user_id = u_recipient.id
         ${whereClause}
         ORDER BY w.created_at DESC
         LIMIT $${paramIndex++} OFFSET $${paramIndex}
@@ -3613,6 +3843,137 @@ export default async function adminRoutes(app: FastifyInstance) {
       });
     }
   });
+
+  // ============================================
+  // TOKENS (withdrawal limits — token-level, used at withdrawal time)
+  // ============================================
+
+  /**
+   * GET /admin/tokens
+   * List tokens (id, symbol, chain_id, min_withdrawal, max_withdrawal) for admin UI.
+   */
+  app.get('/tokens', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const result = await db.query<{
+        id: string;
+        symbol: string;
+        name: string;
+        chain_id: string;
+        min_withdrawal: string | null;
+        max_withdrawal: string | null;
+        withdrawal_fee: string | null;
+      }>(`
+        SELECT t.id, t.symbol, t.name, t.chain_id,
+               t.min_withdrawal::text, t.max_withdrawal::text, t.withdrawal_fee::text
+        FROM tokens t
+        WHERE t.is_active = TRUE
+        ORDER BY t.symbol, t.chain_id
+      `);
+      return reply.send({
+        success: true,
+        data: { tokens: result.rows },
+      });
+    } catch (error: any) {
+      logger.error('Failed to list tokens', { error });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'FETCH_FAILED', message: error?.message ?? 'Failed to list tokens' },
+      });
+    }
+  });
+
+  /**
+   * PATCH /admin/tokens/:id/withdrawal-limits
+   * Update token withdrawal limits. Admin only.
+   * Body: { min_withdrawal: number, max_withdrawal: number | null }
+   * - max_withdrawal = null means unlimited.
+   * - min_withdrawal >= 0; max_withdrawal >= min_withdrawal or null.
+   */
+  app.patch<{ Params: { id: string }; Body: { min_withdrawal?: number; max_withdrawal?: number | null } }>(
+    '/tokens/:id/withdrawal-limits',
+    async (request, reply) => {
+      const admin = await getAdminFromRequest(app, request, reply, false);
+      if (!admin) return;
+      const { id: tokenId } = request.params;
+      const body = request.body || {};
+      const minVal = body.min_withdrawal;
+      const maxVal = body.max_withdrawal;
+
+      if (minVal !== undefined) {
+        if (typeof minVal !== 'number' || minVal < 0 || !Number.isFinite(minVal)) {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'VALIDATION_ERROR', message: 'min_withdrawal must be a number >= 0' },
+          });
+        }
+      }
+      if (maxVal !== undefined && maxVal !== null) {
+        if (typeof maxVal !== 'number' || maxVal < 0 || !Number.isFinite(maxVal)) {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'VALIDATION_ERROR', message: 'max_withdrawal must be a number >= 0 or null for unlimited' },
+          });
+        }
+        const effectiveMin = minVal !== undefined ? minVal : 0;
+        if (maxVal < effectiveMin) {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'VALIDATION_ERROR', message: 'max_withdrawal must be >= min_withdrawal' },
+          });
+        }
+      }
+
+      try {
+        const tokenRow = await db.query<{ id: string; symbol: string; min_withdrawal: string; max_withdrawal: string | null }>(
+          'SELECT id, symbol, min_withdrawal::text, max_withdrawal::text FROM tokens WHERE id = $1',
+          [tokenId]
+        );
+        if (tokenRow.rows.length === 0) {
+          return reply.status(404).send({
+            success: false,
+            error: { code: 'NOT_FOUND', message: 'Token not found' },
+          });
+        }
+        const before = tokenRow.rows[0]!;
+        const newMin = minVal !== undefined ? minVal : parseFloat(before.min_withdrawal);
+        const newMax = maxVal !== undefined ? maxVal : (before.max_withdrawal != null ? parseFloat(before.max_withdrawal) : null);
+        if (newMax != null && newMax < newMin) {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'VALIDATION_ERROR', message: 'max_withdrawal must be >= min_withdrawal' },
+          });
+        }
+
+        await db.query(
+          `UPDATE tokens SET min_withdrawal = $1, max_withdrawal = $2, updated_at = NOW() WHERE id = $3`,
+          [newMin, newMax, tokenId]
+        );
+        logger.info('[ADMIN_TOKEN_UPDATE]', {
+          token_id: tokenId,
+          symbol: before.symbol,
+          min_withdrawal: newMin,
+          max_withdrawal: newMax ?? 'unlimited',
+        });
+        return reply.send({
+          success: true,
+          data: {
+            token_id: tokenId,
+            symbol: before.symbol,
+            min_withdrawal: String(newMin),
+            max_withdrawal: newMax == null ? null : String(newMax),
+          },
+        });
+      } catch (error: any) {
+        logger.error('Failed to update token withdrawal limits', { error, token_id: tokenId });
+        return reply.status(500).send({
+          success: false,
+          error: { code: 'UPDATE_FAILED', message: error?.message ?? 'Failed to update token withdrawal limits' },
+        });
+      }
+    }
+  );
 
   /**
    * DELETE /admin/settings/currencies/:id

@@ -3,6 +3,7 @@ import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
 import { getCurrencyIdBySymbol } from '../lib/currency-resolver.js';
 import { ensureUserBalanceRow, assertUserBalanceUpdated, DEFAULT_ACCOUNT_TYPE, CHAIN_ID_GLOBAL } from '../lib/user-balance-helper.js';
+import { readUserBalances } from '../services/balance/readUserBalances.js';
 import { walletService } from '../services/wallet.service.js';
 import { logger, auditLog } from '../lib/logger.js';
 import { logWithdrawalLifecycle } from '../lib/withdrawal-audit.js';
@@ -590,7 +591,7 @@ export default async function walletRoutes(app: FastifyInstance) {
       const tradingSum = await db.query<{ total: string }>(`
         SELECT COALESCE(SUM(COALESCE(ub.available_balance, 0) + COALESCE(ub.locked_balance, 0)), 0)::text as total
         FROM user_balances ub
-        WHERE ub.user_id = $1 AND COALESCE(ub.account_type::text, 'funding') IN ('trading', 'unified')
+        WHERE ub.user_id = $1 AND COALESCE(ub.account_type::text, 'funding') = 'trading'
       `, [userId]);
 
       const fundingTotal = parseFloat(fundingSum.rows[0]?.total || '0');
@@ -625,38 +626,48 @@ export default async function walletRoutes(app: FastifyInstance) {
     }
   });
 
-  // Get user balances (authenticated). Read ONLY from user_balances. SUM(available_balance + locked_balance) per currency.
+  // Get user balances (authenticated). Uses canonical readUserBalances only.
   app.get('/balances', {
     preHandler: [app.authenticate]
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const userId = request.user!.id;
-      const result = await db.query<{ currency_id: string; symbol: string; name: string; available_balance: string; locked_balance: string }>(`
-        SELECT ub.currency_id, COALESCE(c.symbol, '') AS symbol, COALESCE(c.name, '') AS name,
-               SUM(COALESCE(ub.available_balance, 0))::text AS available_balance,
-               SUM(COALESCE(ub.locked_balance, 0))::text AS locked_balance
-        FROM user_balances ub
-        LEFT JOIN currencies c ON c.id = ub.currency_id
-        WHERE ub.user_id = $1
-        GROUP BY ub.currency_id, c.symbol, c.name
-      `, [userId]);
-      const balances = result.rows.map(row => ({
-        currency_id: row.currency_id,
-        symbol: row.symbol,
-        name: row.name,
-        available_balance: parseFloat(row.available_balance || '0'),
-        locked_balance: parseFloat(row.locked_balance || '0'),
-        total: parseFloat(row.available_balance || '0') + parseFloat(row.locked_balance || '0')
+      const [fundingRows, spotRows, tradingRows, namesResult] = await Promise.all([
+        readUserBalances(userId, 'funding'),
+        readUserBalances(userId, 'spot').catch(() => [] as Awaited<ReturnType<typeof readUserBalances>>),
+        readUserBalances(userId, 'trading').catch(() => [] as Awaited<ReturnType<typeof readUserBalances>>),
+        db.query<{ id: string; symbol: string; name: string }>(`SELECT id, symbol, COALESCE(name, symbol) as name FROM currencies WHERE is_active = TRUE`),
+      ]);
+      const byCurrency: Record<string, { symbol: string; available: number; locked: number }> = {};
+      const allRows = [...fundingRows, ...spotRows, ...tradingRows];
+      for (const r of allRows) {
+        if (!byCurrency[r.currency_id]) {
+          byCurrency[r.currency_id] = { symbol: r.symbol, available: 0, locked: 0 };
+        }
+        byCurrency[r.currency_id].available += parseFloat(r.available_balance || '0');
+        byCurrency[r.currency_id].locked += parseFloat(r.locked_balance || '0');
+      }
+      const nameById: Record<string, string> = {};
+      namesResult.rows.forEach(row => {
+        nameById[row.id] = row.name || row.symbol;
+      });
+      const balances = Object.entries(byCurrency).map(([currency_id, agg]) => ({
+        currency_id,
+        symbol: agg.symbol,
+        name: nameById[currency_id] ?? agg.symbol,
+        available_balance: agg.available,
+        locked_balance: agg.locked,
+        total: agg.available + agg.locked
       }));
 
-      return {
+      return reply.send({
         success: true,
         data: balances
-      };
+      });
     } catch (error) {
-      logger.error('Failed to get balances', { 
+      logger.error('Failed to get balances', {
         error: error instanceof Error ? error.message : 'Unknown',
-        userId: request.user?.id 
+        userId: request.user?.id
       });
       return reply.status(500).send({
         success: false,
@@ -823,46 +834,45 @@ export default async function walletRoutes(app: FastifyInstance) {
       const userId = request.user!.id;
       const balancesByToken: Record<string, { symbol: string; name: string; funding: string; trading: string; total: string }> = {};
 
-      const ubResult = await db.query(`
-        SELECT 
-          c.symbol,
-          REGEXP_REPLACE(COALESCE(c.name, c.symbol), '\\s*\\([A-Z0-9]+\\)\\s*$', '', 'i') as token_name,
-          COALESCE(ub.account_type::text, 'funding') as account_type,
-          (COALESCE(ub.available_balance, 0) + COALESCE(ub.locked_balance, 0))::text as balance
-        FROM user_balances ub
-        JOIN currencies c ON c.id = ub.currency_id
-        WHERE ub.user_id = $1 AND (COALESCE(ub.available_balance, 0) > 0 OR COALESCE(ub.locked_balance, 0) > 0)
-        ORDER BY c.symbol, ub.account_type
-      `, [userId]);
-      for (const row of ubResult.rows) {
-        const sym = row.symbol || '?';
-        if (!balancesByToken[sym]) {
-          balancesByToken[sym] = { symbol: sym, name: row.token_name || sym, funding: '0', trading: '0', total: '0' };
+      const [fundingRows, spotRows, tradingRows, namesResult] = await Promise.all([
+        readUserBalances(userId, 'funding'),
+        readUserBalances(userId, 'spot').catch(() => [] as Awaited<ReturnType<typeof readUserBalances>>),
+        readUserBalances(userId, 'trading').catch(() => [] as Awaited<ReturnType<typeof readUserBalances>>),
+        db.query<{ id: string; symbol: string; name: string }>(
+          `SELECT id, symbol, REGEXP_REPLACE(COALESCE(name, symbol), '\\s*\\([A-Z0-9]+\\)\\s*$', '', 'i') as name FROM currencies WHERE is_active = TRUE`
+        ),
+      ]);
+      const nameBySymbol: Record<string, string> = {};
+      namesResult.rows.forEach(row => {
+        nameBySymbol[row.symbol] = row.name || row.symbol;
+      });
+
+      const addBalance = (rows: { currency_id: string; symbol: string; available_balance: string; locked_balance: string }[], bucket: 'funding' | 'trading') => {
+        for (const r of rows) {
+          const sym = r.symbol || '?';
+          if (!balancesByToken[sym]) {
+            balancesByToken[sym] = { symbol: sym, name: nameBySymbol[sym] ?? sym, funding: '0', trading: '0', total: '0' };
+          }
+          const bal = (parseFloat(r.available_balance || '0') + parseFloat(r.locked_balance || '0')).toString();
+          const cur = parseFloat(balancesByToken[sym][bucket]);
+          balancesByToken[sym][bucket] = (cur + parseFloat(bal)).toString();
+          const f = parseFloat(balancesByToken[sym].funding);
+          const t = parseFloat(balancesByToken[sym].trading);
+          balancesByToken[sym].total = (f + t).toString();
         }
-        const bal = row.balance || '0';
-        if (row.account_type === 'funding' || row.account_type === 'spot') {
-          const cur = parseFloat(balancesByToken[sym].funding);
-          balancesByToken[sym].funding = (cur + parseFloat(bal)).toString();
-        } else if (row.account_type === 'trading' || row.account_type === 'unified') {
-          const cur = parseFloat(balancesByToken[sym].trading);
-          balancesByToken[sym].trading = (cur + parseFloat(bal)).toString();
-        } else {
-          const cur = parseFloat(balancesByToken[sym].funding);
-          balancesByToken[sym].funding = (cur + parseFloat(bal)).toString();
-        }
-        const f = parseFloat(balancesByToken[sym].funding);
-        const t = parseFloat(balancesByToken[sym].trading);
-        balancesByToken[sym].total = (f + t).toString();
-      }
+      };
+      addBalance(fundingRows, 'funding');
+      addBalance(spotRows, 'funding');
+      addBalance(tradingRows, 'trading');
 
       return {
         success: true,
         data: Object.values(balancesByToken)
       };
     } catch (error) {
-      logger.error('Failed to get balances by account', { 
+      logger.error('Failed to get balances by account', {
         error: error instanceof Error ? error.message : 'Unknown',
-        userId: request.user?.id 
+        userId: request.user?.id
       });
       return reply.status(500).send({
         success: false,
@@ -1081,7 +1091,11 @@ export default async function walletRoutes(app: FastifyInstance) {
     try {
       const userId = request.user!.id;
       const withdrawType = (request.body.type ?? 'onchain') as 'onchain' | 'internal';
-      const { symbol, chainId, amount, toAddress, accountType = 'funding', memo, twoFactorCode, withdrawalAddressId, internal_user_identifier } = request.body;
+      let { symbol, chainId, amount, toAddress, accountType = 'funding', memo, twoFactorCode, withdrawalAddressId, internal_user_identifier } = request.body;
+      const allowedWithdrawalAccounts = ['funding', 'spot', 'trading'];
+      if (!allowedWithdrawalAccounts.includes(accountType)) {
+        accountType = 'funding';
+      }
 
       // Validate input
       if (!symbol || !amount) {
@@ -1114,24 +1128,47 @@ export default async function walletRoutes(app: FastifyInstance) {
         });
       }
 
-      // ---------- INTERNAL TRANSFER ----------
+      // ---------- INTERNAL TRANSFER (Binance-style: any currency with balance can be transferred) ----------
       if (withdrawType === 'internal') {
         const identifier = internal_user_identifier!.trim();
+        let symbolNorm = (typeof symbol === 'string' ? symbol : '').trim();
+        if (!symbolNorm) {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'INVALID_TOKEN', message: 'Please select a coin' }
+          });
+        }
+        if (symbolNorm.includes(' ')) {
+          symbolNorm = symbolNorm.split(/\s+/)[0]!.trim() || symbolNorm;
+        }
+        const currencyId = await getCurrencyIdBySymbol(symbolNorm);
+        if (!currencyId) {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'INVALID_TOKEN', message: 'This asset is not available for internal transfer' }
+          });
+        }
+        let token: { token_id: string | null; chain_id: string | null; symbol: string; min_withdrawal: string | null; max_withdrawal: string | null; chain_name: string };
         const tokenResult = await db.query(`
-          SELECT t.id as token_id, t.symbol, t.decimals, t.withdrawal_fee, t.min_withdrawal, t.chain_id,
+          SELECT t.id as token_id, t.symbol, t.decimals, t.withdrawal_fee, t.min_withdrawal, t.max_withdrawal, t.chain_id,
                  c.id as chain_id, c.name as chain_name
           FROM tokens t
           JOIN chains c ON t.chain_id = c.id
-          WHERE UPPER(t.symbol) = UPPER($1) AND t.is_active = TRUE AND c.is_active = TRUE
+          WHERE UPPER(t.symbol) = UPPER($1) AND t.is_active = TRUE
           LIMIT 1
-        `, [symbol]);
-        if (tokenResult.rows.length === 0) {
-          return reply.status(400).send({
-            success: false,
-            error: { code: 'INVALID_TOKEN', message: 'Invalid token' }
-          });
+        `, [symbolNorm]);
+        if (tokenResult.rows.length > 0) {
+          token = tokenResult.rows[0];
+        } else {
+          token = {
+            token_id: null,
+            chain_id: null,
+            symbol: symbolNorm,
+            min_withdrawal: '0',
+            max_withdrawal: null,
+            chain_name: 'Internal'
+          };
         }
-        const token = tokenResult.rows[0];
         const recipientRow = await db.query<{ id: string }>(
           `SELECT id FROM users WHERE status = 'active' AND deleted_at IS NULL AND (
             id::text = $1 OR LOWER(TRIM(email)) = LOWER(TRIM($1)) OR TRIM(phone) = TRIM($1)
@@ -1152,35 +1189,58 @@ export default async function walletRoutes(app: FastifyInstance) {
           });
         }
         const fee = 0;
-        const minWithdrawal = parseFloat(token.min_withdrawal || '0');
-        if (withdrawAmount < minWithdrawal) {
+        const minWithdrawal = parseFloat(token.min_withdrawal ?? '0');
+        const maxWithdrawalRaw = token.max_withdrawal != null ? parseFloat(String(token.max_withdrawal)) : null;
+        if (minWithdrawal > 0 && withdrawAmount < minWithdrawal) {
           return reply.status(400).send({
             success: false,
             error: { code: 'BELOW_MINIMUM', message: `Minimum is ${minWithdrawal} ${symbol}` }
           });
         }
-        const currencyId = await getCurrencyIdBySymbol(token.symbol);
-        if (!currencyId) {
+        if (maxWithdrawalRaw != null && withdrawAmount > maxWithdrawalRaw) {
           return reply.status(400).send({
             success: false,
-            error: { code: 'INVALID_TOKEN', message: 'Currency not found for this token; internal transfer uses user_balances' }
+            error: { code: 'ABOVE_MAXIMUM', message: `Maximum withdrawal is ${maxWithdrawalRaw} ${symbol}` }
           });
         }
-        const balanceResult = await db.query<{ available_balance: string }>(`
-          SELECT COALESCE(SUM(available_balance), 0)::text as available_balance
-          FROM user_balances
-          WHERE user_id = $1 AND currency_id = $2 AND COALESCE(account_type::text, 'funding') IN ('funding', 'spot')
-        `, [userId, currencyId]);
-        const availableBalance = parseFloat(balanceResult.rows[0]?.available_balance || '0');
-        if (availableBalance < withdrawAmount) {
+        logger.info('[WITHDRAW_LIMIT]', {
+          symbol: token.symbol,
+          min_withdrawal: minWithdrawal,
+          max_withdrawal: maxWithdrawalRaw ?? 'unlimited',
+          amount: withdrawAmount,
+        });
+        // currencyId already resolved above for internal transfer
+        // Use same rows we will debit: funding/spot with chain_id = '' (CHAIN_ID_GLOBAL). Avoids mismatch with readUserBalances.
+        const balanceRows = await db.query<{ available_balance: string }>(
+          `SELECT COALESCE(available_balance, 0)::text AS available_balance
+           FROM user_balances
+           WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3
+             AND LOWER(TRIM(COALESCE(account_type::text, ''))) IN ('funding', 'spot')`,
+          [userId, currencyId, CHAIN_ID_GLOBAL]
+        );
+        const availableBalance = balanceRows.rows.reduce(
+          (sum, r) => sum + parseFloat(r.available_balance || '0'),
+          0
+        );
+        const epsilon = 1e-8;
+        if (availableBalance < withdrawAmount - epsilon) {
+          logger.warn('Internal transfer insufficient balance', {
+            userId,
+            currencyId,
+            symbol: token.symbol,
+            availableBalance,
+            withdrawAmount,
+            byAccountRows: balanceRows.rows.length,
+          });
           return reply.status(400).send({
             success: false,
             error: { code: 'INSUFFICIENT_BALANCE', message: 'Insufficient balance' }
           });
         }
-        const chainIdForUb = token.chain_id ?? CHAIN_ID_GLOBAL;
+        // Internal transfer is always funding->funding; use CHAIN_ID_GLOBAL so we match user_balances rows (chain_id = '')
+        // History: internal_transfers INSERT is inside the same transaction so history is always created when balance updates
         const withdrawalInternal = await db.transaction(async (client) => {
-          await ensureUserBalanceRow(userId, currencyId, chainIdForUb, 'funding', client);
+          await ensureUserBalanceRow(userId, currencyId, CHAIN_ID_GLOBAL, 'funding', client);
           await ensureUserBalanceRow(recipientId, currencyId, CHAIN_ID_GLOBAL, 'funding', client);
           const ins = await client.query<{ id: string; created_at: string }>(`
             INSERT INTO withdrawals (
@@ -1190,7 +1250,7 @@ export default async function walletRoutes(app: FastifyInstance) {
             RETURNING id, created_at
           `, [userId, token.token_id, token.chain_id, withdrawAmount.toString(), fee.toString(), withdrawAmount.toString(), recipientId]);
           const w = ins.rows[0]!;
-          let senderUpd = await client.query(`
+          const senderUpd = await client.query(`
             UPDATE user_balances
             SET available_balance = available_balance - $1::numeric, updated_at = NOW()
             WHERE id = (
@@ -1201,30 +1261,19 @@ export default async function walletRoutes(app: FastifyInstance) {
               ORDER BY available_balance DESC NULLS LAST
               LIMIT 1
             )
-          `, [withdrawAmount.toString(), userId, currencyId, chainIdForUb]);
-          if (senderUpd.rowCount === 0 && chainIdForUb !== CHAIN_ID_GLOBAL) {
-            await ensureUserBalanceRow(userId, currencyId, CHAIN_ID_GLOBAL, 'funding', client);
-            senderUpd = await client.query(`
-              UPDATE user_balances
-              SET available_balance = available_balance - $1::numeric, updated_at = NOW()
-              WHERE id = (
-                SELECT id FROM user_balances
-                WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4
-                  AND COALESCE(account_type::text, 'funding') IN ('funding', 'spot')
-                  AND available_balance >= $1::numeric
-                ORDER BY available_balance DESC NULLS LAST
-                LIMIT 1
-              )
-            `, [withdrawAmount.toString(), userId, currencyId, CHAIN_ID_GLOBAL]);
-            assertUserBalanceUpdated('internal_transfer_debit', senderUpd, userId, currencyId, 'funding', CHAIN_ID_GLOBAL);
-          } else {
-            assertUserBalanceUpdated('internal_transfer_debit', senderUpd, userId, currencyId, 'funding', chainIdForUb);
-          }
+          `, [withdrawAmount.toString(), userId, currencyId, CHAIN_ID_GLOBAL]);
+          assertUserBalanceUpdated('internal_transfer_debit', senderUpd, userId, currencyId, 'funding', CHAIN_ID_GLOBAL);
           const receiverUpd = await client.query(`
             UPDATE user_balances SET available_balance = available_balance + $1::numeric, updated_at = NOW()
             WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND COALESCE(account_type::text, 'funding') = 'funding'
           `, [withdrawAmount.toString(), recipientId, currencyId, CHAIN_ID_GLOBAL]);
           assertUserBalanceUpdated('internal_transfer_credit', receiverUpd, recipientId, currencyId, 'funding', CHAIN_ID_GLOBAL);
+          // Create history in same transaction so it never happens without balance update (Binance-style)
+          await client.query(
+            `INSERT INTO internal_transfers (from_user_id, to_user_id, currency_id, amount, transfer_type, status, notes)
+             VALUES ($1, $2, $3, $4::numeric, 'user_to_user', 'completed', $5)`,
+            [userId, recipientId, currencyId, withdrawAmount.toString(), `Internal transfer to recipient`]
+          );
           return w;
         });
         await logWithdrawalLifecycle('withdrawal_internal_completed', {
@@ -1264,7 +1313,7 @@ export default async function walletRoutes(app: FastifyInstance) {
       // Get token and chain info (include is_high_risk for approval flow)
       const tokenResult = await db.query(`
         SELECT 
-          t.id as token_id, t.symbol, t.decimals, t.withdrawal_fee, t.min_withdrawal,
+          t.id as token_id, t.symbol, t.decimals, t.withdrawal_fee, t.min_withdrawal, t.max_withdrawal,
           COALESCE(t.is_high_risk, FALSE) as is_high_risk,
           c.id as chain_id, c.name as chain_name, c.type as chain_type
         FROM tokens t
@@ -1296,24 +1345,46 @@ export default async function walletRoutes(app: FastifyInstance) {
         });
       }
       const fee = parseFloat(rawFee || '0');
-      const minWithdrawal = parseFloat(token.min_withdrawal || '0');
+      const minWithdrawal = parseFloat(token.min_withdrawal ?? '0');
+      const maxWithdrawalRaw = token.max_withdrawal != null ? parseFloat(String(token.max_withdrawal)) : null;
 
-      // Check minimum withdrawal
-      if (withdrawAmount < minWithdrawal) {
+      // Token-driven validation: min only if > 0, max only if NOT NULL
+      if (minWithdrawal > 0 && withdrawAmount < minWithdrawal) {
         logger.warn('Withdrawal creation failed: BELOW_MINIMUM', {
           user_id: userId,
           chain_id: token.chain_id,
-          symbol,
+          symbol: token.symbol,
           amount: withdrawAmount,
-          minWithdrawal,
+          min_withdrawal: minWithdrawal,
+          max_withdrawal: maxWithdrawalRaw ?? 'unlimited',
         });
         return reply.status(400).send({
           success: false,
           error: { code: 'BELOW_MINIMUM', message: `Minimum withdrawal is ${minWithdrawal} ${symbol}` }
         });
       }
+      if (maxWithdrawalRaw != null && withdrawAmount > maxWithdrawalRaw) {
+        logger.warn('Withdrawal creation failed: ABOVE_MAXIMUM', {
+          user_id: userId,
+          chain_id: token.chain_id,
+          symbol: token.symbol,
+          amount: withdrawAmount,
+          max_withdrawal: maxWithdrawalRaw,
+        });
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'ABOVE_MAXIMUM', message: `Maximum withdrawal is ${maxWithdrawalRaw} ${symbol}` }
+        });
+      }
 
-      // Check user balance from user_balances (single source of truth)
+      logger.info('[WITHDRAW_LIMIT]', {
+        symbol: token.symbol,
+        min_withdrawal: minWithdrawal,
+        max_withdrawal: maxWithdrawalRaw ?? 'unlimited',
+        amount: withdrawAmount,
+      });
+
+      // Check user balance via canonical readUserBalances
       const currencyId = await getCurrencyIdBySymbol(token.symbol);
       if (!currencyId) {
         logger.warn('Withdrawal creation failed: INVALID_TOKEN (currency not found)', {
@@ -1327,13 +1398,9 @@ export default async function walletRoutes(app: FastifyInstance) {
         });
       }
       const chainIdCheck = token.chain_id ?? CHAIN_ID_GLOBAL;
-      const balanceResult = await db.query<{ available_balance: string }>(`
-        SELECT COALESCE(SUM(available_balance), 0)::text as available_balance
-        FROM user_balances
-        WHERE user_id = $1 AND currency_id = $2 AND account_type = $3
-      `, [userId, currencyId, accountType]);
-
-      const availableBalance = parseFloat(balanceResult.rows[0]?.available_balance || '0');
+      const withdrawBalances = await readUserBalances(userId, accountType);
+      const withdrawRow = withdrawBalances.find(r => r.currency_id === currencyId);
+      const availableBalance = withdrawRow ? parseFloat(withdrawRow.available_balance || '0') : 0;
       const totalRequired = withdrawAmount + fee;
       const netAmount = withdrawAmount - fee;
 
@@ -1460,6 +1527,7 @@ export default async function walletRoutes(app: FastifyInstance) {
       const withdrawal = withdrawalResult.rows[0];
 
       const chainIdForLock = token.chain_id ?? CHAIN_ID_GLOBAL;
+      let updatedChainId = chainIdForLock;
       try {
         await ensureUserBalanceRow(userId, currencyId, chainIdForLock, accountType);
         let upd = await db.query(`
@@ -1482,6 +1550,7 @@ export default async function walletRoutes(app: FastifyInstance) {
             WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5
               AND available_balance >= $1::numeric
           `, [totalRequired.toString(), userId, currencyId, CHAIN_ID_GLOBAL, accountType]);
+          updatedChainId = CHAIN_ID_GLOBAL;
         }
         if (upd.rowCount === 0) {
           logger.error('Withdrawal creation failed: BALANCE_ROW_NOT_FOUND_OR_MISMATCH', withdrawalLogContext);
@@ -1494,6 +1563,7 @@ export default async function walletRoutes(app: FastifyInstance) {
             },
           });
         }
+        assertUserBalanceUpdated('withdrawal_lock', upd, userId, currencyId, accountType, updatedChainId);
       } catch (err) {
         await db.query(`DELETE FROM withdrawals WHERE id = $1`, [withdrawal.id]);
         logger.error('Withdrawal creation failed: BALANCE_LOCK_FAILED', {
@@ -1679,39 +1749,56 @@ export default async function walletRoutes(app: FastifyInstance) {
   // ============================================
   // ASSETS OVERVIEW ENDPOINTS
   // ============================================
+  // Balance read: always use readUserBalances; total USD = sum(amount * price) per currency. See docs/BALANCE_AND_DEPOSIT_RULES.md
 
-  // Get balances summary for assets overview (authenticated)
-  // Read ONLY from user_balances. SUM(available_balance + locked_balance) per account type.
+  // Get balances summary for assets overview (authenticated). Uses canonical readUserBalances only.
   app.get('/balances/summary', {
     preHandler: [app.authenticate]
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const userId = request.user!.id;
-      let fundingTotal = 0;
-      let tradingTotal = 0;
-
-      try {
-        const fundingResult = await db.query<{ total: string }>(`
-          SELECT COALESCE(SUM(COALESCE(ub.available_balance, 0) + COALESCE(ub.locked_balance, 0)), 0)::text as total
-          FROM user_balances ub
-          WHERE ub.user_id = $1 AND COALESCE(ub.account_type::text, 'funding') IN ('funding', 'spot')
-        `, [userId]);
-        fundingTotal = parseFloat(fundingResult.rows[0]?.total || '0');
-      } catch (e) {
-        logger.warn('Balances summary (funding) failed', { userId, error: e instanceof Error ? e.message : 'Unknown' });
+      const pricesSql = `
+        SELECT DISTINCT ON (UPPER(bc.symbol)) bc.symbol, mp.price::numeric as usd_price
+        FROM market_prices mp
+        JOIN currencies bc ON mp.base_currency_id = bc.id
+        JOIN currencies qc ON mp.quote_currency_id = qc.id
+        WHERE UPPER(qc.symbol) = 'USDT'
+        ORDER BY UPPER(bc.symbol), mp.price DESC`;
+      const [fundingRows, spotRows, tradingRows, pricesResult] = await Promise.all([
+        readUserBalances(userId, 'funding'),
+        readUserBalances(userId, 'spot').catch(() => [] as Awaited<ReturnType<typeof readUserBalances>>),
+        readUserBalances(userId, 'trading').catch(() => [] as Awaited<ReturnType<typeof readUserBalances>>),
+        db.query<{ symbol: string; usd_price: string }>(pricesSql).catch(() => ({ rows: [] })),
+      ]);
+      const priceMap: Record<string, number> = { USDT: 1, USDC: 1, DAI: 1, BUSD: 1 };
+      pricesResult.rows.forEach(row => {
+        priceMap[row.symbol.toUpperCase()] = parseFloat(row.usd_price) || 1;
+      });
+      const toUsd = (rows: { symbol: string; available_balance: string; locked_balance: string }[]) =>
+        rows.reduce((t, r) => {
+          const q = parseFloat(r.available_balance || '0') + parseFloat(r.locked_balance || '0');
+          const price = priceMap[r.symbol?.toUpperCase()] ?? 1;
+          return t + q * price;
+        }, 0);
+      let fundingRowsForTotal = fundingRows;
+      let spotRowsForTotal = spotRows;
+      if (fundingRows.length === 0 && spotRows.length === 0) {
+        const direct = await db.query<{ symbol: string; available_balance: string; locked_balance: string }>(
+          `SELECT COALESCE(c.symbol, '') AS symbol, COALESCE(ub.available_balance, 0)::text AS available_balance, COALESCE(ub.locked_balance, 0)::text AS locked_balance
+           FROM user_balances ub
+           LEFT JOIN currencies c ON c.id = ub.currency_id
+           WHERE ub.user_id = $1 AND (LOWER(TRIM(COALESCE(ub.account_type::text, ''))) IN ('funding', 'spot') OR ub.account_type IS NULL)`,
+          [userId]
+        );
+        fundingRowsForTotal = direct.rows.map(r => ({
+          symbol: r.symbol,
+          available_balance: r.available_balance ?? '0',
+          locked_balance: r.locked_balance ?? '0'
+        }));
+        spotRowsForTotal = [];
       }
-
-      try {
-        const tradingResult = await db.query<{ total: string }>(`
-          SELECT COALESCE(SUM(COALESCE(ub.available_balance, 0) + COALESCE(ub.locked_balance, 0)), 0)::text as total
-          FROM user_balances ub
-          WHERE ub.user_id = $1 AND COALESCE(ub.account_type::text, 'funding') IN ('trading', 'unified')
-        `, [userId]);
-        tradingTotal = parseFloat(tradingResult.rows[0]?.total || '0');
-      } catch (e) {
-        logger.warn('Balances summary (trading) failed', { userId, error: e instanceof Error ? e.message : 'Unknown' });
-      }
-
+      const fundingTotal = toUsd(fundingRowsForTotal) + toUsd(spotRowsForTotal);
+      const tradingTotal = toUsd(tradingRows);
       const btcPrice = 82000;
       return reply.send({
         success: true,
@@ -1733,9 +1820,9 @@ export default async function walletRoutes(app: FastifyInstance) {
         }
       });
     } catch (error) {
-      logger.error('Failed to get balances summary', { 
+      logger.error('Failed to get balances summary', {
         error: error instanceof Error ? error.message : 'Unknown',
-        userId: request.user?.id 
+        userId: request.user?.id
       });
       return reply.status(500).send({
         success: false,
@@ -1744,7 +1831,7 @@ export default async function walletRoutes(app: FastifyInstance) {
     }
   });
 
-  // Get funding account balances (authenticated). Read ONLY from user_balances. SUM(available_balance + locked_balance).
+  // Get funding account balances (authenticated). Uses canonical readUserBalances only.
   app.get('/balances/funding', {
     preHandler: [app.authenticate]
   }, async (request: FastifyRequest, reply: FastifyReply) => {
@@ -1753,53 +1840,130 @@ export default async function walletRoutes(app: FastifyInstance) {
       const btcPrice = 97500;
       const priceMap: Record<string, number> = { 'USDT': 1, 'USDC': 1 };
 
-      const result = await db.query<{ token_id: string; symbol: string; name: string; available_balance: string; locked_balance: string; total_balance: string }>(`
-        SELECT
-          c.id as token_id,
-          c.symbol,
-          REGEXP_REPLACE(COALESCE(c.name, c.symbol), '\\s*\\([A-Z0-9]+\\)\\s*$', '', 'i') as name,
-          SUM(COALESCE(ub.available_balance, 0))::text as available_balance,
-          SUM(COALESCE(ub.locked_balance, 0))::text as locked_balance,
-          (SUM(COALESCE(ub.available_balance, 0)) + SUM(COALESCE(ub.locked_balance, 0)))::text as total_balance
-        FROM user_balances ub
-        JOIN currencies c ON c.id = ub.currency_id
-        WHERE ub.user_id = $1
-          AND COALESCE(ub.account_type::text, 'funding') IN ('funding', 'spot')
-          AND (COALESCE(ub.available_balance, 0) > 0 OR COALESCE(ub.locked_balance, 0) > 0 OR COALESCE(ub.pending_balance, 0) > 0)
-          AND COALESCE(c.is_active, TRUE) = TRUE
-        GROUP BY c.id, c.symbol, c.name
-        ORDER BY (SUM(COALESCE(ub.available_balance, 0)) + SUM(COALESCE(ub.locked_balance, 0))) DESC, UPPER(c.symbol)
-      `, [userId]);
-
+      // Repair: batch-credit completed deposits that were never applied (one tx per user)
       try {
-        const pricesResult = await db.query<{ symbol: string; usd_price: string }>(`
-          SELECT DISTINCT ON (UPPER(bc.symbol))
-            bc.symbol,
-            mp.price::numeric as usd_price
-          FROM market_prices mp
-          JOIN currencies bc ON mp.base_currency_id = bc.id
-          JOIN currencies qc ON mp.quote_currency_id = qc.id
-          WHERE UPPER(qc.symbol) = 'USDT'
-          ORDER BY UPPER(bc.symbol), mp.price DESC
-        `);
-        pricesResult.rows.forEach(row => {
-          priceMap[row.symbol.toUpperCase()] = parseFloat(row.usd_price) || 1;
-        });
-      } catch {
-        // market_prices may not exist
+        const hasColumn = await db.query(
+          `SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'deposits' AND column_name = 'balance_applied_at'`
+        );
+        if (hasColumn.rows.length > 0) {
+          const unapplied = await db.query<{ id: string; user_id: string; currency_id: string; amount: string }>(
+            `SELECT id, user_id, currency_id, amount::text as amount FROM deposits
+             WHERE user_id = $1 AND status = 'completed' AND credited_at IS NOT NULL AND balance_applied_at IS NULL
+             AND (amount IS NULL OR amount::numeric > 0)`,
+            [userId]
+          );
+          if (unapplied.rows.length > 0) {
+            const currencyIds = [...new Set(unapplied.rows.map((r) => r.currency_id))];
+            const curCheck = await db.query(`SELECT id FROM currencies WHERE id = ANY($1::uuid[])`, [currencyIds]);
+            const validIds = new Set(curCheck.rows.map((r: { id: string }) => r.id));
+            const toApply = unapplied.rows.filter((r) => validIds.has(r.currency_id));
+            if (toApply.length > 0) {
+              await db.transaction(async (client) => {
+                const byCurrency = new Map<string, { total: number; ids: string[] }>();
+                for (const row of toApply) {
+                  const amt = parseFloat(row.amount || '0');
+                  const cur = byCurrency.get(row.currency_id) ?? { total: 0, ids: [] };
+                  cur.total += amt;
+                  cur.ids.push(row.id);
+                  byCurrency.set(row.currency_id, cur);
+                }
+                for (const [currencyId, { total, ids }] of byCurrency) {
+                  if (total <= 0) continue;
+                  await ensureUserBalanceRow(userId, currencyId, CHAIN_ID_GLOBAL, 'funding', client);
+                  const upd = await client.query(
+                    `UPDATE user_balances SET available_balance = available_balance + $1::numeric, total_deposited = COALESCE(total_deposited, 0) + $1::numeric, updated_at = NOW()
+                     WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = 'funding'`,
+                    [total.toString(), userId, currencyId, CHAIN_ID_GLOBAL]
+                  );
+                  if ((upd.rowCount ?? 0) >= 1) {
+                    await client.query(`UPDATE deposits SET balance_applied_at = NOW() WHERE id = ANY($1::uuid[])`, [ids]);
+                  }
+                }
+              });
+              logger.info('Repair: credited completed deposits to user_balances', { userId, count: toApply.length });
+            }
+          }
+        }
+      } catch (repairErr) {
+        logger.warn('Funding balance repair skipped or failed', { userId, error: repairErr instanceof Error ? repairErr.message : 'Unknown' });
       }
 
-      const balances = result.rows.map(row => {
-        const price = priceMap[row.symbol.toUpperCase()] || 1;
-        const totalBalance = parseFloat(row.total_balance || '0');
-        const usdValue = totalBalance * price;
+      const pricesSql = `
+        SELECT DISTINCT ON (UPPER(bc.symbol)) bc.symbol, mp.price::numeric as usd_price
+        FROM market_prices mp
+        JOIN currencies bc ON mp.base_currency_id = bc.id
+        JOIN currencies qc ON mp.quote_currency_id = qc.id
+        WHERE UPPER(qc.symbol) = 'USDT'
+        ORDER BY UPPER(bc.symbol), mp.price DESC`;
+      const namesSql = `SELECT id, symbol, REGEXP_REPLACE(COALESCE(name, symbol), '\\s*\\([A-Z0-9]+\\)\\s*$', '', 'i') as name FROM currencies WHERE is_active = TRUE`;
+
+      const [fundingRows, spotRowsResult, pricesResult, namesResult] = await Promise.all([
+        readUserBalances(userId, 'funding'),
+        readUserBalances(userId, 'spot').catch(() => [] as Awaited<ReturnType<typeof readUserBalances>>),
+        db.query<{ symbol: string; usd_price: string }>(pricesSql).catch(() => ({ rows: [] })),
+        db.query<{ id: string; symbol: string; name: string }>(namesSql),
+      ]);
+      let spotRows = spotRowsResult;
+      let fundingRowsFinal = fundingRows;
+
+      // Fallback: if canonical read returned nothing, read directly from user_balances (funding/spot) so balance is never hidden
+      if (fundingRows.length === 0 && spotRows.length === 0) {
+        const direct = await db.query<{ currency_id: string; symbol: string; available_balance: string; locked_balance: string }>(
+          `SELECT ub.currency_id, COALESCE(c.symbol, '') AS symbol,
+                  COALESCE(ub.available_balance, 0)::text AS available_balance, COALESCE(ub.locked_balance, 0)::text AS locked_balance
+           FROM user_balances ub
+           LEFT JOIN currencies c ON c.id = ub.currency_id
+           WHERE ub.user_id = $1 AND (LOWER(TRIM(COALESCE(ub.account_type::text, ''))) IN ('funding', 'spot') OR ub.account_type IS NULL)
+           ORDER BY COALESCE(c.symbol, ub.currency_id::text)`,
+          [userId]
+        );
+        fundingRowsFinal = direct.rows.map(r => ({
+          currency_id: r.currency_id,
+          symbol: r.symbol,
+          account_type: 'funding',
+          available_balance: r.available_balance ?? '0',
+          locked_balance: r.locked_balance ?? '0'
+        }));
+        spotRows = [];
+      }
+
+      pricesResult.rows.forEach(row => {
+        priceMap[row.symbol.toUpperCase()] = parseFloat(row.usd_price) || 1;
+      });
+      const nameByCurrencyId: Record<string, string> = {};
+      namesResult.rows.forEach(row => {
+        nameByCurrencyId[row.id] = row.name || row.symbol;
+      });
+
+      const byCurrency: Record<string, { symbol: string; available: number; locked: number }> = {};
+      for (const r of fundingRowsFinal) {
+        const av = parseFloat(r.available_balance || '0');
+        const lk = parseFloat(r.locked_balance || '0');
+        if (!byCurrency[r.currency_id]) {
+          byCurrency[r.currency_id] = { symbol: r.symbol, available: 0, locked: 0 };
+        }
+        byCurrency[r.currency_id].available += av;
+        byCurrency[r.currency_id].locked += lk;
+      }
+      for (const r of spotRows) {
+        if (!byCurrency[r.currency_id]) {
+          byCurrency[r.currency_id] = { symbol: r.symbol, available: 0, locked: 0 };
+        }
+        byCurrency[r.currency_id].available += parseFloat(r.available_balance || '0');
+        byCurrency[r.currency_id].locked += parseFloat(r.locked_balance || '0');
+      }
+
+      const balances = Object.entries(byCurrency).map(([currency_id, agg]) => {
+        const total = agg.available + agg.locked;
+        const price = priceMap[agg.symbol.toUpperCase()] || 1;
+        const usdValue = total * price;
         return {
-          token_id: row.token_id,
-          symbol: row.symbol,
-          name: row.name,
-          total_balance: row.total_balance || '0',
-          available_balance: row.available_balance || '0',
-          locked_balance: row.locked_balance || '0',
+          token_id: currency_id,
+          symbol: agg.symbol,
+          name: nameByCurrencyId[currency_id] ?? agg.symbol,
+          total_balance: total.toFixed(8),
+          available_balance: agg.available.toFixed(8),
+          locked_balance: agg.locked.toFixed(8),
           btc_value: (usdValue / btcPrice).toFixed(8),
           usd_value: usdValue.toFixed(2)
         };
@@ -1833,9 +1997,9 @@ export default async function walletRoutes(app: FastifyInstance) {
         }
       });
     } catch (error) {
-      logger.error('Failed to get funding balances', { 
+      logger.error('Failed to get funding balances', {
         error: error instanceof Error ? error.message : 'Unknown',
-        userId: request.user?.id 
+        userId: request.user?.id
       });
       return reply.status(500).send({
         success: false,
@@ -1844,38 +2008,43 @@ export default async function walletRoutes(app: FastifyInstance) {
     }
   });
 
-  // Get trading account balances (authenticated). Read ONLY from user_balances. SUM(available_balance + locked_balance).
+  // Get trading account balances (authenticated). Uses canonical readUserBalances only. Trading view = trading only.
   app.get('/balances/trading', {
     preHandler: [app.authenticate]
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const userId = request.user!.id;
-
-      const result = await db.query(`
-        SELECT 
-          c.id as token_id,
-          c.symbol,
-          REGEXP_REPLACE(COALESCE(c.name, c.symbol), '\\s*\\([A-Z0-9]+\\)\\s*$', '', 'i') as name,
-          (COALESCE(ub.available_balance, 0) + COALESCE(ub.locked_balance, 0))::text as equity
-        FROM user_balances ub
-        JOIN currencies c ON c.id = ub.currency_id
-        WHERE ub.user_id = $1 AND COALESCE(ub.account_type::text, 'funding') IN ('trading', 'unified')
-          AND (COALESCE(ub.available_balance, 0) > 0 OR COALESCE(ub.locked_balance, 0) > 0)
-          AND COALESCE(c.is_active, TRUE) = TRUE
-        ORDER BY (COALESCE(ub.available_balance, 0) + COALESCE(ub.locked_balance, 0)) DESC, c.symbol
-      `, [userId]);
-
-      const balances = result.rows.map(row => ({
-        token_id: row.token_id,
-        symbol: row.symbol,
-        name: row.name,
-        equity: row.equity || '0',
-        wallet_balance: row.equity || '0',
+      let tradingRows: Awaited<ReturnType<typeof readUserBalances>>;
+      try {
+        tradingRows = await readUserBalances(userId, 'trading');
+      } catch {
+        tradingRows = [];
+      }
+      const byCurrency: Record<string, { symbol: string; equity: number }> = {};
+      for (const r of tradingRows) {
+        byCurrency[r.currency_id] = {
+          symbol: r.symbol,
+          equity: parseFloat(r.available_balance || '0') + parseFloat(r.locked_balance || '0')
+        };
+      }
+      const namesResult = await db.query<{ id: string; name: string }>(
+        `SELECT id, REGEXP_REPLACE(COALESCE(name, symbol), '\\s*\\([A-Z0-9]+\\)\\s*$', '', 'i') as name FROM currencies WHERE is_active = TRUE`
+      );
+      const nameById: Record<string, string> = {};
+      namesResult.rows.forEach(row => {
+        nameById[row.id] = row.name;
+      });
+      const balances = Object.entries(byCurrency).map(([token_id, agg]) => ({
+        token_id,
+        symbol: agg.symbol,
+        name: nameById[token_id] ?? agg.symbol,
+        equity: agg.equity.toFixed(8),
+        wallet_balance: agg.equity.toFixed(8),
         borrowed_amount: '0',
         used_as_collateral: '0',
-        usd_value: row.equity || '0'
+        usd_value: agg.equity.toFixed(8)
       }));
-
+      balances.sort((a, b) => parseFloat(b.equity) - parseFloat(a.equity));
       const totalEquity = balances.reduce((sum, b) => sum + parseFloat(b.equity), 0);
 
       return {
@@ -1889,9 +2058,9 @@ export default async function walletRoutes(app: FastifyInstance) {
         }
       };
     } catch (error) {
-      logger.error('Failed to get trading balances', { 
+      logger.error('Failed to get trading balances', {
         error: error instanceof Error ? error.message : 'Unknown',
-        userId: request.user?.id 
+        userId: request.user?.id
       });
       return reply.status(500).send({
         success: false,
@@ -1904,7 +2073,7 @@ export default async function walletRoutes(app: FastifyInstance) {
   // INTERNAL TRANSFER ENDPOINTS
   // ============================================
 
-  // Get transferable balances between accounts. Read ONLY from user_balances. SUM(available_balance + locked_balance).
+  // Get transferable balances between accounts. Uses canonical readUserBalances only.
   app.get('/transfer/balances', {
     preHandler: [app.authenticate]
   }, async (request: FastifyRequest<{
@@ -1912,42 +2081,46 @@ export default async function walletRoutes(app: FastifyInstance) {
   }>, reply: FastifyReply) => {
     try {
       const userId = request.user!.id;
-
-      const result = await db.query(`
-        SELECT 
-          c.id as token_id,
-          c.symbol,
+      const fromAccount = request.query.from || 'funding';
+      const allowedFrom = ['funding', 'spot', 'trading'];
+      const account = allowedFrom.includes(fromAccount) ? fromAccount : 'funding';
+      let rows: Awaited<ReturnType<typeof readUserBalances>>;
+      try {
+        rows = await readUserBalances(userId, account);
+      } catch {
+        rows = [];
+      }
+      const currenciesResult = await db.query<{ id: string; symbol: string; name: string; decimals: number; chain_id: string; chain_name: string }>(`
+        SELECT c.id, c.symbol,
           REGEXP_REPLACE(COALESCE(c.name, c.symbol), '\\s*\\([A-Z0-9]+\\)\\s*$', '', 'i') as name,
-          c.decimals,
+          COALESCE(c.decimals, 8) as decimals,
           b.id as chain_id,
-          b.chain_name,
-          (COALESCE(ub.available_balance, 0) + COALESCE(ub.locked_balance, 0))::text as available_balance
-        FROM user_balances ub
-        JOIN currencies c ON c.id = ub.currency_id
+          b.chain_name
+        FROM currencies c
         LEFT JOIN blockchains b ON c.blockchain_id = b.id
-        WHERE ub.user_id = $1
-          AND (COALESCE(ub.available_balance, 0) > 0 OR COALESCE(ub.locked_balance, 0) > 0)
-          AND COALESCE(c.is_active, TRUE) = TRUE
-        ORDER BY (COALESCE(ub.available_balance, 0) + COALESCE(ub.locked_balance, 0)) DESC, c.symbol
-      `, [userId]);
-
-      return {
-        success: true,
-        data: result.rows.map(row => ({
-          tokenId: row.token_id,
-          symbol: row.symbol,
-          name: row.name,
-          iconUrl: `/assets/upload/currency-logo/${row.symbol?.toLowerCase?.() ?? ''}.svg`,
-          decimals: row.decimals ?? 8,
-          chainId: row.chain_id ?? null,
-          chainName: row.chain_name ?? null,
-          availableBalance: row.available_balance?.toString() || '0'
-        }))
-      };
+        WHERE c.is_active = TRUE
+      `);
+      const byId = Object.fromEntries(currenciesResult.rows.map(r => [r.id, r]));
+      const data = rows.map(r => {
+        const cur = byId[r.currency_id];
+        const available = (parseFloat(r.available_balance || '0') + parseFloat(r.locked_balance || '0')).toString();
+        return {
+          tokenId: r.currency_id,
+          symbol: r.symbol,
+          name: cur?.name ?? r.symbol,
+          iconUrl: `/assets/upload/currency-logo/${r.symbol?.toLowerCase?.() ?? ''}.svg`,
+          decimals: cur?.decimals ?? 8,
+          chainId: cur?.chain_id ?? null,
+          chainName: cur?.chain_name ?? null,
+          availableBalance: available
+        };
+      });
+      data.sort((a, b) => parseFloat(b.availableBalance) - parseFloat(a.availableBalance));
+      return { success: true, data };
     } catch (error) {
-      logger.error('Failed to get transfer balances', { 
+      logger.error('Failed to get transfer balances', {
         error: error instanceof Error ? error.message : 'Unknown',
-        userId: request.user?.id 
+        userId: request.user?.id
       });
       return reply.status(500).send({
         success: false,
@@ -1971,8 +2144,8 @@ export default async function walletRoutes(app: FastifyInstance) {
       const userId = request.user!.id;
       const { fromAccount, toAccount, tokenId, amount } = request.body;
 
-      // Validate accounts
-      const validAccounts = ['funding', 'trading', 'unified'];
+      // Validate accounts (funding, spot, trading only; no unified)
+      const validAccounts = ['funding', 'spot', 'trading'];
       if (!validAccounts.includes(fromAccount) || !validAccounts.includes(toAccount)) {
         return reply.status(400).send({
           success: false,
@@ -2016,14 +2189,18 @@ export default async function walletRoutes(app: FastifyInstance) {
         });
       }
 
-      // Check available balance in SOURCE account only (user_balances, single source of truth)
-      const balanceResult = await db.query<{ available: string }>(`
-        SELECT COALESCE(SUM(ub.available_balance), 0)::text AS available
-        FROM user_balances ub
-        WHERE ub.user_id = $1 AND ub.currency_id = $2 AND COALESCE(ub.account_type::text, 'funding') = $3
-      `, [userId, currencyId, fromAccount]);
-
-      const availableBalance = parseFloat(balanceResult.rows[0]?.available || '0');
+      // Check available balance in SOURCE account only (canonical readUserBalances).
+      let sourceBalances: Awaited<ReturnType<typeof readUserBalances>>;
+      try {
+        sourceBalances = await readUserBalances(userId, fromAccount);
+      } catch {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'NO_BALANCE_FOR_ACCOUNT', message: 'No balance for this account type. Use funding if you have no spot/trading rows.' }
+        });
+      }
+      const sourceRow = sourceBalances.find(r => r.currency_id === currencyId);
+      const availableBalance = sourceRow ? parseFloat(sourceRow.available_balance || '0') : 0;
 
       if (availableBalance < transferAmount) {
         return reply.status(400).send({
@@ -2107,46 +2284,72 @@ export default async function walletRoutes(app: FastifyInstance) {
       `);
 
       if (!tableCheck.rows[0].exists) {
-        return { success: true, data: [], total: 0 };
+        return reply.send({ success: true, data: [], total: 0 });
       }
 
-      const result = await db.query(`
+      const result = await db.query<{
+        id: string;
+        from_user_id: string;
+        to_user_id: string;
+        amount: string;
+        status: string;
+        created_at: string;
+        symbol: string;
+        name: string;
+        icon_url: string | null;
+        from_email: string | null;
+        to_email: string | null;
+      }>(`
         SELECT 
           it.id,
-          it.from_account,
-          it.to_account,
-          it.amount,
+          it.from_user_id,
+          it.to_user_id,
+          it.amount::text,
           it.status,
-          it.created_at,
+          it.created_at::text,
           c.symbol,
           c.name,
-          c.logo_url as icon_url
+          c.logo_url as icon_url,
+          u_from.email as from_email,
+          u_to.email as to_email
         FROM internal_transfers it
         JOIN currencies c ON it.currency_id = c.id
-        WHERE it.user_id = $1
+        LEFT JOIN users u_from ON it.from_user_id = u_from.id
+        LEFT JOIN users u_to ON it.to_user_id = u_to.id
+        WHERE it.from_user_id = $1 OR it.to_user_id = $1
         ORDER BY it.created_at DESC
         LIMIT $2 OFFSET $3
       `, [userId, limit, offset]);
 
-      const countResult = await db.query(`
-        SELECT COUNT(*) FROM internal_transfers WHERE user_id = $1
-      `, [userId]);
+      const countResult = await db.query<{ count: string }>(
+        `SELECT COUNT(*) as count FROM internal_transfers WHERE from_user_id = $1 OR to_user_id = $1`,
+        [userId]
+      );
 
-      return {
-        success: true,
-        data: result.rows.map(row => ({
+      const data = result.rows.map(row => {
+        const isOut = row.from_user_id === userId;
+        const toEmail = row.to_email || 'user';
+        const fromEmail = row.from_email || 'user';
+        return {
           id: row.id,
-          fromAccount: row.from_account,
-          toAccount: row.to_account,
+          fromAccount: isOut ? 'Funding' : fromEmail,
+          toAccount: isOut ? toEmail : 'Funding',
+          description: isOut ? `Sent to ${toEmail}` : `Received from ${fromEmail}`,
           amount: row.amount,
           symbol: row.symbol,
           name: row.name,
-          iconUrl: row.icon_url,
+          iconUrl: row.icon_url ?? undefined,
           status: row.status,
-          createdAt: row.created_at
-        })),
-        total: parseInt(countResult.rows[0].count)
-      };
+          createdAt: row.created_at,
+          direction: isOut ? 'sent' as const : 'received' as const,
+        };
+      });
+
+      return reply.send({
+        success: true,
+        data,
+        total: parseInt(countResult.rows[0]?.count ?? '0', 10)
+      });
     } catch (error) {
       logger.error('Failed to get transfer history', { 
         error: error instanceof Error ? error.message : 'Unknown',
@@ -2527,6 +2730,9 @@ export default async function walletRoutes(app: FastifyInstance) {
             w.amount,
             w.status,
             w.created_at,
+            w.type as withdrawal_type,
+            w.internal_user_id,
+            u_internal.email as internal_recipient_email,
             t.symbol,
             t.name as currency_name,
             t.icon_url as logo_url,
@@ -2534,6 +2740,7 @@ export default async function walletRoutes(app: FastifyInstance) {
           FROM withdrawals w
           LEFT JOIN tokens t ON w.token_id = t.id
           LEFT JOIN chains c ON w.chain_id = c.id
+          LEFT JOIN users u_internal ON w.internal_user_id = u_internal.id
           WHERE w.user_id = $1
         `;
         const withdrawParams: any[] = [userId];
@@ -2549,15 +2756,19 @@ export default async function walletRoutes(app: FastifyInstance) {
           withdrawParams.push(coinFilter);
         }
         const withdrawalsResult = await db.query(withdrawQuery, withdrawParams);
-        withdrawalsResult.rows.forEach(row => {
+        withdrawalsResult.rows.forEach((row: { id: string; symbol: string; logo_url: string | null; chain_name: string | null; amount: string; address: string | null; tx_hash: string | null; status: string; created_at: string; withdrawal_type?: string; internal_recipient_email?: string | null }) => {
+          const isInternal = row.withdrawal_type === 'internal';
+          const chainType = isInternal
+            ? `Sent to ${row.internal_recipient_email || 'user'}`
+            : (row.chain_name || 'Unknown');
           allTransactions.push({
             id: row.id,
             type: 'withdraw',
             coin: row.symbol || 'Unknown',
             coin_logo: row.logo_url || `/assets/upload/currency-logo/${(row.symbol || 'btc').toLowerCase()}.svg`,
-            chain_type: row.chain_name || 'Unknown',
+            chain_type: chainType,
             quantity: row.amount,
-            address: row.address || '',
+            address: row.address || (isInternal ? (row.internal_recipient_email || '') : ''),
             txid: row.tx_hash || '',
             status: row.status,
             date_time: row.created_at
@@ -2578,17 +2789,21 @@ export default async function walletRoutes(app: FastifyInstance) {
             SELECT 
               it.id,
               'transfer' as type,
-              it.from_account,
-              it.to_account,
+              it.from_user_id,
+              it.to_user_id,
               it.amount,
               it.status,
               it.created_at,
               c.symbol,
               c.name as currency_name,
-              c.logo_url
+              c.logo_url,
+              u_from.email as from_email,
+              u_to.email as to_email
             FROM internal_transfers it
             JOIN currencies c ON it.currency_id = c.id
-            WHERE it.user_id = $1
+            LEFT JOIN users u_from ON it.from_user_id = u_from.id
+            LEFT JOIN users u_to ON it.to_user_id = u_to.id
+            WHERE it.from_user_id = $1 OR it.to_user_id = $1
           `;
           const transferParams: any[] = [userId];
           paramIndex = 2;
@@ -2604,15 +2819,17 @@ export default async function walletRoutes(app: FastifyInstance) {
           }
 
           const transfersResult = await db.query(transferQuery, transferParams);
-          transfersResult.rows.forEach(row => {
+          transfersResult.rows.forEach((row: { id: string; from_user_id: string; to_user_id: string; amount: string; status: string; created_at: string; symbol: string; logo_url: string | null; from_email: string | null; to_email: string | null }) => {
+            const isOut = row.from_user_id === userId;
+            const desc = isOut ? `Sent to ${row.to_email || 'user'}` : `Received from ${row.from_email || 'user'}`;
             allTransactions.push({
               id: row.id,
               type: 'transfer',
               coin: row.symbol || 'Unknown',
               coin_logo: row.logo_url || `/assets/upload/currency-logo/${(row.symbol || 'btc').toLowerCase()}.svg`,
-              chain_type: `${row.from_account} → ${row.to_account}`,
+              chain_type: desc,
               quantity: row.amount,
-              address: '',
+              address: isOut ? (row.to_email || '') : (row.from_email || ''),
               txid: '',
               status: row.status,
               date_time: row.created_at

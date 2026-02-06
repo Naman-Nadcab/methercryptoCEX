@@ -15,7 +15,8 @@
     "migrate:down": "tsx src/database/migrate.ts down",
     "fix:wallets-chain-id": "tsx fix-wallets-chain-id.ts",
     "ensure:wallets": "tsx ensure-wallets-relation.ts",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test:balance": "tsx src/services/balance/balance-read.integration.test.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useAdminAuthStore } from '@/store/admin-auth';
 import {
   ArrowDownToLine,
@@ -63,6 +64,7 @@ interface BlockchainOption {
 }
 
 export default function DepositsPage() {
+  const searchParams = useSearchParams();
   const { accessToken } = useAdminAuthStore();
   const [stats, setStats] = useState<DepositStats | null>(null);
   const [deposits, setDeposits] = useState<Deposit[]>([]);
@@ -73,7 +75,8 @@ export default function DepositsPage() {
   const [userSearch, setUserSearch] = useState('');
   const [chainId, setChainId] = useState('');
   const [tokenId, setTokenId] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') || 'all');
+  const [flaggedOnly, setFlaggedOnly] = useState(() => searchParams.get('flagged') === '1' || searchParams.get('flagged') === 'true');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
@@ -115,6 +118,7 @@ export default function DepositsPage() {
       if (chainId) params.set('chain', chainId);
       if (tokenId) params.set('token', tokenId);
       if (statusFilter !== 'all') params.set('status', statusFilter);
+      if (flaggedOnly) params.set('flagged', 'true');
       if (dateFrom) params.set('date_from', dateFrom);
       if (dateTo) params.set('date_to', dateTo);
 
@@ -147,7 +151,7 @@ export default function DepositsPage() {
     } finally {
       setLoading(false);
     }
-  }, [accessToken, pagination.page, pagination.limit, userSearch, chainId, tokenId, statusFilter, dateFrom, dateTo]);
+  }, [accessToken, pagination.page, pagination.limit, userSearch, chainId, tokenId, statusFilter, flaggedOnly, dateFrom, dateTo]);
 
   useEffect(() => {
     fetchBlockchains();
@@ -302,6 +306,15 @@ export default function DepositsPage() {
             <option value="completed">Completed</option>
             <option value="failed">Failed</option>
           </select>
+          <label className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={flaggedOnly}
+              onChange={(e) => setFlaggedOnly(e.target.checked)}
+              className="rounded border-gray-300 text-amber-500 focus:ring-amber-500"
+            />
+            Flagged only
+          </label>
           <input
             type="date"
             value={dateFrom}

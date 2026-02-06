@@ -1,14 +1,15 @@
 /**
- * Backend startup: refuse to start if required wallet tables are missing or are views.
+ * Backend startup: refuse to start if required tables are missing or are views.
  * FAIL CLOSED — do not allow the server to run with an invalid or partial database.
  *
- * Required: chains, tokens, hot_wallets must be TABLES (relkind = 'r'), not views.
+ * Required: users, user_balances, tokens, withdrawals, chains, hot_wallets must be TABLES (relkind = 'r'), not views.
+ * Legacy "balances" table is NOT validated; startup must never fail due to legacy tables.
  */
 
 import { db } from './database.js';
 import { logger } from './logger.js';
 
-const REQUIRED_TABLES = ['chains', 'hot_wallets', 'tokens'] as const;
+const REQUIRED_TABLES = ['users', 'user_balances', 'tokens', 'withdrawals', 'chains', 'hot_wallets'] as const;
 const RELKIND_TABLE = 'r';
 const RELKIND_VIEW = 'v';
 
@@ -66,7 +67,13 @@ export async function validateRequiredTables(): Promise<void> {
       console.error('');
       process.exit(1);
     }
-    logger.info('Required tables validated (chains, hot_wallets, tokens).');
+    logger.info('Required tables validated (users, user_balances, tokens, withdrawals, chains, hot_wallets).');
+
+    // Fail fast if token withdrawal columns are missing (admin + withdrawal validation depend on them)
+    await db.query<{ min_withdrawal: string; max_withdrawal: string | null }>(
+      'SELECT t.min_withdrawal::text, t.max_withdrawal::text FROM tokens t LIMIT 1'
+    );
+    logger.info('✓ tokens.min_withdrawal and tokens.max_withdrawal verified');
   } catch (err) {
     logger.error('Failed to validate required tables', {
       error: err instanceof Error ? err.message : 'Unknown',

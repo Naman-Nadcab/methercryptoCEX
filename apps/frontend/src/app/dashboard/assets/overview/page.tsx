@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth';
+import { api } from '@/lib/api';
 import Link from 'next/link';
 import {
   Eye,
@@ -52,22 +53,19 @@ export default function AssetsOverviewPage() {
   const [showWhyZero, setShowWhyZero] = useState(false);
   const [whyZeroReason, setWhyZeroReason] = useState<{ funds: string; history: string } | null>(null);
   const [whyZeroLoading, setWhyZeroLoading] = useState(false);
-
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const [balanceError, setBalanceError] = useState<string | null>(null);
 
   const fetchWhyZero = async () => {
     if (!accessToken) return;
     setWhyZeroLoading(true);
     setWhyZeroReason(null);
     try {
-      const res = await fetch(`${API_URL}/api/v1/wallet/balance-diagnostic`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const data = res.ok ? await res.json() : {};
+      const data = await api.get<{ reason_funds_zero?: string; reason_history_empty?: string }>('/api/v1/wallet/balance-diagnostic');
       if (data.success && data.data) {
+        const d = data.data as { reason_funds_zero?: string; reason_history_empty?: string };
         setWhyZeroReason({
-          funds: data.data.reason_funds_zero || 'Unknown',
-          history: data.data.reason_history_empty || 'Unknown',
+          funds: d.reason_funds_zero || 'Unknown',
+          history: d.reason_history_empty || 'Unknown',
         });
       }
     } catch {
@@ -88,32 +86,43 @@ export default function AssetsOverviewPage() {
     if (!accessToken) return;
     try {
       setLoading(true);
-      const res = await fetch(`${API_URL}/api/v1/wallet/balances/summary`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const data = res.ok ? await res.json() : { success: false };
-      if (data.success && data.data) {
-        const funding = data.data.funding || { type: 'funding', totalUsd: 0, totalBtc: 0 };
-        const trading = data.data.trading || { type: 'trading', totalUsd: 0, totalBtc: 0 };
+      setBalanceError(null);
+      const data = await api.get<{
+        funding?: { totalUsd?: number }; trading?: { totalUsd?: number };
+      }>('/api/v1/wallet/balances/summary');
+      if (!data.success) {
+        const msg = data.error?.message || data.error?.code || 'Could not load balance.';
+        setBalanceError(
+          data.error?.code === 'UNAUTHORIZED' || data.error?.code === 'SESSION_EXPIRED' || data.error?.code === 'INVALID_TOKEN'
+            ? 'Session expired. Please log in again.'
+            : msg
+        );
+        return;
+      }
+      if (data.data) {
+        const funding = (data.data as { funding?: { totalUsd?: number }; trading?: { totalUsd?: number } }).funding || { type: 'funding', totalUsd: 0, totalBtc: 0 };
+        const trading = (data.data as { trading?: { totalUsd?: number } }).trading || { type: 'trading', totalUsd: 0, totalBtc: 0 };
         let fundingUsd = Number(funding.totalUsd) || 0;
         let tradingUsd = Number(trading.totalUsd) || 0;
-        // If summary returned all zeros, try by-account and derive totals (same source of truth)
         if (fundingUsd === 0 && tradingUsd === 0) {
-          const byRes = await fetch(`${API_URL}/api/v1/wallet/balances/by-account`, {
-            headers: { Authorization: `Bearer ${accessToken}` },
-          });
-          if (byRes.ok) {
-            const byData = await byRes.json();
-            if (byData.success && Array.isArray(byData.data)) {
-              let sumTotal = 0;
-              byData.data.forEach((row: { funding?: string; trading?: string; total?: string }) => {
-                sumTotal += parseFloat(row.total || '0');
-              });
-              if (sumTotal > 0) {
-                fundingUsd = sumTotal;
-                tradingUsd = 0;
-              }
+          const byData = await api.get<{ funding?: string; trading?: string; total?: string }[]>('/api/v1/wallet/balances/by-account');
+          if (byData.success && Array.isArray(byData.data)) {
+            let sumFunding = 0;
+            let sumTrading = 0;
+            byData.data.forEach((row: { funding?: string; trading?: string; total?: string }) => {
+              sumFunding += parseFloat(row.funding || '0');
+              sumTrading += parseFloat(row.trading || '0');
+            });
+            if (sumFunding > 0 || sumTrading > 0) {
+              fundingUsd = sumFunding;
+              tradingUsd = sumTrading;
             }
+          } else if (!byData.success && byData.error) {
+            setBalanceError(
+              byData.error.code === 'UNAUTHORIZED' || byData.error.code === 'SESSION_EXPIRED'
+                ? 'Session expired. Please log in again.'
+                : byData.error.message || 'Could not load balance breakdown.'
+            );
           }
         }
         setFundingBalance({ type: 'funding', totalUsd: fundingUsd, totalBtc: fundingUsd / 82000 });
@@ -122,6 +131,7 @@ export default function AssetsOverviewPage() {
       }
     } catch (error) {
       console.error('Failed to fetch balances:', error);
+      setBalanceError('Network error. Check backend is running and try again.');
     } finally {
       setLoading(false);
     }
@@ -130,20 +140,13 @@ export default function AssetsOverviewPage() {
   const fetchRecentTransactions = async () => {
     if (!accessToken) return;
     try {
-      const [depositsRes, withdrawalsRes] = await Promise.all([
-        fetch(`${API_URL}/api/v1/wallet/deposit-history?limit=5`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }),
-        fetch(`${API_URL}/api/v1/wallet/withdrawals?limit=5`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }),
+      const [depositsData, withdrawalsData] = await Promise.all([
+        api.get<unknown[]>('/api/v1/wallet/deposit-history?limit=5'),
+        api.get<unknown[]>('/api/v1/wallet/withdrawals?limit=5'),
       ]);
 
-      const depositsData = depositsRes.ok ? (await depositsRes.json()) : { success: false, data: [] };
-      const withdrawalsData = withdrawalsRes.ok ? (await withdrawalsRes.json()) : { success: false, data: [] };
-
-      const deposits = (depositsData.success && depositsData.data) ? depositsData.data : [];
-      const withdrawals = (withdrawalsData.success && withdrawalsData.data) ? withdrawalsData.data : [];
+      const deposits = (depositsData.success && depositsData.data) ? (Array.isArray(depositsData.data) ? depositsData.data : []) : [];
+      const withdrawals = (withdrawalsData.success && withdrawalsData.data) ? (Array.isArray(withdrawalsData.data) ? withdrawalsData.data : []) : [];
 
       const combined: Transaction[] = [
         ...deposits.map((d: any) => ({
@@ -323,6 +326,30 @@ export default function AssetsOverviewPage() {
               </Link>
             </div>
           </div>
+
+          {/* Balance load error */}
+          {balanceError && (
+            <div className="mb-6 p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 flex flex-wrap items-center justify-between gap-4">
+              <p className="text-sm text-amber-800 dark:text-amber-200">{balanceError}</p>
+              <div className="flex items-center gap-2">
+                {balanceError.includes('Session expired') && (
+                  <Link
+                    href="/login"
+                    className="px-4 py-2 text-sm font-medium rounded-lg bg-amber-600 text-white hover:bg-amber-700"
+                  >
+                    Log in again
+                  </Link>
+                )}
+                <button
+                  type="button"
+                  onClick={() => fetchBalances()}
+                  className="px-4 py-2 text-sm font-medium rounded-lg bg-amber-500 text-white hover:bg-amber-600"
+                >
+                  Retry
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Total Balance Card */}
           <div className="bg-white dark:bg-[#1e2329] rounded-2xl p-6 mb-8 border border-gray-100 dark:border-gray-800">

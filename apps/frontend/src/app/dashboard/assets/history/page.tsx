@@ -167,15 +167,15 @@ export default function AssetHistoryPage() {
             date_time: w.date_time || w.created_at,
           }));
         } else if (historyTab === 'transfer') {
-          // Transfers only
+          // Internal transfers: use backend description (e.g. "Sent to dev@byom.de" / "Received from nmnsingh02@gmail.com")
           mappedData = (response.data || []).map((t: any) => ({
             id: t.id,
             type: 'transfer' as const,
             coin: t.symbol || 'Unknown',
             coin_logo: t.iconUrl || `/assets/upload/currency-logo/${(t.symbol || 'btc').toLowerCase()}.svg`,
-            chain_type: `${t.fromAccount || 'Funding'} → ${t.toAccount || 'Trading'}`,
+            chain_type: t.description || `${t.fromAccount || 'Funding'} → ${t.toAccount || 'Funding'}`,
             quantity: t.amount || '0',
-            address: '',
+            address: t.direction === 'sent' ? (t.toAccount || '') : (t.fromAccount || ''),
             txid: '',
             status: t.status || 'completed',
             date_time: t.createdAt,

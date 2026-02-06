@@ -292,7 +292,8 @@ export async function processSigningQueue(): Promise<void> {
     [txHash, withdrawalId]
   );
   const currencyId = await getCurrencyIdForToken(w.token_id);
-  const accountType = w.account_type || 'funding';
+  const rawAccountType = w.account_type || 'funding';
+  const accountType = ['funding', 'spot', 'trading'].includes(rawAccountType) ? rawAccountType : 'funding';
   if (currencyId) {
     await ensureUserBalanceRow(w.user_id, currencyId, chainId, accountType);
     const completeUpd = await db.query(
@@ -361,7 +362,8 @@ async function markQueueFailed(queueId: string, errorMessage: string): Promise<v
         [errorMessage, row.withdrawal_id]
       );
       const currencyId = await getCurrencyIdForToken(w.token_id);
-      const accountType = w.account_type || 'funding';
+      const rawAccountType = w.account_type || 'funding';
+      const accountType = ['funding', 'spot', 'trading'].includes(rawAccountType) ? rawAccountType : 'funding';
       const chainId = w.chain_id ?? CHAIN_ID_GLOBAL;
       if (currencyId) {
         await ensureUserBalanceRow(w.user_id, currencyId, chainId, accountType);

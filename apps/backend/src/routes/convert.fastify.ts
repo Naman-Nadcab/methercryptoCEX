@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db } from '../lib/database.js';
 import { logger, auditLog } from '../lib/logger.js';
 import { ensureUserBalanceRow, assertUserBalanceUpdated, CHAIN_ID_GLOBAL } from '../lib/user-balance-helper.js';
+import { readUserBalances } from '../services/balance/readUserBalances.js';
 
 interface MarketPrice {
   id: string;
@@ -284,7 +285,9 @@ export default async function convertRoutes(app: FastifyInstance) {
     
     try {
       const userId = (request as any).user.id;
-      const { fromCurrencyId, toCurrencyId, fromAmount, accountType = 'funding' } = request.body;
+      let { fromCurrencyId, toCurrencyId, fromAmount, accountType = 'funding' } = request.body;
+      const allowedAccountTypes = ['funding', 'spot', 'trading'];
+      if (!allowedAccountTypes.includes(accountType)) accountType = 'funding';
 
       if (!fromCurrencyId || !toCurrencyId || !fromAmount) {
         return reply.status(400).send({ success: false, error: 'Missing required fields' });
@@ -463,7 +466,7 @@ export default async function convertRoutes(app: FastifyInstance) {
     
     try {
       const userId = (request as any).user.id;
-      const { 
+      let { 
         fromCurrencyId, 
         toCurrencyId, 
         fromAmount, 
@@ -471,6 +474,8 @@ export default async function convertRoutes(app: FastifyInstance) {
         expiresInDays = 30,
         accountType = 'funding' 
       } = request.body;
+      const allowedAccountTypes = ['funding', 'spot', 'trading'];
+      if (!allowedAccountTypes.includes(accountType)) accountType = 'funding';
 
       if (!fromCurrencyId || !toCurrencyId || !fromAmount || !targetRate) {
         return reply.status(400).send({ success: false, error: 'Missing required fields' });
@@ -601,15 +606,16 @@ export default async function convertRoutes(app: FastifyInstance) {
       }
 
       const order = orderResult.rows[0];
+      const cancelAccountType = ['funding', 'spot', 'trading'].includes(order.account_type) ? order.account_type : 'funding';
 
       // Refund the locked amount (ensure row then update; no silent failures)
-      await ensureUserBalanceRow(userId, order.from_currency_id, CHAIN_ID_GLOBAL, order.account_type, client);
+      await ensureUserBalanceRow(userId, order.from_currency_id, CHAIN_ID_GLOBAL, cancelAccountType, client);
       const refundUpd = await client.query(`
         UPDATE user_balances 
         SET available_balance = available_balance + $1, updated_at = NOW()
         WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5
-      `, [order.from_amount, userId, order.from_currency_id, CHAIN_ID_GLOBAL, order.account_type]);
-      assertUserBalanceUpdated('convert_limit_cancel_refund', refundUpd, userId, order.from_currency_id, order.account_type, CHAIN_ID_GLOBAL);
+      `, [order.from_amount, userId, order.from_currency_id, CHAIN_ID_GLOBAL, cancelAccountType]);
+      assertUserBalanceUpdated('convert_limit_cancel_refund', refundUpd, userId, order.from_currency_id, cancelAccountType, CHAIN_ID_GLOBAL);
 
       // Update order status
       await client.query(`
@@ -723,7 +729,7 @@ export default async function convertRoutes(app: FastifyInstance) {
     }
   });
 
-  // Get user balances for conversion (authenticated)
+  // Get user balances for conversion (authenticated). Uses canonical readUserBalances; no total_balance column.
   app.get('/balances', {
     preHandler: [app.authenticate]
   }, async (request: FastifyRequest<{
@@ -731,23 +737,48 @@ export default async function convertRoutes(app: FastifyInstance) {
   }>, reply: FastifyReply) => {
     try {
       const userId = (request as any).user.id;
-      const accountType = request.query.accountType || 'funding';
+      const rawAccountType = request.query.accountType || 'funding';
+      const allowedAccountTypes = ['funding', 'spot', 'trading'];
+      const accountType = allowedAccountTypes.includes(rawAccountType) ? rawAccountType : 'funding';
 
-      const result = await db.query<Balance>(`
-        SELECT 
-          ub.currency_id,
-          c.symbol,
-          c.name,
-          c.logo_url,
-          ub.available_balance::text,
-          ub.total_balance::text
-        FROM user_balances ub
-        JOIN currencies c ON ub.currency_id = c.id
-        WHERE ub.user_id = $1 AND ub.account_type = $2 AND ub.available_balance > 0
-        ORDER BY ub.available_balance DESC
-      `, [userId, accountType]);
+      let rows: Awaited<ReturnType<typeof readUserBalances>>;
+      try {
+        rows = await readUserBalances(userId, accountType);
+      } catch {
+        return { success: true, data: [] };
+      }
 
-      return { success: true, data: result.rows };
+      if (rows.length === 0) {
+        return { success: true, data: [] };
+      }
+
+      const currencyIds = [...new Set(rows.map((r) => r.currency_id))];
+      const currenciesResult = await db.query<{ id: string; symbol: string; name: string; logo_url: string | null }>(
+        `SELECT id, symbol, COALESCE(name, symbol) as name, logo_url FROM currencies WHERE id = ANY($1::uuid[])`,
+        [currencyIds]
+      );
+      const byId = Object.fromEntries(currenciesResult.rows.map((r) => [r.id, r]));
+
+      const data = rows
+        .map((r) => {
+          const available = parseFloat(r.available_balance || '0');
+          const locked = parseFloat(r.locked_balance || '0');
+          const total = available + locked;
+          if (available <= 0) return null;
+          const cur = byId[r.currency_id];
+          return {
+            currency_id: r.currency_id,
+            symbol: r.symbol,
+            name: cur?.name ?? r.symbol,
+            logo_url: cur?.logo_url ?? null,
+            available_balance: r.available_balance,
+            total_balance: total.toFixed(8),
+          };
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null)
+        .sort((a, b) => parseFloat(b.available_balance) - parseFloat(a.available_balance));
+
+      return { success: true, data };
     } catch (error) {
       logger.error('Error fetching balances', { error });
       return reply.status(500).send({ success: false, error: 'Failed to fetch balances' });

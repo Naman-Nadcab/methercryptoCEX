@@ -126,13 +126,14 @@ async function scanPastDeposits() {
       
       console.log('  ✅ Deposit added to database!');
       
-      // Credit user balance
+      // Credit user balance (global row: chain_id = '')
+      const CHAIN_ID_GLOBAL = '';
       await pool.query(`
-        INSERT INTO user_balances (id, user_id, currency_id, available_balance, locked_balance, account_type, updated_at)
-        VALUES (gen_random_uuid(), $1, $2, $3, 0, 'funding', NOW())
-        ON CONFLICT (user_id, currency_id, account_type) 
-        DO UPDATE SET available_balance = user_balances.available_balance + $3, updated_at = NOW()
-      `, [userId, currencyId, amount]);
+        INSERT INTO user_balances (id, user_id, currency_id, chain_id, available_balance, locked_balance, account_type, updated_at)
+        VALUES (gen_random_uuid(), $1, $2, $3, $4, 0, 'funding', NOW())
+        ON CONFLICT (user_id, currency_id, chain_id, account_type)
+        DO UPDATE SET available_balance = user_balances.available_balance + $4, updated_at = NOW()
+      `, [userId, currencyId, CHAIN_ID_GLOBAL, amount]);
       
       console.log('  ✅ Balance credited!');
     }

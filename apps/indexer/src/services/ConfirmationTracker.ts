@@ -201,28 +201,32 @@ export class ConfirmationTracker {
               symbol: deposit.symbol,
             });
           } else {
-            // Move from pending to available balance
+            const CHAIN_ID_GLOBAL = '';
+            // Ensure row exists (same rule as backend: ensure before UPDATE so credit never misses). See backend docs/BALANCE_AND_DEPOSIT_RULES.md
             await query(`
+              INSERT INTO user_balances (id, user_id, currency_id, chain_id, available_balance, locked_balance, pending_balance, total_deposited, account_type, updated_at)
+              VALUES (gen_random_uuid(), $1, $2, $3, 0, 0, 0, 0, 'funding', NOW())
+              ON CONFLICT (user_id, currency_id, chain_id, account_type) DO NOTHING
+            `, [deposit.user_id, currencyId, CHAIN_ID_GLOBAL]);
+
+            // Credit: UPDATE always matches exactly one row after ensure
+            const upd = await query(`
               UPDATE user_balances 
               SET 
                 available_balance = available_balance + $1,
                 pending_balance = GREATEST(pending_balance - $1, 0),
                 total_deposited = COALESCE(total_deposited, 0) + $1,
                 updated_at = NOW()
-              WHERE user_id = $2 AND currency_id = $3 AND account_type = 'funding'
-            `, [deposit.amount, deposit.user_id, currencyId]);
+              WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = 'funding'
+            `, [deposit.amount, deposit.user_id, currencyId, CHAIN_ID_GLOBAL]);
 
-            // If no rows updated, create the balance entry
-            const updateResult = await query(`
-              SELECT 1 FROM user_balances 
-              WHERE user_id = $1 AND currency_id = $2 AND account_type = 'funding'
-            `, [deposit.user_id, currencyId]);
-
-            if (updateResult.rows.length === 0) {
-              await query(`
-                INSERT INTO user_balances (id, user_id, currency_id, available_balance, pending_balance, total_deposited, account_type, updated_at)
-                VALUES (gen_random_uuid(), $1, $2, $3, 0, $3, 'funding', NOW())
-              `, [deposit.user_id, currencyId, deposit.amount]);
+            const rowCount = (upd as { rowCount?: number }).rowCount ?? 0;
+            if (rowCount >= 1) {
+              try {
+                await query(`UPDATE deposits SET balance_applied_at = NOW() WHERE id = $1`, [deposit.id]);
+              } catch {
+                // balance_applied_at column may not exist yet (migration not run)
+              }
             }
           }
         }

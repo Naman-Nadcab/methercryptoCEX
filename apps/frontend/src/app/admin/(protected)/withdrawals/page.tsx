@@ -1,11 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useAdminAuthStore } from '@/store/admin-auth';
-import { ArrowUpFromLine, Loader2 } from 'lucide-react';
+import { ArrowUpFromLine, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface WithdrawalStats {
   total: number;
+  pending_approval?: number;
   pending: number;
   processing: number;
   completed: number;
@@ -15,7 +17,7 @@ interface WithdrawalStats {
 
 interface Withdrawal {
   id: string;
-  to_address: string;
+  to_address: string | null;
   amount: string;
   fee: string;
   net_amount: string;
@@ -24,23 +26,30 @@ interface Withdrawal {
   username: string;
   currency_symbol: string;
   chain_name: string;
+  withdrawal_type?: string;
+  internal_recipient_email?: string | null;
   tx_hash: string | null;
   created_at: string;
 }
 
 export default function WithdrawalsPage() {
+  const searchParams = useSearchParams();
   const { accessToken } = useAdminAuthStore();
   const [stats, setStats] = useState<WithdrawalStats | null>(null);
   const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') || 'all');
+  const [typeFilter, setTypeFilter] = useState(() => searchParams.get('type') || 'all');
+  const [page, setPage] = useState(() => Math.max(1, parseInt(searchParams.get('page') || '1', 10)));
+  const [pagination, setPagination] = useState<{ page: number; limit: number; total: number; totalPages: number } | null>(null);
 
-  const fetchWithdrawals = async () => {
+  const fetchWithdrawals = useCallback(async () => {
     setLoading(true);
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-      const params = new URLSearchParams({ limit: '50' });
+      const params = new URLSearchParams({ limit: '20', page: String(page) });
       if (statusFilter !== 'all') params.set('status', statusFilter);
+      if (typeFilter === 'internal' || typeFilter === 'onchain') params.set('type', typeFilter);
 
       const response = await fetch(`${apiUrl}/api/v1/admin/withdrawals?${params}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -49,20 +58,35 @@ export default function WithdrawalsPage() {
       if (result.success) {
         setStats(result.data.stats);
         setWithdrawals(result.data.withdrawals);
+        setPagination(result.data.pagination ?? null);
       }
     } catch (error) {
       console.error('Failed to fetch withdrawals:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [accessToken, statusFilter, typeFilter, page]);
 
   useEffect(() => {
     fetchWithdrawals();
-  }, [accessToken, statusFilter]);
+  }, [fetchWithdrawals]);
+
+  // Sync URL with state
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams);
+    if (statusFilter !== 'all') next.set('status', statusFilter); else next.delete('status');
+    if (typeFilter !== 'all') next.set('type', typeFilter); else next.delete('type');
+    if (page > 1) next.set('page', String(page)); else next.delete('page');
+    const q = next.toString();
+    const url = q ? `?${q}` : '';
+    if (typeof window !== 'undefined' && (window.location.search || '') !== url) {
+      window.history.replaceState(null, '', `${window.location.pathname}${url}`);
+    }
+  }, [statusFilter, typeFilter, page, searchParams]);
 
   const getStatusBadge = (status: string) => {
     const colors: Record<string, string> = {
+      pending_approval: 'bg-amber-500/20 text-amber-400',
       pending: 'bg-yellow-500/20 text-yellow-400',
       processing: 'bg-blue-500/20 text-blue-400',
       completed: 'bg-green-500/20 text-green-400',
@@ -84,14 +108,20 @@ export default function WithdrawalsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Withdrawals</h1>
-        <p className="text-gray-400 text-sm mt-1">Manage user withdrawals</p>
+        <p className="text-gray-400 text-sm mt-1">
+          Manage on-chain and internal withdrawals. Internal transfer history: use <strong>Type → Internal</strong> or open <strong>Internal Transfers</strong> in the sidebar.
+        </p>
       </div>
 
-      {/* Stats: Pending (history) + Success (completed) */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
         <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-sm">
           <p className="text-sm text-gray-500 dark:text-gray-400">Total</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{stats?.total || 0}</p>
+        </div>
+        <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl p-4">
+          <p className="text-sm text-amber-600 dark:text-amber-400">Pending Approval</p>
+          <p className="text-2xl font-bold text-amber-700 dark:text-amber-300 mt-1">{stats?.pending_approval ?? 0}</p>
         </div>
         <div className="bg-yellow-50 dark:bg-yellow-500/10 border border-yellow-200 dark:border-yellow-500/30 rounded-xl p-4">
           <p className="text-sm text-yellow-600 dark:text-yellow-400">Pending</p>
@@ -111,19 +141,29 @@ export default function WithdrawalsPage() {
         </div>
       </div>
 
-      {/* Filter */}
-      <div className="flex gap-4">
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-4">
         <select
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
+          onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
           className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white"
         >
-          <option value="all">All Withdrawals</option>
+          <option value="all">All statuses</option>
+          <option value="pending_approval">Pending Approval</option>
           <option value="pending">Pending</option>
           <option value="processing">Processing</option>
           <option value="completed">Completed</option>
           <option value="failed">Failed</option>
           <option value="cancelled">Cancelled</option>
+        </select>
+        <select
+          value={typeFilter}
+          onChange={(e) => { setTypeFilter(e.target.value); setPage(1); }}
+          className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white"
+        >
+          <option value="all">All types</option>
+          <option value="onchain">On-chain only</option>
+          <option value="internal">Internal transfers only</option>
         </select>
       </div>
 
@@ -164,7 +204,11 @@ export default function WithdrawalsPage() {
                     </td>
                     <td className="px-6 py-4 text-gray-500 dark:text-gray-400">{withdrawal.chain_name}</td>
                     <td className="px-6 py-4">
-                      <p className="text-gray-400 truncate max-w-[180px]" title={withdrawal.to_address}>{withdrawal.to_address}</p>
+                      {(withdrawal.withdrawal_type === 'internal' || withdrawal.chain_name === 'Internal') ? (
+                        <span className="text-gray-500">Internal → {withdrawal.internal_recipient_email ?? '—'}</span>
+                      ) : (
+                        <p className="text-gray-400 truncate max-w-[180px]" title={withdrawal.to_address ?? ''}>{withdrawal.to_address ?? '—'}</p>
+                      )}
                     </td>
                     <td className="px-6 py-4">
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadge(withdrawal.status)}`}>
@@ -172,7 +216,9 @@ export default function WithdrawalsPage() {
                       </span>
                     </td>
                     <td className="px-6 py-4">
-                      {withdrawal.tx_hash ? (
+                      {(withdrawal.withdrawal_type === 'internal' || withdrawal.chain_name === 'Internal') ? (
+                        <span className="text-gray-500">—</span>
+                      ) : withdrawal.tx_hash ? (
                         <a
                           href={`https://etherscan.io/tx/${withdrawal.tx_hash}`}
                           target="_blank"
@@ -195,6 +241,33 @@ export default function WithdrawalsPage() {
           </div>
         )}
       </div>
+
+      {/* Pagination */}
+      {pagination && pagination.totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Page {pagination.page} of {pagination.totalPages} ({pagination.total} total)
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={pagination.page <= 1 || loading}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              className="p-2 rounded-lg border border-gray-200 dark:border-gray-700 disabled:opacity-50 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              disabled={pagination.page >= pagination.totalPages || loading}
+              onClick={() => setPage((p) => p + 1)}
+              className="p-2 rounded-lg border border-gray-200 dark:border-gray-700 disabled:opacity-50 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

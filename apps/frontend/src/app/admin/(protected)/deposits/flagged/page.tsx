@@ -1,13 +1,18 @@
 'use client';
 
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { Loader2 } from 'lucide-react';
+
 export default function FlaggedDepositsPage() {
+  const router = useRouter();
+  useEffect(() => {
+    router.replace('/admin/deposits?flagged=1');
+  }, [router]);
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Flagged Deposits</h1>
-      <p className="text-gray-400 text-sm">Deposits flagged for review</p>
-      <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
-        <p className="text-gray-500 text-center">No flagged deposits</p>
-      </div>
+    <div className="flex items-center justify-center min-h-[320px]">
+      <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
+      <span className="ml-3 text-gray-500 dark:text-gray-400">Loading flagged deposits...</span>
     </div>
   );
 }

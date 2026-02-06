@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { useAdminAuthStore } from '@/store/admin-auth';
 import {
   LayoutDashboard,
   Users,
@@ -38,6 +39,7 @@ interface MenuItem {
     label: string;
     href: string;
     badge?: number | string;
+    badgeKey?: string; // e.g. 'pending_approval' - resolved from API
   }[];
 }
 
@@ -96,7 +98,9 @@ const menuItems: MenuItem[] = [
     children: [
       { label: 'All Deposits', href: '/admin/deposits' },
       { label: 'Pending', href: '/admin/deposits/pending' },
+      { label: 'Completed', href: '/admin/deposits/completed' },
       { label: 'Flagged', href: '/admin/deposits/flagged' },
+      { label: 'Manual Credit', href: '/admin/deposits/manual-credit' },
       { label: 'Reports', href: '/admin/deposits/reports' },
     ],
   },
@@ -105,12 +109,10 @@ const menuItems: MenuItem[] = [
     label: 'Withdrawals',
     icon: <ArrowUpFromLine className="w-4 h-4" />,
     children: [
-      { label: 'Pending Approval', href: '/admin/withdrawals/pending-approval' },
-      { label: 'Pending', href: '/admin/withdrawals/pending' },
-      { label: 'Processing', href: '/admin/withdrawals/processing' },
-      { label: 'Completed', href: '/admin/withdrawals/completed' },
+      { label: 'Pending Approval', href: '/admin/withdrawals/pending-approval', badgeKey: 'pending_approval' },
       { label: 'All Withdrawals', href: '/admin/withdrawals' },
-      { label: 'Failed', href: '/admin/withdrawals/failed' },
+      { label: 'Internal Transfers', href: '/admin/withdrawals?type=internal' },
+      { label: 'Reports', href: '/admin/withdrawals/reports' },
       { label: 'Settings', href: '/admin/withdrawals/settings' },
     ],
   },
@@ -211,6 +213,7 @@ const menuItems: MenuItem[] = [
       { label: 'Blockchain', href: '/admin/settings/blockchain' },
       { label: 'Chains', href: '/admin/settings/blockchain/chains' },
       { label: 'Currencies', href: '/admin/settings/blockchain/currencies' },
+      { label: 'Tokens', href: '/admin/settings/blockchain/tokens' },
       { label: 'Trading Pairs', href: '/admin/settings/trading-pairs' },
       { label: 'P2P Assets', href: '/admin/settings/p2p-assets' },
     ],
@@ -244,7 +247,23 @@ interface SidebarProps {
 
 export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const { accessToken } = useAdminAuthStore();
   const [expandedMenus, setExpandedMenus] = useState<string[]>(['dashboard']);
+  const [withdrawalStats, setWithdrawalStats] = useState<{ pending_approval?: number } | null>(null);
+
+  useEffect(() => {
+    if (!accessToken || !expandedMenus.includes('withdrawals')) return;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+    fetch(`${apiUrl}/api/v1/admin/withdrawals?limit=1`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.success && data?.data?.stats) setWithdrawalStats(data.data.stats);
+      })
+      .catch(() => {});
+  }, [accessToken, expandedMenus]);
 
   const toggleMenu = (menuId: string) => {
     setExpandedMenus((prev) =>
@@ -254,9 +273,24 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     );
   };
 
-  const isActive = (href: string) => pathname === href;
+  const isActive = (href: string) => {
+    const [p, q] = href.split('?');
+    const path = p || href;
+    if (pathname !== path) return false;
+    if (!q) return searchParams.get('type') !== 'internal';
+    const want = new URLSearchParams(q);
+    for (const [k, v] of want) if (searchParams.get(k) !== v) return false;
+    return true;
+  };
   const isParentActive = (children?: { href: string }[]) =>
-    children?.some((child) => pathname === child.href);
+    children?.some((child) => {
+      const [p, q] = child.href.split('?');
+      if (pathname !== (p || child.href)) return false;
+      if (!q) return true;
+      const want = new URLSearchParams(q);
+      for (const [k, v] of want) if (searchParams.get(k) !== v) return false;
+      return true;
+    });
 
   return (
     <>
@@ -351,11 +385,15 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                               }`}
                             >
                               <span>{child.label}</span>
-                              {child.badge && (
+                              {(child.badgeKey && item.id === 'withdrawals' && withdrawalStats && Number(withdrawalStats[child.badgeKey as keyof typeof withdrawalStats] ?? 0) > 0) ? (
+                                <span className="px-2 py-0.5 text-xs font-medium text-white bg-amber-500 rounded-full">
+                                  {withdrawalStats[child.badgeKey as keyof typeof withdrawalStats]}
+                                </span>
+                              ) : child.badge ? (
                                 <span className="px-2 py-0.5 text-xs font-medium text-white bg-red-500 rounded-full">
                                   {child.badge}
                                 </span>
-                              )}
+                              ) : null}
                             </Link>
                           </li>
                         ))}

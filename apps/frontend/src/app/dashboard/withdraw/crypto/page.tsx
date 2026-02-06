@@ -895,7 +895,9 @@ export default function WithdrawCryptoPage() {
                     const amountInvalid = !amount || isNaN(amountNum) || amountNum <= 0;
                     const fee = getWithdrawFee();
                     const totalRequired = isInternal ? amountNum : amountNum + fee;
-                    const balanceInsufficient = totalRequired > getAvailableBalance();
+                    const available = getAvailableBalance();
+                    const epsilon = 1e-8;
+                    const balanceInsufficient = totalRequired > available + epsilon;
                     const feeExceedsAmount = !!previewData?.fee_exceeds_amount;
                     const validInternal = selectedToken && amount && internalRecipient.trim() && !amountInvalid && !balanceInsufficient;
                     const validOnChain = selectedToken && selectedChain && amount && toAddress.trim() && !amountInvalid && !balanceInsufficient && !feeExceedsAmount;

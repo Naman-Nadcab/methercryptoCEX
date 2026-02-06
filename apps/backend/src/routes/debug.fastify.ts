@@ -49,7 +49,7 @@ export default async function debugRoutes(app: FastifyInstance) {
       const tradingSum = await db.query<{ total: string }>(`
         SELECT COALESCE(SUM(COALESCE(ub.available_balance, 0) + COALESCE(ub.locked_balance, 0)), 0)::text as total
         FROM user_balances ub
-        WHERE ub.user_id = $1 AND COALESCE(ub.account_type::text, 'funding') IN ('trading', 'unified')
+        WHERE ub.user_id = $1 AND COALESCE(ub.account_type::text, 'funding') = 'trading'
       `, [userId]);
 
       const fundingTotal = parseFloat(fundingSum.rows[0]?.total || '0');

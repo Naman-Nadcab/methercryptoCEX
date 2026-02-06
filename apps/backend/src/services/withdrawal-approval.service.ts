@@ -206,7 +206,8 @@ export async function rejectWithdrawal(
       'Could not resolve currency for token'
     );
   }
-  const accountType = w.account_type || 'funding';
+  const rawAccountType = w.account_type || 'funding';
+  const accountType = ['funding', 'spot', 'trading'].includes(rawAccountType) ? rawAccountType : 'funding';
   const chainId = w.chain_id ?? CHAIN_ID_GLOBAL;
   await ensureUserBalanceRow(w.user_id, currencyId, chainId, accountType);
   const updateResult = await db.query(
