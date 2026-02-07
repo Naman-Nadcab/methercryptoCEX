@@ -2,12 +2,16 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
 import { getCurrencyIdBySymbol } from '../lib/currency-resolver.js';
-import { ensureUserBalanceRow, assertUserBalanceUpdated, DEFAULT_ACCOUNT_TYPE, CHAIN_ID_GLOBAL } from '../lib/user-balance-helper.js';
+import { ensureUserBalanceRow, assertUserBalanceUpdated, assertBalanceInvariant, DEFAULT_ACCOUNT_TYPE, CHAIN_ID_GLOBAL } from '../lib/user-balance-helper.js';
 import { readUserBalances } from '../services/balance/readUserBalances.js';
 import { walletService } from '../services/wallet.service.js';
 import { logger, auditLog } from '../lib/logger.js';
 import { logWithdrawalLifecycle } from '../lib/withdrawal-audit.js';
 import { ChainId } from '../types/index.js';
+import { evaluateAndLogRisk } from '../services/risk-engine.service.js';
+import { getDeviceIdFromRequest, logUserActivity } from '../services/activity-monitor.service.js';
+import { isAddressAllowed } from '../services/withdrawal-whitelist.service.js';
+import { hasActiveCooldown } from '../services/security-cooldown.service.js';
 
 interface ChainDB {
   id: string;
@@ -1463,7 +1467,141 @@ export default async function walletRoutes(app: FastifyInstance) {
         });
       }
 
-      // Withdrawal security: 2FA and whitelist (user must satisfy all enabled settings)
+      // --- STRICT EXECUTION ORDER (no withdrawal record must exist if any step blocks) ---
+      // 1. Risk engine (BLOCK → no DB insert; CHALLENGE → pending_approval)
+      // 2. Security cooldown
+      // 3. KYC (when enabled)
+      // 4. Withdrawal address whitelist & timelock
+      // 5. 2FA (when user has 2FA)
+      // 6. Balance lock + withdrawal insert in one transaction
+
+      // 1. Risk engine: evaluate withdrawal risk; BLOCK returns 403, CHALLENGE forces manual review (pending_approval)
+      const req = request as FastifyRequest & { clientIp?: string; countryCode?: string | null; securityFlags?: { isVpnOrTor: boolean }; requestId?: string };
+      const riskResult = await evaluateAndLogRisk({
+        scope: 'withdrawal',
+        actorType: 'user',
+        actorId: userId,
+        context: {
+          userId,
+          amount: withdrawAmount,
+          ip: req.clientIp ?? request.ip,
+          countryCode: req.countryCode ?? null,
+          deviceId: getDeviceIdFromRequest(request.headers as Record<string, string | undefined>),
+          isVpnOrTor: req.securityFlags?.isVpnOrTor ?? false,
+          requestId: req.requestId ?? null,
+          symbol: token.symbol,
+          isHighRiskAsset: token.is_high_risk ?? false,
+        },
+        requestId: req.requestId ?? null,
+        ipAddress: req.clientIp ?? request.ip,
+        userAgent: request.headers['user-agent'],
+      });
+      if (riskResult.decision === 'block') {
+        logger.warn('Withdrawal creation failed: RISK_BLOCKED', { ...withdrawalLogContext, score: riskResult.score, signals: riskResult.signals });
+        return reply.status(403).send({
+          success: false,
+          error: { code: 'RISK_BLOCKED', message: 'Withdrawal not allowed due to risk policy. Contact support if this is in error.' }
+        });
+      }
+
+      const riskRequiresChallenge = riskResult.decision === 'challenge';
+
+      // 2. Security cooldown — block withdrawals after password/2FA/device changes
+      const cooldown = await hasActiveCooldown({ userId });
+      if (cooldown.active) {
+        await logUserActivity({
+          userId,
+          action: 'access_blocked',
+          ipAddress: req.clientIp ?? request.ip,
+          userAgent: request.headers['user-agent'],
+          deviceId: getDeviceIdFromRequest(request.headers as Record<string, string | undefined>),
+          metadata: { reason: 'withdrawal_cooldown_active', cooldown_until: cooldown.until?.toISOString(), cooldown_reason: cooldown.reason },
+        });
+        return reply.status(403).send({
+          success: false,
+          error: {
+            code: 'WITHDRAWAL_COOLDOWN_ACTIVE',
+            message: 'Withdrawals are temporarily disabled after a recent security change.',
+            cooldown_until: cooldown.until?.toISOString(),
+            reason: cooldown.reason,
+          },
+        });
+      }
+
+      // 3. KYC enforcement (when system_settings.kyc_required_for_withdrawal is true)
+      let kycRequired = true;
+      try {
+        const kycSetting = await db.query<{ value: unknown }>(
+          `SELECT value FROM system_settings WHERE key = 'kyc_required_for_withdrawal' LIMIT 1`
+        );
+        if (kycSetting.rows.length > 0) {
+          const v = kycSetting.rows[0]!.value;
+          kycRequired = v === true || v === 'true' || (typeof v === 'string' && v.toLowerCase() === 'true');
+        }
+      } catch {
+        // Fail closed: if settings table missing, require KYC
+      }
+      if (kycRequired) {
+        const { assertKycAllowed, KycRequiredError, KycPendingError } = await import('../services/kyc-enforcement.service.js');
+        try {
+          await assertKycAllowed({ userId, action: 'withdrawal' });
+        } catch (err) {
+          if (err instanceof KycPendingError) {
+            return reply.status(403).send({
+              success: false,
+              error: { code: 'KYC_PENDING', message: err.message },
+            });
+          }
+          if (err instanceof KycRequiredError) {
+            return reply.status(403).send({
+              success: false,
+              error: { code: 'KYC_REQUIRED', message: err.message },
+            });
+          }
+          throw err;
+        }
+      }
+
+      // 4. Withdrawal address whitelist & timelock — must be allowed before creating withdrawal
+      const whitelistCheck = await isAddressAllowed({
+        userId,
+        asset: token.symbol,
+        address: toAddress!,
+      });
+      if (!whitelistCheck.allowed) {
+        await logUserActivity({
+          userId,
+          action: 'access_blocked',
+          ipAddress: req.clientIp ?? request.ip,
+          userAgent: request.headers['user-agent'],
+          deviceId: getDeviceIdFromRequest(request.headers as Record<string, string | undefined>),
+          metadata: {
+            reason: whitelistCheck.unlockAt ? 'address_timelocked' : 'address_not_whitelisted',
+            scope: 'withdrawal',
+            asset: token.symbol,
+            unlockAt: whitelistCheck.unlockAt?.toISOString(),
+          },
+        });
+        if (whitelistCheck.unlockAt) {
+          return reply.status(403).send({
+            success: false,
+            error: {
+              code: 'ADDRESS_TIMELOCKED',
+              message: 'This address is in a timelock period and cannot be used yet.',
+              unlockAt: whitelistCheck.unlockAt.toISOString(),
+            },
+          });
+        }
+        return reply.status(403).send({
+          success: false,
+          error: {
+            code: 'ADDRESS_NOT_WHITELISTED',
+            message: 'This address is not in your withdrawal whitelist. Add it first and wait for the timelock to expire.',
+          },
+        });
+      }
+
+      // 5. Withdrawal security: 2FA (user must satisfy when enabled)
       const { verifyUser2FA, userHas2FA } = await import('../lib/totp-verify.js');
       const has2FA = await userHas2FA(userId);
       if (has2FA) {
@@ -1508,40 +1646,31 @@ export default async function walletRoutes(app: FastifyInstance) {
       // Backend source of truth: amount (user requested), fee (from token), net_amount = amount - fee (already validated > 0)
       const twoFaVerified = has2FA;
 
-      // Admin approval: required if amount > threshold OR asset is high-risk
+      // Admin approval: required if amount > threshold, asset is high-risk, or risk engine returned CHALLENGE
       const { requiresWithdrawalApproval } = await import('../services/withdrawal-approval.service.js');
-      const needsApproval = requiresWithdrawalApproval(withdrawAmount, {
+      const needsApproval = riskRequiresChallenge || requiresWithdrawalApproval(withdrawAmount, {
         is_high_risk: token.is_high_risk,
       });
       const initialStatus = needsApproval ? 'pending_approval' : 'pending';
 
-      // Create withdrawal record (on-chain). Stores amount, fee, net_amount; balance lock uses amount + fee.
-      const withdrawalResult = await db.query(`
-        INSERT INTO withdrawals (
-          user_id, token_id, chain_id, amount, fee, net_amount, to_address, memo, status, account_type,
-          type, email_verified, two_fa_verified, withdrawal_address_id
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'onchain', FALSE, $11, $12)
-        RETURNING id, created_at
-      `, [userId, token.token_id, token.chain_id, withdrawAmount.toString(), fee.toString(), netAmount.toString(), toAddress!, memo || null, initialStatus, accountType, twoFaVerified, withdrawalAddressIdRes]);
-
-      const withdrawal = withdrawalResult.rows[0];
-
+      // 6. Create withdrawal record and lock balance atomically (on-chain). No record exists if any prior step blocked.
+      // Stores amount, fee, net_amount; lock uses amount + fee.
       const chainIdForLock = token.chain_id ?? CHAIN_ID_GLOBAL;
+      let withdrawal: { id: string; created_at: Date };
       let updatedChainId = chainIdForLock;
       try {
-        await ensureUserBalanceRow(userId, currencyId, chainIdForLock, accountType);
-        let upd = await db.query(`
-          UPDATE user_balances
-          SET
-            available_balance = available_balance - $1::numeric,
-            locked_balance = locked_balance + $1::numeric,
-            updated_at = NOW()
-          WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5
-            AND available_balance >= $1::numeric
-        `, [totalRequired.toString(), userId, currencyId, chainIdForLock, accountType]);
-        if (upd.rowCount === 0 && chainIdForLock !== CHAIN_ID_GLOBAL) {
-          await ensureUserBalanceRow(userId, currencyId, CHAIN_ID_GLOBAL, accountType);
-          upd = await db.query(`
+        const txResult = await db.transaction(async (client) => {
+          const insertResult = await client.query<{ id: string; created_at: Date }>(`
+            INSERT INTO withdrawals (
+              user_id, token_id, chain_id, amount, fee, net_amount, to_address, memo, status, account_type,
+              type, email_verified, two_fa_verified, withdrawal_address_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'onchain', FALSE, $11, $12)
+            RETURNING id, created_at
+          `, [userId, token.token_id, token.chain_id, withdrawAmount.toString(), fee.toString(), netAmount.toString(), toAddress!, memo || null, initialStatus, accountType, twoFaVerified, withdrawalAddressIdRes]);
+          const w = insertResult.rows[0]!;
+
+          await ensureUserBalanceRow(userId, currencyId, chainIdForLock, accountType, client);
+          let upd = await client.query(`
             UPDATE user_balances
             SET
               available_balance = available_balance - $1::numeric,
@@ -1549,12 +1678,36 @@ export default async function walletRoutes(app: FastifyInstance) {
               updated_at = NOW()
             WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5
               AND available_balance >= $1::numeric
-          `, [totalRequired.toString(), userId, currencyId, CHAIN_ID_GLOBAL, accountType]);
-          updatedChainId = CHAIN_ID_GLOBAL;
-        }
-        if (upd.rowCount === 0) {
+            RETURNING *
+          `, [totalRequired.toString(), userId, currencyId, chainIdForLock, accountType]);
+          let chainUsed = chainIdForLock;
+          if (upd.rowCount === 0 && chainIdForLock !== CHAIN_ID_GLOBAL) {
+            await ensureUserBalanceRow(userId, currencyId, CHAIN_ID_GLOBAL, accountType, client);
+            upd = await client.query(`
+              UPDATE user_balances
+              SET
+                available_balance = available_balance - $1::numeric,
+                locked_balance = locked_balance + $1::numeric,
+                updated_at = NOW()
+              WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5
+                AND available_balance >= $1::numeric
+              RETURNING *
+            `, [totalRequired.toString(), userId, currencyId, CHAIN_ID_GLOBAL, accountType]);
+            chainUsed = CHAIN_ID_GLOBAL;
+          }
+          if (upd.rowCount === 0) {
+            throw new Error('BALANCE_ROW_NOT_FOUND_OR_MISMATCH');
+          }
+          assertUserBalanceUpdated('withdrawal_lock', upd, userId, currencyId, accountType, chainUsed);
+          assertBalanceInvariant(upd.rows[0]);
+          return { withdrawal: w, updatedChainId: chainUsed };
+        });
+        withdrawal = txResult.withdrawal;
+        updatedChainId = txResult.updatedChainId;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('BALANCE_ROW_NOT_FOUND_OR_MISMATCH')) {
           logger.error('Withdrawal creation failed: BALANCE_ROW_NOT_FOUND_OR_MISMATCH', withdrawalLogContext);
-          await db.query(`DELETE FROM withdrawals WHERE id = $1`, [withdrawal.id]);
           return reply.status(400).send({
             success: false,
             error: {
@@ -1563,12 +1716,9 @@ export default async function walletRoutes(app: FastifyInstance) {
             },
           });
         }
-        assertUserBalanceUpdated('withdrawal_lock', upd, userId, currencyId, accountType, updatedChainId);
-      } catch (err) {
-        await db.query(`DELETE FROM withdrawals WHERE id = $1`, [withdrawal.id]);
         logger.error('Withdrawal creation failed: BALANCE_LOCK_FAILED', {
           ...withdrawalLogContext,
-          error: err instanceof Error ? err.message : String(err),
+          error: msg,
         });
         return reply.status(500).send({
           success: false,
@@ -1700,29 +1850,34 @@ export default async function walletRoutes(app: FastifyInstance) {
         });
       }
 
-      // Update withdrawal status
-      await db.query(`
-        UPDATE withdrawals SET status = 'cancelled', processed_at = NOW()
-        WHERE id = $1
-      `, [id]);
-
-      // Refund to user_balances (single source of truth)
       const totalLocked = parseFloat(withdrawal.amount) + parseFloat(withdrawal.fee);
       const currencyId = await getCurrencyIdBySymbol(withdrawal.symbol);
       const cancelAccountType = withdrawal.account_type || 'spot';
       const chainIdCancel = withdrawal.chain_id ?? CHAIN_ID_GLOBAL;
-      if (currencyId) {
-        await ensureUserBalanceRow(userId, currencyId, chainIdCancel, cancelAccountType);
-        const cancelUpd = await db.query(`
-          UPDATE user_balances
-          SET
-            available_balance = available_balance + $1,
-            locked_balance = locked_balance - $1,
-            updated_at = NOW()
-          WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5
-        `, [totalLocked.toString(), userId, currencyId, chainIdCancel, cancelAccountType]);
-        assertUserBalanceUpdated('withdrawal_cancel', cancelUpd, userId, currencyId, cancelAccountType, withdrawal.chain_id);
-      }
+
+      // Update withdrawal status and release balance atomically (no partial state on failure).
+      await db.transaction(async (client) => {
+        const upd = await client.query(
+          `UPDATE withdrawals SET status = 'cancelled', processed_at = NOW() WHERE id = $1 AND status = 'pending' RETURNING id`,
+          [id]
+        );
+        if (upd.rowCount === 0) {
+          throw new Error('Withdrawal no longer pending (possibly being processed)');
+        }
+        if (currencyId) {
+          await ensureUserBalanceRow(userId, currencyId, chainIdCancel, cancelAccountType, client);
+          const cancelUpd = await client.query(`
+            UPDATE user_balances
+            SET
+              available_balance = available_balance + $1,
+              locked_balance = locked_balance - $1,
+              updated_at = NOW()
+            WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5
+              AND locked_balance >= $1
+          `, [totalLocked.toString(), userId, currencyId, chainIdCancel, cancelAccountType]);
+          assertUserBalanceUpdated('withdrawal_cancel', cancelUpd, userId, currencyId, cancelAccountType, withdrawal.chain_id);
+        }
+      });
 
       auditLog('withdrawal_cancelled', userId, {
         withdrawalId: id,

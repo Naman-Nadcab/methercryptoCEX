@@ -1,4 +1,9 @@
+import crypto from 'node:crypto';
 import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+const app = Fastify({
+  logger: true,
+  trustProxy: true,
+});
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
@@ -11,6 +16,7 @@ import { redis } from './lib/redis.js';
 import { logger } from './lib/logger.js';
 import { validateHotWalletEnv } from './lib/hot-wallet-env.js';
 import { validateRequiredTables } from './lib/validate-migrations.js';
+import { ipRulesMiddleware } from './middleware/ip-rules.middleware.js';
 import { processSigningQueue } from './services/withdrawal-signing.service.js';
 import { runAutoSweep } from './services/hot-wallet-sweep.service.js';
 import { runDepositSweep } from './services/deposit-sweep.service.js';
@@ -22,13 +28,15 @@ import tradingRoutes from './routes/trading.fastify.js';
 import p2pRoutes from './routes/p2p.fastify.js';
 import userRoutes from './routes/user.fastify.js';
 import adminRoutes from './routes/admin.fastify.js';
+import adminAmlRoutes from './routes/admin-aml.fastify.js';
+import adminSecurityRoutes from './routes/admin-security.fastify.js';
 import uploadRoutes from './routes/upload.fastify.js';
 import walletRoutes from './routes/wallet.fastify.js';
 import convertRoutes from './routes/convert.fastify.js';
 import kycRoutes from './routes/kyc.js';
 import debugRoutes from './routes/debug.fastify.js';
 
-// Extend FastifyRequest with user
+// Extend FastifyRequest with user and audit context
 declare module 'fastify' {
   interface FastifyRequest {
     user?: {
@@ -38,6 +46,8 @@ declare module 'fastify' {
       role: string;
       sessionId: string;
     };
+    /** Set in onRequest; used by immutable audit log */
+    requestId?: string;
   }
 }
 
@@ -86,12 +96,13 @@ export async function buildServer(): Promise<FastifyInstance> {
       'Content-Type',
       'Authorization',
       'X-Requested-With',
+      'X-Request-ID',
       'Accept',
       'Origin',
       'Accept-Encoding',
       'Accept-Language',
     ],
-    exposedHeaders: ['Content-Length', 'Content-Type'],
+    exposedHeaders: ['Content-Length', 'Content-Type', 'X-Request-ID'],
     preflightContinue: false,
     optionsSuccessStatus: 204,
   });
@@ -117,6 +128,14 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   await app.register(websocket);
+
+  // Request ID for tracing and audit log (onRequest runs for every request)
+  app.addHook('onRequest', async (request) => {
+    const id = (request.headers['x-request-id'] as string)?.trim() || crypto.randomUUID();
+    request.requestId = id;
+  });
+
+  ipRulesMiddleware(app);
 
   // Root – avoid 404 when hitting base URL
   app.get('/', async (_request, reply) => {
@@ -157,11 +176,20 @@ export async function buildServer(): Promise<FastifyInstance> {
         phone?: string;
         role: string;
         sessionId: string;
+        type?: string;
       }>(token);
 
-      // Check if session is valid in Redis
-      const session = await redis.getJson<{ isActive: boolean }>(`session:${decoded.sessionId}`);
+      // User routes must use user JWT; admin JWT must not access user routes
+      if (decoded.type === 'admin') {
+        return reply.status(401).send({ success: false, error: { code: 'INVALID_TOKEN', message: 'Use user token for this route' } });
+      }
+
+      // Check if session is valid in Redis and not expired (server-side expiry)
+      const session = await redis.getJson<{ isActive: boolean; expiresAt?: number }>(`session:${decoded.sessionId}`);
       if (!session || !session.isActive) {
+        return reply.status(401).send({ success: false, error: { code: 'SESSION_EXPIRED', message: 'Session expired' } });
+      }
+      if (session.expiresAt != null && session.expiresAt < Date.now()) {
         return reply.status(401).send({ success: false, error: { code: 'SESSION_EXPIRED', message: 'Session expired' } });
       }
 
@@ -184,6 +212,8 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(p2pRoutes, { prefix: '/api/v1/p2p' });
   await app.register(userRoutes, { prefix: '/api/v1/user' });
   await app.register(adminRoutes, { prefix: '/api/v1/admin' });
+  await app.register(adminAmlRoutes, { prefix: '/api/v1/admin' });
+  await app.register(adminSecurityRoutes, { prefix: '/api/v1/admin' });
   await app.register(uploadRoutes, { prefix: '/api/v1/upload' });
   await app.register(walletRoutes, { prefix: '/api/v1/wallet' });
   await app.register(convertRoutes, { prefix: '/api/v1/convert' });

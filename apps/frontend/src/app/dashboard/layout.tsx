@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/store/auth';
+import { useAuth } from '@/context/AuthContext';
+import RequireAuth from '@/components/RequireAuth';
 import Link from 'next/link';
 import {
   LayoutDashboard,
@@ -38,6 +40,7 @@ import {
 import SessionManager from '@/components/SessionManager';
 import ThemeToggle from '@/components/ThemeToggle';
 import ThemeProvider from '@/components/ThemeProvider';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 
 interface MenuItem {
   id: string;
@@ -124,7 +127,8 @@ export default function DashboardLayout({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, accessToken, logout } = useAuthStore();
+  const { user, accessToken } = useAuthStore();
+  const { setUnauthenticated } = useAuth();
   const [expandedMenus, setExpandedMenus] = useState<string[]>(['account']);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -132,22 +136,12 @@ export default function DashboardLayout({
   const [assetsMenuOpen, setAssetsMenuOpen] = useState(false);
   const [ordersMenuOpen, setOrdersMenuOpen] = useState(false);
   const [depositMenuOpen, setDepositMenuOpen] = useState(false);
+  const [notificationMenuOpen, setNotificationMenuOpen] = useState(false);
+  const [notifications, setNotifications] = useState<{ id: string; title: string; message: string; is_read: boolean; created_at: string; notification_type: string }[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [uidCopied, setUidCopied] = useState(false);
   const [kycVerified, setKycVerified] = useState(true); // Default true to hide banner initially
   const [showKycBanner, setShowKycBanner] = useState(true);
-
-  // Get hydration state from the store
-  const hasHydrated = useAuthStore((state) => state._hasHydrated);
-
-  // Only check auth after store has hydrated from localStorage
-  useEffect(() => {
-    if (!hasHydrated) return;
-    
-    // Only redirect if we've hydrated and there's no user/token
-    if (!user || !accessToken) {
-      router.push('/login');
-    }
-  }, [hasHydrated, user, accessToken, router]);
 
   // Fetch KYC status
   useEffect(() => {
@@ -181,9 +175,35 @@ export default function DashboardLayout({
     );
   };
 
+  const fetchNotifications = async () => {
+    if (!accessToken) return;
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/api/v1/user/notifications?limit=20`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = await res.json();
+      if (data?.success && data?.data) {
+        setNotifications(data.data.notifications || []);
+        setUnreadCount(data.data.unreadCount ?? 0);
+      }
+    } catch (_) {}
+  };
+
+  const markAllRead = async () => {
+    if (!accessToken) return;
+    try {
+      await fetch(`${getApiBaseUrl()}/api/v1/user/notifications/read-all`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      setUnreadCount(0);
+      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+    } catch (_) {}
+  };
+
   const handleLogout = () => {
-    logout();
-    router.push('/login');
+    setUnauthenticated();
+    router.replace('/login');
   };
 
   const maskEmail = (email: string) => {
@@ -223,26 +243,11 @@ export default function DashboardLayout({
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
-  // Show loading while hydrating or if user not loaded yet
-  if (!hasHydrated || !user) {
-    return (
-      <ThemeProvider>
-        <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-        </div>
-      </ThemeProvider>
-    );
-  }
-
   return (
-    <ThemeProvider>
-      {/* Session Manager for auto-logout */}
-      <SessionManager 
-        idleTimeout={30 * 60 * 1000} // 30 minutes
-        redirectPath="/login"
-      />
-      
-      <div className="min-h-screen bg-gray-50 dark:bg-[#0b0e11]">
+    <RequireAuth>
+      <ThemeProvider>
+        <SessionManager redirectPath="/login" />
+        <div className="min-h-screen bg-gray-50 dark:bg-[#0b0e11]">
       {/* Top Header */}
       <header className="bg-white dark:bg-[#181a20] border-b border-gray-200 dark:border-gray-800 sticky top-0 z-50">
         {/* Main Nav */}
@@ -289,6 +294,7 @@ export default function DashboardLayout({
                 setDepositMenuOpen(!depositMenuOpen);
                 setAssetsMenuOpen(false);
                 setOrdersMenuOpen(false);
+                setNotificationMenuOpen(false);
                 setUserMenuOpen(false);
               }}
               className="deposit-menu-btn flex items-center gap-1 px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium rounded-lg transition-colors"
@@ -303,6 +309,7 @@ export default function DashboardLayout({
                 setAssetsMenuOpen(!assetsMenuOpen);
                 setDepositMenuOpen(false);
                 setOrdersMenuOpen(false);
+                setNotificationMenuOpen(false);
                 setUserMenuOpen(false);
               }}
               className="assets-menu-btn flex items-center gap-1 px-2 py-1.5 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
@@ -317,6 +324,7 @@ export default function DashboardLayout({
                 setOrdersMenuOpen(!ordersMenuOpen);
                 setDepositMenuOpen(false);
                 setAssetsMenuOpen(false);
+                setNotificationMenuOpen(false);
                 setUserMenuOpen(false);
               }}
               className="orders-menu-btn flex items-center gap-1 px-2 py-1.5 text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
@@ -326,21 +334,36 @@ export default function DashboardLayout({
             </button>
 
             {/* Notification */}
-            <button className="relative p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg">
+            <button
+              onClick={() => {
+                setNotificationMenuOpen(!notificationMenuOpen);
+                setDepositMenuOpen(false);
+                setAssetsMenuOpen(false);
+                setOrdersMenuOpen(false);
+                setUserMenuOpen(false);
+                if (!notificationMenuOpen) fetchNotifications();
+              }}
+              className="relative p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
+            >
               <Bell className="w-5 h-5 text-gray-600 dark:text-gray-300" />
-              <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-red-500 rounded-full"></span>
+              {unreadCount > 0 && (
+                <span className="absolute top-0.5 right-0.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-red-500 text-white text-[10px] font-medium rounded-full">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
             </button>
 
             {/* Theme Toggle */}
             <ThemeToggle variant="icon" size="sm" />
 
             {/* User Menu Button */}
-            <button 
+            <button
               onClick={() => {
                 setUserMenuOpen(!userMenuOpen);
                 setDepositMenuOpen(false);
                 setAssetsMenuOpen(false);
                 setOrdersMenuOpen(false);
+                setNotificationMenuOpen(false);
               }}
               className="user-menu-btn p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
             >
@@ -349,6 +372,47 @@ export default function DashboardLayout({
           </div>
 
           {/* All Dropdowns - Fixed Position at Top Right */}
+          {/* Notifications Dropdown */}
+          {notificationMenuOpen && (
+            <div className="notification-dropdown fixed right-4 top-14 w-80 bg-white dark:bg-[#1e2026] border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl z-[100] overflow-hidden">
+              <div className="p-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">Notifications</p>
+                {unreadCount > 0 && (
+                  <button type="button" onClick={markAllRead} className="text-xs text-blue-500 dark:text-blue-400 hover:underline">
+                    Mark all read
+                  </button>
+                )}
+              </div>
+              <div className="max-h-80 overflow-y-auto">
+                {notifications.length === 0 ? (
+                  <div className="p-6 text-center text-sm text-gray-500 dark:text-gray-400">No notifications yet.</div>
+                ) : (
+                  notifications.map((n) => (
+                    <div
+                      key={n.id}
+                      className={`p-4 border-b border-gray-100 dark:border-gray-800 last:border-0 ${!n.is_read ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}
+                    >
+                      <p className="text-sm font-medium text-gray-900 dark:text-white">{n.title}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">{n.message}</p>
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
+                        {new Date(n.created_at).toLocaleString()}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="p-2 border-t border-gray-200 dark:border-gray-700">
+                <Link
+                  href="/dashboard/announcements"
+                  onClick={() => setNotificationMenuOpen(false)}
+                  className="block text-center text-sm text-blue-500 dark:text-blue-400 hover:underline py-2"
+                >
+                  View announcements
+                </Link>
+              </div>
+            </div>
+          )}
+
           {/* Deposit Dropdown */}
           {depositMenuOpen && (
             <div className="deposit-dropdown fixed right-4 top-14 w-72 bg-white dark:bg-[#1e2026] border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl z-[100] overflow-hidden">
@@ -716,9 +780,9 @@ export default function DashboardLayout({
                   </div>
                   <div>
                     <p className="text-xs font-medium text-gray-900 dark:text-white">
-                      {maskEmail(user.email || '')}
+                      {maskEmail(user?.email || '')}
                     </p>
-                    <p className="text-[10px] text-gray-500">UID: {user.id?.slice(0, 8)}</p>
+                    <p className="text-[10px] text-gray-500">UID: {user?.id?.slice(0, 8)}</p>
                   </div>
                 </div>
               </div>
@@ -820,7 +884,8 @@ export default function DashboardLayout({
       )}
 
       {/* Transfer Modal */}
-    </div>
-    </ThemeProvider>
+        </div>
+      </ThemeProvider>
+    </RequireAuth>
   );
 }

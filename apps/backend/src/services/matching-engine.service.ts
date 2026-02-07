@@ -242,14 +242,12 @@ class MatchingEngine {
         lockAmount = quantity;
       }
 
-      // Lock balance
-      const locked = await walletService.lockBalance(userId, lockTokenId, lockAmount);
-      if (!locked) {
-        throw new Error('Insufficient balance');
-      }
-
-      // Create order in database
+      // Lock balance and create order atomically so failed insert rolls back the lock
       const order = await db.transaction(async (client) => {
+        const locked = await walletService.lockBalance(userId, lockTokenId, lockAmount, client);
+        if (!locked) {
+          throw new Error('Insufficient balance');
+        }
         const result = await client.query<Order>(
           `INSERT INTO orders (
             user_id, pair_id, side, type, status, time_in_force,
@@ -621,7 +619,6 @@ class MatchingEngine {
     }
 
     try {
-      // Get order
       const orderResult = await db.query<Order>(
         `SELECT * FROM orders WHERE id = $1 AND user_id = $2`,
         [orderId, userId]
@@ -637,28 +634,43 @@ class MatchingEngine {
         throw new Error('Order cannot be cancelled');
       }
 
-      // Remove from orderbook
-      this.removeFromOrderbook(order);
-
-      // Update order status
-      const updatedOrder = await db.query<Order>(
-        `UPDATE orders 
-         SET status = 'cancelled', cancelled_at = NOW()
-         WHERE id = $1
-         RETURNING *`,
-        [orderId]
-      );
-
-      // Unlock remaining balance
       const { baseTokenId, quoteTokenId } = await this.getPairTokens(order.pairId);
-      const tokenToUnlock = order.side === OrderSide.BUY ? quoteTokenId : baseTokenId;
-      const amountToUnlock = order.side === OrderSide.BUY
-        ? new Decimal(order.remainingQuantity).times(order.price || 0).toString()
-        : order.remainingQuantity;
 
-      await walletService.unlockBalance(userId, tokenToUnlock, amountToUnlock);
+      const updatedOrder = await db.transaction(async (client) => {
+        const forUpdate = await client.query<Order>(
+          `SELECT * FROM orders WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+          [orderId, userId]
+        );
 
-      // Publish cancel event
+        if (forUpdate.rows.length === 0) {
+          throw new Error('Order not found');
+        }
+
+        const locked = forUpdate.rows[0]!;
+        if (locked.status === OrderStatus.FILLED || locked.status === OrderStatus.CANCELLED) {
+          throw new Error('Order cannot be cancelled');
+        }
+
+        const updateResult = await client.query<Order>(
+          `UPDATE orders 
+           SET status = 'cancelled', cancelled_at = NOW()
+           WHERE id = $1
+           RETURNING *`,
+          [orderId]
+        );
+
+        const tokenToUnlock = locked.side === OrderSide.BUY ? quoteTokenId : baseTokenId;
+        const amountToUnlock = locked.side === OrderSide.BUY
+          ? new Decimal(locked.remainingQuantity).times(locked.price || 0).toString()
+          : locked.remainingQuantity;
+
+        await walletService.unlockBalance(userId, tokenToUnlock, amountToUnlock, client);
+
+        return updateResult.rows[0]!;
+      });
+
+      this.removeFromOrderbook(updatedOrder);
+
       await rabbitmq.publish(EXCHANGES.ORDERS, ROUTING_KEYS.ORDER_CANCEL, {
         orderId,
         userId,
@@ -667,7 +679,7 @@ class MatchingEngine {
 
       auditLog(AuditAction.ORDER_CANCELLED, userId, { orderId }, undefined);
 
-      return updatedOrder.rows[0]!;
+      return updatedOrder;
     } finally {
       await redis.releaseLock(lockKey, lockValue);
     }

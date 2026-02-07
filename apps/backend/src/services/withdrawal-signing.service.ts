@@ -11,7 +11,7 @@ import { logger } from '../lib/logger.js';
 import { logHotWalletAudit } from '../lib/hot-wallet-audit.js';
 import { logWithdrawalLifecycle } from '../lib/withdrawal-audit.js';
 import { getCurrencyIdForToken } from '../lib/currency-resolver.js';
-import { ensureUserBalanceRow, assertUserBalanceUpdated, CHAIN_ID_GLOBAL } from '../lib/user-balance-helper.js';
+import { ensureUserBalanceRow, assertUserBalanceUpdated, assertBalanceInvariant, CHAIN_ID_GLOBAL } from '../lib/user-balance-helper.js';
 import { getSignerForChain, getHotWalletByChainId, checkHotWalletCaps, refreshBalanceCache } from './hot-wallet.service.js';
 
 const ACTOR_SYSTEM = 'withdrawal-signing-processor';
@@ -279,30 +279,64 @@ export async function processSigningQueue(): Promise<void> {
   }
 
   const totalRequired = (parseFloat(w.amount) + parseFloat(w.fee)).toString();
-  await db.query(
-    `UPDATE withdrawal_signing_queue
-     SET status = 'completed', tx_hash = $1, processed_at = CURRENT_TIMESTAMP, error_message = NULL
-     WHERE id = $2`,
-    [txHash, queueId]
-  );
-  await db.query(
-    `UPDATE withdrawals
-     SET status = 'completed', tx_hash = $1, completed_at = CURRENT_TIMESTAMP, processed_at = CURRENT_TIMESTAMP
-     WHERE id = $2`,
-    [txHash, withdrawalId]
-  );
   const currencyId = await getCurrencyIdForToken(w.token_id);
   const rawAccountType = w.account_type || 'funding';
   const accountType = ['funding', 'spot', 'trading'].includes(rawAccountType) ? rawAccountType : 'funding';
-  if (currencyId) {
-    await ensureUserBalanceRow(w.user_id, currencyId, chainId, accountType);
-    const completeUpd = await db.query(
-      `UPDATE user_balances
-       SET locked_balance = locked_balance - $1, updated_at = NOW()
-       WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5`,
-      [totalRequired, w.user_id, currencyId, chainId, accountType]
+
+  // Re-check withdrawal status inside tx: if user cancelled after we broadcast, do not debit balance (avoid double-spend).
+  const completionApplied = await db.transaction(async (client) => {
+    const statusRow = await client.query<{ status: string }>(
+      `SELECT status FROM withdrawals WHERE id = $1 FOR UPDATE`,
+      [withdrawalId]
     );
-    assertUserBalanceUpdated('withdrawal_complete_deduct', completeUpd, w.user_id, currencyId, accountType, w.chain_id ?? undefined);
+    if (statusRow.rows.length === 0) {
+      await client.query(
+        `UPDATE withdrawal_signing_queue SET status = 'failed', error_message = 'Withdrawal not found' WHERE id = $1`,
+        [queueId]
+      );
+      return false;
+    }
+    const currentStatus = statusRow.rows[0]!.status;
+    if (currentStatus === 'cancelled') {
+      await client.query(
+        `UPDATE withdrawal_signing_queue
+         SET status = 'cancelled', error_message = 'Withdrawal was cancelled by user after broadcast', processed_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [queueId]
+      );
+      logger.warn('Withdrawal was cancelled after broadcast; balance not debited', { withdrawalId, queueId });
+      return false;
+    }
+
+    await client.query(
+      `UPDATE withdrawal_signing_queue
+       SET status = 'completed', tx_hash = $1, processed_at = CURRENT_TIMESTAMP, error_message = NULL
+       WHERE id = $2`,
+      [txHash, queueId]
+    );
+    await client.query(
+      `UPDATE withdrawals
+       SET status = 'completed', tx_hash = $1, completed_at = CURRENT_TIMESTAMP, processed_at = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+      [txHash, withdrawalId]
+    );
+    if (currencyId) {
+      await ensureUserBalanceRow(w.user_id, currencyId, chainId, accountType, client);
+      const completeUpd = await client.query(
+        `UPDATE user_balances
+         SET locked_balance = locked_balance - $1, updated_at = NOW()
+         WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5 AND locked_balance >= $1
+         RETURNING *`,
+        [totalRequired, w.user_id, currencyId, chainId, accountType]
+      );
+      assertUserBalanceUpdated('withdrawal_complete_deduct', completeUpd, w.user_id, currencyId, accountType, w.chain_id ?? undefined);
+      assertBalanceInvariant(completeUpd.rows[0]);
+    }
+    return true;
+  });
+
+  if (!completionApplied) {
+    return;
   }
 
   await logHotWalletAudit({

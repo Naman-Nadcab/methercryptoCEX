@@ -7,7 +7,8 @@ import { logger } from '../lib/logger.js';
 import { config } from '../config/index.js';
 import { ensureUserBalanceRow, CHAIN_ID_GLOBAL } from '../lib/user-balance-helper.js';
 import { getCurrencyIdBySymbol } from '../lib/currency-resolver.js';
-
+import { logAuditFromRequest } from '../services/audit-log.service.js';
+import { logAdminActivity, getDeviceIdFromRequest } from '../services/activity-monitor.service.js';
 // Types
 interface AdminLoginBody {
   email: string;
@@ -39,7 +40,7 @@ function generateAdminTokens(app: FastifyInstance, payload: {
 }
 
 /** Get admin from request (JWT + session). Throws reply if unauthorized. */
-async function getAdminFromRequest(
+export async function getAdminFromRequest(
   app: FastifyInstance,
   request: FastifyRequest,
   reply: FastifyReply,
@@ -103,7 +104,7 @@ async function getAdminFromRequest(
 }
 
 /** Admin who can approve/reject withdrawals: role withdrawal_approver or super_admin, or permission withdrawals:approve / all. */
-async function getAdminForWithdrawalApproval(
+export async function getAdminForWithdrawalApproval(
   app: FastifyInstance,
   request: FastifyRequest,
   reply: FastifyReply
@@ -1801,6 +1802,23 @@ export default async function adminRoutes(app: FastifyInstance) {
         ip: request.ip ?? undefined,
         userAgent: request.headers['user-agent'] ?? undefined,
       });
+      await logAuditFromRequest(request, {
+        actorType: 'admin',
+        actorId: admin.adminId,
+        action: 'admin_withdrawal_approve',
+        resourceType: 'withdrawal',
+        resourceId: withdrawalId,
+        oldValue: { status: 'pending_approval' },
+        newValue: { status: 'pending' },
+      });
+      await logAdminActivity({
+        adminId: admin.adminId,
+        action: 'withdrawal_approved',
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'],
+        deviceId: getDeviceIdFromRequest(request.headers as Record<string, string | undefined>),
+        metadata: { withdrawalId },
+      });
       return reply.send({ success: true, data: { approved: true, withdrawalId } });
     } catch (error: unknown) {
       const err = error as { code?: string; message?: string };
@@ -1850,6 +1868,23 @@ export default async function adminRoutes(app: FastifyInstance) {
       await rejectWithdrawal(withdrawalId, admin.adminId, reason, {
         ip: request.ip ?? undefined,
         userAgent: request.headers['user-agent'] ?? undefined,
+      });
+      await logAuditFromRequest(request, {
+        actorType: 'admin',
+        actorId: admin.adminId,
+        action: 'admin_withdrawal_reject',
+        resourceType: 'withdrawal',
+        resourceId: withdrawalId,
+        oldValue: { status: 'pending_approval' },
+        newValue: { status: 'rejected', reason },
+      });
+      await logAdminActivity({
+        adminId: admin.adminId,
+        action: 'withdrawal_rejected',
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'],
+        deviceId: getDeviceIdFromRequest(request.headers as Record<string, string | undefined>),
+        metadata: { withdrawalId, reason },
       });
       return reply.send({ success: true, data: { rejected: true, withdrawalId } });
     } catch (error: unknown) {
@@ -3250,6 +3285,352 @@ export default async function adminRoutes(app: FastifyInstance) {
     }
   });
 
+  /**
+   * GET /admin/referrals/codes
+   * List referral codes with optional filters and pagination
+   */
+  app.get('/referrals/codes', async (request, reply) => {
+    try {
+      const q = request.query as { page?: string; limit?: string; search?: string; is_active?: string };
+      const page = Math.max(1, parseInt(q.page || '1', 10));
+      const limit = Math.min(100, Math.max(1, parseInt(q.limit || '20', 10)));
+      const offset = (page - 1) * limit;
+      const search = (q.search || '').trim();
+      const isActive = q.is_active === 'true' ? true : q.is_active === 'false' ? false : undefined;
+
+      let where = '1=1';
+      const params: unknown[] = [];
+      let idx = 1;
+      if (search) {
+        where += ` AND (rc.code ILIKE $${idx} OR u.email ILIKE $${idx} OR u.username ILIKE $${idx})`;
+        params.push(`%${search}%`);
+        idx++;
+      }
+      if (isActive !== undefined) {
+        where += ` AND rc.is_active = $${idx}`;
+        params.push(isActive);
+        idx++;
+      }
+      params.push(limit, offset);
+
+      const rows = await db.query(`
+        SELECT rc.*, u.email, u.username
+        FROM referral_codes rc
+        JOIN users u ON rc.user_id = u.id
+        WHERE ${where}
+        ORDER BY rc.created_at DESC
+        LIMIT $${idx} OFFSET $${idx + 1}
+      `, params);
+
+      const countResult = await db.query(
+        `SELECT COUNT(*) as total FROM referral_codes rc JOIN users u ON rc.user_id = u.id WHERE ${where}`,
+        params.slice(0, idx - 1)
+      );
+      const total = parseInt(countResult.rows[0]?.total || '0', 10);
+
+      return reply.send({
+        success: true,
+        data: { codes: rows.rows, total, page, limit },
+      });
+    } catch (error) {
+      logger.error('Get referral codes error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'FETCH_FAILED', message: 'Failed to fetch referral codes' },
+      });
+    }
+  });
+
+  /**
+   * GET /admin/referrals/relationships
+   * List referral relationships (referrer -> referee)
+   */
+  app.get('/referrals/relationships', async (request, reply) => {
+    try {
+      const q = request.query as { page?: string; limit?: string; referrer_email?: string; referee_email?: string; status?: string };
+      const page = Math.max(1, parseInt(q.page || '1', 10));
+      const limit = Math.min(100, Math.max(1, parseInt(q.limit || '20', 10)));
+      const offset = (page - 1) * limit;
+
+      let where = '1=1';
+      const params: unknown[] = [];
+      let idx = 1;
+      if (q.referrer_email) {
+        where += ` AND referrer.email ILIKE $${idx}`;
+        params.push(`%${q.referrer_email}%`);
+        idx++;
+      }
+      if (q.referee_email) {
+        where += ` AND referee.email ILIKE $${idx}`;
+        params.push(`%${q.referee_email}%`);
+        idx++;
+      }
+      if (q.status) {
+        where += ` AND rr.status = $${idx}`;
+        params.push(q.status);
+        idx++;
+      }
+      params.push(limit, offset);
+
+      const rows = await db.query(`
+        SELECT rr.*,
+          referrer.email as referrer_email, referrer.username as referrer_username, referrer.id as referrer_id,
+          referee.email as referee_email, referee.username as referee_username, referee.id as referee_id,
+          rc.code as referral_code
+        FROM referral_relationships rr
+        JOIN users referrer ON rr.referrer_id = referrer.id
+        JOIN users referee ON rr.referee_id = referee.id
+        JOIN referral_codes rc ON rr.referral_code_id = rc.id
+        WHERE ${where}
+        ORDER BY rr.created_at DESC
+        LIMIT $${idx} OFFSET $${idx + 1}
+      `, params);
+
+      const countResult = await db.query(
+        `SELECT COUNT(*) as total FROM referral_relationships rr
+         JOIN users referrer ON rr.referrer_id = referrer.id
+         JOIN users referee ON rr.referee_id = referee.id
+         WHERE ${where}`,
+        params.slice(0, idx - 1)
+      );
+      const total = parseInt(countResult.rows[0]?.total || '0', 10);
+
+      return reply.send({
+        success: true,
+        data: { relationships: rows.rows, total, page, limit },
+      });
+    } catch (error) {
+      logger.error('Get referral relationships error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'FETCH_FAILED', message: 'Failed to fetch referral relationships' },
+      });
+    }
+  });
+
+  /**
+   * GET /admin/referrals/commissions
+   * List referral commissions with filters
+   */
+  app.get('/referrals/commissions', async (request, reply) => {
+    try {
+      const q = request.query as { page?: string; limit?: string; status?: string; referrer_id?: string };
+      const page = Math.max(1, parseInt(q.page || '1', 10));
+      const limit = Math.min(100, Math.max(1, parseInt(q.limit || '20', 10)));
+      const offset = (page - 1) * limit;
+
+      let where = '1=1';
+      const params: unknown[] = [];
+      let idx = 1;
+      if (q.status) {
+        where += ` AND rc.status = $${idx}`;
+        params.push(q.status);
+        idx++;
+      }
+      if (q.referrer_id) {
+        where += ` AND rc.referrer_id = $${idx}`;
+        params.push(q.referrer_id);
+        idx++;
+      }
+      params.push(limit, offset);
+
+      const rows = await db.query(`
+        SELECT rc.*,
+          u_referrer.email as referrer_email, u_referrer.username as referrer_username,
+          u_referee.email as referee_email, u_referee.username as referee_username
+        FROM referral_commissions rc
+        JOIN users u_referrer ON rc.referrer_id = u_referrer.id
+        JOIN users u_referee ON rc.referee_id = u_referee.id
+        WHERE ${where}
+        ORDER BY rc.created_at DESC
+        LIMIT $${idx} OFFSET $${idx + 1}
+      `, params);
+
+      const countResult = await db.query(
+        `SELECT COUNT(*) as total FROM referral_commissions rc WHERE ${where}`,
+        params.slice(0, idx - 1)
+      );
+      const total = parseInt(countResult.rows[0]?.total || '0', 10);
+
+      const statsResult = await db.query(`
+        SELECT
+          COALESCE(SUM(commission_amount) FILTER (WHERE status = 'credited'), 0) as total_credited,
+          COALESCE(SUM(commission_amount) FILTER (WHERE status = 'pending'), 0) as total_pending,
+          COUNT(*) FILTER (WHERE status = 'credited') as count_credited,
+          COUNT(*) FILTER (WHERE status = 'pending') as count_pending
+        FROM referral_commissions
+      `);
+      const stats = statsResult.rows[0];
+
+      return reply.send({
+        success: true,
+        data: { commissions: rows.rows, total, page, limit, stats },
+      });
+    } catch (error) {
+      logger.error('Get referral commissions error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'FETCH_FAILED', message: 'Failed to fetch referral commissions' },
+      });
+    }
+  });
+
+  /**
+   * GET /admin/referrals/campaigns
+   * List referral campaigns
+   */
+  app.get('/referrals/campaigns', async (request, reply) => {
+    try {
+      const rows = await db.query(`
+        SELECT * FROM referral_campaigns
+        ORDER BY start_date DESC, created_at DESC
+      `);
+      return reply.send({
+        success: true,
+        data: { campaigns: rows.rows },
+      });
+    } catch (error) {
+      logger.error('Get referral campaigns error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'FETCH_FAILED', message: 'Failed to fetch referral campaigns' },
+      });
+    }
+  });
+
+  /**
+   * POST /admin/referrals/campaigns
+   * Create referral campaign
+   */
+  app.post('/referrals/campaigns', async (request, reply) => {
+    try {
+      const body = request.body as {
+        campaign_name: string;
+        campaign_code: string;
+        description?: string;
+        referrer_commission_rate: number;
+        referee_discount_rate: number;
+        bonus_amount?: number;
+        bonus_currency?: string;
+        min_trade_volume?: number;
+        min_deposit_amount?: number;
+        max_participants?: number;
+        total_budget?: number;
+        is_active?: boolean;
+        start_date: string;
+        end_date?: string;
+      };
+      const {
+        campaign_name, campaign_code, description,
+        referrer_commission_rate, referee_discount_rate,
+        bonus_amount = 0, bonus_currency,
+        min_trade_volume = 0, min_deposit_amount = 0,
+        max_participants, total_budget,
+        is_active = true, start_date, end_date,
+      } = body;
+      if (!campaign_name || !campaign_code || referrer_commission_rate == null || referee_discount_rate == null || !start_date) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'campaign_name, campaign_code, referrer_commission_rate, referee_discount_rate, start_date required' },
+        });
+      }
+      const id = uuidv4();
+      await db.query(`
+        INSERT INTO referral_campaigns (
+          id, campaign_name, campaign_code, description,
+          referrer_commission_rate, referee_discount_rate,
+          bonus_amount, bonus_currency,
+          min_trade_volume, min_deposit_amount,
+          max_participants, total_budget,
+          is_active, start_date, end_date
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      `, [
+        id, campaign_name, campaign_code.trim().toUpperCase(), description || null,
+        referrer_commission_rate, referee_discount_rate,
+        bonus_amount, bonus_currency || null,
+        min_trade_volume, min_deposit_amount,
+        max_participants ?? null, total_budget ?? null,
+        is_active, start_date, end_date || null,
+      ]);
+      const created = await db.query('SELECT * FROM referral_campaigns WHERE id = $1', [id]);
+      return reply.send({ success: true, data: { campaign: created.rows[0] } });
+    } catch (error) {
+      logger.error('Create referral campaign error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'CREATE_FAILED', message: 'Failed to create campaign' },
+      });
+    }
+  });
+
+  /**
+   * PATCH /admin/referrals/campaigns/:id
+   * Update referral campaign (is_active, end_date, etc.)
+   */
+  app.patch('/referrals/campaigns/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const body = request.body as Record<string, unknown>;
+      const updates: string[] = [];
+      const values: unknown[] = [];
+      let idx = 1;
+      const allowed = ['campaign_name', 'description', 'referrer_commission_rate', 'referee_discount_rate', 'bonus_amount', 'bonus_currency', 'min_trade_volume', 'min_deposit_amount', 'max_participants', 'total_budget', 'is_active', 'start_date', 'end_date'];
+      for (const key of allowed) {
+        if (body[key] !== undefined) {
+          updates.push(`${key} = $${idx}`);
+          values.push(body[key]);
+          idx++;
+        }
+      }
+      if (updates.length === 0) {
+        return reply.status(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'No fields to update' } });
+      }
+      values.push(id);
+      await db.query(
+        `UPDATE referral_campaigns SET ${updates.join(', ')} WHERE id = $${idx}`,
+        values
+      );
+      const updated = await db.query('SELECT * FROM referral_campaigns WHERE id = $1', [id]);
+      if (updated.rows.length === 0) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Campaign not found' } });
+      }
+      return reply.send({ success: true, data: { campaign: updated.rows[0] } });
+    } catch (error) {
+      logger.error('Update referral campaign error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'UPDATE_FAILED', message: 'Failed to update campaign' },
+      });
+    }
+  });
+
+  /**
+   * PATCH /admin/referrals/codes/:id
+   * Toggle referral code active status
+   */
+  app.patch('/referrals/codes/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const body = request.body as { is_active?: boolean };
+      const is_active = body.is_active !== undefined ? body.is_active : undefined;
+      if (is_active === undefined) {
+        return reply.status(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'is_active required' } });
+      }
+      await db.query('UPDATE referral_codes SET is_active = $1, updated_at = NOW() WHERE id = $2', [is_active, id]);
+      const updated = await db.query('SELECT * FROM referral_codes WHERE id = $1', [id]);
+      if (updated.rows[0]) {
+        return reply.send({ success: true, data: { code: updated.rows[0] } });
+      }
+      return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Code not found' } });
+    } catch (error) {
+      logger.error('Toggle referral code error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'UPDATE_FAILED', message: 'Failed to update code' },
+      });
+    }
+  });
+
   // ===============================
   // FEE TIERS
   // ===============================
@@ -3263,19 +3644,653 @@ export default async function adminRoutes(app: FastifyInstance) {
       const tiers = await db.query(`
         SELECT * FROM fee_tiers ORDER BY tier_level
       `);
-
       return reply.send({
         success: true,
-        data: {
-          tiers: tiers.rows,
-        },
+        data: { tiers: tiers.rows },
       });
-
     } catch (error) {
       return reply.status(500).send({
         success: false,
         error: { code: 'FETCH_FAILED', message: 'Failed to fetch fee tiers' },
       });
+    }
+  });
+
+  /**
+   * POST /admin/fees/tiers
+   * Create fee tier
+   */
+  app.post('/fees/tiers', async (request, reply) => {
+    try {
+      const body = request.body as {
+        tier_name: string;
+        tier_level: number;
+        min_trading_volume?: number;
+        min_token_holding?: number;
+        spot_maker_fee: number;
+        spot_taker_fee: number;
+        withdrawal_fee_discount?: number;
+      };
+      const {
+        tier_name,
+        tier_level,
+        min_trading_volume = 0,
+        min_token_holding = 0,
+        spot_maker_fee,
+        spot_taker_fee,
+        withdrawal_fee_discount = 0,
+      } = body;
+      if (!tier_name || tier_level == null || spot_maker_fee == null || spot_taker_fee == null) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'tier_name, tier_level, spot_maker_fee, spot_taker_fee required' },
+        });
+      }
+      const id = uuidv4();
+      await db.query(`
+        INSERT INTO fee_tiers (id, tier_name, tier_level, min_trading_volume, min_token_holding, spot_maker_fee, spot_taker_fee, withdrawal_fee_discount)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `, [id, tier_name, tier_level, min_trading_volume, min_token_holding, spot_maker_fee, spot_taker_fee, withdrawal_fee_discount]);
+      const row = await db.query('SELECT * FROM fee_tiers WHERE id = $1', [id]);
+      return reply.status(201).send({ success: true, data: { tier: row.rows[0] } });
+    } catch (error: any) {
+      if (error.code === '23505') {
+        return reply.status(400).send({ success: false, error: { code: 'CONFLICT', message: 'Tier level already exists' } });
+      }
+      logger.error('Create fee tier error', { error: error?.message });
+      return reply.status(500).send({ success: false, error: { code: 'CREATE_FAILED', message: 'Failed to create tier' } });
+    }
+  });
+
+  /**
+   * PATCH /admin/fees/tiers/:id
+   * Update fee tier
+   */
+  app.patch('/fees/tiers/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const body = request.body as Record<string, unknown>;
+      const allowed = ['tier_name', 'tier_level', 'min_trading_volume', 'min_token_holding', 'spot_maker_fee', 'spot_taker_fee', 'withdrawal_fee_discount'];
+      const updates: string[] = [];
+      const values: unknown[] = [];
+      let idx = 1;
+      for (const key of allowed) {
+        if (body[key] !== undefined) {
+          updates.push(`${key} = $${idx}`);
+          values.push(body[key]);
+          idx++;
+        }
+      }
+      if (updates.length === 0) {
+        return reply.status(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'No fields to update' } });
+      }
+      values.push(id);
+      await db.query(`UPDATE fee_tiers SET ${updates.join(', ')} WHERE id = $${idx}`, values);
+      const row = await db.query('SELECT * FROM fee_tiers WHERE id = $1', [id]);
+      if (row.rows.length === 0) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Tier not found' } });
+      }
+      return reply.send({ success: true, data: { tier: row.rows[0] } });
+    } catch (error) {
+      logger.error('Update fee tier error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'UPDATE_FAILED', message: 'Failed to update tier' } });
+    }
+  });
+
+  /**
+   * GET /admin/fees/trading
+   * List trading pairs with maker/taker fees (spot). Default = tier 0.
+   */
+  app.get('/fees/trading', async (request, reply) => {
+    try {
+      const [pairs, defaultTier] = await Promise.all([
+        db.query(`
+          SELECT tp.id, tp.symbol, tp.maker_fee, tp.taker_fee, tp.status, tp.trading_enabled,
+                 bc.symbol as base_symbol, qc.symbol as quote_symbol
+          FROM trading_pairs tp
+          JOIN currencies bc ON tp.base_currency_id = bc.id
+          JOIN currencies qc ON tp.quote_currency_id = qc.id
+          ORDER BY tp.symbol
+        `),
+        db.query('SELECT spot_maker_fee, spot_taker_fee FROM fee_tiers WHERE tier_level = 0 LIMIT 1'),
+      ]);
+      return reply.send({
+        success: true,
+        data: {
+          pairs: pairs.rows,
+          defaultMakerFee: defaultTier.rows[0]?.spot_maker_fee ?? '0.001',
+          defaultTakerFee: defaultTier.rows[0]?.spot_taker_fee ?? '0.001',
+        },
+      });
+    } catch (error) {
+      logger.error('Get trading fees error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to fetch trading fees' } });
+    }
+  });
+
+  /**
+   * PATCH /admin/fees/trading/pair/:id
+   * Update a trading pair's maker/taker fee
+   */
+  app.patch('/fees/trading/pair/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const body = request.body as { maker_fee?: number; taker_fee?: number };
+      if (body.maker_fee == null && body.taker_fee == null) {
+        return reply.status(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'maker_fee or taker_fee required' } });
+      }
+      const updates: string[] = [];
+      const values: unknown[] = [];
+      let idx = 1;
+      if (body.maker_fee != null) { updates.push(`maker_fee = $${idx}`); values.push(body.maker_fee); idx++; }
+      if (body.taker_fee != null) { updates.push(`taker_fee = $${idx}`); values.push(body.taker_fee); idx++; }
+      values.push(id);
+      await db.query(`UPDATE trading_pairs SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${idx}`, values);
+      const row = await db.query('SELECT id, symbol, maker_fee, taker_fee FROM trading_pairs WHERE id = $1', [id]);
+      if (row.rows.length === 0) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Pair not found' } });
+      }
+      return reply.send({ success: true, data: { pair: row.rows[0] } });
+    } catch (error) {
+      logger.error('Update trading fee error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'UPDATE_FAILED', message: 'Failed to update pair fee' } });
+    }
+  });
+
+  /**
+   * GET /admin/fees/withdrawal
+   * List currencies with withdrawal fee settings
+   */
+  app.get('/fees/withdrawal', async (request, reply) => {
+    try {
+      const rows = await db.query(`
+        SELECT c.id, c.symbol, c.name, c.withdrawal_fee, c.withdrawal_fee_type, c.min_withdrawal, c.withdrawal_enabled,
+               b.chain_symbol
+        FROM currencies c
+        LEFT JOIN blockchains b ON c.blockchain_id = b.id
+        ORDER BY c.symbol, b.chain_symbol
+      `);
+      return reply.send({ success: true, data: { currencies: rows.rows } });
+    } catch (error) {
+      logger.error('Get withdrawal fees error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to fetch withdrawal fees' } });
+    }
+  });
+
+  /**
+   * PATCH /admin/fees/withdrawal/currency/:id
+   * Update currency withdrawal fee
+   */
+  app.patch('/fees/withdrawal/currency/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const body = request.body as { withdrawal_fee?: number; withdrawal_fee_type?: 'fixed' | 'percentage' };
+      if (body.withdrawal_fee == null && body.withdrawal_fee_type == null) {
+        return reply.status(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'withdrawal_fee or withdrawal_fee_type required' } });
+      }
+      const updates: string[] = [];
+      const values: unknown[] = [];
+      let idx = 1;
+      if (body.withdrawal_fee != null) { updates.push(`withdrawal_fee = $${idx}`); values.push(body.withdrawal_fee); idx++; }
+      if (body.withdrawal_fee_type != null) { updates.push(`withdrawal_fee_type = $${idx}`); values.push(body.withdrawal_fee_type); idx++; }
+      values.push(id);
+      await db.query(`UPDATE currencies SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${idx}`, values);
+      const row = await db.query('SELECT id, symbol, withdrawal_fee, withdrawal_fee_type FROM currencies WHERE id = $1', [id]);
+      if (row.rows.length === 0) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Currency not found' } });
+      }
+      return reply.send({ success: true, data: { currency: row.rows[0] } });
+    } catch (error) {
+      logger.error('Update withdrawal fee error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'UPDATE_FAILED', message: 'Failed to update withdrawal fee' } });
+    }
+  });
+
+  /**
+   * GET /admin/fees/promotions
+   * List fee promotions
+   */
+  app.get('/fees/promotions', async (request, reply) => {
+    try {
+      const rows = await db.query(`
+        SELECT * FROM fee_promotions ORDER BY start_date DESC
+      `);
+      return reply.send({ success: true, data: { promotions: rows.rows } });
+    } catch (error) {
+      logger.error('Get fee promotions error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to fetch promotions' } });
+    }
+  });
+
+  /**
+   * POST /admin/fees/promotions
+   * Create fee promotion
+   */
+  app.post('/fees/promotions', async (request, reply) => {
+    try {
+      const body = request.body as {
+        name: string;
+        description?: string;
+        promotion_type: string;
+        discount_type?: string;
+        discount_value: number;
+        min_volume_30d?: number;
+        start_date: string;
+        end_date: string;
+        is_active?: boolean;
+      };
+      const {
+        name,
+        description,
+        promotion_type,
+        discount_type = 'percentage',
+        discount_value,
+        min_volume_30d = 0,
+        start_date,
+        end_date,
+        is_active = true,
+      } = body;
+      if (!name || !promotion_type || discount_value == null || !start_date || !end_date) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'name, promotion_type, discount_value, start_date, end_date required' },
+        });
+      }
+      const id = uuidv4();
+      await db.query(`
+        INSERT INTO fee_promotions (id, name, description, promotion_type, discount_type, discount_value, min_volume_30d, start_date, end_date, is_active)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `, [id, name, description || null, promotion_type, discount_type, discount_value, min_volume_30d, start_date, end_date, is_active]);
+      const row = await db.query('SELECT * FROM fee_promotions WHERE id = $1', [id]);
+      return reply.status(201).send({ success: true, data: { promotion: row.rows[0] } });
+    } catch (error: any) {
+      logger.error('Create fee promotion error', { error: error?.message });
+      return reply.status(500).send({ success: false, error: { code: 'CREATE_FAILED', message: error?.message || 'Failed to create promotion' } });
+    }
+  });
+
+  /**
+   * PATCH /admin/fees/promotions/:id
+   * Update fee promotion
+   */
+  app.patch('/fees/promotions/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const body = request.body as Record<string, unknown>;
+      const allowed = ['name', 'description', 'promotion_type', 'discount_type', 'discount_value', 'min_volume_30d', 'start_date', 'end_date', 'is_active'];
+      const updates: string[] = [];
+      const values: unknown[] = [];
+      let idx = 1;
+      for (const key of allowed) {
+        if (body[key] !== undefined) {
+          updates.push(`${key} = $${idx}`);
+          values.push(body[key]);
+          idx++;
+        }
+      }
+      if (updates.length === 0) {
+        return reply.status(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'No fields to update' } });
+      }
+      values.push(id);
+      await db.query(`UPDATE fee_promotions SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${idx}`, values);
+      const row = await db.query('SELECT * FROM fee_promotions WHERE id = $1', [id]);
+      if (row.rows.length === 0) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Promotion not found' } });
+      }
+      return reply.send({ success: true, data: { promotion: row.rows[0] } });
+    } catch (error) {
+      logger.error('Update fee promotion error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'UPDATE_FAILED', message: 'Failed to update promotion' } });
+    }
+  });
+
+  /**
+   * DELETE /admin/fees/promotions/:id
+   */
+  app.delete('/fees/promotions/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const result = await db.query('DELETE FROM fee_promotions WHERE id = $1 RETURNING id', [id]);
+      if (result.rows.length === 0) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Promotion not found' } });
+      }
+      return reply.send({ success: true, data: { deleted: true } });
+    } catch (error) {
+      logger.error('Delete fee promotion error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'DELETE_FAILED', message: 'Failed to delete promotion' } });
+    }
+  });
+
+  // ===============================
+  // NOTIFICATIONS (Announcements, Email, SMS, Push)
+  // ===============================
+
+  /**
+   * GET /admin/notifications/announcements
+   */
+  app.get('/notifications/announcements', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const rows = await db.query(`
+        SELECT id, title, body, summary, type, is_pinned, is_published, published_at, expires_at, created_at, updated_at, created_by
+        FROM system_announcements
+        ORDER BY is_pinned DESC, published_at DESC NULLS LAST
+      `);
+      return reply.send({ success: true, data: { announcements: rows.rows } });
+    } catch (error) {
+      logger.error('Get announcements error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to fetch announcements' } });
+    }
+  });
+
+  /**
+   * POST /admin/notifications/announcements
+   */
+  app.post('/notifications/announcements', async (request, reply) => {
+    try {
+      const admin = await getAdminFromRequest(app, request, reply, false);
+      if (!admin) return;
+      const body = request.body as {
+        title: string;
+        body?: string;
+        summary?: string;
+        type?: string;
+        is_pinned?: boolean;
+        is_published?: boolean;
+        published_at?: string;
+        expires_at?: string;
+      };
+      const {
+        title,
+        body: bodyText,
+        summary,
+        type = 'general',
+        is_pinned = false,
+        is_published = true,
+        published_at,
+        expires_at,
+      } = body;
+      if (!title || !title.trim()) {
+        return reply.status(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'title required' } });
+      }
+      const id = uuidv4();
+      await db.query(`
+        INSERT INTO system_announcements (id, title, body, summary, type, is_pinned, is_published, published_at, expires_at, created_by)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9::timestamptz, $10)
+      `, [id, title.trim(), bodyText?.trim() || null, summary?.trim() || null, type, is_pinned, is_published, published_at || null, expires_at || null, admin.adminId]);
+      const row = await db.query('SELECT id, title, body, summary, type, is_pinned, is_published, published_at, expires_at, created_at FROM system_announcements WHERE id = $1', [id]);
+      return reply.status(201).send({ success: true, data: { announcement: row.rows[0] } });
+    } catch (error: any) {
+      logger.error('Create announcement error', { error: error?.message });
+      return reply.status(500).send({ success: false, error: { code: 'CREATE_FAILED', message: error?.message || 'Failed to create announcement' } });
+    }
+  });
+
+  /**
+   * PATCH /admin/notifications/announcements/:id
+   */
+  app.patch('/notifications/announcements/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const body = request.body as Record<string, unknown>;
+      const allowed = ['title', 'body', 'summary', 'type', 'is_pinned', 'is_published', 'published_at', 'expires_at'];
+      const updates: string[] = [];
+      const values: unknown[] = [];
+      let idx = 1;
+      for (const key of allowed) {
+        if (body[key] !== undefined) {
+          updates.push(`${key} = $${idx}`);
+          values.push(body[key]);
+          idx++;
+        }
+      }
+      if (updates.length === 0) {
+        return reply.status(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'No fields to update' } });
+      }
+      values.push(id);
+      await db.query(`UPDATE system_announcements SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${idx}`, values);
+      const row = await db.query('SELECT id, title, body, summary, type, is_pinned, is_published, published_at, expires_at, created_at FROM system_announcements WHERE id = $1', [id]);
+      if (row.rows.length === 0) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Announcement not found' } });
+      }
+      return reply.send({ success: true, data: { announcement: row.rows[0] } });
+    } catch (error) {
+      logger.error('Update announcement error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'UPDATE_FAILED', message: 'Failed to update announcement' } });
+    }
+  });
+
+  /**
+   * DELETE /admin/notifications/announcements/:id
+   */
+  app.delete('/notifications/announcements/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const result = await db.query('DELETE FROM system_announcements WHERE id = $1 RETURNING id', [id]);
+      if (result.rows.length === 0) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Announcement not found' } });
+      }
+      return reply.send({ success: true, data: { deleted: true } });
+    } catch (error) {
+      logger.error('Delete announcement error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'DELETE_FAILED', message: 'Failed to delete announcement' } });
+    }
+  });
+
+  /**
+   * GET /admin/notifications/email-templates
+   */
+  app.get('/notifications/email-templates', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const rows = await db.query(`SELECT * FROM email_templates ORDER BY slug`);
+      return reply.send({ success: true, data: { templates: rows.rows } });
+    } catch (error) {
+      logger.error('Get email templates error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to fetch email templates' } });
+    }
+  });
+
+  /**
+   * POST /admin/notifications/email-templates
+   */
+  app.post('/notifications/email-templates', async (request, reply) => {
+    try {
+      const body = request.body as { slug: string; name: string; subject: string; body_html: string; body_text?: string; variables?: string[]; is_active?: boolean };
+      const { slug, name, subject, body_html, body_text, variables, is_active = true } = body;
+      if (!slug?.trim() || !name?.trim() || !subject?.trim() || !body_html?.trim()) {
+        return reply.status(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'slug, name, subject, body_html required' } });
+      }
+      const id = uuidv4();
+      await db.query(`
+        INSERT INTO email_templates (id, slug, name, subject, body_html, body_text, variables, is_active)
+        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
+      `, [id, slug.trim(), name.trim(), subject.trim(), body_html, body_text || null, variables ? JSON.stringify(variables) : '[]', is_active]);
+      const row = await db.query('SELECT * FROM email_templates WHERE id = $1', [id]);
+      return reply.status(201).send({ success: true, data: { template: row.rows[0] } });
+    } catch (error: any) {
+      logger.error('Create email template error', { error: error?.message });
+      return reply.status(500).send({ success: false, error: { code: 'CREATE_FAILED', message: error?.message || 'Failed to create template' } });
+    }
+  });
+
+  /**
+   * PATCH /admin/notifications/email-templates/:id
+   */
+  app.patch('/notifications/email-templates/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const body = request.body as Record<string, unknown>;
+      const allowed = ['slug', 'name', 'subject', 'body_html', 'body_text', 'variables', 'is_active'];
+      const updates: string[] = [];
+      const values: unknown[] = [];
+      let idx = 1;
+      for (const key of allowed) {
+        if (body[key] !== undefined) {
+          const val = key === 'variables' && body[key] != null ? JSON.stringify(body[key]) : body[key];
+          updates.push(`${key} = $${idx}`);
+          values.push(val);
+          idx++;
+        }
+      }
+      if (updates.length === 0) {
+        return reply.status(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'No fields to update' } });
+      }
+      values.push(id);
+      await db.query(`UPDATE email_templates SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${idx}`, values);
+      const row = await db.query('SELECT * FROM email_templates WHERE id = $1', [id]);
+      if (row.rows.length === 0) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Template not found' } });
+      }
+      return reply.send({ success: true, data: { template: row.rows[0] } });
+    } catch (error) {
+      logger.error('Update email template error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'UPDATE_FAILED', message: 'Failed to update template' } });
+    }
+  });
+
+  /**
+   * DELETE /admin/notifications/email-templates/:id
+   */
+  app.delete('/notifications/email-templates/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const result = await db.query('DELETE FROM email_templates WHERE id = $1 RETURNING id', [id]);
+      if (result.rows.length === 0) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Template not found' } });
+      }
+      return reply.send({ success: true, data: { deleted: true } });
+    } catch (error) {
+      logger.error('Delete email template error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'DELETE_FAILED', message: 'Failed to delete template' } });
+    }
+  });
+
+  /**
+   * GET /admin/notifications/sms-templates
+   */
+  app.get('/notifications/sms-templates', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const rows = await db.query(`SELECT * FROM sms_templates ORDER BY slug`);
+      return reply.send({ success: true, data: { templates: rows.rows } });
+    } catch (error) {
+      logger.error('Get SMS templates error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to fetch SMS templates' } });
+    }
+  });
+
+  /**
+   * POST /admin/notifications/sms-templates
+   */
+  app.post('/notifications/sms-templates', async (request, reply) => {
+    try {
+      const body = request.body as { slug: string; name: string; body: string; variables?: string[]; is_active?: boolean };
+      const { slug, name, body: bodyText, variables, is_active = true } = body;
+      if (!slug?.trim() || !name?.trim() || !bodyText?.trim()) {
+        return reply.status(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'slug, name, body required' } });
+      }
+      const id = uuidv4();
+      await db.query(`
+        INSERT INTO sms_templates (id, slug, name, body, variables, is_active)
+        VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+      `, [id, slug.trim(), name.trim(), bodyText.trim(), variables ? JSON.stringify(variables) : '[]', is_active]);
+      const row = await db.query('SELECT * FROM sms_templates WHERE id = $1', [id]);
+      return reply.status(201).send({ success: true, data: { template: row.rows[0] } });
+    } catch (error: any) {
+      logger.error('Create SMS template error', { error: error?.message });
+      return reply.status(500).send({ success: false, error: { code: 'CREATE_FAILED', message: error?.message || 'Failed to create template' } });
+    }
+  });
+
+  /**
+   * PATCH /admin/notifications/sms-templates/:id
+   */
+  app.patch('/notifications/sms-templates/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const body = request.body as Record<string, unknown>;
+      const allowed = ['slug', 'name', 'body', 'variables', 'is_active'];
+      const updates: string[] = [];
+      const values: unknown[] = [];
+      let idx = 1;
+      for (const key of allowed) {
+        if (body[key] !== undefined) {
+          const val = key === 'variables' && body[key] != null ? JSON.stringify(body[key]) : body[key];
+          updates.push(`${key} = $${idx}`);
+          values.push(val);
+          idx++;
+        }
+      }
+      if (updates.length === 0) {
+        return reply.status(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'No fields to update' } });
+      }
+      values.push(id);
+      await db.query(`UPDATE sms_templates SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${idx}`, values);
+      const row = await db.query('SELECT * FROM sms_templates WHERE id = $1', [id]);
+      if (row.rows.length === 0) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Template not found' } });
+      }
+      return reply.send({ success: true, data: { template: row.rows[0] } });
+    } catch (error) {
+      logger.error('Update SMS template error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'UPDATE_FAILED', message: 'Failed to update template' } });
+    }
+  });
+
+  /**
+   * DELETE /admin/notifications/sms-templates/:id
+   */
+  app.delete('/notifications/sms-templates/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const result = await db.query('DELETE FROM sms_templates WHERE id = $1 RETURNING id', [id]);
+      if (result.rows.length === 0) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Template not found' } });
+      }
+      return reply.send({ success: true, data: { deleted: true } });
+    } catch (error) {
+      logger.error('Delete SMS template error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'DELETE_FAILED', message: 'Failed to delete template' } });
+    }
+  });
+
+  /**
+   * POST /admin/notifications/push-broadcast
+   * Send push (in-app) notification to all users or by segment. Creates user_notifications rows.
+   */
+  app.post('/notifications/push-broadcast', async (request, reply) => {
+    try {
+      const admin = await getAdminFromRequest(app, request, reply, false);
+      if (!admin) return;
+      const body = request.body as { title: string; message: string; target?: 'all' | 'verified' };
+      const { title, message, target = 'all' } = body;
+      if (!title?.trim() || !message?.trim()) {
+        return reply.status(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'title and message required' } });
+      }
+      let userIds: { id: string }[];
+      if (target === 'verified') {
+        const r = await db.query('SELECT id FROM users WHERE status = $1 AND deleted_at IS NULL', ['active']);
+        userIds = r.rows as { id: string }[];
+      } else {
+        const r = await db.query('SELECT id FROM users WHERE deleted_at IS NULL');
+        userIds = r.rows as { id: string }[];
+      }
+      let inserted = 0;
+      for (const u of userIds) {
+        await db.query(`
+          INSERT INTO user_notifications (user_id, notification_type, title, message)
+          VALUES ($1, 'system_announcement', $2, $3)
+        `, [u.id, title.trim(), message.trim()]);
+        inserted++;
+      }
+      return reply.send({ success: true, data: { sent: inserted, totalUsers: userIds.length } });
+    } catch (error: any) {
+      logger.error('Push broadcast error', { error: error?.message });
+      return reply.status(500).send({ success: false, error: { code: 'SEND_FAILED', message: error?.message || 'Failed to send' } });
     }
   });
 

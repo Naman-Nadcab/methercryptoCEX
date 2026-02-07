@@ -59,44 +59,48 @@ export function requiresWithdrawalApproval(
 
 /**
  * Approve a withdrawal: set status to 'pending', record approver, then enqueue for signing.
+ * Uses SELECT FOR UPDATE to avoid race with concurrent reject.
  */
 export async function approveWithdrawal(
   withdrawalId: string,
   adminId: string,
   auditContext?: WithdrawalAuditContext
 ): Promise<{ ok: true }> {
-  const row = await db.query<{
-    id: string;
-    status: string;
-    user_id: string;
-    token_id: string;
-    chain_id: string;
-    amount: string;
-  }>(
-    `SELECT id, status, user_id, token_id, chain_id, amount FROM withdrawals WHERE id = $1`,
-    [withdrawalId]
-  );
-  if (row.rows.length === 0) {
-    throw new WithdrawalApprovalError(
-      WithdrawalApprovalErrors.WITHDRAWAL_NOT_FOUND,
-      'Withdrawal not found'
+  const w = await db.transaction(async (client) => {
+    const row = await client.query<{
+      id: string;
+      status: string;
+      user_id: string;
+      token_id: string;
+      chain_id: string;
+      amount: string;
+    }>(
+      `SELECT id, status, user_id, token_id, chain_id, amount FROM withdrawals WHERE id = $1 FOR UPDATE`,
+      [withdrawalId]
     );
-  }
-  const w = row.rows[0]!;
-  if (w.status !== 'pending_approval') {
-    throw new WithdrawalApprovalError(
-      WithdrawalApprovalErrors.NOT_PENDING_APPROVAL,
-      `Withdrawal is not pending approval (status: ${w.status})`
+    if (row.rows.length === 0) {
+      throw new WithdrawalApprovalError(
+        WithdrawalApprovalErrors.WITHDRAWAL_NOT_FOUND,
+        'Withdrawal not found'
+      );
+    }
+    const withdrawal = row.rows[0]!;
+    if (withdrawal.status !== 'pending_approval') {
+      throw new WithdrawalApprovalError(
+        WithdrawalApprovalErrors.NOT_PENDING_APPROVAL,
+        `Withdrawal is not pending approval (status: ${withdrawal.status})`
+      );
+    }
+    await client.query(
+      `UPDATE withdrawals
+       SET status = 'pending', approved_by = $1, approved_at = CURRENT_TIMESTAMP,
+           rejected_by = NULL, rejected_at = NULL, rejection_reason = NULL, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+      [adminId, withdrawalId]
     );
-  }
+    return withdrawal;
+  });
 
-  await db.query(
-    `UPDATE withdrawals
-     SET status = 'pending', approved_by = $1, approved_at = CURRENT_TIMESTAMP,
-         rejected_by = NULL, rejected_at = NULL, rejection_reason = NULL, updated_at = CURRENT_TIMESTAMP
-     WHERE id = $2`,
-    [adminId, withdrawalId]
-  );
   // E2E withdrawal lifecycle: stage 2 — approved (pending_approval → pending)
   logger.info('[E2E_WITHDRAWAL] stage=approved', {
     withdrawal_id: withdrawalId,
@@ -143,6 +147,7 @@ export async function approveWithdrawal(
 
 /**
  * Reject a withdrawal: set status to 'failed', record rejector and reason, release locked balance.
+ * Uses SELECT FOR UPDATE inside transaction to avoid race with concurrent approve.
  */
 export async function rejectWithdrawal(
   withdrawalId: string,
@@ -150,42 +155,66 @@ export async function rejectWithdrawal(
   reason: string,
   auditContext?: WithdrawalAuditContext
 ): Promise<{ ok: true }> {
-  const row = await db.query<{
-    id: string;
-    status: string;
-    user_id: string;
-    token_id: string;
-    chain_id: string;
-    amount: string;
-    fee: string;
-    account_type: string;
-  }>(
-    `SELECT id, status, user_id, token_id, chain_id, amount, fee, account_type FROM withdrawals WHERE id = $1`,
-    [withdrawalId]
-  );
-  if (row.rows.length === 0) {
-    throw new WithdrawalApprovalError(
-      WithdrawalApprovalErrors.WITHDRAWAL_NOT_FOUND,
-      'Withdrawal not found'
+  const w = await db.transaction(async (client) => {
+    const row = await client.query<{
+      id: string;
+      status: string;
+      user_id: string;
+      token_id: string;
+      chain_id: string;
+      amount: string;
+      fee: string;
+      account_type: string;
+    }>(
+      `SELECT id, status, user_id, token_id, chain_id, amount, fee, account_type FROM withdrawals WHERE id = $1 FOR UPDATE`,
+      [withdrawalId]
     );
-  }
-  const w = row.rows[0]!;
-  if (w.status !== 'pending_approval') {
-    throw new WithdrawalApprovalError(
-      WithdrawalApprovalErrors.NOT_PENDING_APPROVAL,
-      `Withdrawal is not pending approval (status: ${w.status})`
+    if (row.rows.length === 0) {
+      throw new WithdrawalApprovalError(
+        WithdrawalApprovalErrors.WITHDRAWAL_NOT_FOUND,
+        'Withdrawal not found'
+      );
+    }
+    const withdrawal = row.rows[0]!;
+    if (withdrawal.status !== 'pending_approval') {
+      throw new WithdrawalApprovalError(
+        WithdrawalApprovalErrors.NOT_PENDING_APPROVAL,
+        `Withdrawal is not pending approval (status: ${withdrawal.status})`
+      );
+    }
+
+    const totalRefund = (parseFloat(withdrawal.amount) + parseFloat(withdrawal.fee)).toString();
+    const rawAccountType = withdrawal.account_type || 'funding';
+    const accountType = ['funding', 'spot', 'trading'].includes(rawAccountType) ? rawAccountType : 'funding';
+    const chainId = withdrawal.chain_id ?? CHAIN_ID_GLOBAL;
+
+    const currencyId = await getCurrencyIdForToken(withdrawal.token_id);
+    if (!currencyId) {
+      logger.error('No currency_id for token on withdrawal reject', { withdrawalId, tokenId: withdrawal.token_id });
+      throw new WithdrawalApprovalError(
+        WithdrawalApprovalErrors.RELEASE_BALANCE_FAILED,
+        'Could not resolve currency for token'
+      );
+    }
+
+    await client.query(
+      `UPDATE withdrawals
+       SET status = 'failed', failed_reason = $1, rejected_by = $2, rejected_at = CURRENT_TIMESTAMP,
+           rejection_reason = $1, processed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $3`,
+      [reason || 'Rejected by admin', adminId, withdrawalId]
     );
-  }
-
-  const totalRefund = (parseFloat(w.amount) + parseFloat(w.fee)).toString();
-
-  await db.query(
-    `UPDATE withdrawals
-     SET status = 'failed', failed_reason = $1, rejected_by = $2, rejected_at = CURRENT_TIMESTAMP,
-         rejection_reason = $1, processed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-     WHERE id = $3`,
-    [reason || 'Rejected by admin', adminId, withdrawalId]
-  );
+    await ensureUserBalanceRow(withdrawal.user_id, currencyId, chainId, accountType, client);
+    const updateResult = await client.query(
+      `UPDATE user_balances
+       SET available_balance = available_balance + $1, locked_balance = locked_balance - $1, updated_at = NOW()
+       WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5 AND locked_balance >= $1
+       RETURNING id`,
+      [totalRefund, withdrawal.user_id, currencyId, chainId, accountType]
+    );
+    assertUserBalanceUpdated('withdrawal_reject', updateResult, withdrawal.user_id, currencyId, accountType, withdrawal.chain_id ?? undefined);
+    return withdrawal;
+  });
 
   await logWithdrawalLifecycle('withdrawal_rejected', {
     withdrawal_id: withdrawalId,
@@ -197,27 +226,6 @@ export async function rejectWithdrawal(
     ip: auditContext?.ip ?? null,
     user_agent: auditContext?.userAgent ?? null,
   });
-
-  const currencyId = await getCurrencyIdForToken(w.token_id);
-  if (!currencyId) {
-    logger.error('No currency_id for token on withdrawal reject', { withdrawalId, tokenId: w.token_id });
-    throw new WithdrawalApprovalError(
-      WithdrawalApprovalErrors.RELEASE_BALANCE_FAILED,
-      'Could not resolve currency for token'
-    );
-  }
-  const rawAccountType = w.account_type || 'funding';
-  const accountType = ['funding', 'spot', 'trading'].includes(rawAccountType) ? rawAccountType : 'funding';
-  const chainId = w.chain_id ?? CHAIN_ID_GLOBAL;
-  await ensureUserBalanceRow(w.user_id, currencyId, chainId, accountType);
-  const updateResult = await db.query(
-    `UPDATE user_balances
-     SET available_balance = available_balance + $1, locked_balance = locked_balance - $1, updated_at = NOW()
-     WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5 AND locked_balance >= $1
-     RETURNING id`,
-    [totalRefund, w.user_id, currencyId, chainId, accountType]
-  );
-  assertUserBalanceUpdated('withdrawal_reject', updateResult, w.user_id, currencyId, accountType, w.chain_id ?? undefined);
 
   logger.info('Withdrawal rejected and balance released', {
     withdrawalId,

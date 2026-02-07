@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useAuthStore } from '@/store/auth';
 import {
   Info,
   Calendar,
@@ -9,17 +10,68 @@ import {
   Gift,
   HelpCircle,
   FileText,
+  Loader2,
 } from 'lucide-react';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 
 type SignupTab = 'signups' | 'fiat' | 'card' | 'earn';
 type HistoryTab = 'commission' | 'task' | 'lucky';
 type SpotTab = 'spot';
 
+interface ReferralRow {
+  status: string;
+  total_commission_earned: string;
+  created_at: string;
+  username: string | null;
+  email: string;
+}
+
+interface CommissionRow {
+  commission_amount: string;
+  commission_currency: string;
+  source_type: string;
+  created_at: string;
+}
+
+interface ReferralData {
+  referralCode: { code: string; current_referrals: number; total_earnings: string; referrer_commission_rate: string } | null;
+  referrals: ReferralRow[];
+  recentCommissions: CommissionRow[];
+}
+
 export default function MyReferralsPage() {
+  const { accessToken, _hasHydrated } = useAuthStore();
   const [signupTab, setSignupTab] = useState<SignupTab>('signups');
   const [historyTab, setHistoryTab] = useState<HistoryTab>('commission');
   const [spotTab, setSpotTab] = useState<SpotTab>('spot');
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
+  const [data, setData] = useState<ReferralData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!_hasHydrated || !accessToken) return;
+    setFetchError(null);
+    const apiUrl = getApiBaseUrl();
+    fetch(`${apiUrl}/api/v1/user/referrals`, { headers: { Authorization: `Bearer ${accessToken}` } })
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success && res.data) setData(res.data);
+        else setFetchError(res.error?.message || 'Failed to load referral data');
+      })
+      .catch((err) => {
+        console.error(err);
+        setFetchError('Network error. Please try again.');
+      })
+      .finally(() => setLoading(false));
+  }, [accessToken, _hasHydrated]);
+
+  const refCode = data?.referralCode;
+  const referrals = data?.referrals ?? [];
+  const recentCommissions = data?.recentCommissions ?? [];
+  const totalEarnings = refCode ? parseFloat(refCode.total_earnings || '0') : 0;
+  const commissionRate = refCode ? parseFloat(refCode.referrer_commission_rate || '0.2') * 100 : 20;
+  const qualifiedCount = referrals.filter((r) => r.status === 'active').length;
 
   const signupTabs = [
     { id: 'signups' as SignupTab, label: 'Signups' },
@@ -53,6 +105,17 @@ export default function MyReferralsPage() {
         {/* Overview */}
         <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Overview</h2>
         
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+          </div>
+        ) : fetchError ? (
+          <div className="rounded-xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 p-4 mb-6">
+            <p className="text-amber-800 dark:text-amber-200">{fetchError}</p>
+            <button onClick={() => window.location.reload()} className="mt-2 text-sm text-blue-600 dark:text-blue-400 hover:underline">Retry</button>
+          </div>
+        ) : (
+        <>
         {/* Overview Card */}
         <div className="bg-white dark:bg-[#181a20] rounded-xl p-5 mb-6 border border-gray-200 dark:border-transparent">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between">
@@ -61,24 +124,24 @@ export default function MyReferralsPage() {
                 <span>Total Commissions</span>
                 <Info className="w-4 h-4" />
               </div>
-              <p className="text-3xl font-bold text-gray-900 dark:text-white">0</p>
+              <p className="text-3xl font-bold text-gray-900 dark:text-white">{totalEarnings.toFixed(2)} <span className="text-sm text-gray-500 dark:text-gray-400">USDT</span></p>
             </div>
             <div className="flex items-center gap-8 mt-4 lg:mt-0">
               <div className="text-center">
                 <p className="text-gray-500 dark:text-gray-400 text-sm mb-1">Sign Up</p>
-                <p className="text-gray-900 dark:text-white font-semibold">0</p>
+                <p className="text-gray-900 dark:text-white font-semibold">{referrals.length}</p>
               </div>
               <div className="text-center">
                 <p className="text-gray-500 dark:text-gray-400 text-sm mb-1">Fiat Deposit</p>
-                <p className="text-gray-900 dark:text-white font-semibold">0</p>
+                <p className="text-gray-900 dark:text-white font-semibold">—</p>
               </div>
               <div className="text-center">
-                <p className="text-gray-500 dark:text-gray-400 text-sm mb-1">Methereum Card</p>
-                <p className="text-gray-900 dark:text-white font-semibold">0</p>
+                <p className="text-gray-500 dark:text-gray-400 text-sm mb-1">Card</p>
+                <p className="text-gray-900 dark:text-white font-semibold">—</p>
               </div>
               <div className="text-center">
                 <p className="text-gray-500 dark:text-gray-400 text-sm mb-1">Earn</p>
-                <p className="text-gray-900 dark:text-white font-semibold">0</p>
+                <p className="text-gray-900 dark:text-white font-semibold">—</p>
               </div>
             </div>
           </div>
@@ -112,17 +175,17 @@ export default function MyReferralsPage() {
                     <span>My Commission Rate</span>
                     <Info className="w-4 h-4" />
                   </div>
-                  <p className="text-3xl font-bold text-blue-500 dark:text-blue-400">20%</p>
+                  <p className="text-3xl font-bold text-blue-500 dark:text-blue-400">{Math.round(commissionRate)}%</p>
                   <div className="flex items-center gap-1 text-gray-500 dark:text-gray-400 text-sm mt-3">
                     <span>Total Commission</span>
                     <Info className="w-4 h-4" />
                   </div>
-                  <p className="text-xl font-semibold text-gray-900 dark:text-white">0 <span className="text-sm text-gray-500 dark:text-gray-400">USDT</span></p>
+                  <p className="text-xl font-semibold text-gray-900 dark:text-white">{totalEarnings.toFixed(2)} <span className="text-sm text-gray-500 dark:text-gray-400">USDT</span></p>
                 </div>
                 <div className="mt-4 lg:mt-0">
                   <p className="text-gray-500 dark:text-gray-400 text-sm mb-2">Withdrawable Balance</p>
                   <div className="flex items-center gap-3">
-                    <p className="text-xl font-semibold text-gray-900 dark:text-white">0 <span className="text-sm text-gray-500 dark:text-gray-400">USDT</span></p>
+                    <p className="text-xl font-semibold text-gray-900 dark:text-white">{totalEarnings.toFixed(2)} <span className="text-sm text-gray-500 dark:text-gray-400">USDT</span></p>
                     <button className="px-4 py-1.5 bg-transparent border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-white text-sm rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
                       Withdraw
                     </button>
@@ -137,7 +200,7 @@ export default function MyReferralsPage() {
               <div className="bg-white dark:bg-[#181a20] rounded-xl p-5 flex items-center justify-between border border-gray-200 dark:border-transparent">
                 <div>
                   <p className="text-gray-500 dark:text-gray-400 text-sm mb-2">Total Bonus</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">0 <span className="text-sm text-gray-500 dark:text-gray-400">USDT</span></p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{totalEarnings.toFixed(2)} <span className="text-sm text-gray-500 dark:text-gray-400">USDT</span></p>
                 </div>
                 <div className="text-4xl">🎁</div>
               </div>
@@ -342,58 +405,82 @@ export default function MyReferralsPage() {
           <div className="flex items-center gap-12">
             <div>
               <p className="text-gray-500 dark:text-gray-400 text-sm mb-2">Total Friends</p>
-              <p className="text-3xl font-bold text-gray-900 dark:text-white">0</p>
+              <p className="text-3xl font-bold text-gray-900 dark:text-white">{referrals.length}</p>
             </div>
             <div>
               <div className="flex items-center gap-1 text-gray-500 dark:text-gray-400 text-sm mb-2">
                 <span>Qualified Friends</span>
                 <Info className="w-4 h-4" />
               </div>
-              <p className="text-3xl font-bold text-gray-900 dark:text-white">0</p>
+              <p className="text-3xl font-bold text-gray-900 dark:text-white">{qualifiedCount}</p>
             </div>
           </div>
         </div>
 
-        {/* Filters */}
-        <div className="flex flex-wrap gap-3 mb-6">
-          {/* Date Range */}
-          <div className="flex items-center bg-gray-100 dark:bg-[#181a20] rounded-lg px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
-            <span>Start Date</span>
-            <span className="mx-2">→</span>
-            <span>End Date</span>
-            <Calendar className="w-4 h-4 ml-2" />
+        {/* Referrals table or empty */}
+        {referrals.length > 0 ? (
+          <div className="bg-white dark:bg-[#181a20] rounded-xl border border-gray-200 dark:border-transparent overflow-hidden mb-8">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-gray-200 dark:border-gray-700">
+                  <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Email</th>
+                  <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Username</th>
+                  <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
+                  <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Commission earned</th>
+                  <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Joined</th>
+                </tr>
+              </thead>
+              <tbody>
+                {referrals.map((r, i) => (
+                  <tr key={i} className="border-b border-gray-100 dark:border-gray-700/50">
+                    <td className="px-6 py-3 text-gray-900 dark:text-white">{r.email}</td>
+                    <td className="px-6 py-3 text-gray-500 dark:text-gray-400">{r.username || '—'}</td>
+                    <td className="px-6 py-3">
+                      <span className={`text-xs px-2 py-1 rounded ${r.status === 'active' ? 'bg-green-500/20 text-green-500' : 'bg-amber-500/20 text-amber-500'}`}>{r.status}</span>
+                    </td>
+                    <td className="px-6 py-3 text-green-600 dark:text-green-400">${parseFloat(r.total_commission_earned || '0').toFixed(2)}</td>
+                    <td className="px-6 py-3 text-gray-500 text-sm">{new Date(r.created_at).toLocaleDateString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-
-          {/* Status Dropdown */}
-          <div className="relative">
-            <button
-              onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
-              className="flex items-center gap-2 bg-gray-100 dark:bg-[#181a20] rounded-lg px-4 py-2 text-sm text-gray-500 dark:text-gray-400 min-w-[120px]"
-            >
-              <span>Status</span>
-              <ChevronDown className="w-4 h-4 ml-auto" />
-            </button>
-            {statusDropdownOpen && (
-              <div className="absolute top-full left-0 mt-1 w-full bg-white dark:bg-[#181a20] border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-10">
-                <button className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">All</button>
-                <button className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">Qualified</button>
-                <button className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">Pending</button>
-              </div>
-            )}
+        ) : (
+          <div className="flex flex-col items-center justify-center py-12">
+            <div className="w-16 h-16 mb-4 text-5xl">📄</div>
+            <p className="text-gray-500 dark:text-gray-400 mb-4">No referrals yet.</p>
+            <Link href="/dashboard/referral" className="px-6 py-2 border border-blue-500 text-blue-500 dark:text-blue-400 rounded-full hover:bg-blue-500/10 transition-colors">Invite Friends</Link>
           </div>
-        </div>
+        )}
 
-        {/* Empty State */}
-        <div className="flex flex-col items-center justify-center py-12">
-          <div className="w-16 h-16 mb-4 text-5xl">📄</div>
-          <p className="text-gray-500 dark:text-gray-400 mb-4">No records found.</p>
-          <Link 
-            href="/dashboard/referral"
-            className="px-6 py-2 border border-blue-500 text-blue-500 dark:text-blue-400 rounded-full hover:bg-blue-500/10 transition-colors"
-          >
-            Invite Friends
-          </Link>
-        </div>
+        {/* Commission History (when tab is commission) */}
+        {historyTab === 'commission' && recentCommissions.length > 0 && (
+          <div className="mt-6">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Recent commission history</h3>
+            <div className="bg-white dark:bg-[#181a20] rounded-xl border border-gray-200 dark:border-transparent overflow-hidden">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-gray-200 dark:border-gray-700">
+                    <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Source</th>
+                    <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Amount</th>
+                    <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentCommissions.map((c, i) => (
+                    <tr key={i} className="border-b border-gray-100 dark:border-gray-700/50">
+                      <td className="px-6 py-3 text-gray-900 dark:text-white">{c.source_type}</td>
+                      <td className="px-6 py-3 text-green-600 dark:text-green-400">{c.commission_amount} {c.commission_currency}</td>
+                      <td className="px-6 py-3 text-gray-500 text-sm">{new Date(c.created_at).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+        </>
+        )}
       </div>
 
       {/* Help Button */}

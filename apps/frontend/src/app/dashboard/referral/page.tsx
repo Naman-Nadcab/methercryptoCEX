@@ -50,42 +50,50 @@ export default function ReferralProgramPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<ReferralStats | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const appOrigin = typeof window !== 'undefined' ? window.location.origin : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
 
-  // Fetch referral data from API
+  // Fetch referral data from user referrals API (same data admin can monitor)
   useEffect(() => {
     const fetchReferralData = async () => {
       if (!_hasHydrated || !accessToken) return;
-      
+      setFetchError(null);
       try {
-        // First try to get referral stats
-        const response = await fetch(`${apiUrl}/api/v1/auth/profile`, {
+        const response = await fetch(`${apiUrl}/api/v1/user/referrals`, {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
         const result = await response.json();
         
-        if (result.success && result.data?.user?.referralCode) {
+        if (result.success && result.data) {
+          const refCode = result.data.referralCode;
+          const code = refCode?.code || user?.id?.slice(0, 8).toUpperCase() || '';
+          const totalEarnings = refCode ? parseFloat(refCode.total_earnings || '0') : 0;
+          const commissionRate = refCode ? parseFloat(refCode.referrer_commission_rate || '0.2') * 100 : 20;
           setStats({
-            referralCode: result.data.user.referralCode,
-            totalReferrals: 0, // TODO: Fetch from referral stats endpoint
-            totalEarnings: 0,
+            referralCode: code,
+            totalReferrals: refCode?.current_referrals ?? result.data.referrals?.length ?? 0,
+            totalEarnings,
             pendingEarnings: 0,
-            commissionRate: 20, // Default commission rate
+            commissionRate,
           });
+        } else {
+          setFetchError(result.error?.message || 'Failed to load referral data');
         }
       } catch (error) {
         console.error('Failed to fetch referral data:', error);
+        setFetchError('Network error. Please try again.');
       } finally {
         setLoading(false);
       }
     };
     
     fetchReferralData();
-  }, [accessToken, _hasHydrated]);
+  }, [accessToken, _hasHydrated, user?.id]);
 
   const referralCode = stats?.referralCode || user?.id?.slice(0, 8).toUpperCase() || 'LOADING...';
-  const referralLink = `https://www.methereum.com/invite?ref=${referralCode}`;
+  const referralLink = `${appOrigin}/signup?ref=${referralCode}`;
 
   const customText = `Sign up for a Methereum account and claim exclusive rewards from the Methereum referral program! Plus, claim up to 6,135 USDT bonus at ${referralLink}`;
 
@@ -307,29 +315,29 @@ export default function ReferralProgramPage() {
                 <div className="w-12 h-12 bg-yellow-500/20 rounded-xl flex items-center justify-center mb-3">
                   <Trophy className="w-6 h-6 text-yellow-400" />
                 </div>
-                <p className="text-3xl font-bold">$1,720</p>
-                <p className="text-blue-200 text-sm">Max Earnings</p>
+                <p className="text-3xl font-bold">${stats ? Math.max(0, stats.totalEarnings).toFixed(0) : '0'}</p>
+                <p className="text-blue-200 text-sm">Your Earnings</p>
               </div>
               <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-5 border border-white/10">
                 <div className="w-12 h-12 bg-green-500/20 rounded-xl flex items-center justify-center mb-3">
                   <TrendingUp className="w-6 h-6 text-green-400" />
                 </div>
-                <p className="text-3xl font-bold">30%</p>
+                <p className="text-3xl font-bold">{stats ? Math.round(stats.commissionRate) : 20}%</p>
                 <p className="text-blue-200 text-sm">Commission Rate</p>
               </div>
               <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-5 border border-white/10">
                 <div className="w-12 h-12 bg-purple-500/20 rounded-xl flex items-center justify-center mb-3">
                   <Users className="w-6 h-6 text-purple-400" />
                 </div>
-                <p className="text-3xl font-bold">76K+</p>
-                <p className="text-blue-200 text-sm">Active Referrers</p>
+                <p className="text-3xl font-bold">{stats?.totalReferrals ?? 0}</p>
+                <p className="text-blue-200 text-sm">Your Referrals</p>
               </div>
               <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-5 border border-white/10">
                 <div className="w-12 h-12 bg-blue-400/20 rounded-xl flex items-center justify-center mb-3">
                   <Coins className="w-6 h-6 text-blue-300" />
                 </div>
-                <p className="text-3xl font-bold">$2.5M</p>
-                <p className="text-blue-200 text-sm">Total Paid Out</p>
+                <p className="text-3xl font-bold">$1,720</p>
+                <p className="text-blue-200 text-sm">Max Possible</p>
               </div>
             </div>
           </div>
@@ -338,6 +346,12 @@ export default function ReferralProgramPage() {
 
       {/* Main Content */}
       <div className="max-w-6xl mx-auto px-4 lg:px-8 py-12">
+        {fetchError && (
+          <div className="mb-6 rounded-xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-4 py-3 flex items-center justify-between">
+            <p className="text-amber-800 dark:text-amber-200 text-sm">{fetchError}</p>
+            <button onClick={() => window.location.reload()} className="text-sm text-blue-600 dark:text-blue-400 hover:underline">Retry</button>
+          </div>
+        )}
         {/* How to get rewards */}
         <div className="mb-12">
           <div className="flex items-center justify-between mb-6">

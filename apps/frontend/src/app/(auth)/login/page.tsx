@@ -1,10 +1,10 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Eye, EyeOff, Globe, ChevronDown, Users, DollarSign, Coins, ExternalLink, Shield, Smartphone, Mail, Key, Fingerprint, Loader2 } from 'lucide-react';
 import { useAuthStore, type User } from '@/store/auth';
+import { useAuth } from '@/context/AuthContext';
 import { 
   getPasskeyAssertion,
   isPlatformAuthenticatorAvailable,
@@ -25,8 +25,8 @@ interface VerificationState {
 }
 
 export default function LoginPage() {
-  const router = useRouter();
-  const { login, isAuthenticated } = useAuthStore();
+  const { login } = useAuthStore();
+  const { setAuthenticated } = useAuth();
   const [step, setStep] = useState<Step>('identifier');
   const [identifier, setIdentifier] = useState('');
   const [identifierType, setIdentifierType] = useState<'email' | 'phone'>('email');
@@ -51,13 +51,6 @@ export default function LoginPage() {
     const msg = err instanceof Error ? err.message : String(err);
     return msg || 'Network error. Please try again.';
   };
-
-  // Redirect if already authenticated
-  useEffect(() => {
-    if (isAuthenticated) {
-      router.push('/dashboard');
-    }
-  }, [isAuthenticated, router]);
 
   // Countdown timer for OTP resend
   useEffect(() => {
@@ -178,8 +171,9 @@ export default function LoginPage() {
       const verifyData = await verifyResponse.json();
 
       if (verifyData.success) {
-        login(verifyData.data.accessToken, verifyData.data.refreshToken, verifyData.data.user);
-        router.push('/dashboard');
+        const user = verifyData.data.user as User;
+        login(user, verifyData.data.accessToken, verifyData.data.refreshToken);
+        setAuthenticated(user);
       } else {
         setError(verifyData.error?.message || 'Passkey verification failed');
       }
@@ -328,8 +322,9 @@ export default function LoginPage() {
           setCountdown(120);
         } else if (data.data.user && data.data.accessToken && data.data.refreshToken) {
           // No additional verification needed
-          login(data.data.user as User, data.data.accessToken, data.data.refreshToken);
-          router.push('/dashboard');
+          const user = data.data.user as User;
+          login(user, data.data.accessToken, data.data.refreshToken);
+          setAuthenticated(user);
         } else {
           setError('Invalid login response. Please try again.');
         }
@@ -385,8 +380,9 @@ export default function LoginPage() {
       if (data.success) {
         if (data.data.allStepsCompleted) {
           // All steps completed, login successful
-          login(data.data.user, data.data.accessToken, data.data.refreshToken);
-          router.push('/dashboard');
+          const user = data.data.user as User;
+          login(user, data.data.accessToken, data.data.refreshToken);
+          setAuthenticated(user);
         } else {
           // Move to next step
           setVerificationState(prev => prev ? {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Eye, EyeOff, Check, X, Globe, ChevronDown, Users, DollarSign, Coins, ArrowRight, ExternalLink } from 'lucide-react';
 
@@ -22,8 +22,15 @@ export default function SignupPage() {
   const [referralCode, setReferralCode] = useState('');
   const [showReferral, setShowReferral] = useState(false);
   
+  const searchParams = useSearchParams();
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
+  // Pre-fill referral code from URL ?ref=CODE
+  useEffect(() => {
+    const ref = searchParams.get('ref');
+    if (ref && ref.trim()) setReferralCode(ref.trim().toUpperCase());
+  }, [searchParams]);
 
   // Password validation
   const passwordValidation = {

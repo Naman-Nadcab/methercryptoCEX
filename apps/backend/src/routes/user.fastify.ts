@@ -215,6 +215,62 @@ export default async function userRoutes(app: FastifyInstance) {
   });
 
   /**
+   * GET /user/announcements
+   * List published system announcements (public – no auth). Used by dashboard and landing.
+   */
+  app.get('/announcements', async (request, reply) => {
+    try {
+      const { limit = 20, type } = request.query as { limit?: string; type?: string };
+      let query = `
+        SELECT id, title, body, summary, type, is_pinned, published_at, expires_at, created_at
+        FROM system_announcements
+        WHERE is_published = TRUE
+          AND (expires_at IS NULL OR expires_at > NOW())
+      `;
+      const params: any[] = [];
+      if (type && type.trim()) {
+        params.push(type.trim());
+        query += ` AND type = $${params.length}`;
+      }
+      query += ` ORDER BY is_pinned DESC, published_at DESC NULLS LAST LIMIT $${params.length + 1}`;
+      params.push(Math.min(parseInt(limit) || 20, 100));
+      const result = await db.query(query, params);
+      return reply.send({ success: true, data: { announcements: result.rows } });
+    } catch (error) {
+      logger.error('Get announcements error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'FETCH_FAILED', message: 'Failed to fetch announcements' },
+      });
+    }
+  });
+
+  /**
+   * GET /user/announcements/:id
+   * Get single announcement by id (public).
+   */
+  app.get('/announcements/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const result = await db.query(`
+        SELECT id, title, body, summary, type, is_pinned, published_at, expires_at, created_at
+        FROM system_announcements
+        WHERE id = $1 AND is_published = TRUE AND (expires_at IS NULL OR expires_at > NOW())
+      `, [id]);
+      if (result.rows.length === 0) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Announcement not found' } });
+      }
+      return reply.send({ success: true, data: { announcement: result.rows[0] } });
+    } catch (error) {
+      logger.error('Get announcement error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'FETCH_FAILED', message: 'Failed to fetch announcement' },
+      });
+    }
+  });
+
+  /**
    * GET /user/notifications
    * Get notifications
    */
@@ -263,8 +319,53 @@ export default async function userRoutes(app: FastifyInstance) {
   });
 
   /**
+   * PATCH /user/notifications/:id/read
+   * Mark a notification as read
+   */
+  app.patch('/notifications/:id/read', {
+    preHandler: [app.authenticate],
+  }, async (request, reply) => {
+    try {
+      const { id: userId } = request.user!;
+      const { id } = request.params as { id: string };
+      await db.query(
+        'UPDATE user_notifications SET is_read = TRUE, read_at = NOW() WHERE id = $1 AND user_id = $2',
+        [id, userId]
+      );
+      return reply.send({ success: true, data: { read: true } });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'UPDATE_FAILED', message: 'Failed to mark as read' },
+      });
+    }
+  });
+
+  /**
+   * POST /user/notifications/read-all
+   * Mark all notifications as read
+   */
+  app.post('/notifications/read-all', {
+    preHandler: [app.authenticate],
+  }, async (request, reply) => {
+    try {
+      const { id: userId } = request.user!;
+      await db.query(
+        'UPDATE user_notifications SET is_read = TRUE, read_at = NOW() WHERE user_id = $1 AND is_read = FALSE',
+        [userId]
+      );
+      return reply.send({ success: true, data: { read: true } });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'UPDATE_FAILED', message: 'Failed to mark all as read' },
+      });
+    }
+  });
+
+  /**
    * GET /user/referrals
-   * Get referral stats
+   * Get referral stats. Creates a referral code for the user if none exists.
    */
   app.get('/referrals', {
     preHandler: [app.authenticate],
@@ -272,13 +373,34 @@ export default async function userRoutes(app: FastifyInstance) {
     try {
       const { id: userId } = request.user!;
 
-      // Get referral code
-      const codeResult = await db.query(`
+      // Get referral code (create if missing so every user has one)
+      let codeResult = await db.query(`
         SELECT code, current_referrals, total_earnings, referrer_commission_rate
         FROM referral_codes
         WHERE user_id = $1 AND is_active = TRUE
         LIMIT 1
       `, [userId]);
+
+      if (codeResult.rows.length === 0) {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        let code = '';
+        for (let i = 0; i < 8; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
+        try {
+          await db.query(
+            `INSERT INTO referral_codes (user_id, code) VALUES ($1, $2) ON CONFLICT (code) DO NOTHING`,
+            [userId, code]
+          );
+        } catch {
+          // retry with new code if conflict
+          code = '';
+          for (let i = 0; i < 8; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
+          await db.query(`INSERT INTO referral_codes (user_id, code) VALUES ($1, $2)`, [userId, code]);
+        }
+        codeResult = await db.query(`
+          SELECT code, current_referrals, total_earnings, referrer_commission_rate
+          FROM referral_codes WHERE user_id = $1 LIMIT 1
+        `, [userId]);
+      }
 
       // Get referred users
       const referralsResult = await db.query(`

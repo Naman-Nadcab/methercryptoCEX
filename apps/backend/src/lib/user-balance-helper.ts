@@ -128,3 +128,40 @@ export function assertUserBalanceUpdated(
     );
   }
 }
+
+/** Row shape from RETURNING * on user_balances (numeric may come as string from pg). */
+export interface UserBalanceRowLike {
+  available_balance: string | number;
+  locked_balance: string | number;
+}
+
+/**
+ * Assert invariants after every balance update: no negative balances,
+ * and available_balance + locked_balance must be non-negative (conservative).
+ * Call with the row returned from UPDATE ... RETURNING *.
+ */
+export function assertBalanceInvariant(row: UserBalanceRowLike | null | undefined): void {
+  if (row == null) return;
+  const av = Number(row.available_balance);
+  const lk = Number(row.locked_balance);
+  if (av < 0 || lk < 0) {
+    logger.error('Balance invariant violated: negative balance', {
+      available_balance: av,
+      locked_balance: lk,
+    });
+    throw new Error(
+      `user_balances invariant violated: available_balance=${av}, locked_balance=${lk} (must be >= 0)`
+    );
+  }
+  const total = av + lk;
+  if (total < 0) {
+    logger.error('Balance invariant violated: available + locked is negative', {
+      available_balance: av,
+      locked_balance: lk,
+      sum: total,
+    });
+    throw new Error(
+      `user_balances invariant violated: available_balance + locked_balance = ${total} (must be >= 0)`
+    );
+  }
+}

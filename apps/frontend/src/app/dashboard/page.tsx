@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useAuthStore } from '@/store/auth';
 import Link from 'next/link';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 import {
   Star,
   ChevronRight,
@@ -71,14 +72,6 @@ const trendingEvents = [
   },
 ];
 
-const announcements = [
-  { title: 'UTA Borrowing : Updates to borrowing limits', isNew: true },
-  { title: 'Methereum UTA Function Optimization: Manual Coin Borrowing Will Be Launched Soon', isNew: true },
-  { title: 'Methereum to list 21 MNT trading pairs on Spot', isNew: false },
-  { title: 'ZetaChain AMA: The Universal Layer for AI and Web3 Explained', isNew: false },
-  { title: 'Trade gold & silver on Methereum: Claim up to 2,000 USDT in airdrops!', isNew: false },
-];
-
 const helpLinks = [
   { title: 'How to open a trade in Methereum', icon: '📈' },
   { title: 'How to Buy Crypto on Methereum With Zero Fees', icon: '💰' },
@@ -92,11 +85,31 @@ const rewards = [
   { title: 'Earn 10 USDT', subtitle: 'First Deposit', icon: '💎', color: 'from-blue-500 to-purple-500' },
 ];
 
+interface AnnouncementItem {
+  id: string;
+  title: string;
+  summary: string | null;
+  type: string;
+  is_pinned: boolean;
+  published_at: string | null;
+  created_at: string;
+}
+
 export default function DashboardPage() {
   const { user } = useAuthStore();
   const [activeMarketTab, setActiveMarketTab] = useState('hot');
   const [favorites, setFavorites] = useState<string[]>([]);
   const [uidCopied, setUidCopied] = useState(false);
+  const [announcements, setAnnouncements] = useState<AnnouncementItem[]>([]);
+
+  useEffect(() => {
+    fetch(`${getApiBaseUrl()}/api/v1/user/announcements?limit=5`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.success && data?.data?.announcements) setAnnouncements(data.data.announcements);
+      })
+      .catch(() => {});
+  }, []);
 
   const marketTabs = [
     { id: 'favorites', label: 'Favorites', icon: Star },
@@ -462,22 +475,30 @@ export default function DashboardPage() {
               </div>
 
               <div className="divide-y divide-gray-100 dark:divide-gray-800">
-                {announcements.map((announcement, index) => (
-                  <div
-                    key={index}
-                    className="px-6 py-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer flex items-center justify-between gap-4"
-                  >
-                    <div className="flex items-center gap-3">
-                      {announcement.isNew && (
-                        <span className="px-2 py-0.5 bg-red-500 text-white text-xs font-medium rounded">NEW</span>
-                      )}
-                      <p className="text-sm text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
-                        {announcement.title}
-                      </p>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                  </div>
-                ))}
+                {announcements.length === 0 ? (
+                  <div className="px-6 py-6 text-center text-sm text-gray-500 dark:text-gray-400">No announcements right now.</div>
+                ) : (
+                  announcements.map((announcement) => {
+                    const isNew = announcement.is_pinned || (announcement.published_at && (Date.now() - new Date(announcement.published_at).getTime() < 7 * 24 * 60 * 60 * 1000));
+                    return (
+                      <Link
+                        key={announcement.id}
+                        href={`/dashboard/announcements/${announcement.id}`}
+                        className="px-6 py-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors flex items-center justify-between gap-4"
+                      >
+                        <div className="flex items-center gap-3">
+                          {isNew && (
+                            <span className="px-2 py-0.5 bg-red-500 text-white text-xs font-medium rounded">NEW</span>
+                          )}
+                          <p className="text-sm text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+                            {announcement.title}
+                          </p>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                      </Link>
+                    );
+                  })
+                )}
               </div>
             </div>
           </div>

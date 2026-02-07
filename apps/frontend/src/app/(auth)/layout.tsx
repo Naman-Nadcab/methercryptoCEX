@@ -1,3 +1,5 @@
+import GuestOnly from '@/components/GuestOnly';
+
 export default function AuthLayout({
   children,
 }: {
@@ -5,7 +7,7 @@ export default function AuthLayout({
 }) {
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/30">
-      {children}
+      <GuestOnly>{children}</GuestOnly>
     </div>
   );
 }

@@ -8,7 +8,7 @@ import { config } from '../config/index.js';
 import { ChainId, Wallet, Balance } from '../types/index.js';
 import { PoolClient } from 'pg';
 import { getCurrencyIdForToken } from '../lib/currency-resolver.js';
-import { ensureUserBalanceRow, assertUserBalanceUpdated, CHAIN_ID_GLOBAL } from '../lib/user-balance-helper.js';
+import { ensureUserBalanceRow, assertUserBalanceUpdated, assertBalanceInvariant, CHAIN_ID_GLOBAL } from '../lib/user-balance-helper.js';
 // Lazy-loaded to avoid tronweb ESM/crash at server startup
 let multiChainAddress: typeof import('./multi-chain-address.js') | null = null;
 async function getMultiChainAddress() {
@@ -395,6 +395,7 @@ class WalletService {
       chainId = CHAIN_ID_GLOBAL;
     }
     assertUserBalanceUpdated('lockBalance', result, userId, currencyId, 'funding', chainId);
+    assertBalanceInvariant(result.rows[0]);
     await redis.del(`balance:${userId}:${tokenId}`);
     return true;
   }
@@ -439,6 +440,7 @@ class WalletService {
       chainId = CHAIN_ID_GLOBAL;
     }
     assertUserBalanceUpdated('unlockBalance', result, userId, currencyId, 'funding', chainId);
+    assertBalanceInvariant(result.rows[0]);
     await redis.del(`balance:${userId}:${tokenId}`);
     return true;
   }
@@ -483,6 +485,7 @@ class WalletService {
       chainId = CHAIN_ID_GLOBAL;
     }
     assertUserBalanceUpdated('creditBalance', result, userId, currencyId, 'funding', chainId);
+    assertBalanceInvariant(result.rows[0]);
     await redis.del(`balance:${userId}:${tokenId}`);
   }
 
@@ -526,6 +529,7 @@ class WalletService {
       chainId = CHAIN_ID_GLOBAL;
     }
     assertUserBalanceUpdated('debitLockedBalance', result, userId, currencyId, 'funding', chainId);
+    assertBalanceInvariant(result.rows[0]);
     await redis.del(`balance:${userId}:${tokenId}`);
     return true;
   }
@@ -551,6 +555,7 @@ class WalletService {
       [userId, currencyId, CHAIN_ID_GLOBAL, amount, accountType]
     );
     assertUserBalanceUpdated('debitAvailableBalance', result, userId, currencyId, accountType, CHAIN_ID_GLOBAL);
+    assertBalanceInvariant(result.rows[0]);
   }
 
   /**
@@ -574,6 +579,7 @@ class WalletService {
       [userId, currencyId, CHAIN_ID_GLOBAL, amount, accountType]
     );
     assertUserBalanceUpdated('creditBalanceForAccount', result, userId, currencyId, accountType, CHAIN_ID_GLOBAL);
+    assertBalanceInvariant(result.rows[0]);
   }
 
   /**

@@ -6,6 +6,18 @@ import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
 import { otpService } from '../services/otp.service.js';
 import {
+  createSession,
+  revokeSession,
+  revokeAllExceptCurrent,
+  getAccountLockUntil,
+  recordFailedLogin,
+  clearFailedLoginAttempts,
+} from '../services/session.service.js';
+import {
+  logUserActivity,
+  getDeviceIdFromRequest,
+} from '../services/activity-monitor.service.js';
+import {
   generateRegistrationOptions,
   verifyRegistrationResponse,
   generateAuthenticationOptions,
@@ -285,8 +297,24 @@ export default async function authRoutes(app: FastifyInstance) {
 
       // Verify OTP
       const verification = await otpService.verifyOTP(cleanIdentifier, type, otp);
-      
+
       if (!verification.valid) {
+        const userByIdentifier = await db.query<{ id: string }>(
+          `SELECT id FROM users WHERE ${type} = $1 AND deleted_at IS NULL`,
+          [cleanIdentifier]
+        );
+        if (userByIdentifier.rows.length > 0) {
+          const failedUserId = userByIdentifier.rows[0]!.id;
+          await recordFailedLogin(failedUserId);
+          await logUserActivity({
+            userId: failedUserId,
+            action: 'login_failed',
+            ipAddress: request.ip,
+            userAgent: request.headers['user-agent'],
+            deviceId: getDeviceIdFromRequest(request.headers as Record<string, string | undefined>),
+            metadata: { reason: 'invalid_otp' },
+          });
+        }
         return reply.status(400).send({
           success: false,
           error: { code: 'INVALID_OTP', message: verification.message },
@@ -424,25 +452,40 @@ export default async function authRoutes(app: FastifyInstance) {
         });
       }
 
-      // Create session
-      const sessionId = uuidv4();
-      const sessionToken = uuidv4();
-      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+      // Account lock check (existing users only)
+      if (!isNewUser) {
+        const lockedUntil = await getAccountLockUntil(user.id);
+        if (lockedUntil) {
+          await logUserActivity({
+            userId: user.id,
+            action: 'login_failed',
+            ipAddress: request.ip,
+            userAgent: request.headers['user-agent'],
+            deviceId: getDeviceIdFromRequest(request.headers as Record<string, string | undefined>),
+            metadata: { reason: 'account_locked', lockedUntil: lockedUntil.toISOString() },
+          });
+          return reply.status(403).send({
+            success: false,
+            error: {
+              code: 'ACCOUNT_LOCKED',
+              message: `Account temporarily locked. Try again after ${lockedUntil.toISOString()}`,
+            },
+          });
+        }
+      }
 
-      await db.query(
-        `INSERT INTO user_sessions (id, user_id, session_token, device_type, ip_address, user_agent, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [sessionId, user.id, sessionToken, 'web', request.ip, request.headers['user-agent'], expiresAt]
-      );
-
-      // Store session in Redis
-      await redis.setJson(`session:${sessionId}`, {
+      const deviceId = getDeviceIdFromRequest(request.headers as Record<string, string | undefined>);
+      const { sessionId, expiresAt } = await createSession({
         userId: user.id,
-        isActive: true,
-        createdAt: Date.now(),
-      }, 7 * 24 * 60 * 60);
+        deviceId,
+        deviceType: 'web',
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'],
+        ttlSeconds: 7 * 24 * 60 * 60,
+      });
 
-      // Generate tokens
+      await clearFailedLoginAttempts(user.id);
+
       const tokens = generateTokens(app, {
         userId: user.id,
         email: user.email || undefined,
@@ -451,12 +494,14 @@ export default async function authRoutes(app: FastifyInstance) {
         sessionId,
       });
 
-      // Log activity
-      await db.query(
-        `INSERT INTO user_activity_logs (user_id, session_id, activity_type, ip_address, user_agent)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [user.id, sessionId, 'login', request.ip, request.headers['user-agent']]
-      );
+      await logUserActivity({
+        userId: user.id,
+        action: 'login_success',
+        sessionId,
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'],
+        deviceId,
+      });
 
       logger.info('User logged in', { userId: user.id, isNewUser });
 
@@ -548,13 +593,21 @@ export default async function authRoutes(app: FastifyInstance) {
 
       const user = userResult.rows[0]!;
 
-      // Generate new tokens
+      // Rotate refresh token: create new session, revoke old one, issue tokens for new session (prevents replay).
+      const newSession = await createSession({
+        userId: user.id,
+        ipAddress: request.ip ?? undefined,
+        userAgent: request.headers['user-agent'] ?? undefined,
+        deviceType: 'web',
+      });
+      await revokeSession(decoded.sessionId);
+
       const tokens = generateTokens(app, {
         userId: user.id,
         email: user.email || undefined,
         phone: user.phone || undefined,
         role: 'user',
-        sessionId: decoded.sessionId,
+        sessionId: newSession.sessionId,
       });
 
       return reply.send({
@@ -580,19 +633,15 @@ export default async function authRoutes(app: FastifyInstance) {
     try {
       const { sessionId, id: userId } = request.user!;
 
-      // Invalidate session
-      await redis.del(`session:${sessionId}`);
-      await db.query(
-        `UPDATE user_sessions SET is_active = FALSE, revoked_at = NOW() WHERE id = $1`,
-        [sessionId]
-      );
-
-      // Log activity
-      await db.query(
-        `INSERT INTO user_activity_logs (user_id, session_id, activity_type, ip_address)
-         VALUES ($1, $2, 'logout', $3)`,
-        [userId, sessionId, request.ip]
-      );
+      await revokeSession(sessionId);
+      await logUserActivity({
+        userId,
+        action: 'logout',
+        sessionId,
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'],
+        deviceId: getDeviceIdFromRequest(request.headers as Record<string, string | undefined>),
+      });
 
       return reply.send({
         success: true,
@@ -603,6 +652,37 @@ export default async function authRoutes(app: FastifyInstance) {
       return reply.status(500).send({
         success: false,
         error: { code: 'LOGOUT_FAILED', message: 'Logout failed' },
+      });
+    }
+  });
+
+  /**
+   * POST /auth/logout-all-other
+   * Revoke all sessions except the current one
+   */
+  app.post('/logout-all-other', {
+    preHandler: [app.authenticate],
+  }, async (request, reply) => {
+    try {
+      const { sessionId, id: userId } = request.user!;
+      const revoked = await revokeAllExceptCurrent(userId, sessionId);
+      await logUserActivity({
+        userId,
+        action: 'sessions_revoked_all',
+        sessionId,
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'],
+        deviceId: getDeviceIdFromRequest(request.headers as Record<string, string | undefined>),
+        metadata: { revokedCount: revoked },
+      });
+      return reply.send({
+        success: true,
+        data: { message: 'All other sessions have been logged out', revokedCount: revoked },
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'LOGOUT_ALL_FAILED', message: 'Failed to revoke other sessions' },
       });
     }
   });
@@ -915,14 +995,17 @@ export default async function authRoutes(app: FastifyInstance) {
 
       // Handle referral if code provided
       if (referralCode) {
-        const referrer = await db.query(
-          `SELECT user_id FROM referral_codes WHERE code = $1`,
-          [referralCode.toUpperCase()]
+        const codeRow = await db.query(
+          `SELECT id, user_id, referrer_commission_rate, referee_discount_rate FROM referral_codes WHERE code = $1 AND is_active = TRUE`,
+          [referralCode.toUpperCase().trim()]
         );
-        if (referrer.rows.length > 0) {
+        if (codeRow.rows.length > 0) {
+          const { id: referral_code_id, user_id: referrer_id, referrer_commission_rate, referee_discount_rate } = codeRow.rows[0];
           await db.query(
-            `INSERT INTO referral_relationships (referrer_id, referred_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-            [referrer.rows[0].user_id, user.id]
+            `INSERT INTO referral_relationships (referrer_id, referee_id, referral_code_id, locked_referrer_commission, locked_referee_discount)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (referrer_id, referee_id) DO NOTHING`,
+            [referrer_id, user.id, referral_code_id, referrer_commission_rate, referee_discount_rate]
           );
         }
       }

@@ -118,12 +118,23 @@ const envSchema = z.object({
   FEATURE_MARGIN_TRADING_ENABLED: z.string().transform(v => v === 'true').default('false'),
   MAINTENANCE_MODE: z.string().transform(v => v === 'true').default('false'),
 
+  // Account lockout after failed logins
+  MAX_FAILED_LOGIN_ATTEMPTS: z.coerce.number().min(3).max(20).default(5),
+  LOCKOUT_MINUTES: z.coerce.number().min(5).max(1440).default(30),
+
   // Withdrawal approval: amount (in token units) above this requires admin approval
   WITHDRAWAL_APPROVAL_THRESHOLD: z.coerce.number().default(10000),
 
   // Deposit consolidation: sweep user deposit addresses to hot wallet
   DEPOSIT_SWEEP_ENABLED: z.string().transform(v => v === 'true').default('true'),
   DEPOSIT_SWEEP_MIN_WEI: z.string().default('1000000000000000'),
+
+  // AML transaction monitoring (Step 6C)
+  AML_LARGE_FIAT_INR_THRESHOLD: z.coerce.number().default(1_000_000),
+  AML_LARGE_CRYPTO_WITHDRAWAL_THRESHOLD: z.coerce.number().default(100_000),
+  AML_VELOCITY_WITHDRAWAL_COUNT: z.coerce.number().min(2).default(3),
+  AML_VELOCITY_WINDOW_HOURS: z.coerce.number().min(1).default(24),
+  AML_HIGH_RISK_COUNTRIES: z.string().default(''), // Comma-separated ISO codes, e.g. KP,IR,SY
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -281,11 +292,23 @@ export const config = {
     maintenanceMode: parsed.data.MAINTENANCE_MODE,
   },
 
+  maxFailedLoginAttempts: parsed.data.MAX_FAILED_LOGIN_ATTEMPTS,
+  lockoutMinutes: parsed.data.LOCKOUT_MINUTES,
   withdrawalApprovalThreshold: parsed.data.WITHDRAWAL_APPROVAL_THRESHOLD,
 
   depositSweep: {
     enabled: parsed.data.DEPOSIT_SWEEP_ENABLED,
     minWei: parsed.data.DEPOSIT_SWEEP_MIN_WEI,
+  },
+
+  aml: {
+    largeFiatInrThreshold: parsed.data.AML_LARGE_FIAT_INR_THRESHOLD,
+    largeCryptoWithdrawalThreshold: parsed.data.AML_LARGE_CRYPTO_WITHDRAWAL_THRESHOLD,
+    velocityWithdrawalCount: parsed.data.AML_VELOCITY_WITHDRAWAL_COUNT,
+    velocityWindowHours: parsed.data.AML_VELOCITY_WINDOW_HOURS,
+    highRiskCountries: parsed.data.AML_HIGH_RISK_COUNTRIES
+      ? parsed.data.AML_HIGH_RISK_COUNTRIES.split(',').map((c) => c.trim().toUpperCase()).filter(Boolean)
+      : [],
   },
 } as const;
 

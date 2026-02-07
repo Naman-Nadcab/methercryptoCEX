@@ -182,11 +182,16 @@ const menuItems: MenuItem[] = [
     label: 'Security',
     icon: <Lock className="w-4 h-4" />,
     children: [
+      { label: 'Security Dashboard', href: '/admin/security/dashboard' },
+      { label: 'Risk Rules', href: '/admin/security/risk-rules' },
+      { label: 'IP Rules', href: '/admin/security/ip-rules' },
+      { label: 'Withdrawal Security', href: '/admin/security/withdrawals' },
+      { label: 'Sessions & Devices', href: '/admin/security/sessions' },
       { label: 'Activity Monitor', href: '/admin/security/activity' },
       { label: 'IP Management', href: '/admin/security/ip' },
       { label: 'Fraud Detection', href: '/admin/security/fraud' },
       { label: 'AML/Compliance', href: '/admin/security/compliance' },
-      { label: 'Audit Logs', href: '/admin/security/audit' },
+      { label: 'Audit Logs', href: '/admin/security/audit-logs' },
     ],
   },
   {

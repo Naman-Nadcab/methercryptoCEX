@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useAdminAuthStore } from '@/store/admin-auth';
-import { Receipt, Loader2 } from 'lucide-react';
+import { Receipt, Loader2, TrendingUp, ArrowUpFromLine, Layers, Megaphone } from 'lucide-react';
 
 interface FeeTier {
   id: string;
@@ -53,7 +54,30 @@ export default function FeesPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Fee Management</h1>
-        <p className="text-gray-400 text-sm mt-1">Configure trading fee tiers</p>
+        <p className="text-gray-400 text-sm mt-1">Configure spot, P2P, and withdrawal fees. Manage tiers and promotions.</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Link href="/admin/fees/trading" className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4 hover:shadow-md transition-shadow">
+          <TrendingUp className="w-8 h-8 text-blue-500 mb-2" />
+          <p className="font-semibold text-gray-900 dark:text-white">Trading Fees</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Spot maker/taker per pair</p>
+        </Link>
+        <Link href="/admin/fees/withdrawal" className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4 hover:shadow-md transition-shadow">
+          <ArrowUpFromLine className="w-8 h-8 text-amber-500 mb-2" />
+          <p className="font-semibold text-gray-900 dark:text-white">Withdrawal Fees</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Per currency / network</p>
+        </Link>
+        <Link href="/admin/fees/tiers" className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4 hover:shadow-md transition-shadow">
+          <Layers className="w-8 h-8 text-green-500 mb-2" />
+          <p className="font-semibold text-gray-900 dark:text-white">Fee Tiers</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Volume-based tiers</p>
+        </Link>
+        <Link href="/admin/fees/promotions" className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4 hover:shadow-md transition-shadow">
+          <Megaphone className="w-8 h-8 text-purple-500 mb-2" />
+          <p className="font-semibold text-gray-900 dark:text-white">Promotions</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Time-bound fee discounts</p>
+        </Link>
       </div>
 
       {/* Fee Tiers */}

@@ -123,6 +123,8 @@ const migrations = [
   `CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id);`,
   `CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON user_sessions(session_token);`,
   `CREATE INDEX IF NOT EXISTS idx_user_sessions_active ON user_sessions(is_active, expires_at) WHERE is_active = TRUE;`,
+  `ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS device_id VARCHAR(255);`,
+  `CREATE INDEX IF NOT EXISTS idx_user_sessions_device_id ON user_sessions(device_id) WHERE device_id IS NOT NULL;`,
 
   // ============================================
   // USER ACTIVITY LOGS
@@ -141,6 +143,8 @@ const migrations = [
   `CREATE INDEX IF NOT EXISTS idx_user_activity_logs_user_id ON user_activity_logs(user_id);`,
   `CREATE INDEX IF NOT EXISTS idx_user_activity_logs_activity_type ON user_activity_logs(activity_type);`,
   `CREATE INDEX IF NOT EXISTS idx_user_activity_logs_created ON user_activity_logs(created_at DESC);`,
+  `ALTER TABLE user_activity_logs ADD COLUMN IF NOT EXISTS device_id VARCHAR(255);`,
+  `CREATE INDEX IF NOT EXISTS idx_user_activity_logs_user_created ON user_activity_logs(user_id, created_at DESC);`,
 
   // ============================================
   // OTP VERIFICATIONS TABLE
@@ -804,6 +808,71 @@ const migrations = [
   // `CREATE TABLE audit_logs_y2024m01 PARTITION OF audit_logs FOR VALUES FROM ('2024-01-01') TO ('2024-02-01');`,
 
   // ============================================
+  // IMMUTABLE AUDIT LOG (append-only; no UPDATE/DELETE)
+  // ============================================
+  `DO $$
+  BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'audit_actor_type_immutable') THEN
+      CREATE TYPE audit_actor_type_immutable AS ENUM ('user', 'admin', 'system');
+    END IF;
+  END $$;`,
+  `DO $$
+  BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'audit_action_immutable') THEN
+      CREATE TYPE audit_action_immutable AS ENUM (
+        'login', 'login_failed', 'logout',
+        'password_change', 'password_reset',
+        '2fa_enable', '2fa_disable',
+        'api_key_create', 'api_key_revoke',
+        'withdrawal_request', 'withdrawal_approved', 'withdrawal_rejected', 'withdrawal_completed',
+        'withdrawal_address_add', 'withdrawal_address_remove',
+        'kyc_submit', 'kyc_approve', 'kyc_reject',
+        'device_trust', 'device_revoke',
+        'admin_login', 'admin_withdrawal_approve', 'admin_withdrawal_reject',
+        'admin_user_lock', 'admin_user_unlock', 'admin_settings_change',
+        'system_withdrawal_signed', 'system_balance_adjust'
+      );
+    END IF;
+  END $$;`,
+  `CREATE TABLE IF NOT EXISTS audit_logs_immutable (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    request_id VARCHAR(64),
+    actor_type audit_actor_type_immutable NOT NULL,
+    actor_id UUID,
+    action VARCHAR(80) NOT NULL,
+    resource_type VARCHAR(50),
+    resource_id UUID,
+    old_value TEXT,
+    new_value TEXT,
+    ip_address INET,
+    user_agent TEXT,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_audit_immutable_actor ON audit_logs_immutable(actor_type, actor_id, created_at DESC);`,
+  `CREATE INDEX IF NOT EXISTS idx_audit_immutable_action ON audit_logs_immutable(action, created_at DESC);`,
+  `CREATE INDEX IF NOT EXISTS idx_audit_immutable_resource ON audit_logs_immutable(resource_type, resource_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_audit_immutable_created ON audit_logs_immutable(created_at DESC);`,
+  `CREATE INDEX IF NOT EXISTS idx_audit_immutable_request_id ON audit_logs_immutable(request_id) WHERE request_id IS NOT NULL;`,
+  `CREATE OR REPLACE FUNCTION audit_logs_immutable_no_update_delete()
+   RETURNS TRIGGER AS $$
+   BEGIN
+     IF TG_OP = 'UPDATE' THEN
+       RAISE EXCEPTION 'audit_logs_immutable: UPDATE not allowed';
+     END IF;
+     IF TG_OP = 'DELETE' THEN
+       RAISE EXCEPTION 'audit_logs_immutable: DELETE not allowed';
+     END IF;
+     RETURN NULL;
+   END;
+   $$ LANGUAGE plpgsql;`,
+  `DROP TRIGGER IF EXISTS trg_audit_logs_immutable_no_update ON audit_logs_immutable;`,
+  `CREATE TRIGGER trg_audit_logs_immutable_no_update
+   BEFORE UPDATE ON audit_logs_immutable FOR EACH ROW EXECUTE FUNCTION audit_logs_immutable_no_update_delete();`,
+  `DROP TRIGGER IF EXISTS trg_audit_logs_immutable_no_delete ON audit_logs_immutable;`,
+  `CREATE TRIGGER trg_audit_logs_immutable_no_delete
+   BEFORE DELETE ON audit_logs_immutable FOR EACH ROW EXECUTE FUNCTION audit_logs_immutable_no_update_delete();`,
+
+  // ============================================
   // REFERRAL REWARDS TABLE (optional FKs when trades/tokens are views)
   // ============================================
   `DO $$
@@ -953,6 +1022,108 @@ const migrations = [
      ('referral_reward_percentage', '0.1', 'Referral reward percentage of trading fees'),
      ('maintenance_mode', 'false', 'System maintenance mode')
    ON CONFLICT (key) DO NOTHING;`,
+
+  // ============================================
+  // FEE TIERS TABLE
+  // ============================================
+  `CREATE TABLE IF NOT EXISTS fee_tiers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tier_name VARCHAR(50) NOT NULL,
+    tier_level INT UNIQUE NOT NULL,
+    min_trading_volume DECIMAL(30,8) NOT NULL DEFAULT 0,
+    min_token_holding DECIMAL(30,8) DEFAULT 0,
+    spot_maker_fee DECIMAL(5,4) NOT NULL DEFAULT 0.001,
+    spot_taker_fee DECIMAL(5,4) NOT NULL DEFAULT 0.001,
+    withdrawal_fee_discount DECIMAL(5,4) DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `INSERT INTO fee_tiers (tier_name, tier_level, min_trading_volume, spot_maker_fee, spot_taker_fee)
+   SELECT 'Regular', 0, 0, 0.001, 0.001 WHERE NOT EXISTS (SELECT 1 FROM fee_tiers LIMIT 1);`,
+
+  // ============================================
+  // FEE PROMOTIONS TABLE
+  // ============================================
+  `CREATE TABLE IF NOT EXISTS fee_promotions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    promotion_type VARCHAR(50) NOT NULL CHECK (promotion_type IN ('spot_maker', 'spot_taker', 'spot_both', 'withdrawal', 'p2p_maker', 'p2p_taker')),
+    discount_type VARCHAR(20) NOT NULL DEFAULT 'percentage' CHECK (discount_type IN ('percentage', 'fixed_rate')),
+    discount_value DECIMAL(10,6) NOT NULL,
+    min_volume_30d DECIMAL(30,8) DEFAULT 0,
+    start_date TIMESTAMP WITH TIME ZONE NOT NULL,
+    end_date TIMESTAMP WITH TIME ZONE NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  );`,
+
+  // ============================================
+  // NOTIFICATIONS: enum + user_notifications, system_announcements, email_templates, sms_templates
+  // ============================================
+  `DO $$
+  BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'notification_type') THEN
+      CREATE TYPE notification_type AS ENUM (
+        'deposit_confirmed', 'withdrawal_processed',
+        'order_filled', 'order_cancelled',
+        'p2p_new_order', 'p2p_payment_received', 'p2p_completed',
+        'kyc_approved', 'kyc_rejected',
+        'security_alert', 'system_announcement',
+        'referral_commission', 'promotion'
+      );
+    END IF;
+  END $$;`,
+  `CREATE TABLE IF NOT EXISTS user_notifications (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    notification_type notification_type NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    message TEXT NOT NULL,
+    data JSONB,
+    is_read BOOLEAN DEFAULT FALSE,
+    read_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_user_notifications_user_id ON user_notifications(user_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_user_notifications_unread ON user_notifications(user_id, is_read);`,
+  `CREATE TABLE IF NOT EXISTS system_announcements (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    title VARCHAR(500) NOT NULL,
+    body TEXT,
+    summary VARCHAR(1000),
+    type VARCHAR(50) NOT NULL DEFAULT 'general' CHECK (type IN ('general', 'maintenance', 'security', 'listing', 'product', 'critical')),
+    is_pinned BOOLEAN DEFAULT FALSE,
+    is_published BOOLEAN DEFAULT TRUE,
+    published_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_by UUID REFERENCES admin_users(id)
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_system_announcements_published ON system_announcements(is_published, published_at DESC);`,
+  `CREATE TABLE IF NOT EXISTS email_templates (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    slug VARCHAR(100) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
+    subject VARCHAR(500) NOT NULL,
+    body_html TEXT NOT NULL,
+    body_text TEXT,
+    variables JSONB DEFAULT '[]',
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE TABLE IF NOT EXISTS sms_templates (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    slug VARCHAR(100) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
+    body TEXT NOT NULL,
+    variables JSONB DEFAULT '[]',
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  );`,
 
   // ============================================
   // API SETTINGS TABLE
@@ -1300,10 +1471,64 @@ const migrations = [
     action VARCHAR(80) NOT NULL,
     details JSONB,
     ip_address INET,
+    user_agent TEXT,
+    device_id VARCHAR(255),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
   );`,
   `CREATE INDEX IF NOT EXISTS idx_admin_activity_logs_admin_id ON admin_activity_logs(admin_id);`,
   `CREATE INDEX IF NOT EXISTS idx_admin_activity_logs_created ON admin_activity_logs(created_at DESC);`,
+  `ALTER TABLE admin_activity_logs ADD COLUMN IF NOT EXISTS user_agent TEXT;`,
+  `ALTER TABLE admin_activity_logs ADD COLUMN IF NOT EXISTS device_id VARCHAR(255);`,
+  `CREATE INDEX IF NOT EXISTS idx_admin_activity_logs_admin_created ON admin_activity_logs(admin_id, created_at DESC);`,
+
+  // ============================================
+  // SECURITY IP RULES (whitelist/blacklist, geo)
+  // ============================================
+  `CREATE TABLE IF NOT EXISTS security_ip_rules (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    scope VARCHAR(20) NOT NULL CHECK (scope IN ('admin', 'user')),
+    rule_type VARCHAR(20) NOT NULL CHECK (rule_type IN ('whitelist', 'blacklist')),
+    ip_cidr VARCHAR(45),
+    country_code VARCHAR(2),
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT security_ip_rules_cidr_or_country CHECK (ip_cidr IS NOT NULL OR country_code IS NOT NULL)
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_security_ip_rules_scope_enabled ON security_ip_rules(scope, enabled) WHERE enabled = TRUE;`,
+  `CREATE INDEX IF NOT EXISTS idx_security_ip_rules_scope_type ON security_ip_rules(scope, rule_type) WHERE enabled = TRUE;`,
+  `CREATE INDEX IF NOT EXISTS idx_security_ip_rules_country ON security_ip_rules(scope, country_code) WHERE enabled = TRUE AND country_code IS NOT NULL;`,
+
+  // ============================================
+  // SECURITY RISK ENGINE
+  // ============================================
+  `CREATE TABLE IF NOT EXISTS security_risk_rules (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    scope VARCHAR(30) NOT NULL CHECK (scope IN ('login', 'withdrawal', 'p2p', 'api', 'admin')),
+    min_score INTEGER NOT NULL DEFAULT 0 CHECK (min_score >= 0 AND min_score <= 100),
+    max_score INTEGER NOT NULL DEFAULT 100 CHECK (max_score >= 0 AND max_score <= 100),
+    decision VARCHAR(20) NOT NULL CHECK (decision IN ('allow', 'challenge', 'block')),
+    priority INTEGER NOT NULL DEFAULT 0,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT security_risk_rules_score_range CHECK (min_score <= max_score)
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_security_risk_rules_scope_enabled ON security_risk_rules(scope, enabled) WHERE enabled = TRUE;`,
+  `CREATE INDEX IF NOT EXISTS idx_security_risk_rules_priority ON security_risk_rules(scope, priority DESC) WHERE enabled = TRUE;`,
+
+  `CREATE TABLE IF NOT EXISTS security_risk_events (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    actor_type VARCHAR(20) NOT NULL,
+    actor_id VARCHAR(255),
+    scope VARCHAR(30) NOT NULL,
+    score INTEGER NOT NULL CHECK (score >= 0 AND score <= 100),
+    decision VARCHAR(20) NOT NULL CHECK (decision IN ('allow', 'challenge', 'block')),
+    signals JSONB,
+    request_id VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_security_risk_events_actor ON security_risk_events(actor_type, actor_id, created_at DESC);`,
+  `CREATE INDEX IF NOT EXISTS idx_security_risk_events_scope ON security_risk_events(scope, created_at DESC);`,
+  `CREATE INDEX IF NOT EXISTS idx_security_risk_events_request ON security_risk_events(request_id) WHERE request_id IS NOT NULL;`,
 
   // ============================================
   // DEFAULT ADMIN USER (only if no admin exists). Password: admin123
@@ -1410,6 +1635,12 @@ const migrations = [
        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_balances_user_currency_chain_account_key') THEN
          ALTER TABLE user_balances ADD CONSTRAINT user_balances_user_currency_chain_account_key UNIQUE (user_id, currency_id, chain_id, account_type);
        END IF;
+       IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_balances_available_non_negative') THEN
+         ALTER TABLE user_balances ADD CONSTRAINT user_balances_available_non_negative CHECK (available_balance >= 0);
+       END IF;
+       IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_balances_locked_non_negative') THEN
+         ALTER TABLE user_balances ADD CONSTRAINT user_balances_locked_non_negative CHECK (locked_balance >= 0);
+       END IF;
      END IF;
    END $$;`,
   // Track when a completed deposit has been applied to user_balances (avoids double-credit on repair).
@@ -1425,6 +1656,79 @@ const migrations = [
       DROP TABLE balances;
     END IF;
   END $$;`,
+
+  // ============================================
+  // WITHDRAWAL ADDRESS WHITELIST & TIMELOCKS (Step 5A)
+  // ============================================
+  `CREATE TABLE IF NOT EXISTS withdrawal_address_whitelist (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    asset TEXT NOT NULL,
+    address TEXT NOT NULL,
+    label TEXT,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    added_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (user_id, asset, address)
+  );`,
+  `CREATE TABLE IF NOT EXISTS withdrawal_address_timelocks (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    address_id UUID NOT NULL REFERENCES withdrawal_address_whitelist(id) ON DELETE CASCADE,
+    unlock_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+
+  // ============================================
+  // SECURITY COOLDOWNS (Step 5D) — block withdrawals after sensitive changes
+  // ============================================
+  `CREATE TABLE IF NOT EXISTS security_cooldowns (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    reason TEXT NOT NULL,
+    cooldown_until TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_security_cooldowns_user_until ON security_cooldowns(user_id, cooldown_until);`,
+
+  // ============================================
+  // AML & COMPLIANCE (Step 6A) — FIU-IND transaction monitoring & reporting
+  // ============================================
+  `CREATE TABLE IF NOT EXISTS aml_alerts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    alert_type TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    status TEXT NOT NULL,
+    details JSONB,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_aml_alerts_user_status ON aml_alerts(user_id, status);`,
+
+  `CREATE TABLE IF NOT EXISTS aml_transaction_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    txn_type TEXT NOT NULL,
+    asset TEXT,
+    amount NUMERIC,
+    fiat_amount NUMERIC,
+    fiat_currency TEXT,
+    country_code TEXT,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_aml_transaction_logs_user_created ON aml_transaction_logs(user_id, created_at);`,
+
+  `CREATE TABLE IF NOT EXISTS aml_str_ctr_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    report_type TEXT NOT NULL,
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    period_start DATE,
+    period_end DATE,
+    total_amount NUMERIC,
+    status TEXT NOT NULL,
+    payload JSONB,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_aml_str_ctr_logs_report_status ON aml_str_ctr_logs(report_type, status);`,
 ];
 
 /** True if this migration SQL touches the legacy "balances" table (not user_balances). Run such steps via raw pool so runtime guard does not block. */
@@ -1459,7 +1763,11 @@ async function migrate(direction: 'up' | 'down' = 'up'): Promise<void> {
     } else {
       // Drop all tables (for development only)
       const dropTables = `
-        DROP TABLE IF EXISTS 
+        DROP TABLE IF EXISTS
+          user_notifications,
+          system_announcements,
+          email_templates,
+          sms_templates,
           deposit_sweeps,
           withdrawal_signing_queue,
           hot_wallet_audit_log,
@@ -1468,6 +1776,7 @@ async function migrate(direction: 'up' | 'down' = 'up'): Promise<void> {
           withdrawals,
           referral_rewards,
           rate_limit_overrides,
+          audit_logs_immutable,
           audit_logs,
           transactions,
           p2p_disputes,
@@ -1490,6 +1799,10 @@ async function migrate(direction: 'up' | 'down' = 'up'): Promise<void> {
           users,
           system_settings
         CASCADE;
+        DROP TYPE IF EXISTS notification_type CASCADE;
+        DROP TYPE IF EXISTS audit_actor_type_immutable CASCADE;
+        DROP TYPE IF EXISTS audit_action_immutable CASCADE;
+        DROP FUNCTION IF EXISTS audit_logs_immutable_no_update_delete CASCADE;
         DROP FUNCTION IF EXISTS update_updated_at_column CASCADE;
       `;
       await db.query(dropTables);
@@ -1512,3 +1825,14 @@ const direction = args[0] === 'down' ? 'down' : 'up';
 migrate(direction);
 
 export { migrate };
+await db.query(`
+  CREATE TABLE IF NOT EXISTS security_risk_signal_weights (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    scope TEXT NOT NULL,
+    signal TEXT NOT NULL,
+    weight INT NOT NULL CHECK (weight >= 0),
+    enabled BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (scope, signal)
+  );
+`);
