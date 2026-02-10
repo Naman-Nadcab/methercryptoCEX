@@ -17,6 +17,7 @@ import {
   logUserActivity,
   getDeviceIdFromRequest,
 } from '../services/activity-monitor.service.js';
+import { rateLimitByIp } from '../lib/rate-limit-fastify.js';
 import {
   generateRegistrationOptions,
   verifyRegistrationResponse,
@@ -53,6 +54,19 @@ interface VerifyOTPBody {
 interface SetPasswordBody {
   password: string;
   confirmPassword: string;
+}
+
+/** Normalize request.user so request.user.id always exists (from userId or id). Returns false if already replied 401. */
+function normalizeUserPayload(request: FastifyRequest, reply: FastifyReply): boolean {
+  const u = request.user as { id?: string; userId?: string } | undefined;
+  if (!u) return true;
+  const id = u.id ?? u.userId;
+  if (!id || typeof id !== 'string') {
+    reply.status(401).send({ success: false, error: { code: 'INVALID_JWT_PAYLOAD', message: 'Invalid token payload' } });
+    return false;
+  }
+  (request.user as { id: string }).id = id;
+  return true;
 }
 
 // Helper to detect if identifier is email or phone
@@ -117,8 +131,10 @@ export default async function authRoutes(app: FastifyInstance) {
   /**
    * POST /auth/send-otp
    * Send OTP to email or phone
+   * FIX #4: Rate limit 3/min per IP via preHandler (before handler/DB).
    */
   app.post<{ Body: SendOTPBody }>('/send-otp', {
+    preHandler: [rateLimitByIp('auth:send-otp', 3, 60)],
     schema: {
       body: {
         type: 'object',
@@ -149,18 +165,6 @@ export default async function authRoutes(app: FastifyInstance) {
         cleanIdentifier = identifier.trim().toLowerCase();
       } else {
         cleanIdentifier = normalizePhoneNumber(identifier.trim());
-      }
-
-      // Rate limit check
-      const rateLimit = await otpService.checkRateLimit(cleanIdentifier);
-      if (!rateLimit.allowed) {
-        return reply.status(429).send({
-          success: false,
-          error: {
-            code: 'RATE_LIMITED',
-            message: `Too many OTP requests. Please try again in ${rateLimit.retryAfter} seconds.`,
-          },
-        });
       }
 
       // Generate and send OTP
@@ -233,15 +237,8 @@ export default async function authRoutes(app: FastifyInstance) {
 
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : 'Unknown';
-      const isRateLimit = errMsg.includes('rate') || errMsg.includes('limit');
       const isInvalid = errMsg.includes('identifier') || errMsg.includes('invalid');
       logger.error('Send OTP error', { error: errMsg });
-      if (isRateLimit) {
-        return reply.status(429).send({
-          success: false,
-          error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please try again later.' },
-        });
-      }
       if (isInvalid) {
         return reply.status(400).send({
           success: false,
@@ -258,8 +255,10 @@ export default async function authRoutes(app: FastifyInstance) {
   /**
    * POST /auth/verify-otp
    * Verify OTP and login/register
+   * FIX #4: Rate limit 5/min per IP via preHandler.
    */
   app.post<{ Body: VerifyOTPBody }>('/verify-otp', {
+    preHandler: [rateLimitByIp('auth:verify-otp', 5, 60)],
     schema: {
       body: {
         type: 'object',
@@ -735,11 +734,13 @@ export default async function authRoutes(app: FastifyInstance) {
         [userId]
       );
 
+      const authFlags = (request as unknown as { authDecision?: { auth_flags: number } }).authDecision?.auth_flags ?? 0;
       return reply.send({
         success: true,
         data: {
           ...user,
           referralCode: referralResult.rows[0]?.code,
+          auth_flags: authFlags,
         },
       });
 
@@ -1089,6 +1090,7 @@ export default async function authRoutes(app: FastifyInstance) {
    * Multi-step login with security verification
    * Step 1: Verify initial OTP (email/phone)
    * Step 2+: Additional verification based on user settings (SMS, 2FA)
+   * FIX #4: Rate limit 10/hour per IP via preHandler.
    */
   app.post<{
     Body: {
@@ -1097,6 +1099,7 @@ export default async function authRoutes(app: FastifyInstance) {
       otp: string;
     };
   }>('/login', {
+    preHandler: [rateLimitByIp('auth:login', 10, 3600)],
     schema: {
       body: {
         type: 'object',
@@ -1760,7 +1763,9 @@ export default async function authRoutes(app: FastifyInstance) {
   // ===============================
   // PASSKEY REGISTRATION - Generate Options
   // ===============================
-  app.post('/passkey/register/options', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/passkey/register/options', {
+    preHandler: [rateLimitByIp('auth:passkey', 10, 3600)],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
       const { userId } = request.user as { userId: string };
@@ -1851,7 +1856,9 @@ export default async function authRoutes(app: FastifyInstance) {
   // ===============================
   // PASSKEY REGISTRATION - Verify
   // ===============================
-  app.post('/passkey/register/verify', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/passkey/register/verify', {
+    preHandler: [rateLimitByIp('auth:passkey', 10, 3600)],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
       const { userId } = request.user as { userId: string };
@@ -2003,7 +2010,9 @@ export default async function authRoutes(app: FastifyInstance) {
   // ===============================
   // PASSKEY AUTHENTICATION - Generate Options
   // ===============================
-  app.post('/passkey/authenticate/options', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/passkey/authenticate/options', {
+    preHandler: [rateLimitByIp('auth:passkey', 10, 3600)],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { email, phone } = request.body as { email?: string; phone?: string };
 
@@ -2106,7 +2115,9 @@ export default async function authRoutes(app: FastifyInstance) {
   // ===============================
   // PASSKEY AUTHENTICATION - Verify
   // ===============================
-  app.post('/passkey/authenticate/verify', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/passkey/authenticate/verify', {
+    preHandler: [rateLimitByIp('auth:passkey', 10, 3600)],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { credential, challenge } = request.body as { credential: AuthenticationResponseJSON; challenge: string };
 
@@ -2975,7 +2986,8 @@ export default async function authRoutes(app: FastifyInstance) {
   app.get('/profile', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      if (!normalizeUserPayload(request, reply)) return;
+      const userId = (request.user as { id: string }).id;
 
       // Get comprehensive user profile
       const result = await db.query<{
@@ -3039,33 +3051,28 @@ export default async function authRoutes(app: FastifyInstance) {
       );
       const passkeysCount = parseInt(passkeysResult.rows[0]?.count || '0');
 
-      // Get referral code
-      const referralResult = await db.query<{ code: string }>(
-        `SELECT code FROM referral_codes WHERE user_id = $1 AND is_active = TRUE LIMIT 1`,
-        [userId]
-      );
-      let referralCode = referralResult.rows[0]?.code;
-
-      // Create referral code if doesn't exist
-      if (!referralCode) {
-        const newCode = userData.email.split('@')[0]?.toUpperCase().slice(0, 6) + 
-                        Math.random().toString(36).substring(2, 6).toUpperCase();
-        try {
+      // Get referral code (do not throw if table or row missing)
+      let referralCode: string | null = null;
+      try {
+        const referralResult = await db.query<{ code: string }>(
+          `SELECT code FROM referral_codes WHERE user_id = $1 AND is_active = TRUE LIMIT 1`,
+          [userId]
+        );
+        referralCode = referralResult.rows[0]?.code ?? null;
+        if (!referralCode && userData.email) {
+          const newCode = userData.email.split('@')[0]?.toUpperCase().slice(0, 6) + 
+                          Math.random().toString(36).substring(2, 6).toUpperCase();
           await db.query(
             `INSERT INTO referral_codes (user_id, code, is_active, created_at, updated_at)
              VALUES ($1, $2, TRUE, NOW(), NOW())
              ON CONFLICT (code) DO NOTHING`,
             [userId, newCode]
           );
-          referralCode = newCode;
-        } catch {
-          // Code collision, try to get existing one
-          const existingRef = await db.query<{ code: string }>(
-            `SELECT code FROM referral_codes WHERE user_id = $1 LIMIT 1`,
-            [userId]
-          );
-          referralCode = existingRef.rows[0]?.code || newCode;
+          const again = await db.query<{ code: string }>(`SELECT code FROM referral_codes WHERE user_id = $1 LIMIT 1`, [userId]);
+          referralCode = again.rows[0]?.code ?? newCode;
         }
+      } catch {
+        referralCode = null;
       }
 
       // Get active sessions/devices count (from unique user agents in last 30 days)

@@ -203,7 +203,22 @@ export async function computeSignals(params: {
 
 /**
  * Compute composite score 0–100 from signals and weights. Uses default weights; can be overridden via Redis later.
- */
+*/
+async function loadRiskSignalWeights(scope: RiskScope): Promise<Record<string, number>> {
+  const r = await db.query<{ signal: string; weight: number }>(
+    `SELECT signal, weight
+     FROM security_risk_signal_weights
+     WHERE scope = $1 AND enabled = TRUE`,
+    [scope]
+  );
+
+  const weights: Record<string, number> = {};
+  for (const row of r.rows) {
+    weights[row.signal] = row.weight;
+  }
+  return weights;
+}
+
 export function scoreFromSignals(signals: RiskSignals, weights: Record<string, number> = DEFAULT_WEIGHTS): number {
   let total = 0;
   if (signals.failed_login_count != null && typeof signals.failed_login_count === 'number') {
@@ -260,7 +275,9 @@ export async function evaluateRisk(params: {
 }): Promise<RiskResult> {
   const { scope, actorType, actorId, context, requestId } = params;
   const signals = await computeSignals({ scope, actorId, context });
-  const score = scoreFromSignals(signals);
+  const dbWeights = await loadRiskSignalWeights(scope);
+const weights = Object.keys(dbWeights).length ? dbWeights : DEFAULT_WEIGHTS;
+const score = scoreFromSignals(signals, weights);
   const rules = await getRulesForScope(scope);
   const { decision, ruleId } = applyRules(score, rules);
   return { score, decision, signals, ruleId };

@@ -418,7 +418,7 @@ export default function UnifiedTradingPage() {
                       </td>
                       <td className="px-6 py-4 text-right">
                         <Link
-                          href="/dashboard/trade/spot"
+                          href="/dashboard/trade"
                           className="px-4 py-1.5 text-sm text-blue-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors font-medium"
                         >
                           Trade

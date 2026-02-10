@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { db } from '../lib/database.js';
 import { logger } from '../lib/logger.js';
+import { getAllActiveCooldowns } from '../services/security-cooldown.service.js';
 
 export default async function userRoutes(app: FastifyInstance) {
   
@@ -160,13 +161,12 @@ export default async function userRoutes(app: FastifyInstance) {
 
       const result = await db.query(`
         SELECT 
-          id, device_type, device_name, browser, os,
-          ip_address, location_country, location_city,
-          created_at, last_activity_at,
+          id, device_type, ip_address, user_agent, device_id,
+          created_at, expires_at,
           CASE WHEN id = $2 THEN TRUE ELSE FALSE END as is_current
         FROM user_sessions
         WHERE user_id = $1 AND is_active = TRUE AND expires_at > NOW()
-        ORDER BY last_activity_at DESC
+        ORDER BY created_at DESC
       `, [userId, currentSessionId]);
 
       return reply.send({
@@ -436,6 +436,94 @@ export default async function userRoutes(app: FastifyInstance) {
       return reply.status(500).send({
         success: false,
         error: { code: 'FETCH_FAILED', message: 'Failed to fetch referral data' },
+      });
+    }
+  });
+
+  /**
+   * GET /user/risk-status
+   * Read-only visibility: KYC, withdrawal limits (used), active cooldowns, risk flags.
+   */
+  app.get('/risk-status', {
+    preHandler: [app.authenticate],
+  }, async (request, reply) => {
+    try {
+      const { id: userId } = request.user!;
+
+      let kyc_level = 0;
+      let kyc_status = 'not_submitted';
+      try {
+        const kycRes = await db.query<{ kyc_level: number; status: string }>(`
+          SELECT kyc_level, status FROM kyc_applications
+          WHERE user_id = $1
+          ORDER BY created_at DESC
+          LIMIT 1
+        `, [userId]);
+        if (kycRes.rows[0]) {
+          kyc_level = Number(kycRes.rows[0].kyc_level) || 0;
+          kyc_status = kycRes.rows[0].status || 'not_submitted';
+        }
+      } catch {
+        // table may not exist
+      }
+
+      let dailyLimit = 1000000;
+      let monthlyLimit = 10000000;
+      let used_today = 0;
+      let used_month = 0;
+      try {
+        const uRes = await db.query<{ daily_withdrawal_limit: string; monthly_withdrawal_limit: string }>(`
+          SELECT COALESCE(daily_withdrawal_limit, 1000000)::text as daily_withdrawal_limit,
+                 COALESCE(monthly_withdrawal_limit, 10000000)::text as monthly_withdrawal_limit
+          FROM users WHERE id = $1
+        `, [userId]);
+        if (uRes.rows[0]) {
+          dailyLimit = parseFloat(uRes.rows[0].daily_withdrawal_limit || '1000000');
+          monthlyLimit = parseFloat(uRes.rows[0].monthly_withdrawal_limit || '10000000');
+        }
+        const todayRes = await db.query<{ total: string }>(`
+          SELECT COALESCE(SUM(w.amount), 0)::text as total FROM withdrawals w
+          WHERE w.user_id = $1 AND w.status IN ('pending', 'processing', 'completed')
+            AND w.created_at >= CURRENT_DATE
+        `, [userId]);
+        const monthRes = await db.query<{ total: string }>(`
+          SELECT COALESCE(SUM(w.amount), 0)::text as total FROM withdrawals w
+          WHERE w.user_id = $1 AND w.status IN ('pending', 'processing', 'completed')
+            AND w.created_at >= DATE_TRUNC('month', CURRENT_DATE)
+        `, [userId]);
+        used_today = parseFloat(todayRes.rows[0]?.total || '0');
+        used_month = parseFloat(monthRes.rows[0]?.total || '0');
+      } catch {
+        // ignore
+      }
+
+      const active_cooldowns = await getAllActiveCooldowns({ userId });
+      const risk_flags: string[] = [];
+
+      return reply.send({
+        success: true,
+        data: {
+          kyc_level,
+          kyc_status,
+          withdrawal_limits: {
+            daily: dailyLimit,
+            monthly: monthlyLimit,
+            used_today,
+            used_month,
+          },
+          active_cooldowns: active_cooldowns.map((c) => ({
+            type: c.type,
+            reason: c.reason,
+            cooldown_until: c.cooldown_until.toISOString(),
+          })),
+          risk_flags,
+        },
+      });
+    } catch (error) {
+      logger.error('Get risk-status failed', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'FETCH_FAILED', message: 'Failed to fetch risk status' },
       });
     }
   });

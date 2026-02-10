@@ -57,6 +57,20 @@ const migrations = [
    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();`,
 
   // ============================================
+  // REFERRAL CODES TABLE (auth profile + referral flow)
+  // ============================================
+  `CREATE TABLE IF NOT EXISTS referral_codes (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    code VARCHAR(32) NOT NULL UNIQUE,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_referral_codes_user_id ON referral_codes(user_id);`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_referral_codes_code ON referral_codes(code);`,
+
+  // ============================================
   // AUTH PROVIDERS TABLE
   // ============================================
   `CREATE TABLE IF NOT EXISTS auth_providers (
@@ -232,6 +246,27 @@ const migrations = [
    CREATE TRIGGER update_kyc_records_updated_at
    BEFORE UPDATE ON kyc_records
    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();`,
+
+  // ============================================
+  // KYC APPLICATIONS TABLE (user-facing KYC flow; code uses this)
+  // ============================================
+  `CREATE TABLE IF NOT EXISTS kyc_applications (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kyc_level SMALLINT NOT NULL DEFAULT 0,
+    status VARCHAR(30) NOT NULL DEFAULT 'not_submitted',
+    rejection_reason TEXT,
+    submitted_at TIMESTAMP WITH TIME ZONE,
+    reviewed_at TIMESTAMP WITH TIME ZONE,
+    reviewed_by UUID REFERENCES users(id),
+    reviewer_notes TEXT,
+    country VARCHAR(10),
+    document_type VARCHAR(50),
+    third_party_provider VARCHAR(50),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_kyc_applications_user_id ON kyc_applications(user_id);`,
 
   // ============================================
   // KYC DOCUMENTS TABLE
@@ -546,6 +581,81 @@ const migrations = [
       CREATE INDEX IF NOT EXISTS idx_trades_executed_at ON trades(executed_at DESC);
       CREATE INDEX IF NOT EXISTS idx_trades_pair_executed ON trades(pair_id, executed_at DESC);
     END IF;
+  END $$;`,
+
+  // ============================================
+  // PHASE-3: SPOT TRADING (spot_markets, spot_orders, spot_trades)
+  // ============================================
+  `CREATE TABLE IF NOT EXISTS spot_markets (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    symbol VARCHAR(30) NOT NULL UNIQUE,
+    base_asset VARCHAR(20) NOT NULL,
+    quote_asset VARCHAR(20) NOT NULL,
+    base_currency_id UUID,
+    quote_currency_id UUID,
+    status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled', 'maintenance')),
+    min_qty DECIMAL(36,18) NOT NULL DEFAULT 0.0001,
+    min_notional DECIMAL(36,18) NOT NULL DEFAULT 1,
+    price_precision INT NOT NULL DEFAULT 8,
+    qty_precision INT NOT NULL DEFAULT 8,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_spot_markets_symbol ON spot_markets(symbol) WHERE status = 'active';`,
+  `CREATE INDEX IF NOT EXISTS idx_spot_markets_status ON spot_markets(status);`,
+
+  `CREATE TABLE IF NOT EXISTS spot_orders (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    market VARCHAR(30) NOT NULL,
+    side VARCHAR(4) NOT NULL CHECK (side IN ('buy', 'sell')),
+    type VARCHAR(10) NOT NULL CHECK (type IN ('market', 'limit')),
+    price DECIMAL(36,18),
+    quantity DECIMAL(36,18) NOT NULL,
+    filled_quantity DECIMAL(36,18) NOT NULL DEFAULT 0,
+    status VARCHAR(20) NOT NULL DEFAULT 'OPEN'
+      CHECK (status IN ('OPEN', 'PARTIALLY_FILLED', 'FILLED', 'CANCELLED', 'REJECTED')),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_spot_orders_user_id ON spot_orders(user_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_spot_orders_market ON spot_orders(market);`,
+  `CREATE INDEX IF NOT EXISTS idx_spot_orders_status ON spot_orders(status);`,
+  `CREATE INDEX IF NOT EXISTS idx_spot_orders_created_at ON spot_orders(created_at DESC);`,
+  `CREATE INDEX IF NOT EXISTS idx_spot_orders_open ON spot_orders(market, side, status) WHERE status IN ('OPEN', 'PARTIALLY_FILLED');`,
+
+  `CREATE TABLE IF NOT EXISTS spot_trades (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    order_id UUID NOT NULL REFERENCES spot_orders(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    market VARCHAR(30) NOT NULL,
+    side VARCHAR(4) NOT NULL CHECK (side IN ('buy', 'sell')),
+    price DECIMAL(36,18) NOT NULL,
+    quantity DECIMAL(36,18) NOT NULL,
+    fee DECIMAL(36,18) NOT NULL DEFAULT 0,
+    fee_asset VARCHAR(20),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_spot_trades_order_id ON spot_trades(order_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_spot_trades_user_id ON spot_trades(user_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_spot_trades_market ON spot_trades(market);`,
+  `CREATE INDEX IF NOT EXISTS idx_spot_trades_created_at ON spot_trades(created_at DESC);`,
+
+  // Phase-4: maker/taker fee per market
+  `ALTER TABLE spot_markets ADD COLUMN IF NOT EXISTS maker_fee DECIMAL(10,6) NOT NULL DEFAULT 0.001;`,
+  `ALTER TABLE spot_markets ADD COLUMN IF NOT EXISTS taker_fee DECIMAL(10,6) NOT NULL DEFAULT 0.001;`,
+
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'spot_markets') THEN
+      INSERT INTO spot_markets (symbol, base_asset, quote_asset, base_currency_id, quote_currency_id, status, min_qty, min_notional, price_precision, qty_precision)
+      SELECT 'BTC_USDT', 'BTC', 'USDT', (SELECT id FROM currencies WHERE UPPER(TRIM(symbol)) = 'BTC' LIMIT 1), (SELECT id FROM currencies WHERE UPPER(TRIM(symbol)) = 'USDT' LIMIT 1), 'active', 0.0001, 1, 8, 8
+      WHERE EXISTS (SELECT 1 FROM currencies LIMIT 1) AND NOT EXISTS (SELECT 1 FROM spot_markets WHERE symbol = 'BTC_USDT');
+      INSERT INTO spot_markets (symbol, base_asset, quote_asset, base_currency_id, quote_currency_id, status, min_qty, min_notional, price_precision, qty_precision)
+      SELECT 'ETH_USDT', 'ETH', 'USDT', (SELECT id FROM currencies WHERE UPPER(TRIM(symbol)) = 'ETH' LIMIT 1), (SELECT id FROM currencies WHERE UPPER(TRIM(symbol)) = 'USDT' LIMIT 1), 'active', 0.0001, 1, 8, 8
+      WHERE EXISTS (SELECT 1 FROM currencies LIMIT 1) AND NOT EXISTS (SELECT 1 FROM spot_markets WHERE symbol = 'ETH_USDT');
+    END IF;
+  EXCEPTION WHEN OTHERS THEN NULL;
   END $$;`,
 
   // ============================================
@@ -1646,6 +1756,27 @@ const migrations = [
   // Track when a completed deposit has been applied to user_balances (avoids double-credit on repair).
   `ALTER TABLE deposits ADD COLUMN IF NOT EXISTS balance_applied_at TIMESTAMP WITH TIME ZONE;`,
 
+  // FIX #2: Prevent double deposit credit — UNIQUE(chain_id|blockchain_id, tx_hash, to_address). Idempotent; no data dropped.
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'deposits_unique_chain_tx_to' AND conrelid = 'deposits'::regclass) THEN
+      RETURN;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'deposits') THEN
+      RETURN;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'deposits' AND column_name = 'chain_id') THEN
+      ALTER TABLE deposits ADD CONSTRAINT deposits_unique_chain_tx_to UNIQUE (chain_id, tx_hash, to_address);
+    ELSIF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'deposits' AND column_name = 'blockchain_id') THEN
+      ALTER TABLE deposits ADD CONSTRAINT deposits_unique_chain_tx_to UNIQUE (blockchain_id, tx_hash, to_address);
+    END IF;
+  EXCEPTION
+    WHEN unique_violation THEN
+      RAISE NOTICE 'deposits_unique_chain_tx_to: duplicate (chain, tx_hash, to_address) rows exist; resolve before adding constraint.';
+    WHEN duplicate_object THEN
+      NULL;
+  END $$;`,
+
   // Drop legacy balances (view or table). user_balances is the only source of truth; runtime never uses balances.
   `DO $$
   BEGIN
@@ -1729,6 +1860,40 @@ const migrations = [
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
   );`,
   `CREATE INDEX IF NOT EXISTS idx_aml_str_ctr_logs_report_status ON aml_str_ctr_logs(report_type, status);`,
+
+  // ============================================
+  // BALANCE SAFETY: total balance CHECK + balance_locks (Phase-7 Step-1)
+  // ============================================
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_balances') THEN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'user_balances'::regclass AND conname = 'user_balances_total_non_negative') THEN
+        ALTER TABLE user_balances ADD CONSTRAINT user_balances_total_non_negative
+          CHECK (COALESCE(available_balance, 0) + COALESCE(locked_balance, 0) >= 0);
+      END IF;
+    END IF;
+  END $$;`,
+  `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'balance_lock_reason') THEN CREATE TYPE balance_lock_reason AS ENUM ('order', 'withdrawal', 'escrow'); END IF; END $$;`,
+  `CREATE TABLE IF NOT EXISTS balance_locks (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    currency_id UUID NOT NULL REFERENCES currencies(id) ON DELETE CASCADE,
+    account_type balance_account_type NOT NULL,
+    amount DECIMAL(30,8) NOT NULL CHECK (amount > 0),
+    reason balance_lock_reason NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_balance_locks_user_currency_account ON balance_locks(user_id, currency_id, account_type);`,
+  `CREATE INDEX IF NOT EXISTS idx_balance_locks_expires_at ON balance_locks(expires_at);`,
+
+  // Phase-7 Step-2: spot_orders idempotency (client_order_id)
+  `ALTER TABLE spot_orders ADD COLUMN IF NOT EXISTS client_order_id VARCHAR(64);`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_spot_orders_user_client_order_id ON spot_orders(user_id, client_order_id) WHERE client_order_id IS NOT NULL;`,
+
+  // Phase-7 Step-3: balance_locks reference_id for order cancel (release lock by order)
+  `ALTER TABLE balance_locks ADD COLUMN IF NOT EXISTS reference_id UUID;`,
+  `CREATE INDEX IF NOT EXISTS idx_balance_locks_reference_id ON balance_locks(reference_id) WHERE reference_id IS NOT NULL;`,
 ];
 
 /** True if this migration SQL touches the legacy "balances" table (not user_balances). Run such steps via raw pool so runtime guard does not block. */

@@ -31,8 +31,8 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   _hasHydrated: boolean;
-  
-  // Actions
+  authResolved: boolean;
+  authFlags: number;
   setUser: (user: User | null) => void;
   setTokens: (accessToken: string, refreshToken: string) => void;
   login: (user: User, accessToken: string, refreshToken: string) => void;
@@ -40,6 +40,8 @@ interface AuthState {
   setLoading: (loading: boolean) => void;
   updateUser: (updates: Partial<User>) => void;
   setHasHydrated: (state: boolean) => void;
+  setAuthResolved: (value: boolean) => void;
+  setAuthFlags: (value: number) => void;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -51,7 +53,8 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
       isLoading: true,
       _hasHydrated: false,
-
+      authResolved: false,
+      authFlags: 0,
       setUser: (user) => set({ user, isAuthenticated: !!user }),
 
       setTokens: (accessToken, refreshToken) => set({ accessToken, refreshToken }),
@@ -78,6 +81,8 @@ export const useAuthStore = create<AuthState>()(
       })),
       
       setHasHydrated: (state) => set({ _hasHydrated: state }),
+      setAuthResolved: (value) => set({ authResolved: value }),
+      setAuthFlags: (value) => set({ authFlags: value }),
     }),
     {
       name: 'auth-storage',

@@ -13,7 +13,6 @@ import {
   ArrowUpFromLine,
   TrendingUp,
   Repeat,
-  Gift,
   Receipt,
   Bell,
   Lock,
@@ -39,42 +38,31 @@ interface MenuItem {
     label: string;
     href: string;
     badge?: number | string;
-    badgeKey?: string; // e.g. 'pending_approval' - resolved from API
+    badgeKey?: string;
   }[];
 }
 
 const menuItems: MenuItem[] = [
-  {
-    id: 'dashboard',
-    label: 'Dashboard',
-    icon: <LayoutDashboard className="w-4 h-4" />,
-    href: '/admin/dashboard',
-  },
+  { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4" />, href: '/admin/dashboard' },
   {
     id: 'users',
     label: 'User Management',
     icon: <Users className="w-4 h-4" />,
     children: [
-      { label: 'All Users', href: '/admin/users' },
-      { label: 'User Tiers', href: '/admin/users/tiers' },
-      { label: 'Verification Queue', href: '/admin/users/verification' },
+      { label: 'Users', href: '/admin/users' },
       { label: 'Suspended Users', href: '/admin/users/suspended' },
-      { label: 'Banned Users', href: '/admin/users/banned' },
+      { label: 'Login Activity', href: '/admin/security/sessions' },
     ],
   },
   {
     id: 'kyc',
     label: 'KYC Management',
     icon: <Shield className="w-4 h-4" />,
-    badge: 12,
-    badgeColor: 'bg-yellow-500',
     children: [
-      { label: 'KYC Dashboard', href: '/admin/kyc' },
-      { label: 'Pending KYC', href: '/admin/kyc/pending', badge: 8 },
-      { label: 'Under Review', href: '/admin/kyc/review', badge: 4 },
-      { label: 'Approved', href: '/admin/kyc/approved' },
-      { label: 'Rejected', href: '/admin/kyc/rejected' },
-      { label: 'Settings', href: '/admin/kyc/settings' },
+      { label: 'Pending KYC', href: '/admin/kyc/pending' },
+      { label: 'Approved KYC', href: '/admin/kyc/approved' },
+      { label: 'Rejected KYC', href: '/admin/kyc/rejected' },
+      { label: 'KYC Settings', href: '/admin/kyc/settings' },
     ],
   },
   {
@@ -82,38 +70,10 @@ const menuItems: MenuItem[] = [
     label: 'Wallets',
     icon: <Wallet className="w-4 h-4" />,
     children: [
-      { label: 'Overview', href: '/admin/wallets' },
-      { label: 'Funds Summary', href: '/admin/wallets/funds-summary' },
-      { label: 'Deposit Sweeps', href: '/admin/wallets/deposit-sweeps' },
+      { label: 'Asset Balances', href: '/admin/wallets/funds-summary' },
       { label: 'Hot Wallets', href: '/admin/wallets/hot' },
       { label: 'Cold Wallets', href: '/admin/wallets/cold' },
-      { label: 'Currencies', href: '/admin/wallets/currencies' },
-      { label: 'Blockchain Status', href: '/admin/wallets/blockchain' },
-    ],
-  },
-  {
-    id: 'deposits',
-    label: 'Deposits',
-    icon: <ArrowDownToLine className="w-4 h-4" />,
-    children: [
-      { label: 'All Deposits', href: '/admin/deposits' },
-      { label: 'Pending', href: '/admin/deposits/pending' },
-      { label: 'Completed', href: '/admin/deposits/completed' },
-      { label: 'Flagged', href: '/admin/deposits/flagged' },
-      { label: 'Manual Credit', href: '/admin/deposits/manual-credit' },
-      { label: 'Reports', href: '/admin/deposits/reports' },
-    ],
-  },
-  {
-    id: 'withdrawals',
-    label: 'Withdrawals',
-    icon: <ArrowUpFromLine className="w-4 h-4" />,
-    children: [
-      { label: 'Pending Approval', href: '/admin/withdrawals/pending-approval', badgeKey: 'pending_approval' },
-      { label: 'All Withdrawals', href: '/admin/withdrawals' },
-      { label: 'Internal Transfers', href: '/admin/withdrawals?type=internal' },
-      { label: 'Reports', href: '/admin/withdrawals/reports' },
-      { label: 'Settings', href: '/admin/withdrawals/settings' },
+      { label: 'Wallet Health', href: '/admin/wallets/blockchain' },
     ],
   },
   {
@@ -121,38 +81,43 @@ const menuItems: MenuItem[] = [
     label: 'Spot Trading',
     icon: <TrendingUp className="w-4 h-4" />,
     children: [
-      { label: 'Trading Pairs', href: '/admin/trading/pairs' },
-      { label: 'Order Book', href: '/admin/trading/orderbook' },
-      { label: 'Active Orders', href: '/admin/trading/orders' },
-      { label: 'Order History', href: '/admin/trading/order-history' },
-      { label: 'Trade History', href: '/admin/trading/trade-history' },
-      { label: 'Fee Config', href: '/admin/trading/fees' },
+      { label: 'Market List', href: '/admin/trading/spot-markets' },
+      { label: 'Market Control', href: '/admin/trading/market-control' },
+      { label: 'Fees & Limits', href: '/admin/trading/fees' },
+      { label: 'Circuit Breakers', href: '/admin/trading/circuit-breakers' },
+      { label: 'Live Orders', href: '/admin/trading/orders' },
+      { label: 'Failed Orders', href: '/admin/trading/orders?status=failed' },
+      { label: 'Cancel Orders', href: '/admin/trading/orders' },
+      { label: 'Live Trades', href: '/admin/trading/trade-history' },
+      { label: 'Trade Audit', href: '/admin/trading/trade-history' },
     ],
   },
   {
     id: 'p2p',
     label: 'P2P Trading',
     icon: <Repeat className="w-4 h-4" />,
-    badge: 2,
-    badgeColor: 'bg-orange-500',
     children: [
-      { label: 'Advertisements', href: '/admin/p2p/ads' },
       { label: 'Orders', href: '/admin/p2p/orders' },
-      { label: 'Disputes', href: '/admin/p2p/disputes', badge: 2 },
-      { label: 'Merchants', href: '/admin/p2p/merchants' },
-      { label: 'Payment Methods', href: '/admin/p2p/payment-methods' },
-      { label: 'Settings', href: '/admin/p2p/settings' },
+      { label: 'Disputes', href: '/admin/p2p/disputes' },
     ],
   },
   {
-    id: 'referrals',
-    label: 'Referrals',
-    icon: <Gift className="w-4 h-4" />,
+    id: 'deposits',
+    label: 'Deposits',
+    icon: <ArrowDownToLine className="w-4 h-4" />,
     children: [
-      { label: 'Referral Codes', href: '/admin/referrals/codes' },
-      { label: 'Relationships', href: '/admin/referrals/relationships' },
-      { label: 'Commissions', href: '/admin/referrals/commissions' },
-      { label: 'Campaigns', href: '/admin/referrals/campaigns' },
+      { label: 'Pending Deposits', href: '/admin/deposits/pending' },
+      { label: 'Failed Deposits', href: '/admin/deposits/flagged' },
+    ],
+  },
+  {
+    id: 'withdrawals',
+    label: 'Withdrawals',
+    icon: <ArrowUpFromLine className="w-4 h-4" />,
+    children: [
+      { label: 'Pending Withdrawals', href: '/admin/withdrawals/pending-approval', badgeKey: 'pending_approval' },
+      { label: 'Risk Holds', href: '/admin/withdrawals/pending' },
+      { label: 'Manual Review', href: '/admin/withdrawals/pending-approval' },
     ],
   },
   {
@@ -160,21 +125,8 @@ const menuItems: MenuItem[] = [
     label: 'Fee Management',
     icon: <Receipt className="w-4 h-4" />,
     children: [
-      { label: 'Trading Fees', href: '/admin/fees/trading' },
+      { label: 'Spot Fees', href: '/admin/fees/trading' },
       { label: 'Withdrawal Fees', href: '/admin/fees/withdrawal' },
-      { label: 'Fee Tiers', href: '/admin/fees/tiers' },
-      { label: 'Promotions', href: '/admin/fees/promotions' },
-    ],
-  },
-  {
-    id: 'notifications',
-    label: 'Notifications',
-    icon: <Bell className="w-4 h-4" />,
-    children: [
-      { label: 'Announcements', href: '/admin/notifications/announcements' },
-      { label: 'Push Notifications', href: '/admin/notifications/push' },
-      { label: 'Email Templates', href: '/admin/notifications/email' },
-      { label: 'SMS', href: '/admin/notifications/sms' },
     ],
   },
   {
@@ -182,15 +134,9 @@ const menuItems: MenuItem[] = [
     label: 'Security',
     icon: <Lock className="w-4 h-4" />,
     children: [
-      { label: 'Security Dashboard', href: '/admin/security/dashboard' },
-      { label: 'Risk Rules', href: '/admin/security/risk-rules' },
-      { label: 'IP Rules', href: '/admin/security/ip-rules' },
-      { label: 'Withdrawal Security', href: '/admin/security/withdrawals' },
-      { label: 'Sessions & Devices', href: '/admin/security/sessions' },
-      { label: 'Activity Monitor', href: '/admin/security/activity' },
-      { label: 'IP Management', href: '/admin/security/ip' },
-      { label: 'Fraud Detection', href: '/admin/security/fraud' },
-      { label: 'AML/Compliance', href: '/admin/security/compliance' },
+      { label: 'Risk Flags', href: '/admin/security/risk-rules' },
+      { label: 'Circuit Breakers', href: '/admin/trading/circuit-breakers' },
+      { label: 'Admin IP Whitelist', href: '/admin/security/ip-rules' },
       { label: 'Audit Logs', href: '/admin/security/audit-logs' },
     ],
   },
@@ -199,11 +145,9 @@ const menuItems: MenuItem[] = [
     label: 'Reports',
     icon: <BarChart3 className="w-4 h-4" />,
     children: [
-      { label: 'Financial', href: '/admin/reports/financial' },
-      { label: 'Users', href: '/admin/reports/users' },
-      { label: 'Trading', href: '/admin/reports/trading' },
-      { label: 'P2P', href: '/admin/reports/p2p' },
-      { label: 'Custom Reports', href: '/admin/reports/custom' },
+      { label: 'Volume', href: '/admin/reports/trading' },
+      { label: 'Revenue', href: '/admin/reports/financial' },
+      { label: 'User Growth', href: '/admin/reports/users' },
     ],
   },
   {
@@ -211,16 +155,8 @@ const menuItems: MenuItem[] = [
     label: 'Settings',
     icon: <Settings className="w-4 h-4" />,
     children: [
-      { label: 'General', href: '/admin/settings' },
-      { label: 'Maintenance', href: '/admin/settings/maintenance' },
+      { label: 'System Settings', href: '/admin/settings' },
       { label: 'Feature Toggles', href: '/admin/settings/features' },
-      { label: 'API Settings', href: '/admin/settings/api' },
-      { label: 'Blockchain', href: '/admin/settings/blockchain' },
-      { label: 'Chains', href: '/admin/settings/blockchain/chains' },
-      { label: 'Currencies', href: '/admin/settings/blockchain/currencies' },
-      { label: 'Tokens', href: '/admin/settings/blockchain/tokens' },
-      { label: 'Trading Pairs', href: '/admin/settings/trading-pairs' },
-      { label: 'P2P Assets', href: '/admin/settings/p2p-assets' },
     ],
   },
   {
@@ -228,9 +164,8 @@ const menuItems: MenuItem[] = [
     label: 'Admin Users',
     icon: <UserCog className="w-4 h-4" />,
     children: [
-      { label: 'All Admins', href: '/admin/admins' },
       { label: 'Roles & Permissions', href: '/admin/admins/roles' },
-      { label: 'Activity Logs', href: '/admin/admins/logs' },
+      { label: 'Activity Logs', href: '/admin/security/audit-logs' },
     ],
   },
   {
@@ -238,9 +173,8 @@ const menuItems: MenuItem[] = [
     label: 'Support',
     icon: <HeadphonesIcon className="w-4 h-4" />,
     children: [
-      { label: 'All Tickets', href: '/admin/support' },
-      { label: 'My Tickets', href: '/admin/support/my-tickets' },
-      { label: 'Canned Responses', href: '/admin/support/responses' },
+      { label: 'Tickets', href: '/admin/support' },
+      { label: 'User Messages', href: '/admin/support' },
     ],
   },
 ];
@@ -299,7 +233,6 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
 
   return (
     <>
-      {/* Mobile overlay */}
       {isOpen && (
         <div
           className="fixed inset-0 bg-black/50 z-40 lg:hidden"
@@ -307,13 +240,11 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
         />
       )}
 
-      {/* Sidebar */}
       <aside
         className={`fixed top-0 left-0 z-50 h-full bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 transition-transform duration-300 lg:translate-x-0 ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         } w-60 flex flex-col text-[10px]`}
       >
-        {/* Logo */}
         <div className="h-14 flex items-center justify-between px-3 border-b border-gray-200 dark:border-gray-800">
           <Link href="/admin/dashboard" className="flex items-center gap-2">
             <div className="w-7 h-7 bg-gradient-to-br from-blue-500 to-blue-500 rounded-lg flex items-center justify-center">
@@ -329,7 +260,6 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
           </button>
         </div>
 
-        {/* Menu */}
         <nav className="flex-1 overflow-y-auto py-3 px-2">
           <ul className="space-y-0.5">
             {menuItems.map((item) => (
@@ -411,7 +341,6 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
           </ul>
         </nav>
 
-        {/* Footer */}
         <div className="p-3 border-t border-gray-200 dark:border-gray-800">
           <div className="flex items-center gap-2 px-2 py-2 rounded-lg bg-gray-100 dark:bg-gray-800/50">
             <AlertCircle className="w-4 h-4 text-yellow-500" />

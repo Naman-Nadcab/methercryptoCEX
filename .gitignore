@@ -63,3 +63,6 @@ Thumbs.db
 
 # TypeScript
 *.tsbuildinfo
+
+# Rust
+target/

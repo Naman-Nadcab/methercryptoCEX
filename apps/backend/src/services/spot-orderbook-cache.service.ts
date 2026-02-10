@@ -1,0 +1,87 @@
+/**
+ * Spot orderbook Redis cache. Top N levels cached; periodic rebuild from DB.
+ * GET orderbook reads from Redis first (non-blocking for order placement).
+ */
+
+import { db } from '../lib/database.js';
+import { redis } from '../lib/redis.js';
+import { logger } from '../lib/logger.js';
+
+const CACHE_PREFIX = 'spot:orderbook:';
+const CACHE_TTL_SEC = 10;
+const DEFAULT_LEVELS = 50;
+
+export type OrderbookLevel = { price: string; quantity: string };
+
+export interface OrderbookSnapshot {
+  symbol: string;
+  bids: OrderbookLevel[];
+  asks: OrderbookLevel[];
+  lastUpdateId: number;
+}
+
+export async function getOrderbookFromDb(symbol: string, limit: number = DEFAULT_LEVELS): Promise<OrderbookSnapshot> {
+  const [bids, asks] = await Promise.all([
+    db.query<{ price: string; quantity: string }>(`
+      SELECT price::text as price, SUM(quantity - filled_quantity)::text as quantity
+      FROM spot_orders
+      WHERE market = $1 AND side = 'buy' AND status IN ('OPEN', 'PARTIALLY_FILLED') AND (quantity - filled_quantity) > 0
+      GROUP BY price
+      ORDER BY price DESC
+      LIMIT $2
+    `, [symbol, limit]),
+    db.query<{ price: string; quantity: string }>(`
+      SELECT price::text as price, SUM(quantity - filled_quantity)::text as quantity
+      FROM spot_orders
+      WHERE market = $1 AND side = 'sell' AND status IN ('OPEN', 'PARTIALLY_FILLED') AND (quantity - filled_quantity) > 0
+      GROUP BY price
+      ORDER BY price ASC
+      LIMIT $2
+    `, [symbol, limit]),
+  ]);
+  const lastUpdateId = Date.now();
+  return {
+    symbol,
+    bids: bids.rows,
+    asks: asks.rows,
+    lastUpdateId,
+  };
+}
+
+export async function getCachedOrderbook(symbol: string, limit: number = DEFAULT_LEVELS): Promise<OrderbookSnapshot | null> {
+  try {
+    const key = `${CACHE_PREFIX}${symbol}`;
+    const raw = await redis.get(key);
+    if (!raw) return null;
+    const data = JSON.parse(raw) as OrderbookSnapshot;
+    data.bids = (data.bids || []).slice(0, limit);
+    data.asks = (data.asks || []).slice(0, limit);
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+export async function setOrderbookCache(snapshot: OrderbookSnapshot): Promise<void> {
+  try {
+    const key = `${CACHE_PREFIX}${snapshot.symbol}`;
+    await redis.set(key, JSON.stringify(snapshot), CACHE_TTL_SEC);
+  } catch (e) {
+    logger.warn('Spot orderbook cache set failed', { symbol: snapshot.symbol, error: e instanceof Error ? e.message : 'Unknown' });
+  }
+}
+
+export async function invalidateOrderbookCache(symbol: string): Promise<void> {
+  try {
+    await redis.del(`${CACHE_PREFIX}${symbol}`);
+  } catch {
+    // ignore
+  }
+}
+
+/** Rebuild cache for a symbol from DB. Call periodically or after order/cancel. */
+export async function refreshOrderbookCache(symbol: string): Promise<OrderbookSnapshot> {
+  const snapshot = await getOrderbookFromDb(symbol, DEFAULT_LEVELS);
+  await setOrderbookCache(snapshot);
+  return snapshot;
+}

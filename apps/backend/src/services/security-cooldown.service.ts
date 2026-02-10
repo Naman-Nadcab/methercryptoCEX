@@ -56,3 +56,19 @@ export async function hasActiveCooldown(params: { userId: string }): Promise<Has
     reason: row.reason,
   };
 }
+
+/** All active cooldowns for the user (for risk-status visibility). */
+export async function getAllActiveCooldowns(params: { userId: string }): Promise<{ type: string; reason: string; cooldown_until: Date }[]> {
+  const { userId } = params;
+  const result = await db.query<{ reason: string; cooldown_until: string }>(
+    `SELECT reason, cooldown_until FROM security_cooldowns
+     WHERE user_id = $1 AND cooldown_until > NOW()
+     ORDER BY cooldown_until DESC`,
+    [userId]
+  );
+  return result.rows.map((r) => ({
+    type: 'withdrawal',
+    reason: r.reason,
+    cooldown_until: new Date(r.cooldown_until),
+  }));
+}

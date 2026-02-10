@@ -295,7 +295,7 @@ export default function FeeRatesPage() {
 
                 {/* Trade Link */}
                 <Link
-                  href="/trade/spot"
+                  href="/dashboard/trade"
                   className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm font-medium"
                 >
                   Trade Spot <ChevronRight className="w-4 h-4" />

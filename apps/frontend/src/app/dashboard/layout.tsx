@@ -104,6 +104,12 @@ const menuItems: MenuItem[] = [
     icon: <Receipt className="w-5 h-5" />,
     href: '/dashboard/fee-rates',
   },
+  {
+    id: 'spot-wallet',
+    label: 'Spot Wallet',
+    icon: <TrendingUp className="w-5 h-5" />,
+    href: '/dashboard/wallet/spot',
+  },
   // {
   //   id: 'audit',
   //   label: 'Audit',
@@ -434,9 +440,8 @@ export default function DashboardLayout({
                     <p className="text-xs text-gray-500">One-click from a verified address</p>
                   </div>
                 </Link>
-                <p className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider mt-2">Don&apos;t have crypto</p>
                 <Link 
-                  href="/dashboard/p2p" 
+                  href="/p2p" 
                   className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
                   onClick={() => setDepositMenuOpen(false)}
                 >
@@ -448,6 +453,7 @@ export default function DashboardLayout({
                     <p className="text-xs text-gray-500">Zero Fees</p>
                   </div>
                 </Link>
+                <p className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider mt-2">Don&apos;t have crypto</p>
                 <Link 
                   href="/dashboard/buy-crypto" 
                   className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
@@ -509,6 +515,10 @@ export default function DashboardLayout({
                 <Link href="/dashboard/assets/funding" onClick={() => setAssetsMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl">
                   <div className="w-8 h-8 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center"><CreditCard className="w-4 h-4 text-green-500" /></div>
                   <span className="font-medium">Funding Account</span>
+                </Link>
+                <Link href="/dashboard/wallet/spot" onClick={() => setAssetsMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl">
+                  <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center"><TrendingUp className="w-4 h-4 text-amber-600 dark:text-amber-400" /></div>
+                  <span className="font-medium">Spot Wallet</span>
                 </Link>
               </div>
               <div className="p-2 bg-gray-50 dark:bg-[#181a20] border-t border-gray-100 dark:border-gray-800">

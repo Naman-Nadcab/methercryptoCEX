@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
@@ -12,6 +13,33 @@ import { evaluateAndLogRisk } from '../services/risk-engine.service.js';
 import { getDeviceIdFromRequest, logUserActivity } from '../services/activity-monitor.service.js';
 import { isAddressAllowed } from '../services/withdrawal-whitelist.service.js';
 import { hasActiveCooldown } from '../services/security-cooldown.service.js';
+import { rateLimitByUser } from '../lib/rate-limit-fastify.js';
+
+const WITHDRAWAL_IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60; // 24 hours
+const WITHDRAWAL_IDEMPOTENCY_LOCK_TTL_SECONDS = 30;
+const IDEMPOTENCY_KEY_HEADER = 'idempotency-key';
+
+/** Build a stable hash of withdrawal request body for idempotency (same payload => same hash). */
+function buildWithdrawalRequestHash(body: Record<string, unknown>): string {
+  const normalized = {
+    accountType: String(body.accountType ?? 'funding').trim(),
+    amount: String(body.amount ?? '').trim(),
+    chainId: body.chainId != null ? String(body.chainId).trim() : '',
+    internal_user_identifier: body.internal_user_identifier != null ? String(body.internal_user_identifier).trim() : '',
+    memo: body.memo != null ? String(body.memo).trim() : '',
+    symbol: String(body.symbol ?? '').trim(),
+    toAddress: body.toAddress != null ? String(body.toAddress).trim().toLowerCase() : '',
+    type: String(body.type ?? 'onchain').trim(),
+  };
+  const str = JSON.stringify(normalized);
+  return crypto.createHash('sha256').update(str).digest('hex');
+}
+
+interface WithdrawalIdempotencyCache {
+  withdrawalId: string;
+  requestHash: string;
+  response: { success: true; data: Record<string, unknown> };
+}
 
 interface ChainDB {
   id: string;
@@ -630,7 +658,13 @@ export default async function walletRoutes(app: FastifyInstance) {
     }
   });
 
-  // Get user balances (authenticated). Uses canonical readUserBalances only.
+  /**
+   * Account types (user_balances.account_type):
+   * - funding: Deposits and withdrawals. Main on-ramp balance. Trading != funding; move funds to spot to trade.
+   * - trading (spot): Spot trading wallet. Used for order margin and settlements. Separate from funding.
+   * - escrow (p2p): P2P order escrow. Locked until order completes or is released.
+   * Balances API returns per-row: asset, balance, available_balance, account_type.
+   */
   app.get('/balances', {
     preHandler: [app.authenticate]
   }, async (request: FastifyRequest, reply: FastifyReply) => {
@@ -642,27 +676,29 @@ export default async function walletRoutes(app: FastifyInstance) {
         readUserBalances(userId, 'trading').catch(() => [] as Awaited<ReturnType<typeof readUserBalances>>),
         db.query<{ id: string; symbol: string; name: string }>(`SELECT id, symbol, COALESCE(name, symbol) as name FROM currencies WHERE is_active = TRUE`),
       ]);
-      const byCurrency: Record<string, { symbol: string; available: number; locked: number }> = {};
-      const allRows = [...fundingRows, ...spotRows, ...tradingRows];
-      for (const r of allRows) {
-        if (!byCurrency[r.currency_id]) {
-          byCurrency[r.currency_id] = { symbol: r.symbol, available: 0, locked: 0 };
-        }
-        byCurrency[r.currency_id].available += parseFloat(r.available_balance || '0');
-        byCurrency[r.currency_id].locked += parseFloat(r.locked_balance || '0');
-      }
       const nameById: Record<string, string> = {};
       namesResult.rows.forEach(row => {
         nameById[row.id] = row.name || row.symbol;
       });
-      const balances = Object.entries(byCurrency).map(([currency_id, agg]) => ({
-        currency_id,
-        symbol: agg.symbol,
-        name: nameById[currency_id] ?? agg.symbol,
-        available_balance: agg.available,
-        locked_balance: agg.locked,
-        total: agg.available + agg.locked
-      }));
+      const allRows = [
+        ...fundingRows.map(r => ({ ...r, account_type: 'funding' as const })),
+        ...spotRows.map(r => ({ ...r, account_type: 'spot' as const })),
+        ...tradingRows.map(r => ({ ...r, account_type: 'trading' as const })),
+      ];
+      const balances = allRows.map(r => {
+        const avail = parseFloat(r.available_balance || '0');
+        const locked = parseFloat(r.locked_balance || '0');
+        const balance = avail + locked;
+        return {
+          asset: r.symbol,
+          currency_id: r.currency_id,
+          name: nameById[r.currency_id] ?? r.symbol,
+          balance,
+          available_balance: avail,
+          locked_balance: locked,
+          account_type: r.account_type,
+        };
+      });
 
       return reply.send({
         success: true,
@@ -677,6 +713,45 @@ export default async function walletRoutes(app: FastifyInstance) {
         success: false,
         error: { code: 'INTERNAL_ERROR', message: 'Failed to get balances' }
       });
+    }
+  });
+
+  /**
+   * GET /balances/spot — Spot wallet only (trading account). Read-only.
+   * Returns: asset, balance, available_balance, account_type (Spot).
+   */
+  app.get('/balances/spot', {
+    preHandler: [app.authenticate]
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const userId = request.user!.id;
+      let rows: Awaited<ReturnType<typeof readUserBalances>>;
+      try {
+        rows = await readUserBalances(userId, 'trading');
+      } catch {
+        rows = [];
+      }
+      const namesResult = await db.query<{ id: string; name: string }>(
+        `SELECT id, COALESCE(name, symbol) as name FROM currencies WHERE is_active = TRUE`
+      );
+      const nameById: Record<string, string> = {};
+      namesResult.rows.forEach(row => { nameById[row.id] = row.name; });
+      const data = rows.map(r => {
+        const avail = parseFloat(r.available_balance || '0');
+        const locked = parseFloat(r.locked_balance || '0');
+        const balance = avail + locked;
+        return {
+          asset: r.symbol,
+          balance: balance.toFixed(8),
+          available_balance: avail.toFixed(8),
+          locked_balance: locked.toFixed(8),
+          account_type: 'spot' as const,
+        };
+      });
+      return reply.send({ success: true, data });
+    } catch (error) {
+      logger.error('Failed to get spot balances', { error: error instanceof Error ? error.message : 'Unknown', userId: request.user?.id });
+      return reply.status(500).send({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to get spot balances' } });
     }
   });
 
@@ -962,6 +1037,486 @@ export default async function walletRoutes(app: FastifyInstance) {
     }
   });
 
+  // -------------------------------------------------------------------------
+  // GET /wallet/ledger — unified read-only ledger (deposits, withdrawals, conversions)
+  // -------------------------------------------------------------------------
+  app.get('/ledger', {
+    preHandler: [app.authenticate]
+  }, async (request: FastifyRequest<{
+    Querystring: { page?: string; limit?: string; asset?: string; type?: string; from?: string; to?: string }
+  }>, reply: FastifyReply) => {
+    try {
+      const userId = request.user!.id;
+      const page = Math.max(1, parseInt(request.query.page || '1'));
+      const limit = Math.min(100, Math.max(1, parseInt(request.query.limit || '20')));
+      const offset = (page - 1) * limit;
+      const assetFilter = request.query.asset?.trim().toUpperCase();
+      const typeFilter = request.query.type?.toLowerCase();
+      const fromDate = request.query.from ? new Date(request.query.from) : null;
+      const toDate = request.query.to ? new Date(request.query.to) : null;
+
+      const ledgerDisplayStatus = (s: string): string => {
+        const v = (s || '').toLowerCase();
+        if (['pending', 'pending_approval'].includes(v)) return 'Pending';
+        if (['processing', 'queued', 'signed', 'broadcasted'].includes(v)) return 'Processing';
+        if (v === 'completed') return 'Completed';
+        if (['failed', 'rejected', 'cancelled'].includes(v)) return v === 'rejected' ? 'Rejected' : v === 'cancelled' ? 'Cancelled' : 'Failed';
+        return s || 'Unknown';
+      };
+      type LedgerRow = {
+        id: string;
+        type: 'deposit' | 'withdrawal' | 'internal_transfer' | 'convert' | 'spot_trade';
+        asset: string;
+        amount: string;
+        fee: string;
+        direction: 'in' | 'out';
+        status: string;
+        displayStatus: string;
+        reference_id: string;
+        created_at: Date;
+      };
+      const rows: LedgerRow[] = [];
+
+      if (!typeFilter || typeFilter === 'deposit') {
+        try {
+          let depQuery = `
+            SELECT d.id, d.amount::text as amount, COALESCE(d.fee, 0)::text as fee, d.status, d.created_at, c.symbol
+            FROM deposits d
+            LEFT JOIN currencies c ON d.currency_id = c.id
+            WHERE d.user_id = $1 AND (d.amount IS NULL OR d.amount::numeric > 0)
+          `;
+          const depParams: unknown[] = [userId];
+          let pi = 2;
+          if (assetFilter) {
+            depQuery += ` AND UPPER(c.symbol) = $${pi}`;
+            depParams.push(assetFilter);
+            pi++;
+          }
+          if (fromDate && !isNaN(fromDate.getTime())) {
+            depQuery += ` AND d.created_at >= $${pi}`;
+            depParams.push(fromDate);
+            pi++;
+          }
+          if (toDate && !isNaN(toDate.getTime())) {
+            depQuery += ` AND d.created_at <= $${pi}`;
+            depParams.push(toDate);
+            pi++;
+          }
+          depQuery += ` ORDER BY d.created_at DESC LIMIT 500`;
+          const depRes = await db.query<{ id: string; amount: string; fee: string; status: string; created_at: Date; symbol: string | null }>(depQuery, depParams);
+          for (const r of depRes.rows) {
+            rows.push({
+              id: r.id,
+              type: 'deposit',
+              asset: r.symbol || '?',
+              amount: r.amount,
+              fee: r.fee || '0',
+              direction: 'in',
+              status: r.status,
+              displayStatus: ledgerDisplayStatus(r.status),
+              reference_id: r.id,
+              created_at: r.created_at
+            });
+          }
+        } catch {
+          // deposits table may not exist or different schema
+        }
+      }
+
+      if (!typeFilter || typeFilter === 'withdrawal' || typeFilter === 'internal_transfer') {
+        try {
+          let wQuery = `
+            SELECT w.id, w.amount::text as amount, COALESCE(w.fee, 0)::text as fee, w.status, w.created_at, t.symbol, w.type as wtype
+            FROM withdrawals w
+            LEFT JOIN tokens t ON w.token_id = t.id
+            WHERE w.user_id = $1
+          `;
+          const wParams: unknown[] = [userId];
+          let pi = 2;
+          if (typeFilter === 'withdrawal') {
+            wQuery += ` AND (w.type IS NULL OR w.type != 'internal')`;
+          } else if (typeFilter === 'internal_transfer') {
+            wQuery += ` AND w.type = 'internal'`;
+          }
+          if (assetFilter) {
+            wQuery += ` AND UPPER(t.symbol) = $${pi}`;
+            wParams.push(assetFilter);
+            pi++;
+          }
+          if (fromDate && !isNaN(fromDate.getTime())) {
+            wQuery += ` AND w.created_at >= $${pi}`;
+            wParams.push(fromDate);
+            pi++;
+          }
+          if (toDate && !isNaN(toDate.getTime())) {
+            wQuery += ` AND w.created_at <= $${pi}`;
+            wParams.push(toDate);
+            pi++;
+          }
+          wQuery += ` ORDER BY w.created_at DESC LIMIT 500`;
+          const wRes = await db.query<{ id: string; amount: string; fee: string; status: string; created_at: Date; symbol: string | null; wtype: string | null }>(wQuery, wParams);
+          for (const r of wRes.rows) {
+            const entryType: LedgerRow['type'] = (r.wtype || '').toLowerCase() === 'internal' ? 'internal_transfer' : 'withdrawal';
+            rows.push({
+              id: r.id,
+              type: entryType,
+              asset: r.symbol || '?',
+              amount: r.amount,
+              fee: r.fee || '0',
+              direction: 'out',
+              status: r.status,
+              displayStatus: ledgerDisplayStatus(r.status),
+              reference_id: r.id,
+              created_at: r.created_at
+            });
+          }
+        } catch {
+          // withdrawals table may not exist
+        }
+      }
+
+      if (!typeFilter || typeFilter === 'convert') {
+        try {
+          let cQuery = `
+            SELECT c.id, c.from_amount::text as amount, COALESCE(c.fee_amount, 0)::text as fee, c.status, c.created_at, fc.symbol as from_symbol
+            FROM conversions c
+            JOIN currencies fc ON c.from_currency_id = fc.id
+            WHERE c.user_id = $1
+          `;
+          const cParams: unknown[] = [userId];
+          let pi = 2;
+          if (assetFilter) {
+            cQuery += ` AND UPPER(fc.symbol) = $${pi}`;
+            cParams.push(assetFilter);
+            pi++;
+          }
+          if (fromDate && !isNaN(fromDate.getTime())) {
+            cQuery += ` AND c.created_at >= $${pi}`;
+            cParams.push(fromDate);
+            pi++;
+          }
+          if (toDate && !isNaN(toDate.getTime())) {
+            cQuery += ` AND c.created_at <= $${pi}`;
+            cParams.push(toDate);
+            pi++;
+          }
+          cQuery += ` ORDER BY c.created_at DESC LIMIT 500`;
+          const cRes = await db.query<{ id: string; amount: string; fee: string; status: string; created_at: Date; from_symbol: string }>(cQuery, cParams);
+          for (const r of cRes.rows) {
+            rows.push({
+              id: r.id,
+              type: 'convert',
+              asset: r.from_symbol || '?',
+              amount: r.amount,
+              fee: r.fee || '0',
+              direction: 'out',
+              status: r.status,
+              displayStatus: ledgerDisplayStatus(r.status),
+              reference_id: r.id,
+              created_at: r.created_at
+            });
+          }
+        } catch {
+          // conversions table may not exist
+        }
+      }
+
+      if (!typeFilter || typeFilter === 'spot_trade') {
+        try {
+          let stQuery = `
+            SELECT st.id, st.order_id, st.side, st.price::text, st.quantity::text, COALESCE(st.fee, 0)::text as fee, st.created_at, st.market
+            FROM spot_trades st
+            WHERE st.user_id = $1
+          `;
+          const stParams: unknown[] = [userId];
+          let pi = 2;
+          if (assetFilter) {
+            stQuery += ` AND (st.market LIKE $${pi} OR st.market LIKE $${pi + 1})`;
+            stParams.push(assetFilter + '_%', '%_' + assetFilter);
+            pi += 2;
+          }
+          if (fromDate && !isNaN(fromDate.getTime())) {
+            stQuery += ` AND st.created_at >= $${pi}`;
+            stParams.push(fromDate);
+            pi++;
+          }
+          if (toDate && !isNaN(toDate.getTime())) {
+            stQuery += ` AND st.created_at <= $${pi}`;
+            stParams.push(toDate);
+            pi++;
+          }
+          stQuery += ` ORDER BY st.created_at DESC LIMIT 500`;
+          const stRes = await db.query<{ id: string; order_id: string; side: string; price: string; quantity: string; fee: string; created_at: Date; market: string }>(stQuery, stParams);
+          for (const r of stRes.rows) {
+            const [baseAsset, quoteAsset] = r.market.split('_');
+            const asset = r.side === 'buy' ? (baseAsset || '?') : (quoteAsset || '?');
+            const amount = r.side === 'buy' ? r.quantity : (parseFloat(r.price) * parseFloat(r.quantity)).toFixed(18);
+            rows.push({
+              id: r.id,
+              type: 'spot_trade',
+              asset,
+              amount,
+              fee: r.fee || '0',
+              direction: 'in',
+              status: 'completed',
+              displayStatus: 'Completed',
+              reference_id: r.order_id,
+              created_at: r.created_at
+            });
+          }
+        } catch {
+          // spot_trades table may not exist
+        }
+      }
+
+      rows.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+      const total = rows.length;
+      const data = rows.slice(offset, offset + limit);
+
+      return reply.send({
+        success: true,
+        data,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit)
+        }
+      });
+    } catch (error) {
+      logger.error('Failed to get ledger', { error: error instanceof Error ? error.message : 'Unknown', userId: request.user?.id });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to get ledger' }
+      });
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // GET /wallet/fund-history — UX: combined deposit + withdrawal history (Funds tab)
+  // -------------------------------------------------------------------------
+  app.get('/fund-history', {
+    preHandler: [app.authenticate]
+  }, async (request: FastifyRequest<{
+    Querystring: { page?: string; limit?: string; kind?: string }
+  }>, reply: FastifyReply) => {
+    try {
+      const userId = request.user!.id;
+      const page = Math.max(1, parseInt(request.query.page || '1'));
+      const limit = Math.min(100, Math.max(1, parseInt(request.query.limit || '20')));
+      const offset = (page - 1) * limit;
+      const kind = (request.query.kind || 'all').toLowerCase(); // 'deposits' | 'withdrawals' | 'all'
+
+      type FundItem = {
+        id: string;
+        kind: 'deposit' | 'withdrawal' | 'spot_trade';
+        amount: string;
+        fee: string;
+        asset: string;
+        status: string;
+        created_at: string;
+        tx_hash?: string | null;
+        to_address?: string | null;
+        displayStatus?: string;
+        order_id?: string;
+      };
+      const combined: FundItem[] = [];
+
+      if (kind === 'all' || kind === 'deposits') {
+        try {
+          const depRes = await db.query<{ id: string; amount: string; fee: string; status: string; created_at: Date; symbol: string | null }>(`
+            SELECT d.id, d.amount::text as amount, COALESCE(d.fee, 0)::text as fee, d.status, d.created_at, c.symbol
+            FROM deposits d
+            LEFT JOIN currencies c ON d.currency_id = c.id
+            WHERE d.user_id = $1 AND (d.amount IS NULL OR d.amount::numeric > 0)
+            ORDER BY d.created_at DESC
+            LIMIT 300
+          `, [userId]);
+          for (const r of depRes.rows) {
+            combined.push({
+              id: r.id,
+              kind: 'deposit',
+              amount: r.amount,
+              fee: r.fee || '0',
+              asset: r.symbol || '?',
+              status: r.status,
+              created_at: r.created_at.toISOString(),
+              displayStatus: r.status === 'pending' ? 'Pending' : r.status === 'completed' ? 'Completed' : r.status === 'failed' ? 'Failed' : 'Processing'
+            });
+          }
+        } catch {
+          // skip
+        }
+      }
+
+      if (kind === 'all' || kind === 'withdrawals') {
+        try {
+          const wRes = await db.query<{ id: string; amount: string; fee: string; status: string; created_at: Date; symbol: string | null; tx_hash: string | null; to_address: string | null }>(`
+            SELECT w.id, w.amount::text as amount, COALESCE(w.fee, 0)::text as fee, w.status, w.created_at, t.symbol, w.tx_hash, w.to_address
+            FROM withdrawals w
+            LEFT JOIN tokens t ON w.token_id = t.id
+            WHERE w.user_id = $1
+            ORDER BY w.created_at DESC
+            LIMIT 300
+          `, [userId]);
+          const displayStatus = (s: string) => {
+            const v = (s || '').toLowerCase();
+            if (v === 'pending_approval') return 'Pending';
+            if (['pending', 'queued', 'signed', 'broadcasted', 'processing'].includes(v)) return 'Processing';
+            if (v === 'completed') return 'Completed';
+            if (v === 'rejected' || v === 'failed' || v === 'cancelled') return v === 'rejected' ? 'Rejected' : v === 'cancelled' ? 'Cancelled' : 'Failed';
+            return s || 'Unknown';
+          };
+          for (const r of wRes.rows) {
+            combined.push({
+              id: r.id,
+              kind: 'withdrawal',
+              amount: r.amount,
+              fee: r.fee || '0',
+              asset: r.symbol || '?',
+              status: r.status,
+              created_at: r.created_at.toISOString(),
+              tx_hash: r.tx_hash,
+              to_address: r.to_address,
+              displayStatus: displayStatus(r.status)
+            });
+          }
+        } catch {
+          // skip
+        }
+      }
+
+      if (kind === 'all' || kind === 'spot_trade') {
+        try {
+          const stRes = await db.query<{ id: string; order_id: string; side: string; price: string; quantity: string; fee: string; created_at: Date; market: string }>(`
+            SELECT id, order_id, side, price::text, quantity::text, COALESCE(fee, 0)::text as fee, created_at, market
+            FROM spot_trades WHERE user_id = $1 ORDER BY created_at DESC LIMIT 300
+          `, [userId]);
+          for (const r of stRes.rows) {
+            const [baseAsset, quoteAsset] = r.market.split('_');
+            const asset = r.side === 'buy' ? (baseAsset || '?') : (quoteAsset || '?');
+            const amount = r.side === 'buy' ? r.quantity : (parseFloat(r.price) * parseFloat(r.quantity)).toFixed(18);
+            combined.push({
+              id: r.id,
+              kind: 'spot_trade',
+              amount,
+              fee: r.fee || '0',
+              asset,
+              status: 'completed',
+              created_at: r.created_at.toISOString(),
+              displayStatus: 'Completed',
+              order_id: r.order_id
+            });
+          }
+        } catch {
+          // skip
+        }
+      }
+
+      combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      const total = combined.length;
+      const data = combined.slice(offset, offset + limit);
+
+      return reply.send({
+        success: true,
+        data,
+        pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
+      });
+    } catch (error) {
+      logger.error('Failed to get fund-history', { error: error instanceof Error ? error.message : 'Unknown', userId: request.user?.id });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to get fund history' }
+      });
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // GET /wallet/internal-transfers — withdrawals where type = 'internal' (direction: funding ↔ trading)
+  // -------------------------------------------------------------------------
+  app.get('/internal-transfers', {
+    preHandler: [app.authenticate]
+  }, async (request: FastifyRequest<{
+    Querystring: { page?: string; limit?: string; direction?: string }
+  }>, reply: FastifyReply) => {
+    try {
+      const userId = request.user!.id;
+      const page = Math.max(1, parseInt(request.query.page || '1'));
+      const limit = Math.min(100, Math.max(1, parseInt(request.query.limit || '20')));
+      const offset = (page - 1) * limit;
+      const directionFilter = request.query.direction?.toLowerCase(); // 'funding_to_trading' | 'trading_to_funding' | omit = all
+
+      let query = `
+        SELECT w.id, w.amount::text, COALESCE(w.fee, 0)::text as fee, w.status, w.created_at, w.account_type,
+          t.symbol, u_internal.email as internal_recipient_email
+        FROM withdrawals w
+        LEFT JOIN tokens t ON w.token_id = t.id
+        LEFT JOIN users u_internal ON w.internal_user_id = u_internal.id
+        WHERE w.user_id = $1 AND (w.type = 'internal' OR w.type IS NULL AND w.internal_user_id IS NOT NULL)
+      `;
+      const params: unknown[] = [userId];
+      let pi = 2;
+      if (directionFilter === 'funding_to_trading') {
+        query += ` AND w.account_type IN ('funding', 'spot')`;
+      } else if (directionFilter === 'trading_to_funding') {
+        query += ` AND w.account_type = 'trading'`;
+      }
+      query += ` ORDER BY w.created_at DESC LIMIT $${pi} OFFSET $${pi + 1}`;
+      params.push(limit, offset);
+
+      const tableCheck = await db.query(`SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'withdrawals')`);
+      if (!tableCheck.rows[0].exists) {
+        return reply.send({
+          success: true,
+          data: [],
+          pagination: { page, limit, total: 0, totalPages: 0 }
+        });
+      }
+
+      const countResult = await db.query<{ count: string }>(`
+        SELECT COUNT(*) as count FROM withdrawals w
+        WHERE w.user_id = $1 AND (w.type = 'internal' OR (w.type IS NULL AND w.internal_user_id IS NOT NULL))
+        ${directionFilter === 'funding_to_trading' ? ` AND w.account_type IN ('funding', 'spot')` : ''}
+        ${directionFilter === 'trading_to_funding' ? ` AND w.account_type = 'trading'` : ''}
+      `, [userId]);
+      const total = parseInt(countResult.rows[0]?.count || '0');
+
+      const result = await db.query(query, params);
+      const displayStatus = (s: string) => {
+        const v = (s || '').toLowerCase();
+        if (v === 'pending_approval') return 'Pending';
+        if (['pending', 'queued', 'signed', 'broadcasted', 'processing'].includes(v)) return 'Processing';
+        if (v === 'completed') return 'Completed';
+        if (v === 'rejected' || v === 'failed' || v === 'cancelled') return v === 'rejected' ? 'Rejected' : v === 'cancelled' ? 'Cancelled' : 'Failed';
+        return s || 'Unknown';
+      };
+      const data = result.rows.map((w: { id: string; amount: string; fee: string; status: string; created_at: Date; account_type: string; symbol: string | null; internal_recipient_email: string | null }) => ({
+        id: w.id,
+        amount: w.amount,
+        fee: w.fee,
+        asset: w.symbol || '?',
+        status: w.status,
+        displayStatus: displayStatus(w.status),
+        direction: (w.account_type || 'funding').toLowerCase() === 'trading' ? 'trading_to_funding' : 'funding_to_trading',
+        account_type: w.account_type,
+        internal_recipient_email: w.internal_recipient_email ?? null,
+        created_at: w.created_at
+      }));
+
+      return reply.send({
+        success: true,
+        data,
+        pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
+      });
+    } catch (error) {
+      logger.error('Failed to get internal transfers', { error: error instanceof Error ? error.message : 'Unknown', userId: request.user?.id });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to get internal transfers' }
+      });
+    }
+  });
+
   // Get withdrawal fee for a specific token and chain
   app.get('/withdrawal-fee/:symbol/:chainId', async (request: FastifyRequest<{
     Params: { symbol: string; chainId: string }
@@ -1076,8 +1631,9 @@ export default async function walletRoutes(app: FastifyInstance) {
 
   // Create withdrawal request (authenticated)
   // type: 'onchain' | 'internal'. Internal: use internal_user_identifier (email/uid/phone); no toAddress. On-chain: toAddress required.
+  // FIX #4: Rate limit 5/hour per user (after authenticate).
   app.post('/withdrawals', {
-    preHandler: [app.authenticate]
+    preHandler: [app.authenticate, rateLimitByUser('wallet:withdrawal', 5, 3600)],
   }, async (request: FastifyRequest<{
     Body: {
       symbol: string;
@@ -1101,6 +1657,62 @@ export default async function walletRoutes(app: FastifyInstance) {
         accountType = 'funding';
       }
 
+      // Idempotency: check BEFORE any balance lock or DB write
+      const idempotencyKeyRaw = (request.headers[IDEMPOTENCY_KEY_HEADER] ?? request.headers['Idempotency-Key']) as string | undefined;
+      const idempotencyKey = typeof idempotencyKeyRaw === 'string' ? idempotencyKeyRaw.trim() : '';
+      if (!idempotencyKey) {
+        return reply.status(400).send({
+          success: false,
+          error: {
+            code: 'IDEMPOTENCY_KEY_REQUIRED',
+            message: 'Idempotency-Key header is required for withdrawal requests.',
+          },
+        });
+      }
+      if (idempotencyKey.length > 256) {
+        return reply.status(400).send({
+          success: false,
+          error: {
+            code: 'IDEMPOTENCY_KEY_INVALID',
+            message: 'Idempotency-Key must be at most 256 characters.',
+          },
+        });
+      }
+      const requestHash = buildWithdrawalRequestHash(request.body as Record<string, unknown>);
+      const redisKey = `withdrawal:idempotency:${userId}:${idempotencyKey}`;
+      const cached = await redis.getJson<WithdrawalIdempotencyCache>(redisKey);
+      if (cached) {
+        if (cached.requestHash !== requestHash) {
+          logger.warn('Idempotency key reuse with different payload', {
+            userId,
+            idempotencyKey: idempotencyKey.slice(0, 32),
+            existingWithdrawalId: cached.withdrawalId,
+          });
+          return reply.status(409).send({
+            success: false,
+            error: {
+              code: 'IDEMPOTENCY_KEY_REUSED',
+              message: 'Idempotency-Key was already used with a different request body. Use a new key or the same request body.',
+            },
+          });
+        }
+        return reply.status(200).send(cached.response);
+      }
+
+      // Cache miss: acquire lock so concurrent requests with same key cannot both proceed
+      const lockKey = `withdrawal:idempotency:lock:${userId}:${idempotencyKey}`;
+      const lockAcquired = await redis.setNxEx(lockKey, '1', WITHDRAWAL_IDEMPOTENCY_LOCK_TTL_SECONDS);
+      if (!lockAcquired) {
+        return reply.status(409).send({
+          success: false,
+          error: {
+            code: 'IDEMPOTENCY_KEY_IN_PROGRESS',
+            message: 'A withdrawal with this Idempotency-Key is already in progress. Retry after a few seconds.',
+          },
+        });
+      }
+
+      try {
       // Validate input
       if (!symbol || !amount) {
         return reply.status(400).send({
@@ -1296,8 +1908,8 @@ export default async function walletRoutes(app: FastifyInstance) {
           amount: withdrawAmount,
           recipientId,
         });
-        return reply.send({
-          success: true,
+        const internalResponse = {
+          success: true as const,
           data: {
             id: withdrawalInternal.id,
             symbol,
@@ -1310,7 +1922,21 @@ export default async function walletRoutes(app: FastifyInstance) {
             status: 'completed',
             createdAt: withdrawalInternal.created_at,
           },
-        });
+        };
+        try {
+          await redis.setJson(
+            redisKey,
+            { withdrawalId: withdrawalInternal.id, requestHash, response: internalResponse },
+            WITHDRAWAL_IDEMPOTENCY_TTL_SECONDS
+          );
+        } catch (e) {
+          logger.warn('Withdrawal idempotency cache set failed', {
+            userId,
+            idempotencyKey: idempotencyKey.slice(0, 32),
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+        return reply.send(internalResponse);
       }
 
       // ---------- ON-CHAIN WITHDRAWAL ----------
@@ -1778,8 +2404,8 @@ export default async function walletRoutes(app: FastifyInstance) {
         }
       }
 
-      return {
-        success: true,
+      const onchainResponse = {
+        success: true as const,
         data: {
           id: withdrawal.id,
           type: 'onchain',
@@ -1792,8 +2418,30 @@ export default async function walletRoutes(app: FastifyInstance) {
           status: initialStatus,
           createdAt: withdrawal.created_at,
           ...(enqueueCode && { enqueueCode, enqueueReason }),
-        }
+        },
       };
+      try {
+        await redis.setJson(
+          redisKey,
+          { withdrawalId: withdrawal.id, requestHash, response: onchainResponse },
+          WITHDRAWAL_IDEMPOTENCY_TTL_SECONDS
+        );
+      } catch (e) {
+        logger.warn('Withdrawal idempotency cache set failed', {
+          userId,
+          idempotencyKey: idempotencyKey.slice(0, 32),
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+      return onchainResponse;
+      } finally {
+        redis.del(lockKey).catch((e) => {
+          logger.warn('Withdrawal idempotency lock release failed', {
+            lockKey,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        });
+      }
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       logger.error('Withdrawal creation failed: unhandled error', {

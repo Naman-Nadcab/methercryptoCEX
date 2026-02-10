@@ -270,7 +270,10 @@ export const config = {
   security: {
     corsOrigins: parsed.data.CORS_ORIGINS.split(',').map((o) => o.trim()),
     trustedProxies: parsed.data.TRUSTED_PROXIES,
-    adminIpWhitelist: parsed.data.ADMIN_IP_WHITELIST.split(',').map((ip) => ip.trim()),
+    // FIX #3: Admin IP whitelist. Comma-separated IPs or CIDR (e.g. 10.0.0.0/8). Empty in production = deny all; in non-production = do not enforce.
+    adminIpWhitelist: parsed.data.ADMIN_IP_WHITELIST.split(',')
+      .map((ip) => ip.trim())
+      .filter(Boolean),
     sessionSecret: parsed.data.SESSION_SECRET,
     csrfSecret: parsed.data.CSRF_SECRET,
   },

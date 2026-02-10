@@ -20,6 +20,7 @@ import { ipRulesMiddleware } from './middleware/ip-rules.middleware.js';
 import { processSigningQueue } from './services/withdrawal-signing.service.js';
 import { runAutoSweep } from './services/hot-wallet-sweep.service.js';
 import { runDepositSweep } from './services/deposit-sweep.service.js';
+import { refreshOrderbookCache } from './services/spot-orderbook-cache.service.js';
 
 // Routes
 import authRoutes from './routes/auth.fastify.js';
@@ -35,8 +36,12 @@ import walletRoutes from './routes/wallet.fastify.js';
 import convertRoutes from './routes/convert.fastify.js';
 import kycRoutes from './routes/kyc.js';
 import debugRoutes from './routes/debug.fastify.js';
+import spotRoutes from './routes/spot.fastify.js';
+import adminSpotRoutes from './routes/admin-spot.fastify.js';
+import latencyTracePlugin from './plugins/latencyTrace.plugin.js';
+import authDecisionPlugin from './plugins/authDecision.plugin.js';
+import authLockPlugin from './plugins/authLock.plugin.js';
 
-// Extend FastifyRequest with user and audit context
 declare module 'fastify' {
   interface FastifyRequest {
     user?: {
@@ -128,8 +133,10 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   await app.register(websocket);
+  await app.register(latencyTracePlugin);
+  await app.register(authDecisionPlugin);
+  await app.register(authLockPlugin);
 
-  // Request ID for tracing and audit log (onRequest runs for every request)
   app.addHook('onRequest', async (request) => {
     const id = (request.headers['x-request-id'] as string)?.trim() || crypto.randomUUID();
     request.requestId = id;
@@ -219,6 +226,8 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(convertRoutes, { prefix: '/api/v1/convert' });
   await app.register(kycRoutes, { prefix: '/api/v1/kyc' });
   await app.register(debugRoutes, { prefix: '/api/v1/debug' });
+  await app.register(spotRoutes, { prefix: '/api/v1/spot' });
+  await app.register(adminSpotRoutes, { prefix: '/api/v1/admin/spot' });
 
   // Error handler
   app.setErrorHandler((error, request, reply) => {
@@ -292,6 +301,15 @@ async function start() {
       }
     }, depositSweepIntervalMs);
     logger.info(`Deposit sweep worker scheduled (every ${depositSweepIntervalMs / 1000}s)`);
+
+    setInterval(async () => {
+      try {
+        const r = await db.query<{ symbol: string }>(`SELECT symbol FROM spot_markets WHERE status IN ('active', 'maintenance')`);
+        for (const row of r.rows) await refreshOrderbookCache(row.symbol);
+      } catch (e) {
+        logger.warn('Spot orderbook cache refresh failed', { error: e instanceof Error ? e.message : 'Unknown' });
+      }
+    }, 5000);
 
   } catch (error) {
     logger.error('Failed to start server', { error: error instanceof Error ? error.message : 'Unknown' });

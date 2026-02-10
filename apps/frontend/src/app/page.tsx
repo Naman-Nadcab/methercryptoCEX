@@ -1,229 +1,415 @@
+'use client';
+
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowRight, Shield, Zap, Globe, Wallet, BarChart3, Users } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import Image from 'next/image';
+import {
+  ArrowRight,
+  Shield,
+  Users,
+  Headphones,
+  Award,
+  ChevronUp,
+  ChevronDown,
+} from 'lucide-react';
+import ThemeToggle from '@/components/ThemeToggle';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
+
+const NAV_LINKS = [
+  { label: 'Buy Crypto', href: '/dashboard/assets/convert' },
+  { label: 'Markets', href: '/dashboard/markets' },
+  { label: 'Trade', href: '/dashboard/trade' },
+  { label: 'P2P', href: '/p2p' },
+];
+
+const FALLBACK_TICKERS = [
+  { base_symbol: 'BTC', price: '97,250', change_24h_percent: '0.27', pair: 'BTC/USDT' },
+  { base_symbol: 'ETH', price: '3,450', change_24h_percent: '-0.12', pair: 'ETH/USDT' },
+  { base_symbol: 'BNB', price: '615', change_24h_percent: '0.45', pair: 'BNB/USDT' },
+  { base_symbol: 'SOL', price: '225', change_24h_percent: '1.22', pair: 'SOL/USDT' },
+  { base_symbol: 'XRP', price: '2.45', change_24h_percent: '-0.08', pair: 'XRP/USDT' },
+  { base_symbol: 'DOGE', price: '0.38', change_24h_percent: '0.91', pair: 'DOGE/USDT' },
+];
+
+const FOOTER_PRODUCTS = [
+  { label: 'Spot Trading', href: '/dashboard/trade' },
+  { label: 'P2P Trading', href: '/p2p' },
+  { label: 'Markets', href: '/dashboard/markets' },
+  { label: 'Buy Crypto', href: '/dashboard/assets/convert' },
+];
+
+const FOOTER_SUPPORT = [
+  { label: 'Help Center', href: '#' },
+  { label: 'Fees', href: '#' },
+  { label: 'API', href: '/dashboard/api' },
+];
+
+const FOOTER_LEGAL = [
+  { label: 'Terms of Use', href: '/terms' },
+  { label: 'Privacy Policy', href: '/privacy' },
+  { label: 'Risk Warning', href: '#' },
+];
+
+interface MarketPrice {
+  base_symbol: string;
+  price: string;
+  change_24h_percent: string;
+  base_logo?: string;
+}
+
+function useMarketPrices() {
+  const [tickers, setTickers] = useState<MarketPrice[]>(FALLBACK_TICKERS);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const apiUrl = getApiBaseUrl();
+    fetch(`${apiUrl}/api/v1/convert/market-prices`)
+      .then((res) => res.json())
+      .then((json) => {
+        if (json?.success && Array.isArray(json?.data) && json.data.length > 0) {
+          const list = json.data
+            .slice(0, 6)
+            .map((row: { base_symbol: string; price: string; change_24h_percent: string; base_logo?: string }) => ({
+              base_symbol: row.base_symbol,
+              price: Number(row.price).toLocaleString('en-US', { maximumFractionDigits: 2 }),
+              change_24h_percent: row.change_24h_percent,
+              base_logo: row.base_logo,
+            }));
+          setTickers(list);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  return { tickers, loading };
+}
+
+function logoUrl(symbol: string) {
+  return `/assets/upload/currency-logo/${symbol.toLowerCase()}.svg`;
+}
 
 export default function HomePage() {
+  const { tickers, loading } = useMarketPrices();
+
   return (
-    <div className="min-h-screen bg-background">
-      {/* Navigation */}
-      <nav className="fixed top-0 left-0 right-0 z-50 border-b bg-background/80 backdrop-blur-sm">
-        <div className="container mx-auto flex h-16 items-center justify-between px-4">
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center">
-              <span className="font-bold text-black">X</span>
+    <div className="min-h-screen bg-gray-50 dark:bg-[#0b0e11]">
+      {/* Header - same style as dashboard */}
+      <header className="fixed top-0 left-0 right-0 z-50 border-b border-gray-200 dark:border-gray-800 bg-white/80 dark:bg-[#0b0e11]/90 backdrop-blur-md">
+        <div className="container mx-auto flex h-14 items-center justify-between px-4 lg:px-6">
+          <Link href="/" className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-blue-500 flex items-center justify-center">
+              <span className="text-white font-bold text-sm">M</span>
             </div>
-            <span className="text-xl font-bold">CryptoExchange</span>
-          </div>
-          
-          <div className="hidden md:flex items-center gap-6">
-            <Link href="/trade" className="text-muted-foreground hover:text-foreground transition-colors">
-              Trade
-            </Link>
-            <Link href="/p2p" className="text-muted-foreground hover:text-foreground transition-colors">
-              P2P
-            </Link>
-            <Link href="/wallet" className="text-muted-foreground hover:text-foreground transition-colors">
-              Wallet
-            </Link>
-          </div>
+            <span className="text-lg font-bold text-gray-900 dark:text-white hidden sm:inline">Methereum</span>
+          </Link>
 
-          <div className="flex items-center gap-4">
-            <Link href="/login">
-              <Button variant="ghost">Log In</Button>
-            </Link>
-            <Link href="/signup">
-              <Button>Sign Up</Button>
-            </Link>
-          </div>
-        </div>
-      </nav>
-
-      {/* Hero Section */}
-      <section className="pt-32 pb-20 px-4">
-        <div className="container mx-auto text-center">
-          <h1 className="text-4xl md:text-6xl font-bold mb-6">
-            Trade Crypto with
-            <span className="text-primary"> Confidence</span>
-          </h1>
-          <p className="text-xl text-muted-foreground mb-8 max-w-2xl mx-auto">
-            The most secure and reliable cryptocurrency exchange. Trade spot markets, 
-            use P2P for fiat, and manage your multi-chain wallet all in one place.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/signup">
-              <Button size="lg" className="w-full sm:w-auto">
-                Get Started <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
-            </Link>
-            <Link href="/trade">
-              <Button size="lg" variant="outline" className="w-full sm:w-auto">
-                Start Trading
-              </Button>
-            </Link>
-          </div>
-
-          {/* Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mt-16 max-w-4xl mx-auto">
-            <div>
-              <div className="text-3xl font-bold text-primary">$2.5B+</div>
-              <div className="text-muted-foreground">24h Volume</div>
-            </div>
-            <div>
-              <div className="text-3xl font-bold text-primary">500K+</div>
-              <div className="text-muted-foreground">Users</div>
-            </div>
-            <div>
-              <div className="text-3xl font-bold text-primary">150+</div>
-              <div className="text-muted-foreground">Trading Pairs</div>
-            </div>
-            <div>
-              <div className="text-3xl font-bold text-primary">9</div>
-              <div className="text-muted-foreground">Chains Supported</div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Features Section */}
-      <section className="py-20 px-4 bg-muted/30">
-        <div className="container mx-auto">
-          <h2 className="text-3xl font-bold text-center mb-12">
-            Why Choose CryptoExchange?
-          </h2>
-          
-          <div className="grid md:grid-cols-3 gap-8">
-            <FeatureCard
-              icon={<Shield className="h-10 w-10 text-primary" />}
-              title="Enterprise Security"
-              description="AES-256 encryption, HSM-ready infrastructure, and multi-signature wallets protect your assets."
-            />
-            <FeatureCard
-              icon={<Zap className="h-10 w-10 text-primary" />}
-              title="Lightning Fast"
-              description="Sub-millisecond matching engine processes millions of orders per second with 99.99% uptime."
-            />
-            <FeatureCard
-              icon={<Globe className="h-10 w-10 text-primary" />}
-              title="Multi-Chain Support"
-              description="Trade assets across Ethereum, BSC, Polygon, Solana, Tron, Bitcoin, and L2 networks."
-            />
-            <FeatureCard
-              icon={<Wallet className="h-10 w-10 text-primary" />}
-              title="HD Wallets"
-              description="Auto-generated HD wallets for each chain with industry-standard BIP32/BIP44 derivation."
-            />
-            <FeatureCard
-              icon={<BarChart3 className="h-10 w-10 text-primary" />}
-              title="Advanced Trading"
-              description="Market, limit, stop-loss orders with real-time orderbook and professional charting."
-            />
-            <FeatureCard
-              icon={<Users className="h-10 w-10 text-primary" />}
-              title="P2P Trading"
-              description="Trade directly with other users. Escrow protection and dispute resolution included."
-            />
-          </div>
-        </div>
-      </section>
-
-      {/* Supported Chains */}
-      <section className="py-20 px-4">
-        <div className="container mx-auto text-center">
-          <h2 className="text-3xl font-bold mb-4">Supported Blockchains</h2>
-          <p className="text-muted-foreground mb-12 max-w-2xl mx-auto">
-            Deposit and withdraw on all major blockchains with low fees
-          </p>
-          
-          <div className="flex flex-wrap justify-center gap-8">
-            {['Ethereum', 'BSC', 'Polygon', 'Arbitrum', 'Optimism', 'Base', 'Solana', 'Tron', 'Bitcoin'].map((chain) => (
-              <div
-                key={chain}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-muted"
+          <nav className="hidden lg:flex items-center gap-1">
+            {NAV_LINKS.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className="px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white rounded-lg hover:bg-gray-100 dark:hover:bg-[#181a20] transition-colors"
               >
-                <div className="h-6 w-6 rounded-full bg-primary/20" />
-                <span className="font-medium">{chain}</span>
+                {link.label}
+              </Link>
+            ))}
+          </nav>
+
+          <div className="flex items-center gap-2">
+            <ThemeToggle variant="icon" size="sm" />
+            <Link
+              href="/login"
+              className="text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:text-white px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-[#181a20] transition-colors"
+            >
+              Log In
+            </Link>
+            <Link
+              href="/signup"
+              className="text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 px-4 py-2 rounded-lg transition-colors"
+            >
+              Sign Up
+            </Link>
+          </div>
+        </div>
+      </header>
+
+      {/* Hero */}
+      <section className="pt-24 pb-16 px-4 lg:px-6">
+        <div className="container mx-auto">
+          <div className="max-w-2xl">
+            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900 dark:text-white tracking-tight">
+              Your crypto journey, simplified.
+            </h1>
+            <p className="mt-4 text-lg text-gray-600 dark:text-gray-400">
+              Trade spot and P2P with ease. Secure, fast, and built for everyone.
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <Link
+                href="/signup"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-white bg-blue-500 hover:bg-blue-600 transition-colors"
+              >
+                Start Trading <ArrowRight className="h-4 w-4" />
+              </Link>
+              <Link
+                href="/dashboard/markets"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-[#181a20] transition-colors"
+              >
+                View Markets
+              </Link>
+            </div>
+          </div>
+
+          {/* Market tickers - from API or fallback */}
+          <div className="mt-12 grid grid-cols-2 sm:grid-cols-3 gap-3 max-w-2xl">
+            {(loading ? FALLBACK_TICKERS : tickers).map((t) => {
+              const change = parseFloat(t.change_24h_percent);
+              const up = change >= 0;
+              return (
+                <Link
+                  key={t.base_symbol}
+                  href="/dashboard/markets"
+                  className="flex items-center justify-between rounded-xl bg-white dark:bg-[#181a20] border border-gray-200 dark:border-gray-800 p-4 hover:border-blue-500/30 dark:hover:border-blue-500/30 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-lg bg-gray-100 dark:bg-[#0b0e11] flex items-center justify-center overflow-hidden">
+                      <Image
+                        src={logoUrl(t.base_symbol)}
+                        alt=""
+                        width={20}
+                        height={20}
+                        className="object-contain"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = 'none';
+                        }}
+                      />
+                    </div>
+                    <span className="text-sm font-medium text-gray-900 dark:text-white">{t.base_symbol}/USDT</span>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">${t.price}</p>
+                    <span
+                      className={`text-xs font-medium flex items-center justify-end gap-0.5 ${
+                        up ? 'text-emerald-500' : 'text-red-500'
+                      }`}
+                    >
+                      {up ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                      {up ? '' : ''}{t.change_24h_percent}%
+                    </span>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* Spot Listings - light/dark section */}
+      <section className="py-16 px-4 lg:px-6 bg-white dark:bg-[#181a20] border-y border-gray-200 dark:border-gray-800">
+        <div className="container mx-auto">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+            Never miss a Spot listing
+          </h2>
+          <p className="mt-1 text-gray-600 dark:text-gray-400">
+            New pairs and launches. Follow our channels to be the first to know.
+          </p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            {['BTC', 'ETH', 'SOL', 'BNB', 'XRP'].map((symbol) => (
+              <Link
+                key={symbol}
+                href="/dashboard/markets"
+                className="w-28 h-20 rounded-xl bg-gray-50 dark:bg-[#0b0e11] border border-gray-200 dark:border-gray-800 flex items-center justify-center text-sm font-semibold text-gray-800 dark:text-gray-200 hover:border-blue-500/50 hover:bg-blue-50/50 dark:hover:bg-blue-500/10 transition-colors"
+              >
+                {symbol}/USDT
+              </Link>
+            ))}
+          </div>
+          <Link
+            href="/dashboard/markets"
+            className="mt-6 inline-flex items-center gap-1 text-sm font-medium text-blue-500 hover:text-blue-600 dark:text-blue-400"
+          >
+            View all markets <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
+      </section>
+
+      {/* P2P */}
+      <section className="py-16 px-4 lg:px-6">
+        <div className="container mx-auto flex flex-col lg:flex-row items-center gap-12">
+          <div className="flex-1">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+              Buy & sell crypto with P2P
+            </h2>
+            <p className="mt-3 text-gray-600 dark:text-gray-400 max-w-lg">
+              Trade directly with other users. Multiple payment methods, escrow protection, and fast settlement.
+            </p>
+            <ul className="mt-6 space-y-3 text-gray-700 dark:text-gray-300">
+              <li className="flex items-center gap-2">
+                <span className="w-6 h-6 rounded-full bg-blue-500 text-white text-xs font-bold flex items-center justify-center">1</span>
+                Bank transfer, UPI, and more
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="w-6 h-6 rounded-full bg-blue-500 text-white text-xs font-bold flex items-center justify-center">2</span>
+                Escrow protection on every trade
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="w-6 h-6 rounded-full bg-blue-500 text-white text-xs font-bold flex items-center justify-center">3</span>
+                24/7 dispute resolution
+              </li>
+            </ul>
+            <Link
+              href="/p2p"
+              className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-white bg-blue-500 hover:bg-blue-600 transition-colors"
+            >
+              Go to P2P <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+          <div className="flex-1 flex justify-center">
+            <div className="w-full max-w-sm aspect-video rounded-2xl bg-gradient-to-br from-blue-500/10 to-indigo-500/10 dark:from-blue-500/20 dark:to-indigo-500/20 border border-gray-200 dark:border-gray-700 flex items-center justify-center">
+              <Users className="w-16 h-16 text-blue-500/60" />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Trust metrics */}
+      <section className="py-16 px-4 lg:px-6 bg-white dark:bg-[#181a20] border-y border-gray-200 dark:border-gray-800">
+        <div className="container mx-auto">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+            Robust and reliable, trusted by traders
+          </h2>
+          <div className="mt-6 flex flex-wrap items-baseline gap-x-8 gap-y-2">
+            <p className="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-white">$2.45B+</p>
+            <p className="text-gray-600 dark:text-gray-400">Total trading volume</p>
+          </div>
+          <div className="mt-8 grid grid-cols-2 gap-4 max-w-md">
+            <div className="rounded-xl bg-gray-50 dark:bg-[#0b0e11] border border-gray-200 dark:border-gray-800 p-5">
+              <p className="text-xl font-bold text-gray-900 dark:text-white">500K+</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Active users</p>
+            </div>
+            <div className="rounded-xl bg-gray-50 dark:bg-[#0b0e11] border border-gray-200 dark:border-gray-800 p-5">
+              <p className="text-xl font-bold text-gray-900 dark:text-white">150+</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Spot pairs</p>
+            </div>
+          </div>
+          <Link
+            href="/signup"
+            className="mt-8 inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-white bg-blue-500 hover:bg-blue-600 transition-colors"
+          >
+            Join now <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
+      </section>
+
+      {/* Safety */}
+      <section className="py-16 px-4 lg:px-6">
+        <div className="container mx-auto">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+            You&apos;re safe to grow with us
+          </h2>
+          <div className="mt-8 grid md:grid-cols-3 gap-6">
+            {[
+              { icon: Headphones, title: '24/7 support', desc: 'Multi-lingual customer support when you need it.' },
+              { icon: Shield, title: 'Robust security', desc: 'Cold storage, encryption, and industry best practices.' },
+              { icon: Award, title: 'Proven track record', desc: 'Built for reliability and compliance.' },
+            ].map((item) => (
+              <div
+                key={item.title}
+                className="rounded-xl bg-white dark:bg-[#181a20] border border-gray-200 dark:border-gray-800 p-6"
+              >
+                <div className="w-10 h-10 rounded-lg bg-blue-500/10 dark:bg-blue-500/20 flex items-center justify-center">
+                  <item.icon className="w-5 h-5 text-blue-500" />
+                </div>
+                <h3 className="mt-3 font-semibold text-gray-900 dark:text-white">{item.title}</h3>
+                <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{item.desc}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* CTA Section */}
-      <section className="py-20 px-4 bg-primary/10">
+      {/* CTA */}
+      <section className="py-16 px-4 lg:px-6 bg-gray-100 dark:bg-[#181a20] border-t border-gray-200 dark:border-gray-800">
         <div className="container mx-auto text-center">
-          <h2 className="text-3xl font-bold mb-4">Ready to Start Trading?</h2>
-          <p className="text-muted-foreground mb-8 max-w-xl mx-auto">
-            Join hundreds of thousands of traders and experience the future of cryptocurrency exchange.
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+            Ready to start trading?
+          </h2>
+          <p className="mt-2 text-gray-600 dark:text-gray-400 max-w-md mx-auto">
+            Join thousands of traders. Spot and P2P in one place.
           </p>
-          <Link href="/signup">
-            <Button size="lg">
-              Create Free Account <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
-          </Link>
+          <div className="mt-6 flex flex-wrap justify-center gap-3">
+            <Link
+              href="/signup"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-white bg-blue-500 hover:bg-blue-600 transition-colors"
+            >
+              Create account <ArrowRight className="h-4 w-4" />
+            </Link>
+            <Link
+              href="/login"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-[#0b0e11] transition-colors"
+            >
+              Log In
+            </Link>
+          </div>
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="py-12 px-4 border-t">
+      <footer className="py-12 px-4 lg:px-6 border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-[#0b0e11]">
         <div className="container mx-auto">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
+          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-8">
             <div>
-              <h3 className="font-semibold mb-4">Products</h3>
-              <ul className="space-y-2 text-muted-foreground">
-                <li><Link href="/trade" className="hover:text-foreground">Spot Trading</Link></li>
-                <li><Link href="/p2p" className="hover:text-foreground">P2P Trading</Link></li>
-                <li><Link href="/wallet" className="hover:text-foreground">Wallet</Link></li>
-              </ul>
+              <Link href="/" className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-blue-500 flex items-center justify-center">
+                  <span className="text-white font-bold text-sm">M</span>
+                </div>
+                <span className="text-lg font-bold text-gray-900 dark:text-white">Methereum</span>
+              </Link>
             </div>
-            <div>
-              <h3 className="font-semibold mb-4">Support</h3>
-              <ul className="space-y-2 text-muted-foreground">
-                <li><Link href="/help" className="hover:text-foreground">Help Center</Link></li>
-                <li><Link href="/fees" className="hover:text-foreground">Fees</Link></li>
-                <li><Link href="/api" className="hover:text-foreground">API</Link></li>
-              </ul>
-            </div>
-            <div>
-              <h3 className="font-semibold mb-4">Company</h3>
-              <ul className="space-y-2 text-muted-foreground">
-                <li><Link href="/about" className="hover:text-foreground">About Us</Link></li>
-                <li><Link href="/careers" className="hover:text-foreground">Careers</Link></li>
-                <li><Link href="/press" className="hover:text-foreground">Press</Link></li>
-              </ul>
-            </div>
-            <div>
-              <h3 className="font-semibold mb-4">Legal</h3>
-              <ul className="space-y-2 text-muted-foreground">
-                <li><Link href="/terms" className="hover:text-foreground">Terms of Service</Link></li>
-                <li><Link href="/privacy" className="hover:text-foreground">Privacy Policy</Link></li>
-                <li><Link href="/kyc" className="hover:text-foreground">KYC Policy</Link></li>
-              </ul>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
+              <div>
+                <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Products</h4>
+                <ul className="space-y-2">
+                  {FOOTER_PRODUCTS.map((link) => (
+                    <li key={link.href}>
+                      <Link href={link.href} className="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
+                        {link.label}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Support</h4>
+                <ul className="space-y-2">
+                  {FOOTER_SUPPORT.map((link) => (
+                    <li key={link.href}>
+                      <Link href={link.href} className="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
+                        {link.label}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Legal</h4>
+                <ul className="space-y-2">
+                  {FOOTER_LEGAL.map((link) => (
+                    <li key={link.href}>
+                      <Link href={link.href} className="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
+                        {link.label}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </div>
           </div>
-          
-          <div className="mt-12 pt-8 border-t text-center text-muted-foreground">
-            <p>&copy; 2024 CryptoExchange. All rights reserved.</p>
+          <div className="mt-10 pt-8 border-t border-gray-200 dark:border-gray-800 text-center text-sm text-gray-500 dark:text-gray-500">
+            © {new Date().getFullYear()} Methereum. All rights reserved.
           </div>
         </div>
       </footer>
-    </div>
-  );
-}
-
-function FeatureCard({
-  icon,
-  title,
-  description,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="p-6 rounded-xl bg-card border">
-      <div className="mb-4">{icon}</div>
-      <h3 className="text-xl font-semibold mb-2">{title}</h3>
-      <p className="text-muted-foreground">{description}</p>
     </div>
   );
 }

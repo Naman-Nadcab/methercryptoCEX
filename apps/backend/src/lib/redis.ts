@@ -96,6 +96,15 @@ class RedisClient {
     }
   }
 
+  /**
+   * Set key only if not exists, with expiry (atomic SET NX EX).
+   * Returns true if the key was set, false if key already existed.
+   */
+  async setNxEx(key: string, value: string, exSeconds: number): Promise<boolean> {
+    const result = await this.client.set(key, value, 'EX', exSeconds, 'NX');
+    return result === 'OK';
+  }
+
   async del(key: string): Promise<void> {
     await this.client.del(key);
   }
@@ -103,6 +112,10 @@ class RedisClient {
   async exists(key: string): Promise<boolean> {
     const result = await this.client.exists(key);
     return result === 1;
+  }
+
+  async incr(key: string): Promise<number> {
+    return this.client.incr(key);
   }
 
   async expire(key: string, seconds: number): Promise<void> {

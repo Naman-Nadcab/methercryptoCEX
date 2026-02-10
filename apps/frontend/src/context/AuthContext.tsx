@@ -9,6 +9,8 @@ export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
 interface AuthContextValue {
   status: AuthStatus;
   user: User | null;
+  authResolved: boolean;
+  isAuthenticated: boolean;
   setAuthenticated: (user: User) => void;
   setUnauthenticated: () => void;
 }
@@ -56,74 +58,85 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('loading');
   const [user, setUserState] = useState<User | null>(null);
   const logout = useAuthStore((s) => s.logout);
+  const setAuthResolved = useAuthStore((s) => s.setAuthResolved);
+  const setAuthFlags = useAuthStore((s) => s.setAuthFlags);
+  const setUser = useAuthStore((s) => s.setUser);
+  const authFlags = useAuthStore((s) => s.authFlags);
+  const authResolved = useAuthStore((s) => s.authResolved);
+  const meCalled = useRef(false);
 
   const setAuthenticated = useCallback((u: User) => {
+    setAuthResolved(true);
+    setAuthFlags(1);
     setUserState(u);
     setStatus('authenticated');
-  }, []);
+  }, [setAuthResolved, setAuthFlags]);
 
   const setUnauthenticated = useCallback(() => {
+    setAuthFlags(0);
     logout();
     setUserState(null);
     setStatus('unauthenticated');
-  }, [logout]);
+  }, [logout, setAuthFlags]);
 
   useEffect(() => {
-    let cancelled = false;
+    if (meCalled.current) return;
+    meCalled.current = true;
+
     const token = getStoredAccessToken();
-
-    if (!token) {
-      if (!cancelled) {
-        setStatus('unauthenticated');
-      }
-      return;
-    }
-
     const apiUrl = getApiBaseUrl();
-    fetch(`${apiUrl}/api/v1/auth/me`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    const headers: HeadersInit = { 'Content-Type': 'application/json' };
+    if (token) (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+
+    fetch(`${apiUrl}/api/v1/auth/me`, { headers })
       .then((res) => {
-        if (cancelled) return;
-        if (res.status === 401) {
+        if (res.status === 401 || !res.ok) {
+          setAuthResolved(true);
+          setAuthFlags(0);
           setUnauthenticated();
-          return;
-        }
-        if (!res.ok) {
-          setUnauthenticated();
-          return;
+          return null;
         }
         return res.json();
       })
       .then((json) => {
-        if (cancelled || !json?.success || !json?.data) {
-          if (!cancelled && !json?.success) setUnauthenticated();
-          return;
+        setAuthResolved(true);
+        if (json?.success && json?.data) {
+          const flags = typeof json.data.auth_flags === 'number' ? json.data.auth_flags : 0;
+          setAuthFlags(flags);
+          if (flags > 0) {
+            const u = mapMeResponseToUser(json.data as Record<string, unknown>);
+            setUser(u);
+            setUserState(u);
+            setStatus('authenticated');
+          } else {
+            setUnauthenticated();
+          }
+        } else {
+          setAuthFlags(0);
+          setUnauthenticated();
         }
-        const u = mapMeResponseToUser(json.data as Record<string, unknown>);
-        useAuthStore.getState().setUser(u);
-        setUserState(u);
-        setStatus('authenticated');
       })
       .catch(() => {
-        if (!cancelled) setUnauthenticated();
+        setAuthResolved(true);
+        setAuthFlags(0);
+        setUnauthenticated();
       });
+  }, [setAuthResolved, setAuthFlags, setUnauthenticated, setUser]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [setUnauthenticated]);
+  const isAuthenticated = authFlags > 0;
 
   const value: AuthContextValue = {
     status,
     user,
+    authResolved,
+    isAuthenticated,
     setAuthenticated,
     setUnauthenticated,
   };
 
   return (
     <AuthContext.Provider value={value}>
-      {status === 'loading' ? (
+      {!authResolved ? (
         <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0e11]" role="status" aria-label="Loading">
           <div className="animate-spin rounded-full h-10 w-10 border-2 border-blue-500 border-t-transparent" />
         </div>
