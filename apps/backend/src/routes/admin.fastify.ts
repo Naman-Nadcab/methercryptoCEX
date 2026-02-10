@@ -9,6 +9,10 @@ import { ensureUserBalanceRow, CHAIN_ID_GLOBAL } from '../lib/user-balance-helpe
 import { getCurrencyIdBySymbol } from '../lib/currency-resolver.js';
 import { logAuditFromRequest } from '../services/audit-log.service.js';
 import { logAdminActivity, getDeviceIdFromRequest } from '../services/activity-monitor.service.js';
+import { refreshMatchEventsCache } from '../services/matchingEngine.js';
+import { getClientIp } from '../lib/client-ip.js';
+import { isIpInWhitelist } from '../lib/admin-ip-whitelist.js';
+import { enforceAdminRateLimit } from '../lib/rate-limit-fastify.js';
 // Types
 interface AdminLoginBody {
   email: string;
@@ -91,15 +95,38 @@ export async function getAdminFromRequest(
     });
     return null;
   }
-  const ip = (request.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || request.ip;
-  const allowlist = config.security?.adminIpWhitelist ?? [];
-  if (allowlist.length > 0 && !allowlist.includes(ip) && !allowlist.includes('*')) {
+  // FIX #3: Admin IP whitelist — enforce only after JWT/session auth. Production: empty whitelist = deny all; non-production: empty = do not enforce.
+  const clientIp = getClientIp(request);
+  const whitelist = config.security?.adminIpWhitelist ?? [];
+  const path = request.routerPath ?? request.url;
+
+  if (config.isProduction && whitelist.length === 0) {
+    logger.warn('Admin access denied: IP whitelist empty in production', {
+      adminId: session.adminId,
+      ip: clientIp,
+      path,
+    });
     reply.status(403).send({
       success: false,
-      error: { code: 'FORBIDDEN', message: 'Your IP is not on the admin allowlist.' },
+      error: { code: 'ADMIN_IP_NOT_ALLOWED', message: 'Admin access is restricted from this IP address' },
     });
     return null;
   }
+  if (whitelist.length > 0 && !isIpInWhitelist(clientIp, whitelist)) {
+    logger.warn('Admin access denied: IP not in whitelist', {
+      adminId: session.adminId,
+      ip: clientIp,
+      path,
+    });
+    reply.status(403).send({
+      success: false,
+      error: { code: 'ADMIN_IP_NOT_ALLOWED', message: 'Admin access is restricted from this IP address' },
+    });
+    return null;
+  }
+  // FIX #4: Admin rate limit 60/min per admin (after auth + IP whitelist).
+  const allowed = await enforceAdminRateLimit(request, reply, session.adminId, 'admin', 60, 60);
+  if (!allowed) return null;
   return { adminId: session.adminId, role };
 }
 
@@ -523,6 +550,24 @@ export default async function adminRoutes(app: FastifyInstance) {
       return reply.status(500).send({
         success: false,
         error: { code: 'FETCH_FAILED', message: 'Failed to fetch dashboard stats' },
+      });
+    }
+  });
+
+  /**
+   * GET /admin/matches
+   * Read-only: cached match events from Rust matching engine. Refreshes from engine on call.
+   */
+  app.get('/matches', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const events = await refreshMatchEventsCache();
+      return reply.send({ success: true, data: { events } });
+    } catch {
+      return reply.status(503).send({
+        success: false,
+        error: { code: 'SERVICE_UNAVAILABLE', message: 'Matching engine unavailable' },
       });
     }
   });
