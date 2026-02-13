@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { body, query, param, validationResult } from 'express-validator';
-import { authenticate, requireKYC, AuthenticatedRequest } from '../middleware/auth.js';
+import { authenticate, requireKYC } from '../middleware/auth.js';
+import type { AuthenticatedRequest } from '../types/index.js';
 import { rateLimiters } from '../middleware/rateLimiter.js';
 import { matchingEngine } from '../services/matching-engine.service.js';
 import { walletService } from '../services/wallet.service.js';
@@ -8,7 +9,7 @@ import { db } from '../lib/database.js';
 import { OrderSide, OrderType, OrderStatus, TimeInForce, TradingPair } from '../types/index.js';
 import { logger } from '../lib/logger.js';
 
-const router = Router();
+const router: Router = Router();
 
 // Validation error handler
 const handleValidation = (req: Request, res: Response, next: Function) => {
@@ -73,17 +74,18 @@ router.get(
   handleValidation,
   async (req: Request, res: Response) => {
     try {
-      const { pairId } = req.params;
+      const pairId = req.params.pairId;
+      if (!pairId) return res.status(400).json({ success: false, error: { code: 'MISSING_PARAM', message: 'pairId required' } });
       const depth = parseInt(req.query.depth as string) || 50;
 
       const orderbook = await matchingEngine.getOrderbook(pairId, depth);
 
-      res.json({
+      return res.json({
         success: true,
         data: orderbook,
       });
     } catch (error) {
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: {
           code: 'FETCH_FAILED',
@@ -107,17 +109,18 @@ router.get(
   handleValidation,
   async (req: Request, res: Response) => {
     try {
-      const { pairId } = req.params;
+      const pairId = req.params.pairId;
+      if (!pairId) return res.status(400).json({ success: false, error: { code: 'MISSING_PARAM', message: 'pairId required' } });
       const limit = parseInt(req.query.limit as string) || 50;
 
       const trades = await matchingEngine.getRecentTrades(pairId, limit);
 
-      res.json({
+      return res.json({
         success: true,
         data: trades,
       });
     } catch (error) {
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         error: {
           code: 'FETCH_FAILED',
@@ -238,16 +241,17 @@ router.delete(
   async (req: Request, res: Response) => {
     try {
       const user = (req as AuthenticatedRequest).user;
-      const { orderId } = req.params;
+      const orderId = req.params.orderId;
+      if (!orderId) return res.status(400).json({ success: false, error: { code: 'MISSING_PARAM', message: 'orderId required' } });
 
       const order = await matchingEngine.cancelOrder(orderId, user.id);
 
-      res.json({
+      return res.json({
         success: true,
         data: order,
       });
     } catch (error) {
-      res.status(400).json({
+      return res.status(400).json({
         success: false,
         error: {
           code: 'CANCEL_FAILED',

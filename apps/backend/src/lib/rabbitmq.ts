@@ -1,4 +1,4 @@
-import amqp, { Channel, Connection, ConsumeMessage } from 'amqplib';
+import amqp, { Channel, type ChannelModel, ConsumeMessage } from 'amqplib';
 import { config } from '../config/index.js';
 import { logger } from './logger.js';
 
@@ -52,7 +52,7 @@ export const ROUTING_KEYS = {
 type MessageHandler<T> = (message: T, ack: () => void, nack: (requeue?: boolean) => void) => Promise<void>;
 
 class RabbitMQClient {
-  private connection: Connection | null = null;
+  private connection: ChannelModel | null = null;
   private channel: Channel | null = null;
   private static instance: RabbitMQClient;
   private reconnecting = false;
@@ -67,19 +67,21 @@ class RabbitMQClient {
 
   async connect(): Promise<void> {
     try {
-      this.connection = await amqp.connect(config.rabbitmq.url);
-      this.channel = await this.connection.createChannel();
+      const conn = await amqp.connect(config.rabbitmq.url);
+      this.connection = conn;
+      const ch = await conn.createChannel();
+      this.channel = ch;
 
       // Set prefetch for fair dispatch
-      await this.channel.prefetch(10);
+      await ch.prefetch(10);
 
       // Setup connection error handlers
-      this.connection.on('error', (err) => {
-        logger.error('RabbitMQ connection error', { error: err.message });
+      conn.on('error', (err) => {
+        logger.error('RabbitMQ connection error', { error: err instanceof Error ? err.message : 'Unknown' });
         this.handleReconnect();
       });
 
-      this.connection.on('close', () => {
+      conn.on('close', () => {
         logger.warn('RabbitMQ connection closed');
         this.handleReconnect();
       });

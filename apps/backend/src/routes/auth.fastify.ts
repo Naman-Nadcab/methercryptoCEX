@@ -1,3 +1,4 @@
+import { Decimal } from '../lib/decimal.js';
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
@@ -18,6 +19,7 @@ import {
   getDeviceIdFromRequest,
 } from '../services/activity-monitor.service.js';
 import { rateLimitByIp } from '../lib/rate-limit-fastify.js';
+import { config } from '../config/index.js';
 import {
   generateRegistrationOptions,
   verifyRegistrationResponse,
@@ -28,7 +30,7 @@ import type {
   RegistrationResponseJSON,
   AuthenticationResponseJSON,
   AuthenticatorTransportFuture,
-} from '@simplewebauthn/server/script/deps';
+} from '@simplewebauthn/server';
 import { isoBase64URL } from '@simplewebauthn/server/helpers';
 
 // WebAuthn configuration
@@ -118,7 +120,7 @@ function generateTokens(app: FastifyInstance, payload: {
   role: string;
   sessionId: string;
 }) {
-  const accessToken = app.jwt.sign(payload, { expiresIn: '15m' });
+  const accessToken = app.jwt.sign(payload, { expiresIn: config.jwt.expiresIn });
   const refreshToken = app.jwt.sign(
     { userId: payload.userId, sessionId: payload.sessionId, type: 'refresh' },
     { expiresIn: '7d' }
@@ -1001,7 +1003,8 @@ export default async function authRoutes(app: FastifyInstance) {
           [referralCode.toUpperCase().trim()]
         );
         if (codeRow.rows.length > 0) {
-          const { id: referral_code_id, user_id: referrer_id, referrer_commission_rate, referee_discount_rate } = codeRow.rows[0];
+          const row = codeRow.rows[0]!;
+          const { id: referral_code_id, user_id: referrer_id, referrer_commission_rate, referee_discount_rate } = row;
           await db.query(
             `INSERT INTO referral_relationships (referrer_id, referee_id, referral_code_id, locked_referrer_commission, locked_referee_discount)
              VALUES ($1, $2, $3, $4, $5)
@@ -1434,9 +1437,10 @@ export default async function authRoutes(app: FastifyInstance) {
           const crypto = await import('crypto');
           const encryptionKey = process.env.TOTP_ENCRYPTION_KEY || process.env.JWT_SECRET || 'default-encryption-key';
           const [ivHex, encryptedSecret] = user.totp_secret.split(':');
+          if (!ivHex || !encryptedSecret) throw new Error('Invalid TOTP secret format');
           const iv = Buffer.from(ivHex, 'hex');
           const decipher = crypto.createDecipheriv('aes-256-cbc', crypto.scryptSync(encryptionKey, 'salt', 32), iv);
-          let decryptedSecret = decipher.update(encryptedSecret, 'hex', 'utf8');
+          let decryptedSecret: string = decipher.update(encryptedSecret, 'hex', 'utf8');
           decryptedSecret += decipher.final('utf8');
 
           const OTPAuth = await import('otpauth');
@@ -1768,7 +1772,7 @@ export default async function authRoutes(app: FastifyInstance) {
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
 
       // Get user info
       const userResult = await db.query<{ id: string; email: string; username: string | null }>(
@@ -1861,7 +1865,7 @@ export default async function authRoutes(app: FastifyInstance) {
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
       const { credential, deviceName } = request.body as { credential: RegistrationResponseJSON; deviceName?: string };
 
       if (!credential) {
@@ -1921,8 +1925,8 @@ export default async function authRoutes(app: FastifyInstance) {
         });
       }
 
-      // Store as base64url strings using simplewebauthn helper
-      const credentialIdB64 = isoBase64URL.fromBuffer(cred.id);
+      // Store as base64url strings (cred.id is already Base64URLString; publicKey is Uint8Array)
+      const credentialIdB64 = cred.id;
       const publicKeyB64 = isoBase64URL.fromBuffer(cred.publicKey);
 
       // Get transports from the response for future authentication hints
@@ -2263,7 +2267,7 @@ export default async function authRoutes(app: FastifyInstance) {
       // Generate tokens
       const accessToken = request.server.jwt.sign(
         { userId: user.id, email: user.email, type: 'access' },
-        { expiresIn: '15m' }
+        { expiresIn: config.jwt.expiresIn }
       );
 
       const refreshToken = request.server.jwt.sign(
@@ -2324,7 +2328,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.get('/passkeys', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
 
       const result = await db.query<{ 
         id: string; 
@@ -2372,7 +2376,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.delete('/passkeys/:passkeyId', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
       const { passkeyId } = request.params as { passkeyId: string };
 
       // Soft delete the passkey
@@ -2438,7 +2442,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.get('/check-password', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
 
       const result = await db.query<{ password_hash: string | null }>(
         `SELECT password_hash FROM users WHERE id = $1 AND deleted_at IS NULL`,
@@ -2473,7 +2477,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post('/change-password', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
       const { oldPassword, newPassword } = request.body as { oldPassword?: string; newPassword: string };
 
       // Get user
@@ -2617,7 +2621,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post('/change-email', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
       const { newEmail, otp } = request.body as { newEmail: string; otp: string };
 
       if (!newEmail || !otp) {
@@ -2693,7 +2697,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post('/change-phone', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
       const { newPhone, otp } = request.body as { newPhone: string; otp: string };
 
       if (!newPhone || !otp) {
@@ -2763,7 +2767,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post('/send-security-otp', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
       const { type, phone, purpose } = request.body as { type: 'email' | 'phone'; phone?: string; purpose?: string };
 
       // Get user data
@@ -2856,7 +2860,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post('/verify-security-otp', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
       const { type, otp, purpose } = request.body as { type: 'email' | 'phone'; otp: string; purpose?: string };
 
       // Get user data
@@ -2916,7 +2920,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post('/verify-phone-setup', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
       const { phone, otp } = request.body as { phone: string; otp: string };
 
       if (!phone || !otp) {
@@ -3112,7 +3116,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post('/2fa/setup', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
 
       // Get user email
       const userResult = await db.query<{ email: string; totp_enabled: boolean }>(
@@ -3194,7 +3198,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post('/2fa/enable', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
       const { code, secret } = request.body as { code: string; secret: string };
 
       if (!code || !secret) {
@@ -3272,7 +3276,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post('/2fa/verify', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
       const { code } = request.body as { code: string };
 
       if (!code) {
@@ -3307,11 +3311,12 @@ export default async function authRoutes(app: FastifyInstance) {
       // Decrypt secret
       const crypto = await import('crypto');
       const encryptionKey = process.env.TOTP_ENCRYPTION_KEY || process.env.JWT_SECRET || 'default-encryption-key';
-      const [ivHex, encryptedSecret] = user.totp_secret.split(':');
-      const iv = Buffer.from(ivHex, 'hex');
-      const decipher = crypto.createDecipheriv('aes-256-cbc', crypto.scryptSync(encryptionKey, 'salt', 32), iv);
-      let decryptedSecret = decipher.update(encryptedSecret, 'hex', 'utf8');
-      decryptedSecret += decipher.final('utf8');
+          const [ivHex, encryptedSecret] = user.totp_secret.split(':');
+          if (!ivHex || !encryptedSecret) throw new Error('Invalid TOTP secret format');
+          const iv = Buffer.from(ivHex, 'hex');
+          const decipher = crypto.createDecipheriv('aes-256-cbc', crypto.scryptSync(encryptionKey, 'salt', 32), iv);
+          let decryptedSecret: string = decipher.update(encryptedSecret, 'hex', 'utf8');
+          decryptedSecret += decipher.final('utf8');
 
       // Verify code
       const OTPAuth = await import('otpauth');
@@ -3355,7 +3360,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post('/2fa/disable', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
       const { password, code } = request.body as { password: string; code: string };
 
       if (!password || !code) {
@@ -3407,9 +3412,10 @@ export default async function authRoutes(app: FastifyInstance) {
       const crypto = await import('crypto');
       const encryptionKey = process.env.TOTP_ENCRYPTION_KEY || process.env.JWT_SECRET || 'default-encryption-key';
       const [ivHex, encryptedSecret] = user.totp_secret.split(':');
+      if (!ivHex || !encryptedSecret) throw new Error('Invalid TOTP secret format');
       const iv = Buffer.from(ivHex, 'hex');
       const decipher = crypto.createDecipheriv('aes-256-cbc', crypto.scryptSync(encryptionKey, 'salt', 32), iv);
-      let decryptedSecret = decipher.update(encryptedSecret, 'hex', 'utf8');
+      let decryptedSecret: string = decipher.update(encryptedSecret, 'hex', 'utf8');
       decryptedSecret += decipher.final('utf8');
 
       // Verify 2FA code
@@ -3467,7 +3473,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.get('/fund-password/status', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
 
       const result = await db.query<{ fund_password_hash: string | null }>(
         `SELECT fund_password_hash FROM users WHERE id = $1 AND deleted_at IS NULL`,
@@ -3501,7 +3507,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post('/fund-password/check-same', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
       const { password } = request.body as { password: string };
 
       if (!password) {
@@ -3557,7 +3563,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post('/fund-password/set', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
       const { password } = request.body as { password: string };
 
       if (!password) {
@@ -3644,7 +3650,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.get('/anti-phishing/status', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
 
       const result = await db.query<{ anti_phishing_code: string | null }>(
         `SELECT anti_phishing_code FROM users WHERE id = $1 AND deleted_at IS NULL`,
@@ -3678,7 +3684,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post('/anti-phishing/set', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
       const { code, oldCode } = request.body as { code: string; oldCode?: string };
 
       if (!code) {
@@ -3768,7 +3774,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.get('/api-keys', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
 
       const result = await db.query(
         `SELECT id, name, key_type, api_key_usage, api_key, api_secret, permission, 
@@ -3814,7 +3820,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post('/api-keys', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
       const {
         keyType,
         apiKeyUsage,
@@ -3903,7 +3909,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.delete('/api-keys/:id', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
       const { id } = request.params as { id: string };
 
       const result = await db.query(
@@ -3942,7 +3948,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.get('/preferences', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
 
       const result = await db.query(
         `SELECT preferences FROM users WHERE id = $1 AND deleted_at IS NULL`,
@@ -3978,7 +3984,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post('/preferences', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
       const updates = request.body as Record<string, any>;
 
       // Get current preferences
@@ -4025,7 +4031,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.get('/withdrawal-limits', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
 
       const result = await db.query(
         `SELECT daily_withdrawal_limit, monthly_withdrawal_limit, 
@@ -4044,15 +4050,17 @@ export default async function authRoutes(app: FastifyInstance) {
 
       const user = result.rows[0];
 
+      const ROUND_DOWN = 1;
+      const PREC = 8;
       return reply.send({
         success: true,
         data: {
-          dailyLimit: parseFloat(user.daily_withdrawal_limit) || 20000,
-          monthlyLimit: parseFloat(user.monthly_withdrawal_limit) || 100000,
-          dailyUsed: parseFloat(user.daily_withdrawal_used) || 0,
-          monthlyUsed: parseFloat(user.monthly_withdrawal_used) || 0,
-          maxDailyLimit: 20000,
-          maxMonthlyLimit: 100000
+          dailyLimit: new Decimal(user?.daily_withdrawal_limit ?? '20000').toDecimalPlaces(PREC, ROUND_DOWN).toString(),
+          monthlyLimit: new Decimal(user?.monthly_withdrawal_limit ?? '100000').toDecimalPlaces(PREC, ROUND_DOWN).toString(),
+          dailyUsed: new Decimal(user?.daily_withdrawal_used ?? '0').toDecimalPlaces(PREC, ROUND_DOWN).toString(),
+          monthlyUsed: new Decimal(user?.monthly_withdrawal_used ?? '0').toDecimalPlaces(PREC, ROUND_DOWN).toString(),
+          maxDailyLimit: '20000',
+          maxMonthlyLimit: '100000'
         },
       });
 
@@ -4071,7 +4079,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post('/withdrawal-limits', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
       const { dailyLimit, monthlyLimit } = request.body as {
         dailyLimit: number;
         monthlyLimit: number;
@@ -4135,7 +4143,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.get('/new-address-lock/status', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
 
       const result = await db.query<{ new_address_lock_enabled: boolean }>(
         `SELECT COALESCE(new_address_lock_enabled, FALSE) as new_address_lock_enabled 
@@ -4163,7 +4171,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.get('/withdrawal-addresses', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
 
       const result = await db.query(
         `SELECT id, asset, network, note, address, memo, is_whitelisted, 
@@ -4194,7 +4202,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post('/withdrawal-addresses', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
       const { 
         asset, 
         network, 
@@ -4283,7 +4291,7 @@ export default async function authRoutes(app: FastifyInstance) {
 
       return reply.send({
         success: true,
-        data: { id: result.rows[0].id, message: 'Address added successfully' },
+        data: { id: result.rows[0]!.id, message: 'Address added successfully' },
       });
 
     } catch (error) {
@@ -4301,7 +4309,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.delete('/withdrawal-addresses/:id', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
       const { id } = request.params as { id: string };
 
       const result = await db.query(
@@ -4340,7 +4348,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.get('/address-book/status', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
 
       const result = await db.query<{ address_book_enabled: boolean }>(
         `SELECT COALESCE(address_book_enabled, FALSE) as address_book_enabled 
@@ -4375,7 +4383,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post('/sms-auth/toggle', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
       const { enabled } = request.body as { enabled: boolean };
 
       if (typeof enabled !== 'boolean') {
@@ -4447,7 +4455,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.get('/sms-auth/status', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
 
       const result = await db.query<{ sms_auth_enabled: boolean; phone: string | null }>(
         `SELECT COALESCE(sms_auth_enabled, FALSE) as sms_auth_enabled, phone FROM users WHERE id = $1 AND deleted_at IS NULL`,
@@ -4484,7 +4492,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.get('/security/settings', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
 
       const result = await db.query<{
         sms_auth_enabled: boolean;
@@ -4541,7 +4549,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post('/address-book/toggle', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
       const { enabled } = request.body as { enabled: boolean };
 
       if (typeof enabled !== 'boolean') {
@@ -4586,7 +4594,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.get('/withdrawal-whitelist/status', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
 
       const result = await db.query<{ withdrawal_whitelist_enabled: boolean }>(
         `SELECT COALESCE(withdrawal_whitelist_enabled, FALSE) as withdrawal_whitelist_enabled 
@@ -4621,7 +4629,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post('/withdrawal-whitelist/toggle', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
       const { enabled } = request.body as { enabled: boolean };
 
       if (typeof enabled !== 'boolean') {
@@ -4666,7 +4674,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.get('/fee-rates', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
 
       // Get user's fee data
       const userResult = await db.query<{
@@ -4719,7 +4727,7 @@ export default async function authRoutes(app: FastifyInstance) {
             (SELECT value::jsonb->>'fiat_taker_fee' FROM system_settings WHERE key = 'fee_rates_vip_' || $1),
             '0.2'
           ) as fiat_taker_fee`,
-        [userData.vip_level]
+        [userData?.vip_level ?? 0]
       );
 
       // VIP level names
@@ -4742,8 +4750,8 @@ export default async function authRoutes(app: FastifyInstance) {
         5: { maker: 0.01, taker: 0.02, fiatMaker: 0.015, fiatTaker: 0.02 },
       };
 
-      const vipLevel = userData.vip_level || 0;
-      const defaultFees = defaultFeeRates[vipLevel] || defaultFeeRates[0];
+      const vipLevel = userData?.vip_level ?? 0;
+      const defaultFees = defaultFeeRates[vipLevel] ?? defaultFeeRates[0]!;
 
       return reply.send({
         success: true,
@@ -4751,15 +4759,15 @@ export default async function authRoutes(app: FastifyInstance) {
           vipLevel: vipLevel,
           vipLevelName: vipLevelNames[vipLevel] || 'Regular User',
           spotFees: {
-            maker: feeResult.rows[0] ? parseFloat(feeResult.rows[0].spot_maker_fee) : defaultFees.maker,
-            taker: feeResult.rows[0] ? parseFloat(feeResult.rows[0].spot_taker_fee) : defaultFees.taker,
-            fiatMaker: feeResult.rows[0] ? parseFloat(feeResult.rows[0].fiat_maker_fee) : defaultFees.fiatMaker,
-            fiatTaker: feeResult.rows[0] ? parseFloat(feeResult.rows[0].fiat_taker_fee) : defaultFees.fiatTaker,
+            maker: feeResult.rows[0] ? new Decimal(feeResult.rows[0]!.spot_maker_fee).toString() : String(defaultFees.maker),
+            taker: feeResult.rows[0] ? new Decimal(feeResult.rows[0]!.spot_taker_fee).toString() : String(defaultFees.taker),
+            fiatMaker: feeResult.rows[0] ? new Decimal(feeResult.rows[0]!.fiat_maker_fee).toString() : String(defaultFees.fiatMaker),
+            fiatTaker: feeResult.rows[0] ? new Decimal(feeResult.rows[0]!.fiat_taker_fee).toString() : String(defaultFees.fiatTaker),
           },
-          mntDiscount: userData.mnt_discount_enabled || false,
-          tradingVolume30d: parseFloat(userData.trading_volume_30d) || 0,
-          totalEquity: parseFloat(userData.total_equity) || 0,
-          avgEquity30d: parseFloat(userData.avg_equity_30d) || 0,
+          mntDiscount: userData?.mnt_discount_enabled ?? false,
+          tradingVolume30d: new Decimal(userData?.trading_volume_30d ?? '0').toString(),
+          totalEquity: new Decimal(userData?.total_equity ?? '0').toString(),
+          avgEquity30d: new Decimal(userData?.avg_equity_30d ?? '0').toString(),
         },
       });
 
@@ -4778,7 +4786,7 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post('/fee-rates/mnt-discount', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const { userId } = request.user as { userId: string };
+      const userId = (request.user?.userId ?? request.user?.id)!;
       const { enabled } = request.body as { enabled: boolean };
 
       if (typeof enabled !== 'boolean') {

@@ -4,6 +4,7 @@
  * All alert creation is best-effort (does not block the transaction).
  */
 
+import { Decimal } from '../lib/decimal.js';
 import { db } from '../lib/database.js';
 import { logger } from '../lib/logger.js';
 import { config } from '../config/index.js';
@@ -40,15 +41,15 @@ export async function recordTransaction(params: RecordTransactionParams): Promis
     countryCode = null,
   } = params;
 
-  const amountNum = amount != null ? (typeof amount === 'string' ? parseFloat(amount) : amount) : null;
-  const fiatAmountNum = fiatAmount != null ? (typeof fiatAmount === 'string' ? parseFloat(fiatAmount) : fiatAmount) : null;
+  const amountStr = amount != null ? (typeof amount === 'string' ? amount : new Decimal(amount).toString()) : null;
+  const fiatAmountStr = fiatAmount != null ? (typeof fiatAmount === 'string' ? fiatAmount : new Decimal(fiatAmount).toString()) : null;
 
   try {
     const result = await db.query<{ id: string }>(
       `INSERT INTO aml_transaction_logs (user_id, txn_type, asset, amount, fiat_amount, fiat_currency, country_code)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id`,
-      [userId, txnType, asset ?? null, amountNum, fiatAmountNum, fiatCurrency ?? null, countryCode?.trim().toUpperCase() ?? null]
+      [userId, txnType, asset ?? null, amountStr, fiatAmountStr, fiatCurrency ?? null, countryCode?.trim().toUpperCase() ?? null]
     );
     return result.rows[0]?.id ?? null;
   } catch (e) {
@@ -95,20 +96,21 @@ export async function evaluateTransactionForAlerts(params: EvaluateTransactionPa
   const { userId, txnType, asset, amount, fiatAmount, fiatCurrency, countryCode } = params;
   const cfg = config.aml;
 
-  const amountNum = amount != null ? (typeof amount === 'string' ? parseFloat(amount) : amount) : null;
-  const fiatAmountNum = fiatAmount != null ? (typeof fiatAmount === 'string' ? parseFloat(fiatAmount) : fiatAmount) : null;
+  const amountDec = amount != null ? new Decimal(typeof amount === 'string' ? amount : amount) : null;
+  const fiatAmountDec = fiatAmount != null ? new Decimal(typeof fiatAmount === 'string' ? fiatAmount : fiatAmount) : null;
   const country = countryCode?.trim().toUpperCase() ?? null;
+  const largeFiatThreshold = new Decimal(cfg.largeFiatInrThreshold);
 
   // Rule: large fiat transaction (INR threshold)
   const isInr = !fiatCurrency || fiatCurrency.toUpperCase() === 'INR';
-  if (isInr && fiatAmountNum != null && fiatAmountNum >= cfg.largeFiatInrThreshold) {
+  if (isInr && fiatAmountDec != null && fiatAmountDec.gte(largeFiatThreshold)) {
     await createAlert({
       userId,
       alertType: 'large_fiat_txn',
       severity: 'high',
       details: {
         rule: 'large_fiat_txn',
-        fiatAmount: fiatAmountNum,
+        fiatAmount: fiatAmountDec.toString(),
         fiatCurrency: fiatCurrency ?? 'INR',
         threshold: cfg.largeFiatInrThreshold,
       },
@@ -116,7 +118,8 @@ export async function evaluateTransactionForAlerts(params: EvaluateTransactionPa
   }
 
   // Rule: large crypto withdrawal
-  if (txnType === 'withdrawal' && amountNum != null && amountNum >= cfg.largeCryptoWithdrawalThreshold) {
+  const largeCryptoThreshold = new Decimal(cfg.largeCryptoWithdrawalThreshold);
+  if (txnType === 'withdrawal' && amountDec != null && amountDec.gte(largeCryptoThreshold)) {
     await createAlert({
       userId,
       alertType: 'large_crypto_withdrawal',
@@ -124,7 +127,7 @@ export async function evaluateTransactionForAlerts(params: EvaluateTransactionPa
       details: {
         rule: 'large_crypto_withdrawal',
         asset: asset ?? null,
-        amount: amountNum,
+        amount: amountDec.toString(),
         threshold: cfg.largeCryptoWithdrawalThreshold,
       },
     });

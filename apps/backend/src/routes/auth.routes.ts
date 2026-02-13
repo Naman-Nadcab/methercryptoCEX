@@ -1,12 +1,13 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { body, validationResult } from 'express-validator';
 import { authService } from '../services/auth.service.js';
-import { authenticate, AuthenticatedRequest } from '../middleware/auth.js';
+import { authenticate } from '../middleware/auth.js';
+import type { AuthenticatedRequest } from '../types/index.js';
 import { rateLimiters } from '../middleware/rateLimiter.js';
 import { AuthProvider } from '../types/index.js';
 import { logger } from '../lib/logger.js';
 
-const router = Router();
+const router: Router = Router();
 
 // Validation middleware
 const handleValidationErrors = (req: Request, res: Response, next: NextFunction) => {

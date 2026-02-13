@@ -51,7 +51,7 @@ const SIDEBAR_LINKS = [
 ];
 
 export default function TransferPage() {
-  const { accessToken } = useAuthStore();
+  const { accessToken, _hasHydrated } = useAuthStore();
 
   const [fromAccount, setFromAccount] = useState<'funding' | 'trading'>('funding');
   const [toAccount, setToAccount] = useState<'funding' | 'trading'>('trading');
@@ -71,11 +71,11 @@ export default function TransferPage() {
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
   useEffect(() => {
-    if (accessToken) {
+    if (_hasHydrated && accessToken) {
       fetchTransferableBalances();
       fetchTransferHistory();
     }
-  }, [accessToken, fromAccount]);
+  }, [_hasHydrated, accessToken, fromAccount]);
 
   const fetchTransferableBalances = async () => {
     try {
@@ -85,7 +85,7 @@ export default function TransferPage() {
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setTokens(data.data || []);
+        setTokens(Array.isArray(data.data) ? data.data : []);
       }
     } catch (err) {
       console.error('Failed to fetch balances:', err);
@@ -127,7 +127,7 @@ export default function TransferPage() {
     }
 
     const transferAmount = parseFloat(amount);
-    const availableBalance = parseFloat(selectedToken.availableBalance);
+    const availableBalance = parseFloat(selectedToken.availableBalance ?? '0');
     if (transferAmount > availableBalance) {
       setError('Insufficient balance');
       return;
@@ -142,6 +142,7 @@ export default function TransferPage() {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
+          'Idempotency-Key': crypto.randomUUID(),
         },
         body: JSON.stringify({
           fromAccount,
@@ -171,7 +172,7 @@ export default function TransferPage() {
 
   const handleSetMax = () => {
     if (selectedToken) {
-      setAmount(selectedToken.availableBalance);
+      setAmount(selectedToken.availableBalance ?? '0');
     }
   };
 
@@ -464,7 +465,7 @@ export default function TransferPage() {
                                     <p className="text-xs text-gray-500">{token.name}</p>
                                   </div>
                                 </div>
-                                <span className="text-sm text-gray-500">{parseFloat(token.availableBalance).toFixed(6)}</span>
+                                <span className="text-sm text-gray-500">{parseFloat(token.availableBalance ?? '0').toFixed(6)}</span>
                               </button>
                             ))
                           )}
@@ -478,7 +479,9 @@ export default function TransferPage() {
                 <div className="flex items-center justify-between text-sm py-3 px-4 bg-gray-50 dark:bg-[#2b2f36] rounded-xl mb-6">
                   <span className="text-gray-500">Transferable Amount</span>
                   <span className="font-semibold text-gray-900 dark:text-white">
-                    {selectedToken ? `${parseFloat(selectedToken.availableBalance).toFixed(6)} ${selectedToken.symbol}` : '0.0000'}
+                    {selectedToken
+                      ? `${parseFloat(selectedToken.availableBalance ?? '0').toFixed(6)} ${selectedToken.symbol}`
+                      : '0.000000'}
                   </span>
                 </div>
 

@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
+import type { LucideIcon } from 'lucide-react';
 import {
   ChevronRight,
   ChevronDown,
@@ -36,7 +37,7 @@ interface Transaction {
   quantity: string;
   address: string;
   txid: string;
-  status: 'completed' | 'pending' | 'failed' | 'processing';
+  status: 'completed' | 'pending' | 'failed' | 'processing' | 'confirming';
   date_time: string;
   description?: string;
   available_balance?: string;
@@ -46,7 +47,7 @@ interface Transaction {
   explorerUrl?: string;
 }
 
-const HISTORY_TABS = [
+const HISTORY_TABS: { id: string; label: string; icon: LucideIcon; external?: boolean }[] = [
   { id: 'all', label: 'All Transactions', icon: Clock },
   { id: 'deposit', label: 'Deposit', icon: Download },
   { id: 'withdraw', label: 'Withdraw', icon: Upload },

@@ -39,11 +39,14 @@ interface EligibilityInsight {
   skip_reason_counts: Record<string, number>;
 }
 
+const WEI_PER_ETH = '1000000000000000000';
+const WEI_E15 = '1000000000000000';
+
 function formatWei(wei: string): string {
   try {
     const n = BigInt(wei);
-    if (n >= 10n ** 18n) return `${Number(Number(n) / 1e18).toFixed(4)} ETH`;
-    if (n >= 10n ** 15n) return `${(Number(n) / 1e15).toFixed(2)}e15 wei`;
+    if (n >= BigInt(WEI_PER_ETH)) return `${Number(Number(n) / 1e18).toFixed(4)} ETH`;
+    if (n >= BigInt(WEI_E15)) return `${(Number(n) / 1e15).toFixed(2)}e15 wei`;
     return `${wei} wei`;
   } catch {
     return wei;

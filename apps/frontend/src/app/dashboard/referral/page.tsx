@@ -728,14 +728,17 @@ export default function ReferralProgramPage() {
                     { icon: Mail, label: 'Email', action: shareViaEmail, color: 'bg-gray-700' },
                     { icon: () => <span className="text-lg font-bold">𝕏</span>, label: 'X', action: shareViaTwitter, color: 'bg-gray-900' },
                     { icon: MessageCircle, label: 'Telegram', action: shareViaTelegram, color: 'bg-[#0088cc]' },
-                  ].map((item, i) => (
+                  ].map((item, i) => {
+                    const Icon = item.icon as React.ComponentType<{ className?: string }>;
+                    return (
                     <button key={i} onClick={item.action} className="flex flex-col items-center gap-2 group">
                       <div className={`w-12 h-12 ${item.color} hover:opacity-80 rounded-full flex items-center justify-center transition-all`}>
-                        {typeof item.icon === 'function' ? <item.icon /> : <item.icon className="w-5 h-5 text-white" />}
+                        <Icon className="w-5 h-5 text-white" />
                       </div>
                       <span className="text-xs text-gray-400 group-hover:text-white">{item.label}</span>
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 <div className="grid grid-cols-5 gap-4">
@@ -745,18 +748,21 @@ export default function ReferralProgramPage() {
                     { icon: 'in', label: 'LinkedIn', action: shareViaLinkedIn, color: 'bg-[#0077b5]' },
                     { icon: 'L', label: 'Line', action: shareViaLine, color: 'bg-[#00b900]' },
                     { icon: MoreHorizontal, label: 'More', action: shareViaMore, color: 'bg-gray-700' },
-                  ].map((item, i) => (
+                  ].map((item, i) => {
+                    const Icon = item.icon;
+                    return (
                     <button key={i} onClick={item.action} className="flex flex-col items-center gap-2 group">
                       <div className={`w-12 h-12 ${item.color} hover:opacity-80 rounded-full flex items-center justify-center transition-all`}>
-                        {typeof item.icon === 'string' ? (
-                          <span className="text-white font-bold">{item.icon}</span>
+                        {typeof Icon === 'string' ? (
+                          <span className="text-white font-bold">{Icon}</span>
                         ) : (
-                          <item.icon className="w-5 h-5 text-white" />
+                          <Icon className="w-5 h-5 text-white" />
                         )}
                       </div>
                       <span className="text-xs text-gray-400 group-hover:text-white">{item.label}</span>
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </div>

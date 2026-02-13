@@ -22,10 +22,11 @@ import type {
   RegistrationResponseJSON,
   AuthenticationResponseJSON,
   AuthenticatorTransportFuture,
-} from '@simplewebauthn/server/script/deps';
+} from '@simplewebauthn/server';
 import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
+import { config } from '../config/index.js';
 import { isoBase64URL } from '@simplewebauthn/server/helpers';
 
 // =============================================================================
@@ -305,9 +306,8 @@ export async function passkeyRoutes(app: FastifyInstance) {
         });
       }
 
-      // Convert credential data to base64url for storage
-      // WHY base64url: URL-safe encoding, compatible with WebAuthn spec
-      const credentialIdB64 = isoBase64URL.fromBuffer(cred.id);
+      // Store as base64url (cred.id is already Base64URLString; publicKey is Uint8Array)
+      const credentialIdB64 = cred.id;
       const publicKeyB64 = isoBase64URL.fromBuffer(cred.publicKey);
 
       // Get transports from the response for future authentication hints
@@ -687,7 +687,7 @@ export async function passkeyRoutes(app: FastifyInstance) {
       // Generate JWT tokens
       const accessToken = request.server.jwt.sign(
         { userId: user.id, email: user.email, type: 'access' },
-        { expiresIn: '15m' }
+        { expiresIn: config.jwt.expiresIn }
       );
 
       const refreshToken = request.server.jwt.sign(

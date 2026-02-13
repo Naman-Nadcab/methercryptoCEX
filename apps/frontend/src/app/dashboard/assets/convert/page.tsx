@@ -117,7 +117,7 @@ const FAQ_ITEMS = [
 ];
 
 export default function ConvertPage() {
-  const { accessToken } = useAuthStore();
+  const { accessToken, _hasHydrated } = useAuthStore();
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
   // Tab state
@@ -158,11 +158,11 @@ export default function ConvertPage() {
   }, []);
 
   useEffect(() => {
-    if (accessToken) {
+    if (_hasHydrated && accessToken) {
       fetchBalances();
       fetchActiveOrders();
     }
-  }, [accessToken, accountType]);
+  }, [_hasHydrated, accessToken, accountType]);
 
   // Fetch quote when currencies or amount changes
   useEffect(() => {
@@ -209,7 +209,7 @@ export default function ConvertPage() {
       });
       const data = await response.json();
       if (data.success) {
-        setBalances(data.data);
+        setBalances(Array.isArray(data.data) ? data.data : []);
       }
     } catch (err) {
       console.error('Error fetching balances:', err);
@@ -280,10 +280,8 @@ export default function ConvertPage() {
 
   const handleSetMax = () => {
     if (fromCurrency) {
-      const balance = balances.find(b => b.currency_id === fromCurrency.id);
-      if (balance) {
-        setFromAmount(balance.available_balance);
-      }
+      const bal = getAvailableBalance();
+      setFromAmount(bal);
     }
   };
 
@@ -320,7 +318,8 @@ export default function ConvertPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`
+          Authorization: `Bearer ${accessToken}`,
+          'Idempotency-Key': crypto.randomUUID(),
         },
         body: JSON.stringify(body)
       });
@@ -366,10 +365,10 @@ export default function ConvertPage() {
     }
   };
 
-  const getAvailableBalance = () => {
-    if (!fromCurrency) return '0';
-    const balance = balances.find(b => b.currency_id === fromCurrency.id);
-    return balance?.available_balance || '0';
+  const getAvailableBalance = (): string => {
+    if (!fromCurrency || !Array.isArray(balances)) return '0';
+    const balance = balances.find(b => b?.currency_id === fromCurrency.id);
+    return balance?.available_balance ?? '0';
   };
 
   const filteredCurrencies = currencies.filter(c => 
@@ -618,7 +617,7 @@ export default function ConvertPage() {
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-medium text-gray-700 dark:text-gray-300">From</span>
                   <div className="flex items-center gap-2 text-sm">
-                    <span className="text-gray-500">Available: {parseFloat(getAvailableBalance()).toFixed(6)} {fromCurrency?.symbol}</span>
+                    <span className="text-gray-500">Available: {parseFloat(getAvailableBalance()).toFixed(6)} {fromCurrency?.symbol ?? ''}</span>
                     <Link href="/dashboard/deposit/crypto" className="text-blue-500 hover:text-blue-600 font-medium">Deposit</Link>
                     <Link href="/dashboard/transfer" className="text-blue-500 hover:text-blue-600 font-medium">
                       Transfer

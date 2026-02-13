@@ -133,7 +133,7 @@ export default function DashboardLayout({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, accessToken } = useAuthStore();
+  const { user, accessToken, _hasHydrated } = useAuthStore();
   const { setUnauthenticated } = useAuth();
   const [expandedMenus, setExpandedMenus] = useState<string[]>(['account']);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -151,8 +151,8 @@ export default function DashboardLayout({
 
   // Fetch KYC status
   useEffect(() => {
+    if (!_hasHydrated || !accessToken) return;
     const checkKycStatus = async () => {
-      if (!accessToken) return;
       
       try {
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/v1/wallet/kyc-status`, {
@@ -169,9 +169,8 @@ export default function DashboardLayout({
         console.error('Failed to fetch KYC status:', error);
       }
     };
-    
     checkKycStatus();
-  }, [accessToken]);
+  }, [_hasHydrated, accessToken]);
 
   const toggleMenu = (menuId: string) => {
     setExpandedMenus((prev) =>

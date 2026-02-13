@@ -1,3 +1,4 @@
+import { Decimal } from '../lib/decimal.js';
 import { FastifyInstance } from 'fastify';
 import { db } from '../lib/database.js';
 import { logger } from '../lib/logger.js';
@@ -233,7 +234,7 @@ export default async function userRoutes(app: FastifyInstance) {
         query += ` AND type = $${params.length}`;
       }
       query += ` ORDER BY is_pinned DESC, published_at DESC NULLS LAST LIMIT $${params.length + 1}`;
-      params.push(Math.min(parseInt(limit) || 20, 100));
+      params.push(String(Math.min(parseInt(String(limit || '20')) || 20, 100)));
       const result = await db.query(query, params);
       return reply.send({ success: true, data: { announcements: result.rows } });
     } catch (error) {
@@ -307,7 +308,7 @@ export default async function userRoutes(app: FastifyInstance) {
         success: true,
         data: {
           notifications: result.rows,
-          unreadCount: parseInt(countResult.rows[0].count),
+          unreadCount: parseInt((countResult.rows[0] as { count: string })?.count ?? '0'),
         },
       });
     } catch (error) {
@@ -467,19 +468,21 @@ export default async function userRoutes(app: FastifyInstance) {
         // table may not exist
       }
 
-      let dailyLimit = 1000000;
-      let monthlyLimit = 10000000;
-      let used_today = 0;
-      let used_month = 0;
+      let dailyLimit: string = '1000000';
+      let monthlyLimit: string = '10000000';
+      let used_today: string = '0';
+      let used_month: string = '0';
       try {
         const uRes = await db.query<{ daily_withdrawal_limit: string; monthly_withdrawal_limit: string }>(`
           SELECT COALESCE(daily_withdrawal_limit, 1000000)::text as daily_withdrawal_limit,
                  COALESCE(monthly_withdrawal_limit, 10000000)::text as monthly_withdrawal_limit
           FROM users WHERE id = $1
         `, [userId]);
+        const ROUND_DOWN = 1;
+        const PREC = 8;
         if (uRes.rows[0]) {
-          dailyLimit = parseFloat(uRes.rows[0].daily_withdrawal_limit || '1000000');
-          monthlyLimit = parseFloat(uRes.rows[0].monthly_withdrawal_limit || '10000000');
+          dailyLimit = new Decimal(uRes.rows[0].daily_withdrawal_limit || '1000000').toDecimalPlaces(PREC, ROUND_DOWN).toString();
+          monthlyLimit = new Decimal(uRes.rows[0].monthly_withdrawal_limit || '10000000').toDecimalPlaces(PREC, ROUND_DOWN).toString();
         }
         const todayRes = await db.query<{ total: string }>(`
           SELECT COALESCE(SUM(w.amount), 0)::text as total FROM withdrawals w
@@ -491,8 +494,8 @@ export default async function userRoutes(app: FastifyInstance) {
           WHERE w.user_id = $1 AND w.status IN ('pending', 'processing', 'completed')
             AND w.created_at >= DATE_TRUNC('month', CURRENT_DATE)
         `, [userId]);
-        used_today = parseFloat(todayRes.rows[0]?.total || '0');
-        used_month = parseFloat(monthRes.rows[0]?.total || '0');
+        used_today = new Decimal(todayRes.rows[0]?.total || '0').toDecimalPlaces(PREC, ROUND_DOWN).toString();
+        used_month = new Decimal(monthRes.rows[0]?.total || '0').toDecimalPlaces(PREC, ROUND_DOWN).toString();
       } catch {
         // ignore
       }

@@ -172,7 +172,7 @@ export const config = {
   jwt: {
     secret: parsed.data.JWT_SECRET,
     refreshSecret: parsed.data.JWT_REFRESH_SECRET,
-    expiresIn: parsed.data.JWT_EXPIRES_IN,
+    expiresIn: parsed.data.NODE_ENV === 'development' ? '12h' : parsed.data.JWT_EXPIRES_IN,
     refreshExpiresIn: parsed.data.JWT_REFRESH_EXPIRES_IN,
   },
 

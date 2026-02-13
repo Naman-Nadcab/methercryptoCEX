@@ -1,11 +1,13 @@
 /**
  * Spendable balance = total balance - SUM(active balance_locks).
  * Single transaction, READ COMMITTED, SELECT FOR UPDATE.
- * Use for order/withdrawal/escrow checks. No new public APIs.
+ * Use for order/withdrawal/escrow checks. Decimal.js only, ROUND_DOWN only.
  */
 
+import { Decimal } from './decimal.js';
 import { db } from './database.js';
 import { CHAIN_ID_GLOBAL } from './user-balance-helper.js';
+import { ROUND_DOWN, AMOUNT_PRECISION as PRECISION } from '../config/monetary-precision.js';
 
 export class InsufficientBalanceError extends Error {
   constructor(
@@ -22,6 +24,7 @@ export class InsufficientBalanceError extends Error {
  * Get spendable balance for (userId, currencyId, accountType).
  * Runs in a single DB transaction with FOR UPDATE.
  * Optionally throws if spendable < requiredAmount.
+ * All arithmetic Decimal.js, ROUND_DOWN only. No float.
  */
 export async function getSpendableBalance(
   userId: string,
@@ -38,26 +41,32 @@ export async function getSpendableBalance(
       [userId, currencyId, CHAIN_ID_GLOBAL, accountType]
     );
     if (row.rows.length === 0) {
-      if (requiredAmount && parseFloat(requiredAmount) > 0) {
-        throw new InsufficientBalanceError('No balance row', '0', requiredAmount);
+      if (requiredAmount != null && requiredAmount !== '') {
+        const req = new Decimal(requiredAmount).toDecimalPlaces(PRECISION, ROUND_DOWN);
+        if (req.gt(0)) {
+          throw new InsufficientBalanceError('No balance row', '0', requiredAmount);
+        }
       }
       return { spendable: '0' };
     }
     const r = row.rows[0]!;
-    const total = parseFloat(r.available_balance || '0') + parseFloat(r.locked_balance || '0');
+    const available = new Decimal(r.available_balance || '0').toDecimalPlaces(PRECISION, ROUND_DOWN);
+    const locked = new Decimal(r.locked_balance || '0').toDecimalPlaces(PRECISION, ROUND_DOWN);
+    const total = available.plus(locked).toDecimalPlaces(PRECISION, ROUND_DOWN);
 
     const sumLock = await client.query<{ sum: string }>(
       `SELECT COALESCE(SUM(amount), 0)::text AS sum FROM balance_locks
        WHERE user_id = $1 AND currency_id = $2 AND account_type::text = LOWER(TRIM($3)) AND expires_at > NOW()`,
       [userId, currencyId, accountType]
     );
-    const lockedSum = parseFloat(sumLock.rows[0]?.sum || '0');
-    const spendable = Math.max(0, total - lockedSum);
-    const spendableStr = spendable.toFixed(8);
+    const lockedSum = new Decimal(sumLock.rows[0]?.sum || '0').toDecimalPlaces(PRECISION, ROUND_DOWN);
+    const spendable = total.minus(lockedSum).toDecimalPlaces(PRECISION, ROUND_DOWN);
+    const spendableClamped = spendable.lt(0) ? new Decimal(0) : spendable;
+    const spendableStr = spendableClamped.toDecimalPlaces(PRECISION, ROUND_DOWN).toString();
 
     if (requiredAmount != null && requiredAmount !== '') {
-      const required = parseFloat(requiredAmount);
-      if (required > 0 && spendable < required) {
+      const required = new Decimal(requiredAmount).toDecimalPlaces(PRECISION, ROUND_DOWN);
+      if (required.gt(0) && spendableClamped.lt(required)) {
         throw new InsufficientBalanceError('Insufficient spendable balance', spendableStr, requiredAmount);
       }
     }

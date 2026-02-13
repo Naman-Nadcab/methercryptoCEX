@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt, { JwtPayload } from 'jsonwebtoken';
+import jwt, { type JwtPayload, type SignOptions } from 'jsonwebtoken';
 import { config } from '../config/index.js';
 import { redis } from '../lib/redis.js';
 import { db } from '../lib/database.js';
@@ -381,16 +381,22 @@ export function generateTokens(
   role: UserRole,
   sessionId: string
 ): { accessToken: string; refreshToken: string } {
+  const accessOptions: SignOptions = {
+    expiresIn: config.jwt.expiresIn as SignOptions['expiresIn'],
+  };
   const accessToken = jwt.sign(
     { userId, email, role, sessionId },
     config.jwt.secret,
-    { expiresIn: config.jwt.expiresIn }
+    accessOptions
   );
 
+  const refreshOptions: SignOptions = {
+    expiresIn: config.jwt.refreshExpiresIn as SignOptions['expiresIn'],
+  };
   const refreshToken = jwt.sign(
     { userId, sessionId, type: 'refresh' },
     config.jwt.refreshSecret,
-    { expiresIn: config.jwt.refreshExpiresIn }
+    refreshOptions
   );
 
   return { accessToken, refreshToken };

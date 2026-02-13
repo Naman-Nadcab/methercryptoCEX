@@ -305,7 +305,7 @@ export async function createPasskey(
         attestationObject: bufferToBase64url(response.attestationObject),
         transports,
       },
-      clientExtensionResults: credential.getClientExtensionResults(),
+      clientExtensionResults: credential.getClientExtensionResults() as Record<string, unknown>,
       authenticatorAttachment: credential.authenticatorAttachment || undefined,
     };
 
@@ -445,7 +445,7 @@ export async function getPasskeyAssertion(
         signature: bufferToBase64url(response.signature),
         userHandle: response.userHandle ? bufferToBase64url(response.userHandle) : undefined,
       },
-      clientExtensionResults: credential.getClientExtensionResults(),
+      clientExtensionResults: credential.getClientExtensionResults() as Record<string, unknown>,
       authenticatorAttachment: credential.authenticatorAttachment || undefined,
     };
 
@@ -553,13 +553,3 @@ function mapWebAuthnError(error: unknown): WebAuthnError {
   }
 }
 
-// =============================================================================
-// EXPORTS
-// =============================================================================
-
-export type {
-  RegistrationOptions,
-  AuthenticationOptions,
-  RegistrationResult,
-  AuthenticationResult,
-};

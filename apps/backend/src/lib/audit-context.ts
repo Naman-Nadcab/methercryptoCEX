@@ -28,6 +28,6 @@ export function getAuditContextFromRequest(request: FastifyRequest): AuditContex
     ipAddress: ipStr ?? null,
     userAgent: (request.headers['user-agent'] as string) ?? null,
     actorType: request.user ? 'user' : null,
-    actorId: request.user?.id ?? null,
+    actorId: (request.user as { id?: string } | undefined)?.id ?? null,
   };
 }

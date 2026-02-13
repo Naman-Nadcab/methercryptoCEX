@@ -59,9 +59,10 @@ async function logBlock(params: {
     userAgent: (request.headers['user-agent'] as string) ?? null,
   });
 
-  if (request.user?.id) {
+  const userId = (request.user as { id?: string } | undefined)?.id;
+  if (userId) {
     await logUserActivity({
-      userId: request.user.id,
+      userId,
       action: 'access_blocked',
       ipAddress: clientIp,
       userAgent: request.headers['user-agent'],
@@ -81,7 +82,7 @@ const SKIP_PATHS = new Set(['/', '/health']);
 
 export function ipRulesMiddleware(app: FastifyInstance): void {
   app.addHook('onRequest', async (request: FastifyRequest, reply: FastifyReply) => {
-    const path = typeof request.url === 'string' ? request.url.split('?')[0] : '/';
+    const path = (typeof request.url === 'string' ? request.url.split('?')[0] : null) ?? '/';
     if (SKIP_PATHS.has(path)) return;
 
     const clientIp = getClientIp(request);

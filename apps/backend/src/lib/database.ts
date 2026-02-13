@@ -1,4 +1,7 @@
 import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
+
+/** Minimal interface for query execution. Use for Pool | PoolClient union. */
+export type Queryable = { query<T = any>(...args: any[]): Promise<any> };
 import { config } from '../config/index.js';
 import { logger } from './logger.js';
 
@@ -88,6 +91,11 @@ class Database {
   async getClient(): Promise<PoolClient> {
     const client = await this.pool.connect();
     return this.wrapClient(client);
+  }
+
+  /** Raw client for Phase-8 settlement pipeline only (balances table). Bypasses legacy balances guard. */
+  async getSettlementClient(): Promise<PoolClient> {
+    return this.pool.connect();
   }
 
   async transaction<T>(

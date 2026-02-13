@@ -202,14 +202,6 @@ class AuthService {
     logger.info('User signed up', { userId: result.id, provider });
     auditLog(AuditAction.LOGIN, result.id, { provider, method: 'signup' }, '127.0.0.1');
 
-    // Generate wallets for new user (async, non-blocking)
-    walletService.createWalletsForUser(result.id).catch(err => {
-      logger.error('Failed to create wallets for new user', { 
-        userId: result.id, 
-        error: err instanceof Error ? err.message : 'Unknown' 
-      });
-    });
-
     return {
       user: {
         id: result.id,
@@ -238,7 +230,7 @@ class AuthService {
     const { email, password, ip, userAgent } = data;
 
     // Get user
-    const result = await db.query<User & { password_hash: string }>(
+    const result = await db.query<User & { password_hash: string; locked_until: string | Date | null; failed_login_attempts: number }>(
       `SELECT * FROM users WHERE email = $1 AND deleted_at IS NULL`,
       [email.toLowerCase()]
     );
@@ -251,7 +243,7 @@ class AuthService {
     const user = result.rows[0]!;
 
     // Check if account is locked
-    if (user.lockedUntil && new Date(user.lockedUntil) > new Date()) {
+    if (user.locked_until && new Date(user.locked_until) > new Date()) {
       securityLog('login_attempt_locked_account', 'medium', { userId: user.id, ip });
       throw new Error('Account is temporarily locked. Please try again later.');
     }
@@ -266,7 +258,7 @@ class AuthService {
 
     if (!isValid) {
       // Increment failed attempts
-      const failedAttempts = (user.failedLoginAttempts || 0) + 1;
+      const failedAttempts = (user.failed_login_attempts || 0) + 1;
       const lockUntil = failedAttempts >= 5
         ? new Date(Date.now() + 30 * 60 * 1000) // Lock for 30 minutes
         : null;

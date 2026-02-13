@@ -2,13 +2,17 @@
  * Withdrawal admin approval layer.
  * Flow: user_request → pending_approval (if threshold/high-risk) → approved → enqueue → signed → broadcast.
  * On reject: mark failed and release locked balance.
+ * Monetary amounts: Decimal.js only, no float.
  */
 
+import { Decimal } from '../lib/decimal.js';
 import { db } from '../lib/database.js';
 import { logger } from '../lib/logger.js';
 import { config } from '../config/index.js';
 import { logWithdrawalLifecycle } from '../lib/withdrawal-audit.js';
 import { getCurrencyIdForToken } from '../lib/currency-resolver.js';
+import { assertBalanceInvariant } from '../lib/user-balance-helper.js';
+import { insertBalanceLedger } from '../lib/balance-ledger.js';
 import { ensureUserBalanceRow, assertUserBalanceUpdated, CHAIN_ID_GLOBAL } from '../lib/user-balance-helper.js';
 import { HotWalletCapCodes } from './hot-wallet.service.js';
 import { enqueueWithdrawal } from './withdrawal-signing.service.js';
@@ -44,17 +48,18 @@ export interface TokenApprovalInfo {
 /**
  * Whether a withdrawal requires admin approval before being enqueued for signing.
  * Required when: amount > threshold OR asset is high-risk.
+ * Uses Decimal for comparison; no float.
  */
 export function requiresWithdrawalApproval(
-  amount: number,
+  amount: string,
   token: TokenApprovalInfo
 ): boolean {
   if (token.is_high_risk) return true;
-  const threshold =
-    token.withdrawal_approval_threshold != null
-      ? parseFloat(token.withdrawal_approval_threshold)
-      : config.withdrawalApprovalThreshold;
-  return amount > threshold;
+  const thresholdStr =
+    token.withdrawal_approval_threshold != null && token.withdrawal_approval_threshold !== ''
+      ? String(token.withdrawal_approval_threshold)
+      : String(config.withdrawalApprovalThreshold);
+  return new Decimal(amount).gt(new Decimal(thresholdStr));
 }
 
 /**
@@ -183,7 +188,7 @@ export async function rejectWithdrawal(
       );
     }
 
-    const totalRefund = (parseFloat(withdrawal.amount) + parseFloat(withdrawal.fee)).toString();
+    const totalRefund = new Decimal(withdrawal.amount).plus(withdrawal.fee).toString();
     const rawAccountType = withdrawal.account_type || 'funding';
     const accountType = ['funding', 'spot', 'trading'].includes(rawAccountType) ? rawAccountType : 'funding';
     const chainId = withdrawal.chain_id ?? CHAIN_ID_GLOBAL;
@@ -205,14 +210,59 @@ export async function rejectWithdrawal(
       [reason || 'Rejected by admin', adminId, withdrawalId]
     );
     await ensureUserBalanceRow(withdrawal.user_id, currencyId, chainId, accountType, client);
+    const lockSel = await client.query<{ available_balance: string; locked_balance: string }>(
+      `SELECT available_balance::text, locked_balance::text FROM user_balances
+       WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = $4
+         AND locked_balance >= $5::numeric
+       FOR UPDATE`,
+      [withdrawal.user_id, currencyId, chainId, accountType, totalRefund]
+    );
+    if (lockSel.rows.length === 0) {
+      throw new WithdrawalApprovalError(
+        WithdrawalApprovalErrors.RELEASE_BALANCE_FAILED,
+        'Balance row not found or insufficient locked for refund'
+      );
+    }
+    const avBefore = lockSel.rows[0]!.available_balance ?? '0';
+    const lockBefore = lockSel.rows[0]!.locked_balance ?? '0';
+
     const updateResult = await client.query(
       `UPDATE user_balances
-       SET available_balance = available_balance + $1, locked_balance = locked_balance - $1, updated_at = NOW()
-       WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5 AND locked_balance >= $1
-       RETURNING id`,
+       SET available_balance = available_balance + $1::numeric, locked_balance = locked_balance - $1::numeric, updated_at = NOW()
+       WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5 AND locked_balance >= $1::numeric
+       RETURNING *`,
       [totalRefund, withdrawal.user_id, currencyId, chainId, accountType]
     );
     assertUserBalanceUpdated('withdrawal_reject', updateResult, withdrawal.user_id, currencyId, accountType, withdrawal.chain_id ?? undefined);
+    assertBalanceInvariant(updateResult.rows[0]);
+    const ubRow = updateResult.rows[0] as { available_balance?: string; locked_balance?: string } | undefined;
+
+    await insertBalanceLedger({
+      client,
+      userId: withdrawal.user_id,
+      currencyId,
+      accountType,
+      debit: '0',
+      credit: totalRefund,
+      balanceBefore: avBefore,
+      balanceAfter: String(ubRow?.available_balance ?? 0),
+      referenceType: 'withdrawal',
+      referenceId: withdrawalId,
+      balanceType: 'available',
+    });
+    await insertBalanceLedger({
+      client,
+      userId: withdrawal.user_id,
+      currencyId,
+      accountType,
+      debit: totalRefund,
+      credit: '0',
+      balanceBefore: lockBefore,
+      balanceAfter: String(ubRow?.locked_balance ?? 0),
+      referenceType: 'withdrawal',
+      referenceId: withdrawalId,
+      balanceType: 'locked',
+    });
     return withdrawal;
   });
 

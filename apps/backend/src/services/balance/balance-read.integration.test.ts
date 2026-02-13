@@ -10,6 +10,7 @@
 
 import 'dotenv/config';
 import { db } from '../../lib/database.js';
+import { Decimal } from '../../lib/decimal.js';
 import { readUserBalances } from './readUserBalances.js';
 
 async function run(): Promise<void> {
@@ -33,7 +34,9 @@ async function run(): Promise<void> {
      RETURNING id`,
     [`balance-test-${Date.now()}@test.local`]
   );
-  userId = insertUser.rows[0].id;
+  const insertRow = insertUser.rows[0];
+  if (!insertRow) throw new Error('INSERT did not return a row');
+  userId = insertRow.id;
 
   try {
     // 3) Call canonical read (ensures rows, then reads)
@@ -46,12 +49,12 @@ async function run(): Promise<void> {
       );
     }
     for (const row of rows) {
-      if (parseFloat(row.available_balance || '0') !== 0) {
+      if (!new Decimal(row.available_balance || '0').isZero()) {
         throw new Error(
           `Expected available_balance 0 for ${row.symbol}, got ${row.available_balance}`
         );
       }
-      if (parseFloat(row.locked_balance || '0') !== 0) {
+      if (!new Decimal(row.locked_balance || '0').isZero()) {
         throw new Error(
           `Expected locked_balance 0 for ${row.symbol}, got ${row.locked_balance}`
         );

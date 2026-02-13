@@ -2,11 +2,14 @@
  * Global risk engine: aggregates security signals and returns ALLOW / CHALLENGE / BLOCK.
  * Used for login (post-auth), withdrawal, P2P, API key usage.
  * Always logs to security_risk_events; high-risk decisions also to audit_logs_immutable.
+ * Monetary amounts: Decimal.js only, no float.
  */
 
+import { Decimal } from '../lib/decimal.js';
 import { db } from '../lib/database.js';
 import { logger } from '../lib/logger.js';
 import { logAudit } from './audit-log.service.js';
+import { recordRiskDecision } from './exchange-monitoring.service.js';
 
 export type RiskScope = 'login' | 'withdrawal' | 'p2p' | 'api' | 'admin';
 export type RiskDecision = 'allow' | 'challenge' | 'block';
@@ -188,14 +191,33 @@ export async function computeSignals(params: {
   signals.ip_block_attempt = actorId ? await hasRecentIpBlockOrFailedLogin(actorId) : false;
 
   if (scope === 'withdrawal' && context.amount != null && actorId) {
-    const amount = typeof context.amount === 'string' ? parseFloat(context.amount) : Number(context.amount);
+    const amountDec = new Decimal(String(context.amount));
     const velocity = await getWithdrawalVelocity(actorId);
-    signals.amount_high = amount > 10000 ? 1 : amount > 1000 ? 0.5 : 0;
+    signals.amount_high = amountDec.gt(10000) ? 1 : amountDec.gt(1000) ? 0.5 : 0;
     signals.velocity_high = velocity >= VELOCITY_THRESHOLD_WITHDRAWALS ? 1 : 0;
     if (context.isHighRiskAsset) signals.asset_high_risk = true;
   } else {
     signals.amount_high = 0;
     signals.velocity_high = 0;
+  }
+
+  /* PHASE-12: P2P abuse signals. */
+  if (scope === 'p2p' && actorId) {
+    const p2pOrderCount = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM p2p_orders
+       WHERE (buyer_id = $1 OR seller_id = $1) AND created_at > NOW() - interval '1 hour'`,
+      [actorId]
+    );
+    const orderVelocity = parseInt(p2pOrderCount.rows[0]?.count ?? '0', 10);
+    signals.p2p_order_velocity_high = orderVelocity >= 15 ? 1 : orderVelocity >= 10 ? 0.5 : 0;
+
+    const escrowRow = await db.query<{ count: string; total: string }>(
+      `SELECT COUNT(*)::text AS count, COALESCE(SUM(amount), 0)::text AS total FROM escrows WHERE user_id = $1 AND status = 'locked'`,
+      [actorId]
+    );
+    const escrowCount = parseInt(escrowRow.rows[0]?.count ?? '0', 10);
+    const escrowTotal = new Decimal(escrowRow.rows[0]?.total ?? '0');
+    signals.p2p_escrow_exposure_high = escrowCount >= 20 || escrowTotal.gte(100000) ? 1 : escrowCount >= 10 ? 0.5 : 0;
   }
 
   return signals;
@@ -236,6 +258,12 @@ export function scoreFromSignals(signals: RiskSignals, weights: Record<string, n
     total += signals.velocity_high * (weights.velocity_high ?? 15);
   }
   if (signals.asset_high_risk === true) total += 8;
+  if (typeof signals.p2p_order_velocity_high === 'number') {
+    total += signals.p2p_order_velocity_high * (weights.p2p_order_velocity_high ?? 12);
+  }
+  if (typeof signals.p2p_escrow_exposure_high === 'number') {
+    total += signals.p2p_escrow_exposure_high * (weights.p2p_escrow_exposure_high ?? 15);
+  }
   return Math.min(100, Math.round(Math.min(100, total)));
 }
 
@@ -302,6 +330,13 @@ export async function logRiskEvent(params: {
        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)`,
       [actorType, actorId, scope, score, decision, JSON.stringify(signals), requestId ?? null]
     );
+    recordRiskDecision({
+      scope,
+      decision,
+      score,
+      actorId,
+      requestId,
+    });
   } catch (e) {
     logger.warn('Risk event log failed (best-effort)', {
       scope,

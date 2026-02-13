@@ -324,14 +324,14 @@ export default function UsersPage() {
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
                           {user.email_verified ? (
-                            <CheckCircle className="w-4 h-4 text-green-400" title="Email verified" />
+                            <span title="Email verified"><CheckCircle className="w-4 h-4 text-green-400" /></span>
                           ) : (
-                            <XCircle className="w-4 h-4 text-gray-500" title="Email not verified" />
+                            <span title="Email not verified"><XCircle className="w-4 h-4 text-gray-500" /></span>
                           )}
                           {user.phone_verified ? (
-                            <CheckCircle className="w-4 h-4 text-green-400" title="Phone verified" />
+                            <span title="Phone verified"><CheckCircle className="w-4 h-4 text-green-400" /></span>
                           ) : (
-                            <XCircle className="w-4 h-4 text-gray-500" title="Phone not verified" />
+                            <span title="Phone not verified"><XCircle className="w-4 h-4 text-gray-500" /></span>
                           )}
                         </div>
                       </td>

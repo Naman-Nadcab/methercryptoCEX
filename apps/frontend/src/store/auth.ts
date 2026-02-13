@@ -1,5 +1,29 @@
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
+import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware';
+
+/** SSR-safe storage: noop on server, localStorage on client. Prevents logout-on-refresh. */
+const safeStorage: StateStorage = {
+  getItem: (name: string): string | null => {
+    if (typeof window === 'undefined') return null;
+    try {
+      return localStorage.getItem(name);
+    } catch {
+      return null;
+    }
+  },
+  setItem: (name: string, value: string): void => {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem(name, value);
+    } catch (_) {}
+  },
+  removeItem: (name: string): void => {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.removeItem(name);
+    } catch (_) {}
+  },
+};
 
 export interface User {
   id: string;
@@ -86,23 +110,31 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'auth-storage',
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => safeStorage),
       partialize: (state) => ({
         user: state.user,
         accessToken: state.accessToken,
         refreshToken: state.refreshToken,
         isAuthenticated: state.isAuthenticated,
       }),
-      onRehydrateStorage: () => (state) => {
-        // Called when rehydration is complete
+      skipHydration: true,
+      onRehydrateStorage: () => (state, error) => {
+        const s = useAuthStore.getState();
+        s.setHasHydrated(true);
         if (state) {
-          state.setHasHydrated(true);
           state.setLoading(false);
         }
       },
     }
   )
 );
+
+/** Rehydrate auth store from localStorage on client mount. Call once in app root. Returns a promise that resolves when hydration completes. */
+export function rehydrateAuthStore(): Promise<void> {
+  if (typeof window === 'undefined') return Promise.resolve();
+  const p = useAuthStore.persist.rehydrate();
+  return p instanceof Promise ? p : Promise.resolve();
+}
 
 // Trading store
 interface TradingState {

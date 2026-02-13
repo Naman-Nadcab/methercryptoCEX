@@ -162,7 +162,7 @@ export async function registerPasskey(
 
     // Start the WebAuthn registration ceremony
     // This will trigger the platform authenticator (Touch ID / Face ID)
-    const credential = await startRegistration(options);
+    const credential = await startRegistration({ optionsJSON: options });
 
     console.log('[Passkey] Registration successful, credential created');
 
@@ -217,7 +217,7 @@ export async function authenticateWithPasskey(
     });
 
     // Start the WebAuthn authentication ceremony
-    const credential = await startAuthentication(options);
+    const credential = await startAuthentication({ optionsJSON: options });
 
     console.log('[Passkey] Authentication successful, assertion received');
 

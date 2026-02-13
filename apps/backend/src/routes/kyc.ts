@@ -40,7 +40,7 @@ export default async function kycRoutes(app: FastifyInstance) {
         };
       }
 
-      const kyc = result.rows[0];
+      const kyc = result.rows[0]!;
       const isVerified = kyc.status === 'approved' || kyc.status === 'verified';
 
       return {
@@ -65,9 +65,9 @@ export default async function kycRoutes(app: FastifyInstance) {
   });
 
   // Initiate KYC verification
-  app.post('/initiate', {
+  app.post<{ Body: InitiateKycBody }>('/initiate', {
     preHandler: [app.authenticate]
-  }, async (request: FastifyRequest<{ Body: InitiateKycBody }>, reply: FastifyReply) => {
+  }, async (request, reply) => {
     try {
       const userId = request.user!.id;
       const { country, documentType, provider, consent } = request.body;
@@ -80,7 +80,7 @@ export default async function kycRoutes(app: FastifyInstance) {
       `, [userId]);
 
       if (existingKyc.rows.length > 0) {
-        const existing = existingKyc.rows[0];
+        const existing = existingKyc.rows[0]!;
         if (existing.status === 'approved' || existing.status === 'verified') {
           return reply.status(400).send({
             success: false,
@@ -107,10 +107,12 @@ export default async function kycRoutes(app: FastifyInstance) {
           RETURNING id
         `, [userId, country, documentType, provider]);
 
+        const row = result.rows[0];
+        if (!row) throw new Error('Invariant violation: row missing');
         return {
           success: true,
           data: {
-            id: result.rows[0].id,
+            id: row.id,
             status: 'approved',
             message: 'Identity verification successful via DigiLocker'
           }
@@ -127,10 +129,12 @@ export default async function kycRoutes(app: FastifyInstance) {
         RETURNING id
       `, [userId, country, documentType]);
 
+      const row = result.rows[0];
+      if (!row) throw new Error('Invariant violation: row missing');
       return {
         success: true,
         data: {
-          id: result.rows[0].id,
+          id: row.id,
           status: 'pending',
           message: 'KYC verification initiated. Please upload your documents.'
         }
@@ -169,12 +173,12 @@ export default async function kycRoutes(app: FastifyInstance) {
   });
 
   // Admin: Review KYC application
-  app.post('/admin/review/:applicationId', {
-    preHandler: [app.authenticate]
-  }, async (request: FastifyRequest<{
+  app.post<{
     Params: { applicationId: string };
     Body: { action: 'approve' | 'reject'; notes?: string; rejectionReason?: string };
-  }>, reply: FastifyReply) => {
+  }>('/admin/review/:applicationId', {
+    preHandler: [app.authenticate]
+  }, async (request, reply) => {
     try {
       const adminId = request.user!.id;
       const { applicationId } = request.params;

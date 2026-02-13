@@ -15,25 +15,21 @@ async function verifyAdmin(request: FastifyRequest, reply: FastifyReply) {
       return reply.status(401).send({ success: false, error: { code: 'UNAUTHORIZED', message: 'No token provided' } });
     }
 
-    const decoded = (request.server as any).jwt.verify<{
-      id: string;
-      adminId: string;
-      role: string;
-      sessionId: string;
-    }>(token);
+    const decoded = await (request.server as { jwt: { verify: (t: string) => Promise<{ id?: string; adminId?: string; role?: string; sessionId?: string }> } }).jwt.verify(token);
+    const decodedTyped = decoded as { id?: string; adminId?: string; role?: string; sessionId?: string };
 
     // Check if it's an admin token
-    if (!decoded.adminId) {
+    if (!decodedTyped.adminId) {
       return reply.status(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Admin access required' } });
     }
 
     // Verify session in Redis
-    const session = await redis.getJson<{ isActive: boolean }>(`admin:session:${decoded.sessionId}`);
+    const session = await redis.getJson<{ isActive: boolean }>(`admin:session:${decodedTyped.sessionId}`);
     if (!session || !session.isActive) {
       return reply.status(401).send({ success: false, error: { code: 'SESSION_EXPIRED', message: 'Session expired' } });
     }
 
-    (request as any).admin = decoded;
+    (request as any).admin = decodedTyped;
   } catch (error) {
     return reply.status(401).send({ success: false, error: { code: 'INVALID_TOKEN', message: 'Invalid token' } });
   }
@@ -56,9 +52,9 @@ export default async function uploadRoutes(app: FastifyInstance) {
   const ALLOWED_EXTENSIONS = ['.png', '.svg'];
 
   // Upload logo for blockchain
-  app.post('/logo/blockchain/:blockchainId', {
+  app.post<{ Params: { blockchainId: string } }>('/logo/blockchain/:blockchainId', {
     preHandler: verifyAdmin,
-  }, async (request: FastifyRequest<{ Params: { blockchainId: string } }>, reply: FastifyReply) => {
+  }, async (request, reply) => {
     try {
       const { blockchainId } = request.params;
 
@@ -93,7 +89,9 @@ export default async function uploadRoutes(app: FastifyInstance) {
 
       // Get file extension
       const ext = data.mimetype === 'image/png' ? '.png' : '.svg';
-      const chainSymbol = blockchain.rows[0].chain_symbol.toLowerCase();
+      const row = blockchain.rows[0];
+      if (!row) throw new Error('Invariant violation: row missing');
+      const chainSymbol = (row as { chain_symbol: string }).chain_symbol.toLowerCase();
       const filename = `${chainSymbol}${ext}`;
 
       // Create directory if not exists
@@ -120,19 +118,19 @@ export default async function uploadRoutes(app: FastifyInstance) {
           filename,
         }
       });
-    } catch (error: any) {
+    } catch (error) {
       console.error('Upload error:', error);
       return reply.status(500).send({
         success: false,
-        error: { code: 'UPLOAD_ERROR', message: error.message || 'Failed to upload file' }
+        error: { code: 'UPLOAD_ERROR', message: error instanceof Error ? error.message : 'Failed to upload file' }
       });
     }
   });
 
   // Upload logo for currency/token
-  app.post('/logo/currency/:currencyId', {
+  app.post<{ Params: { currencyId: string } }>('/logo/currency/:currencyId', {
     preHandler: verifyAdmin,
-  }, async (request: FastifyRequest<{ Params: { currencyId: string } }>, reply: FastifyReply) => {
+  }, async (request, reply) => {
     try {
       const { currencyId } = request.params;
 
@@ -167,7 +165,9 @@ export default async function uploadRoutes(app: FastifyInstance) {
 
       // Get file extension
       const ext = data.mimetype === 'image/png' ? '.png' : '.svg';
-      const symbol = currency.rows[0].symbol.toLowerCase();
+      const currRow = currency.rows[0];
+      if (!currRow) throw new Error('Invariant violation: row missing');
+      const symbol = (currRow as { symbol: string }).symbol.toLowerCase();
       const filename = `${symbol}${ext}`;
 
       // Create directory if not exists
@@ -194,22 +194,19 @@ export default async function uploadRoutes(app: FastifyInstance) {
           filename,
         }
       });
-    } catch (error: any) {
+    } catch (error) {
       console.error('Upload error:', error);
       return reply.status(500).send({
         success: false,
-        error: { code: 'UPLOAD_ERROR', message: error.message || 'Failed to upload file' }
+        error: { code: 'UPLOAD_ERROR', message: error instanceof Error ? error.message : 'Failed to upload file' }
       });
     }
   });
 
   // Generic upload endpoint - for new items (before ID exists)
-  app.post('/logo/:type', {
+  app.post<{ Params: { type: 'blockchain' | 'currency' }; Querystring: { symbol: string } }>('/logo/:type', {
     preHandler: verifyAdmin,
-  }, async (request: FastifyRequest<{ 
-    Params: { type: 'blockchain' | 'currency' },
-    Querystring: { symbol: string }
-  }>, reply: FastifyReply) => {
+  }, async (request, reply) => {
     try {
       const { type } = request.params;
       const { symbol } = request.query;
@@ -263,11 +260,11 @@ export default async function uploadRoutes(app: FastifyInstance) {
           filename,
         }
       });
-    } catch (error: any) {
+    } catch (error) {
       console.error('Upload error:', error);
       return reply.status(500).send({
         success: false,
-        error: { code: 'UPLOAD_ERROR', message: error.message || 'Failed to upload file' }
+        error: { code: 'UPLOAD_ERROR', message: error instanceof Error ? error.message : 'Failed to upload file' }
       });
     }
   });

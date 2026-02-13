@@ -5,6 +5,7 @@
  * and updates report rows with audit-friendly payloads.
  */
 
+import { Decimal } from '../lib/decimal.js';
 import { db } from '../lib/database.js';
 import { logger } from '../lib/logger.js';
 
@@ -55,9 +56,11 @@ export async function generateCTR(params: GenerateCTRParams): Promise<{ reportId
 
   const reportIds: string[] = [];
 
+  const ROUND_DOWN = 1;
+  const PREC = 8;
   for (const row of aggregated.rows) {
     const userId = row.user_id;
-    const totalAmount = parseFloat(row.total_amount);
+    const totalAmount = new Decimal(row.total_amount ?? '0').toDecimalPlaces(PREC, ROUND_DOWN).toString();
     const txnCount = parseInt(row.txn_count, 10);
 
     const txns = await db.query<{
@@ -86,13 +89,13 @@ export async function generateCTR(params: GenerateCTRParams): Promise<{ reportId
       userId,
       totalFiatAmountINR: totalAmount,
       transactionCount: txnCount,
-      thresholdINR: CTR_INR_THRESHOLD,
+      thresholdINR: String(CTR_INR_THRESHOLD),
       transactions: txns.rows.map((t) => ({
         transactionLogId: t.id,
         txnType: t.txn_type,
         asset: t.asset,
-        amount: t.amount != null ? parseFloat(t.amount) : null,
-        fiatAmountINR: t.fiat_amount != null ? parseFloat(t.fiat_amount) : null,
+        amount: t.amount != null ? new Decimal(t.amount).toDecimalPlaces(PREC, ROUND_DOWN).toString() : null,
+        fiatAmountINR: t.fiat_amount != null ? new Decimal(t.fiat_amount).toDecimalPlaces(PREC, ROUND_DOWN).toString() : null,
         createdAt: t.created_at,
       })),
       generatedAt: new Date().toISOString(),

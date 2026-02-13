@@ -1,5 +1,6 @@
-import Decimal from 'decimal.js';
+import { Decimal } from '../lib/decimal.js';
 import { v4 as uuidv4 } from 'uuid';
+import type { PoolClient } from 'pg';
 import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
 import { rabbitmq, EXCHANGES, ROUTING_KEYS, TradeExecutedMessage, BalanceUpdateMessage } from '../lib/rabbitmq.js';
@@ -166,12 +167,12 @@ class MatchingEngine {
 
     // Get top 100 levels for each side
     const bids = Array.from(orderbook.bids.values())
-      .sort((a, b) => new Decimal(b.price).minus(a.price).toNumber())
+      .sort((a, b) => new Decimal(b.price).cmp(a.price))
       .slice(0, 100)
       .map((l) => ({ price: l.price, quantity: l.quantity }));
 
     const asks = Array.from(orderbook.asks.values())
-      .sort((a, b) => new Decimal(a.price).minus(b.price).toNumber())
+      .sort((a, b) => new Decimal(a.price).cmp(b.price))
       .slice(0, 100)
       .map((l) => ({ price: l.price, quantity: l.quantity }));
 
@@ -242,8 +243,8 @@ class MatchingEngine {
         lockAmount = quantity;
       }
 
-      // Lock balance and create order atomically so failed insert rolls back the lock
-      const order = await db.transaction(async (client) => {
+      // Single transaction: lock balance + insert order + full match cycle + order updates
+      const matchResult = await db.transaction(async (client) => {
         const locked = await walletService.lockBalance(userId, lockTokenId, lockAmount, client);
         if (!locked) {
           throw new Error('Insufficient balance');
@@ -273,12 +274,15 @@ class MatchingEngine {
           ]
         );
 
-        return result.rows[0]!;
+        const order = result.rows[0]!;
+
+        // Full match cycle in same transaction (no nested transactions)
+        return await this.matchOrder(order, pair, client);
       });
 
-      // Publish order created event
+      // Publish order created event (after commit)
       await rabbitmq.publish(EXCHANGES.ORDERS, ROUTING_KEYS.ORDER_NEW, {
-        orderId: order.id,
+        orderId: matchResult.order.id,
         userId,
         pair: pair.symbol,
         side,
@@ -287,9 +291,6 @@ class MatchingEngine {
         quantity,
         timestamp: Date.now(),
       });
-
-      // Process matching
-      const matchResult = await this.matchOrder(order, pair);
 
       // Handle unfilled quantity based on time in force
       if (matchResult.order.status === OrderStatus.OPEN) {
@@ -308,7 +309,7 @@ class MatchingEngine {
       }
 
       auditLog(AuditAction.ORDER_PLACED, userId, {
-        orderId: order.id,
+        orderId: matchResult.order.id,
         pair: pair.symbol,
         side,
         type,
@@ -323,9 +324,9 @@ class MatchingEngine {
   }
 
   /**
-   * Match order against orderbook
+   * Match order against orderbook. Runs inside caller's transaction when client is passed.
    */
-  private async matchOrder(order: Order, pair: TradingPair): Promise<MatchResult> {
+  private async matchOrder(order: Order, pair: TradingPair, client: PoolClient): Promise<MatchResult> {
     const trades: Trade[] = [];
     let remainingQuantity = new Decimal(order.remainingQuantity);
     let filledQuantity = new Decimal(0);
@@ -342,9 +343,9 @@ class MatchingEngine {
     // Sort orders by price (best first)
     const sortedLevels = Array.from(matchingSide.values()).sort((a, b) => {
       if (order.side === OrderSide.BUY) {
-        return new Decimal(a.price).minus(b.price).toNumber(); // Ascending for buys
+        return new Decimal(a.price).cmp(b.price); // Ascending for buys
       } else {
-        return new Decimal(b.price).minus(a.price).toNumber(); // Descending for sells
+        return new Decimal(b.price).cmp(a.price); // Descending for sells
       }
     });
 
@@ -372,20 +373,23 @@ class MatchingEngine {
         const tradePrice = level.price;
         const quoteQuantity = matchQuantity.times(tradePrice);
 
-        // Execute trade
-        const trade = await this.executeTrade({
-          pairId: order.pairId,
-          buyOrderId: order.side === OrderSide.BUY ? order.id : matchingOrder.id,
-          sellOrderId: order.side === OrderSide.SELL ? order.id : matchingOrder.id,
-          buyerId: order.side === OrderSide.BUY ? order.userId : matchingOrder.userId,
-          sellerId: order.side === OrderSide.SELL ? order.userId : matchingOrder.userId,
-          price: tradePrice,
-          quantity: matchQuantity.toString(),
-          quoteQuantity: quoteQuantity.toString(),
-          makerFee: pair.makerFee,
-          takerFee: pair.takerFee,
-          buyerIsMaker: order.side !== OrderSide.BUY,
-        });
+        // Execute trade (uses caller's client - no nested transaction)
+        const trade = await this.executeTrade(
+          {
+            pairId: order.pairId,
+            buyOrderId: order.side === OrderSide.BUY ? order.id : matchingOrder.id,
+            sellOrderId: order.side === OrderSide.SELL ? order.id : matchingOrder.id,
+            buyerId: order.side === OrderSide.BUY ? order.userId : matchingOrder.userId,
+            sellerId: order.side === OrderSide.SELL ? order.userId : matchingOrder.userId,
+            price: tradePrice,
+            quantity: matchQuantity.toString(),
+            quoteQuantity: quoteQuantity.toString(),
+            makerFee: pair.makerFee,
+            takerFee: pair.takerFee,
+            buyerIsMaker: order.side !== OrderSide.BUY,
+          },
+          client
+        );
 
         trades.push(trade);
         remainingQuantity = remainingQuantity.minus(matchQuantity);
@@ -436,7 +440,7 @@ class MatchingEngine {
       newStatus = OrderStatus.OPEN;
     }
 
-    const updatedOrder = await db.query<Order>(
+    const updatedOrder = await client.query<Order>(
       `UPDATE orders 
        SET filled_quantity = $2, remaining_quantity = $3, average_price = $4, 
            status = $5, filled_at = CASE WHEN $5 = 'filled' THEN NOW() ELSE filled_at END
@@ -456,21 +460,24 @@ class MatchingEngine {
   }
 
   /**
-   * Execute a single trade
+   * Execute a single trade. When client is passed (from matchOrder), uses it — NO nested transaction.
    */
-  private async executeTrade(params: {
-    pairId: string;
-    buyOrderId: string;
-    sellOrderId: string;
-    buyerId: string;
-    sellerId: string;
-    price: string;
-    quantity: string;
-    quoteQuantity: string;
-    makerFee: string;
-    takerFee: string;
-    buyerIsMaker: boolean;
-  }): Promise<Trade> {
+  private async executeTrade(
+    params: {
+      pairId: string;
+      buyOrderId: string;
+      sellOrderId: string;
+      buyerId: string;
+      sellerId: string;
+      price: string;
+      quantity: string;
+      quoteQuantity: string;
+      makerFee: string;
+      takerFee: string;
+      buyerIsMaker: boolean;
+    },
+    client: PoolClient
+  ): Promise<Trade> {
     const {
       pairId,
       buyOrderId,
@@ -494,7 +501,7 @@ class MatchingEngine {
     // Get tokens
     const { baseTokenId, quoteTokenId } = await this.getPairTokens(pairId);
 
-    return await db.transaction(async (client) => {
+    {
       // Insert trade
       const tradeResult = await client.query<Trade>(
         `INSERT INTO trades (
@@ -521,14 +528,20 @@ class MatchingEngine {
 
       // Update buyer balances
       // - Debit locked quote (already locked when order placed)
-      await walletService.debitLockedBalance(buyerId, quoteTokenId, quoteQuantity, client);
+      const buyerQuoteDebited = await walletService.debitLockedBalance(buyerId, quoteTokenId, quoteQuantity, client);
+      if (!buyerQuoteDebited) {
+        throw new Error('INSUFFICIENT_LOCKED_FUNDS');
+      }
       // - Credit base (minus fee)
       const buyerReceives = new Decimal(quantity).minus(buyerFee).toString();
       await walletService.creditBalance(buyerId, baseTokenId, buyerReceives, client);
 
       // Update seller balances
       // - Debit locked base (already locked when order placed)
-      await walletService.debitLockedBalance(sellerId, baseTokenId, quantity, client);
+      const sellerBaseDebited = await walletService.debitLockedBalance(sellerId, baseTokenId, quantity, client);
+      if (!sellerBaseDebited) {
+        throw new Error('INSUFFICIENT_LOCKED_FUNDS');
+      }
       // - Credit quote (minus fee)
       const sellerReceives = new Decimal(quoteQuantity).minus(sellerFee).toString();
       await walletService.creditBalance(sellerId, quoteTokenId, sellerReceives, client);
@@ -605,7 +618,7 @@ class MatchingEngine {
       });
 
       return trade;
-    });
+    }
   }
 
   /**
@@ -705,9 +718,9 @@ class MatchingEngine {
     // Sort and get best price
     levels.sort((a, b) => {
       if (side === OrderSide.BUY) {
-        return new Decimal(a.price).minus(b.price).toNumber();
+        return new Decimal(a.price).cmp(b.price);
       }
-      return new Decimal(b.price).minus(a.price).toNumber();
+      return new Decimal(b.price).cmp(a.price);
     });
 
     return levels[0]!.price;
@@ -801,12 +814,12 @@ class MatchingEngine {
     }
 
     const bids = Array.from(orderbook.bids.values())
-      .sort((a, b) => new Decimal(b.price).minus(a.price).toNumber())
+      .sort((a, b) => new Decimal(b.price).cmp(a.price))
       .slice(0, depth)
       .map((l) => ({ price: l.price, quantity: l.quantity }));
 
     const asks = Array.from(orderbook.asks.values())
-      .sort((a, b) => new Decimal(a.price).minus(b.price).toNumber())
+      .sort((a, b) => new Decimal(a.price).cmp(b.price))
       .slice(0, depth)
       .map((l) => ({ price: l.price, quantity: l.quantity }));
 

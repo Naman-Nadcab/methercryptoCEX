@@ -21,6 +21,7 @@ import { processSigningQueue } from './services/withdrawal-signing.service.js';
 import { runAutoSweep } from './services/hot-wallet-sweep.service.js';
 import { runDepositSweep } from './services/deposit-sweep.service.js';
 import { refreshOrderbookCache } from './services/spot-orderbook-cache.service.js';
+import { startMatchPoller, startSettlementWorker, startWalletReconciliationScheduler, runGlobalBalanceAudit, replaySettlementIntegrityCheck } from './services/settlement/index.js';
 
 // Routes
 import authRoutes from './routes/auth.fastify.js';
@@ -41,20 +42,6 @@ import adminSpotRoutes from './routes/admin-spot.fastify.js';
 import latencyTracePlugin from './plugins/latencyTrace.plugin.js';
 import authDecisionPlugin from './plugins/authDecision.plugin.js';
 import authLockPlugin from './plugins/authLock.plugin.js';
-
-declare module 'fastify' {
-  interface FastifyRequest {
-    user?: {
-      id: string;
-      email?: string;
-      phone?: string;
-      role: string;
-      sessionId: string;
-    };
-    /** Set in onRequest; used by immutable audit log */
-    requestId?: string;
-  }
-}
 
 export async function buildServer(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -177,27 +164,24 @@ export async function buildServer(): Promise<FastifyInstance> {
         return reply.status(401).send({ success: false, error: { code: 'UNAUTHORIZED', message: 'No token provided' } });
       }
 
-      const decoded = app.jwt.verify<{
-        userId: string;
-        email?: string;
-        phone?: string;
-        role: string;
-        sessionId: string;
-        type?: string;
-      }>(token);
+      const decoded = app.jwt.verify<import('./types/fastify.js').JwtUserPayload>(token);
 
       // User routes must use user JWT; admin JWT must not access user routes
       if (decoded.type === 'admin') {
         return reply.status(401).send({ success: false, error: { code: 'INVALID_TOKEN', message: 'Use user token for this route' } });
       }
 
-      // Check if session is valid in Redis and not expired (server-side expiry)
+      // Redis session validation: enforce only when session exists; fall back to JWT-only when missing (e.g. Redis restart)
       const session = await redis.getJson<{ isActive: boolean; expiresAt?: number }>(`session:${decoded.sessionId}`);
-      if (!session || !session.isActive) {
-        return reply.status(401).send({ success: false, error: { code: 'SESSION_EXPIRED', message: 'Session expired' } });
-      }
-      if (session.expiresAt != null && session.expiresAt < Date.now()) {
-        return reply.status(401).send({ success: false, error: { code: 'SESSION_EXPIRED', message: 'Session expired' } });
+      if (session) {
+        if (!session.isActive) {
+          return reply.status(401).send({ success: false, error: { code: 'SESSION_EXPIRED', message: 'Session expired' } });
+        }
+        if (session.expiresAt != null && session.expiresAt < Date.now()) {
+          return reply.status(401).send({ success: false, error: { code: 'SESSION_EXPIRED', message: 'Session expired' } });
+        }
+      } else {
+        request.log.warn({ sessionId: decoded.sessionId }, 'Redis session missing, falling back to JWT-only auth');
       }
 
       request.user = {
@@ -230,14 +214,14 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(adminSpotRoutes, { prefix: '/api/v1/admin/spot' });
 
   // Error handler
-  app.setErrorHandler((error, request, reply) => {
-    logger.error('Request error', { error: error.message, path: request.url });
-    
-    reply.status(error.statusCode || 500).send({
+  app.setErrorHandler((error: unknown, request, reply) => {
+    const err = error as { message?: string; statusCode?: number; code?: string };
+    logger.error('Request error', { error: err?.message ?? 'Unknown', path: request.url });
+    reply.status(err?.statusCode || 500).send({
       success: false,
       error: {
-        code: error.code || 'INTERNAL_ERROR',
-        message: error.message || 'Internal server error',
+        code: err?.code || 'INTERNAL_ERROR',
+        message: err?.message || 'Internal server error',
       },
     });
   });
@@ -310,6 +294,41 @@ async function start() {
         logger.warn('Spot orderbook cache refresh failed', { error: e instanceof Error ? e.message : 'Unknown' });
       }
     }, 5000);
+
+    startMatchPoller();
+    startSettlementWorker();
+    startWalletReconciliationScheduler();
+    logger.info('Phase-8 settlement pipeline started (match poller + settlement worker + wallet reconciliation scheduler)');
+
+    const globalBalanceAuditIntervalMs = 300_000;
+    setInterval(async () => {
+      try {
+        const result = await runGlobalBalanceAudit();
+        if (result.mismatches > 0) {
+          logger.warn('Global balance audit found mismatches (see CRITICAL logs)', {
+            mismatches: result.mismatches,
+          });
+        }
+      } catch (err) {
+        logger.error('Global balance audit failed', { error: err instanceof Error ? err.message : String(err) });
+      }
+    }, globalBalanceAuditIntervalMs);
+    logger.info(`Global balance auditor scheduled (every ${globalBalanceAuditIntervalMs / 1000}s)`);
+
+    const replayIntegrityIntervalMs = 300_000;
+    setInterval(async () => {
+      try {
+        const result = await replaySettlementIntegrityCheck();
+        if (result.mismatches > 0) {
+          logger.warn('Settlement replay integrity found mismatches (see CRITICAL logs)', {
+            mismatches: result.mismatches,
+          });
+        }
+      } catch (err) {
+        logger.error('Settlement replay integrity check failed', { error: err instanceof Error ? err.message : String(err) });
+      }
+    }, replayIntegrityIntervalMs);
+    logger.info(`Settlement replay integrity check scheduled (every ${replayIntegrityIntervalMs / 1000}s)`);
 
   } catch (error) {
     logger.error('Failed to start server', { error: error instanceof Error ? error.message : 'Unknown' });

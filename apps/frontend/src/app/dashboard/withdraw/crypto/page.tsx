@@ -123,7 +123,7 @@ const SIDEBAR_LINKS = [
 
 export default function WithdrawCryptoPage() {
   const router = useRouter();
-  const { accessToken } = useAuthStore();
+  const { accessToken, _hasHydrated } = useAuthStore();
 
   // State
   const [tokens, setTokens] = useState<Token[]>([]);
@@ -187,13 +187,16 @@ export default function WithdrawCryptoPage() {
   };
 
   useEffect(() => {
+    if (!_hasHydrated) return;
     fetchTokens();
     if (accessToken) {
       fetchBalances();
       fetchWithdrawalLimits();
       fetchRecentWithdrawals();
+    } else {
+      setLoading(false);
     }
-  }, [accessToken]);
+  }, [_hasHydrated, accessToken]);
 
   useEffect(() => {
     if (selectedToken) {
@@ -209,7 +212,7 @@ export default function WithdrawCryptoPage() {
 
   // Debounced withdrawal preview when amount changes (fee + net amount)
   useEffect(() => {
-    if (!accessToken || !selectedToken || !amount || parseFloat(amount) <= 0) {
+    if (!_hasHydrated || !accessToken || !selectedToken || !amount || parseFloat(amount) <= 0) {
       setPreviewData(null);
       return;
     }
@@ -247,7 +250,7 @@ export default function WithdrawCryptoPage() {
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [accessToken, selectedToken, selectedChain, amount, withdrawType]);
+  }, [_hasHydrated, accessToken, selectedToken, selectedChain, amount, withdrawType]);
 
   const fetchTokens = async () => {
     try {
@@ -309,7 +312,9 @@ export default function WithdrawCryptoPage() {
       if (res.ok) {
         const data = await res.json();
         if (data.success && data.data) {
-          setAvailableChains(data.data);
+          const chains = Array.isArray(data.data) ? data.data : [];
+          setAvailableChains(chains);
+          if (chains.length === 1) setSelectedChain(chains[0]);
         }
       }
     } catch (error) {
@@ -369,29 +374,35 @@ export default function WithdrawCryptoPage() {
     setTimeout(() => setCopied(null), 2000);
   };
 
-  const getAvailableBalance = () => {
-    if (!selectedToken) return 0;
-    const tokenBalance = balances.find(b => b.symbol.toUpperCase() === selectedToken.symbol.toUpperCase());
+  const safeNum = (v: string | number | undefined): number => {
+    const n = parseFloat(String(v ?? '0'));
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const getAvailableBalance = (): number => {
+    if (!selectedToken || !Array.isArray(balances)) return 0;
+    const sym = (selectedToken.symbol || '').toUpperCase();
+    const tokenBalance = balances.find(b => (b?.symbol || '').toUpperCase() === sym);
     if (!tokenBalance) return 0;
     let total = 0;
-    if (selectedAccounts.funding) total += parseFloat(tokenBalance.funding || '0');
-    if (selectedAccounts.trading) total += parseFloat(tokenBalance.trading || '0');
+    if (selectedAccounts.funding) total += safeNum(tokenBalance.funding);
+    if (selectedAccounts.trading) total += safeNum(tokenBalance.trading);
     return total;
   };
 
   const getWithdrawFee = (): number => {
     if (withdrawType === 'internal') return 0;
-    if (previewData) return parseFloat(previewData.fee);
-    if (withdrawalFee) return parseFloat(withdrawalFee.fee);
+    if (previewData) return safeNum(previewData.fee);
+    if (withdrawalFee) return safeNum(withdrawalFee.fee);
     return 0;
   };
 
   const getReceivedAmount = (): number => {
     if (!amount) return 0;
-    const amountNum = parseFloat(amount);
+    const amountNum = safeNum(amount);
     if (withdrawType === 'internal') return amountNum;
-    if (previewData) return parseFloat(previewData.net_amount);
-    if (withdrawalFee) return Math.max(0, amountNum - parseFloat(withdrawalFee.fee));
+    if (previewData) return safeNum(previewData.net_amount);
+    if (withdrawalFee) return Math.max(0, amountNum - safeNum(withdrawalFee.fee));
     return 0;
   };
 
@@ -448,6 +459,7 @@ export default function WithdrawCryptoPage() {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
+          'Idempotency-Key': crypto.randomUUID(),
         },
         body: JSON.stringify(body),
       });
@@ -781,6 +793,11 @@ export default function WithdrawCryptoPage() {
                     <div className="flex items-center justify-between mb-2">
                       <label className="text-sm text-gray-500">Withdrawable Amount</label>
                       <div className="flex items-center gap-2">
+                        {selectedToken && (
+                          <span className="text-xs text-gray-500">
+                            Available: {getAvailableBalance().toFixed(8)} {selectedToken.symbol}
+                          </span>
+                        )}
                         <span className="text-xs text-gray-400">Amount</span>
                         <button className="text-xs text-blue-500 hover:text-blue-600 font-medium">Raise Amount</button>
                       </div>
@@ -805,7 +822,9 @@ export default function WithdrawCryptoPage() {
                     <div className="mt-4 p-4 bg-gray-50 dark:bg-[#2b2f36] rounded-xl">
                       <div className="flex items-center justify-between text-sm text-gray-500 mb-3">
                         <span>Select account ({selectedAccounts.funding || selectedAccounts.trading ? 1 : 0})</span>
-                        <span className="font-medium text-gray-900 dark:text-white">0</span>
+                        <span className="font-medium text-gray-900 dark:text-white">
+                          {selectedToken ? getAvailableBalance().toFixed(8) : '0'}
+                        </span>
                       </div>
                       <div className="space-y-2">
                         <label className="flex items-center justify-between p-3 bg-white dark:bg-[#1e2329] rounded-xl cursor-pointer border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors">
@@ -822,7 +841,7 @@ export default function WithdrawCryptoPage() {
                             <span className="text-gray-700 dark:text-gray-300 font-medium">Funding</span>
                           </div>
                           <span className="text-gray-500">
-                            {selectedToken && balances.find(b => b.symbol.toUpperCase() === selectedToken.symbol.toUpperCase())?.funding || '0'}
+                            {(selectedToken && (balances || []).find(b => (b?.symbol || '').toUpperCase() === (selectedToken.symbol || '').toUpperCase())?.funding) ?? '0'}
                           </span>
                         </label>
                         <label className="flex items-center justify-between p-3 bg-white dark:bg-[#1e2329] rounded-xl cursor-pointer border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors">
@@ -839,7 +858,7 @@ export default function WithdrawCryptoPage() {
                             <span className="text-gray-700 dark:text-gray-300 font-medium">Unified Trading</span>
                           </div>
                           <span className="text-gray-500">
-                            {selectedToken && balances.find(b => b.symbol.toUpperCase() === selectedToken.symbol.toUpperCase())?.trading || '0'}
+                            {(selectedToken && (balances || []).find(b => (b?.symbol || '').toUpperCase() === (selectedToken.symbol || '').toUpperCase())?.trading) ?? '0'}
                           </span>
                         </label>
                       </div>

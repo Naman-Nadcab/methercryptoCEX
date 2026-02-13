@@ -60,42 +60,43 @@ export default function TradePage() {
   const canSubmit = validQty && validNotional && validPrice && !!symbol && !orderLoading && !marketPaused;
 
   const fetchMarkets = useCallback(async () => {
-    const res = await api.get<{ success: boolean; data: Market[] }>('/api/v1/spot/markets');
-    if (res.success && res.data?.length) {
-      setMarkets(res.data);
-      if (!symbol && res.data[0]) setSymbol(res.data[0].symbol);
+    const res = await api.get<Market[]>('/api/v1/spot/markets');
+    const data = Array.isArray(res.data) ? res.data : [];
+    if (res.success && data.length) {
+      setMarkets(data);
+      if (!symbol && data[0]) setSymbol(data[0].symbol);
     }
   }, [symbol]);
 
   const fetchTicker = useCallback(async () => {
     if (!symbol) return;
-    const res = await api.get<{ success: boolean; data: Ticker }>(`/api/v1/spot/ticker/${encodeURIComponent(symbol)}`);
+    const res = await api.get<Ticker>(`/api/v1/spot/ticker/${encodeURIComponent(symbol)}`);
     if (res.success && res.data) setTicker(res.data);
   }, [symbol]);
 
   const fetchOrderbook = useCallback(async () => {
     if (!symbol) return;
-    const res = await api.get<{ success: boolean; data: { bids: OrderbookLevel[]; asks: OrderbookLevel[] } }>(`/api/v1/spot/orderbook/${encodeURIComponent(symbol)}?limit=15`);
+    const res = await api.get<{ bids: OrderbookLevel[]; asks: OrderbookLevel[] }>(`/api/v1/spot/orderbook/${encodeURIComponent(symbol)}?limit=15`);
     if (res.success && res.data) setOrderbook(res.data);
   }, [symbol]);
 
   const fetchBalances = useCallback(async () => {
-    const res = await api.get<{ success: boolean; data: BalanceRow[] }>('/api/v1/wallet/balances/by-account');
+    const res = await api.get<BalanceRow[]>('/api/v1/wallet/balances/by-account');
     if (res.success && res.data) setBalances(res.data);
   }, []);
 
   const fetchOpenOrders = useCallback(async () => {
-    const res = await api.get<{ success: boolean; data: Order[] }>('/api/v1/spot/open-orders');
+    const res = await api.get<Order[]>('/api/v1/spot/open-orders');
     if (res.success && res.data) setOpenOrders(res.data);
   }, []);
 
   const fetchOrderHistory = useCallback(async () => {
-    const res = await api.get<{ success: boolean; data: Order[]; pagination: { total: number } }>('/api/v1/spot/order-history?limit=20');
+    const res = await api.get<Order[]>('/api/v1/spot/order-history?limit=20');
     if (res.success && res.data) setOrderHistory(res.data);
   }, []);
 
   const fetchTradeHistory = useCallback(async () => {
-    const res = await api.get<{ success: boolean; data: Trade[]; pagination: { total: number } }>('/api/v1/spot/trade-history?limit=20');
+    const res = await api.get<Trade[]>('/api/v1/spot/trade-history?limit=20');
     if (res.success && res.data) setTradeHistory(res.data);
   }, []);
 

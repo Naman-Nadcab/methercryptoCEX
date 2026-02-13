@@ -1,15 +1,19 @@
-import Redis from 'ioredis';
+import type { ChainableCommander, RedisOptions } from 'ioredis';
+import { createRequire } from 'module';
 import { config } from '../config/index.js';
 import { logger } from './logger.js';
 
+const require = createRequire(import.meta.url);
+const RedisConstructor = require('ioredis') as new (options?: RedisOptions) => import('ioredis').default;
+
 class RedisClient {
-  private client: Redis;
-  private subscriber: Redis;
-  private publisher: Redis;
+  private client: InstanceType<typeof RedisConstructor>;
+  private subscriber: InstanceType<typeof RedisConstructor>;
+  private publisher: InstanceType<typeof RedisConstructor>;
   private static instance: RedisClient;
 
   private constructor() {
-    const options: Redis.RedisOptions = {
+    const options: RedisOptions = {
       host: '127.0.0.1',
       port: 6379,
       maxRetriesPerRequest: 3,
@@ -25,21 +29,24 @@ class RedisClient {
       options.password = config.redis.password;
     }
 
-    this.client = new Redis(options);
-    this.subscriber = new Redis(options);
-    this.publisher = new Redis(options);
+    this.client = new RedisConstructor(options);
+    this.subscriber = new RedisConstructor(options);
+    this.publisher = new RedisConstructor(options);
 
     this.setupEventHandlers(this.client, 'main');
     this.setupEventHandlers(this.subscriber, 'subscriber');
     this.setupEventHandlers(this.publisher, 'publisher');
   }
 
-  private setupEventHandlers(client: Redis, name: string): void {
+  private setupEventHandlers(
+    client: InstanceType<typeof RedisConstructor>,
+    name: string
+  ): void {
     client.on('connect', () => {
       logger.info(`Redis ${name} client connected`);
     });
 
-    client.on('error', (err) => {
+    client.on('error', (err: Error) => {
       logger.error(`Redis ${name} client error`, { error: err.message });
     });
 
@@ -279,7 +286,7 @@ class RedisClient {
     callback: (message: string) => void
   ): Promise<void> {
     await this.subscriber.subscribe(channel);
-    this.subscriber.on('message', (ch, message) => {
+    this.subscriber.on('message', (ch: string, message: string) => {
       if (ch === channel) {
         callback(message);
       }
@@ -354,7 +361,7 @@ class RedisClient {
   }
 
   // Pipeline for batch operations
-  pipeline(): Redis.ChainableCommander {
+  pipeline(): ChainableCommander {
     return this.client.pipeline();
   }
 
@@ -384,7 +391,7 @@ class RedisClient {
   }
 
   // Get raw client for advanced operations
-  getClient(): Redis {
+  getClient(): InstanceType<typeof RedisConstructor> {
     return this.client;
   }
 }

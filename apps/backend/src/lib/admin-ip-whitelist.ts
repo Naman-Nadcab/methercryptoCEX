@@ -10,14 +10,14 @@
  */
 function ipv4InCidr(ip: string, cidr: string): boolean {
   const [netStr, prefixStr] = cidr.split('/');
-  const prefix = parseInt(prefixStr, 10);
-  if (Number.isNaN(prefix) || prefix < 0 || prefix > 32) return false;
+  const prefix = parseInt(prefixStr ?? '', 10);
+  if (Number.isNaN(prefix) || prefix < 0 || prefix > 32 || netStr == null) return false;
 
   const ipParts = ip.split('.').map((p) => parseInt(p, 10));
   if (ipParts.length !== 4 || ipParts.some((p) => Number.isNaN(p) || p < 0 || p > 255)) {
     return false;
   }
-  const netParts = netStr.split('.').map((p) => parseInt(p, 10));
+  const netParts = netStr!.split('.').map((p) => parseInt(p, 10));
   if (netParts.length !== 4 || netParts.some((p) => Number.isNaN(p) || p < 0 || p > 255)) {
     return false;
   }

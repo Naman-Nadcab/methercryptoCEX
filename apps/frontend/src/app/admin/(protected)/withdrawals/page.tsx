@@ -73,7 +73,7 @@ export default function WithdrawalsPage() {
 
   // Sync URL with state
   useEffect(() => {
-    const next = new URLSearchParams(searchParams);
+    const next = new URLSearchParams(searchParams.toString());
     if (statusFilter !== 'all') next.set('status', statusFilter); else next.delete('status');
     if (typeFilter !== 'all') next.set('type', typeFilter); else next.delete('type');
     if (page > 1) next.set('page', String(page)); else next.delete('page');

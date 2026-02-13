@@ -1,4 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { Decimal, type DecimalInstance } from '../lib/decimal.js';
 import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
@@ -20,9 +21,25 @@ import {
 } from '../services/spot-orderbook-cache.service.js';
 import * as spotWs from '../services/spot-ws.service.js';
 import * as spotMetrics from '../services/spot-metrics.service.js';
+import { validateSpotOrderRiskUserBalances } from '../services/spot-risk.service.js';
+import { TAKER_FEE_RATE } from '../services/settlement/decimal-utils.js';
+import {
+  lockAmountQuote,
+  lockAmountBase,
+  debitAmountQuote,
+  debitAmountBase,
+  unlockAmountQuote,
+  unlockAmountBase,
+  toDecimalPlaces,
+  ROUND_DOWN,
+} from '../services/spot-decimal.js';
+import { rateLimitByUser } from '../lib/rate-limit-fastify.js';
+import { isTradingHalted } from '../lib/trading-halt.js';
 
 const CIRCUIT_BREAKER_THRESHOLD = 5;
 const CIRCUIT_KEY_PREFIX = 'spot:circuit:';
+/** Worst-case execution for BUY market orders: effective_price = best_ask × (1 + slippage_buffer). */
+const MARKET_ORDER_SLIPPAGE_BUFFER = new Decimal('0.01');
 
 async function pushSpotUpdates(symbol: string, userId: string, orderPayload: object): Promise<void> {
   await invalidateOrderbookCache(symbol);
@@ -38,7 +55,7 @@ async function pushSpotUpdates(symbol: string, userId: string, orderPayload: obj
   if (row) spotWs.broadcast(`ticker:${symbol}`, 'ticker', { symbol, last_price: row.price, bid: row.bid, ask: row.ask });
   const tradesRes = await db.query(`SELECT id, order_id, user_id, market, side, price, quantity, fee, fee_asset, created_at FROM spot_trades WHERE market = $1 ORDER BY created_at DESC LIMIT 10`, [symbol]);
   spotWs.broadcast(`trades:${symbol}`, 'trades', tradesRes.rows);
-  spotWs.sendToUser(userId, 'user.trades', 'trade', tradesRes.rows.filter((t: { user_id: string }) => t.user_id === userId).slice(0, 5));
+  spotWs.sendToUser(userId, 'user.trades', 'trade', tradesRes.rows.filter((t) => (t as { user_id: string }).user_id === userId).slice(0, 5));
 }
 
 async function recordCircuitBreaker(symbol: string): Promise<void> {
@@ -112,9 +129,9 @@ export default async function spotRoutes(app: FastifyInstance) {
         success: true,
         data: {
           symbol,
-          base_asset: market.rows[0].base_asset,
-          quote_asset: market.rows[0].quote_asset,
-          status: market.rows[0].status,
+          base_asset: market.rows[0]!.base_asset,
+          quote_asset: market.rows[0]!.quote_asset,
+          status: market.rows[0]!.status,
           last_price: row?.price ?? null,
           bid,
           ask,
@@ -152,13 +169,19 @@ export default async function spotRoutes(app: FastifyInstance) {
     }
   });
 
-  // POST /spot/order
+  // POST /spot/order (PHASE-12: rate limit 30/min per user, global trading halt check)
   app.post<{
     Body: { market: string; side: string; type: string; price?: string; quantity: string };
   }>('/order', {
-    preHandler: [app.authenticate],
+    preHandler: [app.authenticate, rateLimitByUser('spot:order', 30, 60)],
   }, async (request, reply) => {
     const userId = request.user!.id;
+    if (await isTradingHalted()) {
+      return reply.status(503).send({
+        success: false,
+        error: { code: 'TRADING_HALTED', message: 'Trading is temporarily halted' },
+      });
+    }
     const marketSymbol = (request.body?.market || '').toUpperCase().replace(/-/g, '_');
     const side = (request.body?.side || '').toLowerCase();
     const type = (request.body?.type || 'limit').toLowerCase();
@@ -171,8 +194,16 @@ export default async function spotRoutes(app: FastifyInstance) {
         error: { code: 'INVALID_ORDER', message: 'Invalid market, side, or type' },
       });
     }
-    const quantity = parseFloat(quantityStr);
-    if (!Number.isFinite(quantity) || quantity <= 0) {
+    let quantityDec: DecimalInstance;
+    try {
+      quantityDec = new Decimal(quantityStr);
+    } catch {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'INVALID_ORDER', message: 'Invalid quantity' },
+      });
+    }
+    if (quantityDec.lte(0) || !quantityDec.isFinite()) {
       return reply.status(400).send({
         success: false,
         error: { code: 'INVALID_ORDER', message: 'Invalid quantity' },
@@ -209,27 +240,43 @@ export default async function spotRoutes(app: FastifyInstance) {
         });
       }
       const orderStartMs = Date.now();
+      const precision = typeof m.price_precision === 'number' ? m.price_precision : 8;
+      const qtyPrecision = typeof m.qty_precision === 'number' ? m.qty_precision : 8;
 
-      const minQty = parseFloat(m.min_qty);
-      const minNotional = parseFloat(m.min_notional);
-      if (quantity < minQty) {
+      const minQtyDec = new Decimal(m.min_qty).toDecimalPlaces(qtyPrecision, ROUND_DOWN);
+      const minNotionalDec = new Decimal(m.min_notional).toDecimalPlaces(precision, ROUND_DOWN);
+      const qtyRounded = quantityDec.toDecimalPlaces(qtyPrecision, ROUND_DOWN);
+      if (qtyRounded.lt(minQtyDec)) {
         return reply.status(400).send({
           success: false,
           error: { code: 'MIN_QTY', message: `Minimum quantity is ${m.min_qty}` },
         });
       }
 
-      let price: number | null = null;
+      let priceDec: DecimalInstance | null = null;
       if (type === 'limit') {
-        price = priceStr != null ? parseFloat(priceStr) : null;
-        if (!Number.isFinite(price) || price <= 0) {
+        if (priceStr == null || priceStr === '') {
           return reply.status(400).send({
             success: false,
             error: { code: 'INVALID_ORDER', message: 'Limit orders require a valid price' },
           });
         }
-        const notional = quantity * price;
-        if (notional < minNotional) {
+        try {
+          priceDec = new Decimal(priceStr).toDecimalPlaces(precision, ROUND_DOWN);
+        } catch {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'INVALID_ORDER', message: 'Limit orders require a valid price' },
+          });
+        }
+        if (priceDec.lte(0) || !priceDec.isFinite()) {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'INVALID_ORDER', message: 'Limit orders require a valid price' },
+          });
+        }
+        const notional = priceDec.times(qtyRounded).toDecimalPlaces(precision, ROUND_DOWN);
+        if (notional.lt(minNotionalDec)) {
           return reply.status(400).send({
             success: false,
             error: { code: 'MIN_NOTIONAL', message: `Minimum notional is ${m.min_notional}` },
@@ -248,22 +295,45 @@ export default async function spotRoutes(app: FastifyInstance) {
 
       let lockCurrencyId: string;
       let lockAmount: string;
+      let priceForRisk: string;
       if (side === 'buy') {
         lockCurrencyId = quoteCurrencyId;
-        lockAmount = type === 'market'
-          ? (quantity * (await getBestAsk(marketSymbol))).toFixed(18)
-          : (quantity * price!).toFixed(18);
+        if (type === 'market') {
+          const bestAskStr = await getBestAsk(marketSymbol);
+          const bestAskDec = new Decimal(bestAskStr).toDecimalPlaces(precision, ROUND_DOWN);
+          if (bestAskDec.lte(0) || !bestAskDec.isFinite()) {
+            throw new Error('NO_LIQUIDITY');
+          }
+          const effectivePrice = bestAskDec.times(new Decimal(1).plus(MARKET_ORDER_SLIPPAGE_BUFFER)).toDecimalPlaces(precision, ROUND_DOWN);
+          lockAmount = lockAmountQuote(effectivePrice.toString(), qtyRounded.toString(), precision);
+          priceForRisk = effectivePrice.toString();
+        } else {
+          lockAmount = lockAmountQuote(priceDec!.toString(), qtyRounded.toString(), precision);
+          priceForRisk = priceDec!.toString();
+        }
       } else {
         lockCurrencyId = baseCurrencyId;
-        lockAmount = quantity.toFixed(18);
+        lockAmount = lockAmountBase(qtyRounded.toString(), qtyPrecision);
+        priceForRisk = priceDec != null ? priceDec.toString() : '0';
       }
+
+      await validateSpotOrderRiskUserBalances({
+        user_id: userId,
+        quote_currency_id: quoteCurrencyId,
+        base_currency_id: baseCurrencyId,
+        side: side as 'buy' | 'sell',
+        price: priceForRisk,
+        qty: qtyRounded.toString(),
+        fee_rate: TAKER_FEE_RATE.toString(),
+        precision,
+      });
 
       const orderResult = await db.transaction(async (client) => {
         const locked = await lockTradingBalance(userId, lockCurrencyId, lockAmount, client);
         if (!locked) {
           throw new Error('INSUFFICIENT_BALANCE');
         }
-        const insertPrice = type === 'limit' ? price!.toFixed(18) : null;
+        const insertPrice = type === 'limit' && priceDec != null ? priceDec.toString() : null;
         const orderIns = await client.query<{
           id: string;
           user_id: string;
@@ -279,16 +349,17 @@ export default async function spotRoutes(app: FastifyInstance) {
           `INSERT INTO spot_orders (user_id, market, side, type, price, quantity, filled_quantity, status)
            VALUES ($1, $2, $3, $4, $5, $6, 0, $7)
            RETURNING id, user_id, market, side, type, price, quantity, filled_quantity, status, created_at`,
-          [userId, marketSymbol, side, type, insertPrice, quantity.toFixed(18), type === 'market' ? 'OPEN' : 'OPEN']
+          [userId, marketSymbol, side, type, insertPrice, qtyRounded.toString(), type === 'market' ? 'OPEN' : 'OPEN']
         );
         const order = orderIns.rows[0]!;
         if (type === 'limit') {
-          await runMatching(client, order, m, baseCurrencyId, quoteCurrencyId);
+          await runMatching(client, order, m, baseCurrencyId, quoteCurrencyId, precision, qtyPrecision);
         } else {
-          await runMatching(client, order, m, baseCurrencyId, quoteCurrencyId);
-          const updated = await client.query(`SELECT status, filled_quantity FROM spot_orders WHERE id = $1`, [order.id]);
+          await runMatching(client, order, m, baseCurrencyId, quoteCurrencyId, precision, qtyPrecision);
+          const updated = await client.query<{ status: string; filled_quantity: string }>(`SELECT status, filled_quantity::text AS filled_quantity FROM spot_orders WHERE id = $1`, [order.id]);
           const ord = updated.rows[0];
-          if (ord && ord.status === 'OPEN' && parseFloat(ord.filled_quantity) === 0) {
+          const filledZero = ord && ord.status === 'OPEN' && new Decimal(ord.filled_quantity).lte(0);
+          if (filledZero) {
             await client.query(`UPDATE spot_orders SET status = 'CANCELLED', updated_at = NOW() WHERE id = $1`, [order.id]);
             await unlockTradingBalance(userId, lockCurrencyId, lockAmount, client);
             throw new Error('NO_LIQUIDITY');
@@ -332,6 +403,18 @@ export default async function spotRoutes(app: FastifyInstance) {
           error: { code: 'INSUFFICIENT_BALANCE', message: 'Insufficient trading balance' },
         });
       }
+      if (msg === 'INSUFFICIENT_QUOTE_BALANCE' || msg === 'INSUFFICIENT_BASE_BALANCE') {
+        return reply.status(400).send({
+          success: false,
+          error: { code: msg, message: msg === 'INSUFFICIENT_QUOTE_BALANCE' ? 'Insufficient quote balance (including fee)' : 'Insufficient base balance' },
+        });
+      }
+      if (msg === 'MARKET_NOT_FOUND') {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'MARKET_NOT_FOUND', message: 'Market not found' },
+        });
+      }
       if (msg === 'NO_LIQUIDITY') {
         return reply.status(400).send({
           success: false,
@@ -346,20 +429,20 @@ export default async function spotRoutes(app: FastifyInstance) {
     }
   });
 
-  async function getBestAsk(symbol: string): Promise<number> {
+  async function getBestAsk(symbol: string): Promise<string> {
     const r = await db.query<{ price: string }>(
       `SELECT MIN(price)::text as price FROM spot_orders WHERE market = $1 AND side = 'sell' AND status IN ('OPEN', 'PARTIALLY_FILLED') AND (quantity - filled_quantity) > 0`,
       [symbol]
     );
     const p = r.rows[0]?.price;
-    return p ? parseFloat(p) : 0;
+    return p ?? '0';
   }
 
   type MarketRow = {
     base_asset: string;
     quote_asset: string;
-    maker_fee: string;
-    taker_fee: string;
+    maker_fee: string | null;
+    taker_fee: string | null;
   };
 
   async function runMatching(
@@ -367,10 +450,14 @@ export default async function spotRoutes(app: FastifyInstance) {
     incomingOrder: { id: string; user_id: string; market: string; side: string; type: string; price: string | null; quantity: string; filled_quantity: string; status: string },
     m: MarketRow,
     baseCurrencyId: string,
-    quoteCurrencyId: string
+    quoteCurrencyId: string,
+    pricePrecision: number,
+    qtyPrecision: number
   ): Promise<void> {
-    const remaining = parseFloat(incomingOrder.quantity) - parseFloat(incomingOrder.filled_quantity);
-    if (remaining <= 0) return;
+    const incomingQty = new Decimal(incomingOrder.quantity).toDecimalPlaces(qtyPrecision, ROUND_DOWN);
+    const incomingFilled = new Decimal(incomingOrder.filled_quantity).toDecimalPlaces(qtyPrecision, ROUND_DOWN);
+    let remaining = incomingQty.minus(incomingFilled).toDecimalPlaces(qtyPrecision, ROUND_DOWN);
+    if (remaining.lte(0)) return;
 
     const isBuy = incomingOrder.side === 'buy';
     const oppositeSide = isBuy ? 'sell' : 'buy';
@@ -379,79 +466,83 @@ export default async function spotRoutes(app: FastifyInstance) {
     const priceCond = incomingOrder.price ? (isBuy ? 'AND o.price <= $4' : 'AND o.price >= $4') : '';
     if (incomingOrder.price) params.push(incomingOrder.price);
 
-    const candidates = await client.query<{
-      id: string;
-      user_id: string;
-      price: string;
-      quantity: string;
-      filled_quantity: string;
-    }>(
+    const candidates = await client.query(
       `SELECT id, user_id, price::text as price, quantity::text, filled_quantity::text
        FROM spot_orders o
        WHERE o.market = $1 AND o.side = $2 AND o.status IN ('OPEN', 'PARTIALLY_FILLED') AND o.user_id != $3
          AND (o.quantity - o.filled_quantity) > 0 ${priceCond}
        ${orderBy}`,
       params
-    );
+    ) as { rows: Array<{ id: string; user_id: string; price: string; quantity: string; filled_quantity: string }> };
 
-    let filledIncoming = parseFloat(incomingOrder.filled_quantity);
+    let filledIncoming = incomingFilled;
     for (const other of candidates.rows) {
-      if (filledIncoming >= parseFloat(incomingOrder.quantity)) break;
-      const otherRemaining = parseFloat(other.quantity) - parseFloat(other.filled_quantity);
-      const matchQty = Math.min(remaining - (filledIncoming - parseFloat(incomingOrder.filled_quantity)), otherRemaining);
-      if (matchQty <= 0) continue;
-      const tradePrice = parseFloat(other.price);
-      const quoteAmount = matchQty * tradePrice;
-      const sellerFeeRate = isBuy ? parseFloat(m.maker_fee) : parseFloat(m.taker_fee);
-      const feeAmount = quoteAmount * sellerFeeRate;
-      const buyerReceivesQty = matchQty;
-      const sellerReceivesQuote = quoteAmount - feeAmount;
+      if (filledIncoming.gte(incomingQty)) break;
+      const otherQty = new Decimal(other.quantity).toDecimalPlaces(qtyPrecision, ROUND_DOWN);
+      const otherFilled = new Decimal(other.filled_quantity).toDecimalPlaces(qtyPrecision, ROUND_DOWN);
+      const otherRemaining = otherQty.minus(otherFilled).toDecimalPlaces(qtyPrecision, ROUND_DOWN);
+      const remainingIncoming = incomingQty.minus(filledIncoming).toDecimalPlaces(qtyPrecision, ROUND_DOWN);
+      const matchQtyDec = (remainingIncoming.lte(otherRemaining) ? remainingIncoming : otherRemaining).toDecimalPlaces(qtyPrecision, ROUND_DOWN);
+      if (matchQtyDec.lte(0)) continue;
+
+      const tradePriceDec = new Decimal(other.price).toDecimalPlaces(pricePrecision, ROUND_DOWN);
+      const quoteAmountDec = tradePriceDec.times(matchQtyDec).toDecimalPlaces(pricePrecision, ROUND_DOWN);
+      const sellerFeeRateDec = new Decimal(isBuy ? (m.maker_fee ?? '0.001') : (m.taker_fee ?? '0.001')).toDecimalPlaces(pricePrecision, ROUND_DOWN);
+      const feeAmountDec = quoteAmountDec.times(sellerFeeRateDec).toDecimalPlaces(pricePrecision, ROUND_DOWN);
+      const buyerReceivesQtyStr = toDecimalPlaces(matchQtyDec, qtyPrecision);
+      const sellerReceivesQuoteStr = quoteAmountDec.minus(feeAmountDec).toDecimalPlaces(pricePrecision, ROUND_DOWN).toString();
+      const debitQuoteStr = debitAmountQuote(tradePriceDec.toString(), matchQtyDec.toString(), pricePrecision);
+      const debitBaseStr = debitAmountBase(matchQtyDec.toString(), qtyPrecision);
 
       const buyerId = isBuy ? incomingOrder.user_id : other.user_id;
       const sellerId = isBuy ? other.user_id : incomingOrder.user_id;
 
       await client.query(
         `INSERT INTO spot_trades (order_id, user_id, market, side, price, quantity, fee, fee_asset) VALUES ($1, $2, $3, 'buy', $4, $5, 0, $6)`,
-        [isBuy ? incomingOrder.id : other.id, buyerId, incomingOrder.market, tradePrice, matchQty, m.quote_asset]
+        [isBuy ? incomingOrder.id : other.id, buyerId, incomingOrder.market, tradePriceDec.toString(), matchQtyDec.toString(), m.quote_asset]
       );
       await client.query(
         `INSERT INTO spot_trades (order_id, user_id, market, side, price, quantity, fee, fee_asset) VALUES ($1, $2, $3, 'sell', $4, $5, $6, $7)`,
-        [isBuy ? other.id : incomingOrder.id, sellerId, incomingOrder.market, tradePrice, matchQty, feeAmount, m.quote_asset]
+        [isBuy ? other.id : incomingOrder.id, sellerId, incomingOrder.market, tradePriceDec.toString(), matchQtyDec.toString(), feeAmountDec.toString(), m.quote_asset]
       );
       spotMetrics.recordTrade();
 
       if (isBuy) {
-        await debitLockedTradingBalance(buyerId, quoteCurrencyId, (matchQty * tradePrice).toFixed(18), client);
-        await creditTradingBalance(buyerId, baseCurrencyId, buyerReceivesQty.toFixed(18), client);
-        await debitLockedTradingBalance(sellerId, baseCurrencyId, matchQty.toFixed(18), client);
-        await creditTradingBalance(sellerId, quoteCurrencyId, sellerReceivesQuote.toFixed(18), client);
+        const buyerQuoteDebited = await debitLockedTradingBalance(buyerId, quoteCurrencyId, debitQuoteStr, client);
+        if (!buyerQuoteDebited) throw new Error('INSUFFICIENT_LOCKED_FUNDS');
+        await creditTradingBalance(buyerId, baseCurrencyId, buyerReceivesQtyStr, client);
+        const sellerBaseDebited = await debitLockedTradingBalance(sellerId, baseCurrencyId, debitBaseStr, client);
+        if (!sellerBaseDebited) throw new Error('INSUFFICIENT_LOCKED_FUNDS');
+        await creditTradingBalance(sellerId, quoteCurrencyId, sellerReceivesQuoteStr, client);
       } else {
-        await debitLockedTradingBalance(sellerId, baseCurrencyId, matchQty.toFixed(18), client);
-        await creditTradingBalance(sellerId, quoteCurrencyId, sellerReceivesQuote.toFixed(18), client);
-        await debitLockedTradingBalance(buyerId, quoteCurrencyId, (matchQty * tradePrice).toFixed(18), client);
-        await creditTradingBalance(buyerId, baseCurrencyId, buyerReceivesQty.toFixed(18), client);
+        const sellerBaseDebited = await debitLockedTradingBalance(sellerId, baseCurrencyId, debitBaseStr, client);
+        if (!sellerBaseDebited) throw new Error('INSUFFICIENT_LOCKED_FUNDS');
+        await creditTradingBalance(sellerId, quoteCurrencyId, sellerReceivesQuoteStr, client);
+        const buyerQuoteDebited = await debitLockedTradingBalance(buyerId, quoteCurrencyId, debitQuoteStr, client);
+        if (!buyerQuoteDebited) throw new Error('INSUFFICIENT_LOCKED_FUNDS');
+        await creditTradingBalance(buyerId, baseCurrencyId, buyerReceivesQtyStr, client);
       }
 
-      const newOtherFilled = parseFloat(other.filled_quantity) + matchQty;
-      const otherStatus = newOtherFilled >= parseFloat(other.quantity) ? 'FILLED' : 'PARTIALLY_FILLED';
+      const newOtherFilled = otherFilled.plus(matchQtyDec).toDecimalPlaces(qtyPrecision, ROUND_DOWN);
+      const otherStatus = newOtherFilled.gte(otherQty) ? 'FILLED' : 'PARTIALLY_FILLED';
       await client.query(
         `UPDATE spot_orders SET filled_quantity = $2, status = $3, updated_at = NOW() WHERE id = $1`,
-        [other.id, newOtherFilled.toFixed(18), otherStatus]
+        [other.id, newOtherFilled.toString(), otherStatus]
       );
-      filledIncoming += matchQty;
+      filledIncoming = filledIncoming.plus(matchQtyDec).toDecimalPlaces(qtyPrecision, ROUND_DOWN);
     }
 
-    const newIncomingFilled = filledIncoming;
-    const incomingStatus = newIncomingFilled >= parseFloat(incomingOrder.quantity) ? 'FILLED' : (newIncomingFilled > 0 ? 'PARTIALLY_FILLED' : 'OPEN');
+    const newIncomingFilledStr = filledIncoming.toString();
+    const incomingStatus = filledIncoming.gte(incomingQty) ? 'FILLED' : (filledIncoming.gt(0) ? 'PARTIALLY_FILLED' : 'OPEN');
     await client.query(
       `UPDATE spot_orders SET filled_quantity = $2, status = $3, updated_at = NOW() WHERE id = $1`,
-      [incomingOrder.id, newIncomingFilled.toFixed(18), incomingStatus]
+      [incomingOrder.id, newIncomingFilledStr, incomingStatus]
     );
   }
 
-  // POST /spot/order/:id/cancel
+  // POST /spot/order/:id/cancel (PHASE-12: rate limit to prevent rapid create/cancel abuse)
   app.post<{ Params: { id: string } }>('/order/:id/cancel', {
-    preHandler: [app.authenticate],
+    preHandler: [app.authenticate, rateLimitByUser('spot:cancel', 60, 60)],
   }, async (request, reply) => {
     const userId = request.user!.id;
     const orderId = request.params.id;
@@ -484,9 +575,11 @@ export default async function spotRoutes(app: FastifyInstance) {
       const row = m.rows[0];
       const baseId = row?.base_currency_id ?? (await getCurrencyIdBySymbol(row?.base_asset ?? '')) ?? '';
       const quoteId = row?.quote_currency_id ?? (await getCurrencyIdBySymbol(row?.quote_asset ?? '')) ?? '';
-      const remaining = parseFloat(o.quantity) - parseFloat(o.filled_quantity);
+      const remainingQty = new Decimal(o.quantity).minus(new Decimal(o.filled_quantity)).toDecimalPlaces(8, ROUND_DOWN);
       const unlockCurrencyId = o.side === 'buy' ? quoteId : baseId;
-      const unlockAmount = o.side === 'buy' ? (remaining * parseFloat(o.price || '0')).toFixed(18) : remaining.toFixed(18);
+      const unlockAmount = o.side === 'buy'
+        ? unlockAmountQuote(o.price ?? '0', remainingQty.toString(), 8)
+        : unlockAmountBase(remainingQty.toString(), 8);
 
       await db.transaction(async (client) => {
         await client.query(`UPDATE spot_orders SET status = 'CANCELLED', updated_at = NOW() WHERE id = $1`, [orderId]);
@@ -529,9 +622,11 @@ export default async function spotRoutes(app: FastifyInstance) {
       const quoteId = row?.quote_currency_id ?? (await getCurrencyIdBySymbol(row?.quote_asset ?? '')) ?? '';
       await db.transaction(async (client) => {
         for (const o of open.rows) {
-          const remaining = parseFloat(o.quantity) - parseFloat(o.filled_quantity);
+          const remainingQty = new Decimal(o.quantity).minus(new Decimal(o.filled_quantity)).toDecimalPlaces(8, ROUND_DOWN);
           const unlockCurrencyId = o.side === 'buy' ? quoteId : baseId;
-          const unlockAmount = o.side === 'buy' ? (remaining * parseFloat(o.price || '0')).toFixed(18) : remaining.toFixed(18);
+          const unlockAmount = o.side === 'buy'
+            ? unlockAmountQuote(o.price ?? '0', remainingQty.toString(), 8)
+            : unlockAmountBase(remainingQty.toString(), 8);
           await client.query(`UPDATE spot_orders SET status = 'CANCELLED', updated_at = NOW() WHERE id = $1`, [o.id]);
           await unlockTradingBalance(userId, unlockCurrencyId, unlockAmount, client);
         }
@@ -570,11 +665,14 @@ export default async function spotRoutes(app: FastifyInstance) {
          ORDER BY created_at DESC`,
         [userId]
       );
-      const data = result.rows.map((r) => ({
-        ...r,
-        displayStatus: displayStatus(r.status),
-        remaining_quantity: (parseFloat(r.quantity) - parseFloat(r.filled_quantity)).toFixed(18),
-      }));
+      const data = result.rows.map((r) => {
+        const rem = new Decimal(r.quantity).minus(new Decimal(r.filled_quantity)).toDecimalPlaces(8, ROUND_DOWN);
+        return {
+          ...r,
+          displayStatus: displayStatus(r.status),
+          remaining_quantity: rem.toString(),
+        };
+      });
       return reply.send({ success: true, data });
     } catch (error) {
       logger.error('Spot open-orders failed', { error: error instanceof Error ? error.message : 'Unknown' });
@@ -606,11 +704,15 @@ export default async function spotRoutes(app: FastifyInstance) {
         market ? [userId, market] : [userId]
       );
       const total = parseInt(countResult.rows[0]?.count || '0');
-      const data = result.rows.map((r: any) => ({
-        ...r,
-        displayStatus: displayStatus(r.status),
-        remaining_quantity: (parseFloat(r.quantity) - parseFloat(r.filled_quantity)).toFixed(18),
-      }));
+      const data = result.rows.map((r) => {
+        const row = r as { quantity: string; filled_quantity: string; status: string };
+        const rem = new Decimal(row.quantity).minus(new Decimal(row.filled_quantity)).toDecimalPlaces(8, ROUND_DOWN);
+        return {
+          ...row,
+          displayStatus: displayStatus(row.status),
+          remaining_quantity: rem.toString(),
+        };
+      });
       return reply.send({
         success: true,
         data,
@@ -675,15 +777,24 @@ export default async function spotRoutes(app: FastifyInstance) {
     if (!marketSymbol || !['buy', 'sell'].includes(side) || !['limit', 'market'].includes(type)) {
       return reply.status(400).send({ success: false, error: { code: 'INVALID_ORDER', message: 'Invalid market, side, or type' } });
     }
-    const quantity = parseFloat(quantityStr);
-    if (!Number.isFinite(quantity) || quantity <= 0) {
+    let quantityDec: DecimalInstance;
+    try {
+      quantityDec = new Decimal(quantityStr);
+    } catch {
+      return reply.status(400).send({ success: false, error: { code: 'INVALID_ORDER', message: 'Invalid quantity' } });
+    }
+    if (quantityDec.lte(0) || !quantityDec.isFinite()) {
       return reply.status(400).send({ success: false, error: { code: 'INVALID_ORDER', message: 'Invalid quantity' } });
     }
 
-    let price: number | null = null;
-    if (type === 'limit') {
-      price = priceStr != null ? parseFloat(priceStr) : null;
-      if (!Number.isFinite(price) || price <= 0) {
+    let priceDec: DecimalInstance | null = null;
+    if (type === 'limit' && priceStr != null && priceStr !== '') {
+      try {
+        priceDec = new Decimal(priceStr).toDecimalPlaces(8, ROUND_DOWN);
+      } catch {
+        return reply.status(400).send({ success: false, error: { code: 'INVALID_ORDER', message: 'Limit orders require a valid price' } });
+      }
+      if (priceDec.lte(0) || !priceDec.isFinite()) {
         return reply.status(400).send({ success: false, error: { code: 'INVALID_ORDER', message: 'Limit orders require a valid price' } });
       }
     }
@@ -708,13 +819,16 @@ export default async function spotRoutes(app: FastifyInstance) {
           error: { code: m.status === 'maintenance' ? 'MARKET_PAUSED' : 'MARKET_DISABLED', message: 'Market not available' },
         });
       }
-      const minQty = parseFloat(m.min_qty);
-      const minNotional = parseFloat(m.min_notional);
-      if (quantity < minQty) {
+      const precision = 8;
+      const minQtyDec = new Decimal(m.min_qty).toDecimalPlaces(precision, ROUND_DOWN);
+      const minNotionalDec = new Decimal(m.min_notional).toDecimalPlaces(precision, ROUND_DOWN);
+      const qtyRounded = quantityDec.toDecimalPlaces(precision, ROUND_DOWN);
+      if (qtyRounded.lt(minQtyDec)) {
         return reply.status(400).send({ success: false, error: { code: 'MIN_QTY', message: `Minimum quantity is ${m.min_qty}` } });
       }
-      if (type === 'limit' && price != null) {
-        if (quantity * price < minNotional) {
+      if (type === 'limit' && priceDec != null) {
+        const notional = priceDec.times(qtyRounded).toDecimalPlaces(precision, ROUND_DOWN);
+        if (notional.lt(minNotionalDec)) {
           return reply.status(400).send({ success: false, error: { code: 'MIN_NOTIONAL', message: `Minimum notional is ${m.min_notional}` } });
         }
       }
@@ -729,13 +843,26 @@ export default async function spotRoutes(app: FastifyInstance) {
       let lockAmount: string;
       if (side === 'buy') {
         lockCurrencyId = quoteCurrencyId;
-        lockAmount = type === 'limit' && price != null ? (quantity * price).toFixed(18) : '0';
         if (type === 'market') {
           return reply.status(400).send({ success: false, error: { code: 'INVALID_ORDER', message: 'Market orders not supported in this flow' } });
         }
+        lockAmount = priceDec != null ? lockAmountQuote(priceDec.toString(), qtyRounded.toString(), precision) : '0';
       } else {
         lockCurrencyId = baseCurrencyId;
-        lockAmount = quantity.toFixed(18);
+        lockAmount = lockAmountBase(qtyRounded.toString(), precision);
+      }
+
+      if (type === 'limit' && priceDec != null) {
+        await validateSpotOrderRiskUserBalances({
+          user_id: userId,
+          quote_currency_id: quoteCurrencyId,
+          base_currency_id: baseCurrencyId,
+          side: side as 'buy' | 'sell',
+          price: priceDec.toString(),
+          qty: qtyRounded.toString(),
+          fee_rate: TAKER_FEE_RATE.toString(),
+          precision,
+        });
       }
 
       const ORDER_LOCK_TTL_DAYS = 30;
@@ -758,19 +885,21 @@ export default async function spotRoutes(app: FastifyInstance) {
            FOR UPDATE`,
           [userId, lockCurrencyId, CHAIN_ID_GLOBAL]
         );
-        const total = balanceRow.rows.length === 0 ? 0 : parseFloat(balanceRow.rows[0]!.available_balance || '0') + parseFloat(balanceRow.rows[0]!.locked_balance || '0');
+        const total = balanceRow.rows.length === 0
+          ? new Decimal(0)
+          : new Decimal(balanceRow.rows[0]!.available_balance || '0').plus(balanceRow.rows[0]!.locked_balance || '0').toDecimalPlaces(precision, ROUND_DOWN);
         const sumLock = await client.query<{ sum: string }>(
           `SELECT COALESCE(SUM(amount), 0)::text AS sum FROM balance_locks WHERE user_id = $1 AND currency_id = $2 AND account_type::text = 'trading' AND expires_at > NOW()`,
           [userId, lockCurrencyId]
         );
-        const lockedSum = parseFloat(sumLock.rows[0]?.sum || '0');
-        const spendable = Math.max(0, total - lockedSum);
-        const required = parseFloat(lockAmount);
-        if (required > 0 && spendable < required) {
+        const lockedSum = new Decimal(sumLock.rows[0]?.sum || '0').toDecimalPlaces(precision, ROUND_DOWN);
+        const spendable = total.minus(lockedSum).toDecimalPlaces(precision, ROUND_DOWN);
+        const required = new Decimal(lockAmount).toDecimalPlaces(precision, ROUND_DOWN);
+        if (required.gt(0) && spendable.lt(required)) {
           throw new Error('INSUFFICIENT_BALANCE');
         }
 
-        const insertPrice = type === 'limit' && price != null ? price.toFixed(18) : null;
+        const insertPrice = type === 'limit' && priceDec != null ? priceDec.toString() : null;
         const orderIns = await client.query<{
           id: string;
           market: string;
@@ -785,7 +914,7 @@ export default async function spotRoutes(app: FastifyInstance) {
           `INSERT INTO spot_orders (user_id, market, side, type, price, quantity, filled_quantity, status, client_order_id)
            VALUES ($1, $2, $3, $4, $5, $6, 0, 'OPEN', $7)
            RETURNING id, market, side, type, price, quantity, filled_quantity, status, created_at`,
-          [userId, marketSymbol, side, type, insertPrice, quantity.toFixed(18), clientOrderId]
+          [userId, marketSymbol, side, type, insertPrice, qtyRounded.toString(), clientOrderId]
         );
         const orderRow = orderIns.rows[0]!;
         const expiresAt = new Date(Date.now() + ORDER_LOCK_TTL_DAYS * 24 * 60 * 60 * 1000);
@@ -816,6 +945,18 @@ export default async function spotRoutes(app: FastifyInstance) {
         return reply.status(400).send({
           success: false,
           error: { code: 'INSUFFICIENT_BALANCE', message: 'Insufficient balance' },
+        });
+      }
+      if (msg === 'INSUFFICIENT_QUOTE_BALANCE' || msg === 'INSUFFICIENT_BASE_BALANCE') {
+        return reply.status(400).send({
+          success: false,
+          error: { code: msg, message: msg === 'INSUFFICIENT_QUOTE_BALANCE' ? 'Insufficient quote balance (including fee)' : 'Insufficient base balance' },
+        });
+      }
+      if (msg === 'MARKET_NOT_FOUND') {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'MARKET_NOT_FOUND', message: 'Market not found' },
         });
       }
       logger.error('Spot place order (orders) failed', { error: msg, userId });

@@ -27,6 +27,7 @@ import type {
   IpRuleType,
   CreateIpRuleInput,
 } from '@/lib/securityApi';
+import type { UseFormReturn } from 'react-hook-form';
 
 const SCOPE_OPTIONS: { value: IpRuleScope; label: string }[] = [
   { value: 'admin', label: 'Admin' },
@@ -183,6 +184,7 @@ export function IpRuleDialog({
   });
 
   const form = isEdit ? editForm : createForm;
+  const baseForm = form as UseFormReturn<{ ip_cidr?: string; country_code?: string; enabled: boolean }>;
 
   useEffect(() => {
     if (open && rule) {
@@ -205,14 +207,15 @@ export function IpRuleDialog({
 
   const handleSubmit = form.handleSubmit(async (values) => {
     if (isEdit) {
-      await onSubmitEdit(values);
+      await onSubmitEdit(values as EditFormValues);
     } else {
+      const v = values as CreateFormValues;
       await onSubmitCreate({
-        scope: values.scope,
-        rule_type: values.rule_type,
-        ip_cidr: values.ip_cidr?.trim() || null,
-        country_code: values.country_code?.trim() || null,
-        enabled: values.enabled,
+        scope: v.scope,
+        rule_type: v.rule_type,
+        ip_cidr: v.ip_cidr?.trim() || null,
+        country_code: v.country_code?.trim() || null,
+        enabled: v.enabled,
       });
     }
     onOpenChange(false);
@@ -232,8 +235,8 @@ export function IpRuleDialog({
                   Scope
                 </label>
                 <Select
-                  value={form.watch('scope')}
-                  onValueChange={(v) => form.setValue('scope', v as IpRuleScope)}
+                  value={createForm.watch('scope')}
+                  onValueChange={(v) => createForm.setValue('scope', v as IpRuleScope)}
                 >
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select scope" />
@@ -252,8 +255,8 @@ export function IpRuleDialog({
                   Rule type
                 </label>
                 <Select
-                  value={form.watch('rule_type')}
-                  onValueChange={(v) => form.setValue('rule_type', v as IpRuleType)}
+                  value={createForm.watch('rule_type')}
+                  onValueChange={(v) => createForm.setValue('rule_type', v as IpRuleType)}
                 >
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select type" />
@@ -290,11 +293,11 @@ export function IpRuleDialog({
             </label>
             <Input
               placeholder="e.g. 192.168.1.0/24 or leave empty"
-              {...form.register('ip_cidr')}
+              {...baseForm.register('ip_cidr')}
             />
-            {form.formState.errors.ip_cidr && (
+            {baseForm.formState.errors.ip_cidr && (
               <p className="text-xs text-red-600 dark:text-red-400">
-                {form.formState.errors.ip_cidr.message}
+                {baseForm.formState.errors.ip_cidr.message}
               </p>
             )}
           </div>
@@ -307,14 +310,14 @@ export function IpRuleDialog({
               placeholder="e.g. US"
               maxLength={2}
               className="uppercase"
-              {...form.register('country_code', {
+              {...baseForm.register('country_code', {
                 onChange: (e) =>
-                  form.setValue('country_code', (e.target.value ?? '').toUpperCase().slice(0, 2)),
+                  baseForm.setValue('country_code', (e.target.value ?? '').toUpperCase().slice(0, 2)),
               })}
             />
-            {form.formState.errors.country_code && (
+            {baseForm.formState.errors.country_code && (
               <p className="text-xs text-red-600 dark:text-red-400">
-                {form.formState.errors.country_code.message}
+                {baseForm.formState.errors.country_code.message}
               </p>
             )}
           </div>
@@ -324,8 +327,8 @@ export function IpRuleDialog({
               Enabled
             </label>
             <Switch
-              checked={form.watch('enabled')}
-              onCheckedChange={(checked) => form.setValue('enabled', checked)}
+              checked={baseForm.watch('enabled')}
+              onCheckedChange={(checked) => baseForm.setValue('enabled', checked)}
             />
           </div>
 

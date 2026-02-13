@@ -200,12 +200,10 @@ export default function DepositCryptoPage() {
 
   // Fetch deposit address when chain is selected
   useEffect(() => {
-    console.log('Chain selection useEffect triggered:', { selectedChain: selectedChain?.id, hasAccessToken: !!accessToken });
-    if (selectedChain && accessToken) {
-      console.log('Fetching deposit address for chain:', selectedChain.id);
+    if (selectedChain && _hasHydrated && accessToken) {
       fetchDepositAddress(selectedChain.id);
     }
-  }, [selectedChain, accessToken]);
+  }, [selectedChain, _hasHydrated, accessToken]);
 
   const fetchTokens = async () => {
     try {

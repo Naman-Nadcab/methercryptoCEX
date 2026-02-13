@@ -1,3 +1,5 @@
+import crypto from 'node:crypto';
+import { Decimal, type DecimalInstance } from '../lib/decimal.js';
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
@@ -5,7 +7,8 @@ import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
 import { config } from '../config/index.js';
-import { ensureUserBalanceRow, CHAIN_ID_GLOBAL } from '../lib/user-balance-helper.js';
+import { ensureUserBalanceRow, assertUserBalanceUpdated, assertBalanceInvariant, CHAIN_ID_GLOBAL } from '../lib/user-balance-helper.js';
+import { insertBalanceLedger } from '../lib/balance-ledger.js';
 import { getCurrencyIdBySymbol } from '../lib/currency-resolver.js';
 import { logAuditFromRequest } from '../services/audit-log.service.js';
 import { logAdminActivity, getDeviceIdFromRequest } from '../services/activity-monitor.service.js';
@@ -13,6 +16,25 @@ import { refreshMatchEventsCache } from '../services/matchingEngine.js';
 import { getClientIp } from '../lib/client-ip.js';
 import { isIpInWhitelist } from '../lib/admin-ip-whitelist.js';
 import { enforceAdminRateLimit } from '../lib/rate-limit-fastify.js';
+const ADMIN_CREDIT_IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60;
+const ADMIN_CREDIT_IDEMPOTENCY_LOCK_TTL_SECONDS = 30;
+const IDEMPOTENCY_KEY_HEADER = 'idempotency-key';
+
+function buildAdminManualCreditRequestHash(body: Record<string, unknown>): string {
+  const normalized = {
+    user: String(body.user ?? '').trim(),
+    currency: String(body.currency ?? '').trim(),
+    amount: String(body.amount ?? '').trim(),
+    reason: body.reason != null ? String(body.reason).trim() : '',
+  };
+  return crypto.createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
+}
+
+interface AdminManualCreditIdempotencyCache {
+  requestHash: string;
+  response: { success: true; data: Record<string, unknown> };
+}
+
 // Types
 interface AdminLoginBody {
   email: string;
@@ -98,7 +120,7 @@ export async function getAdminFromRequest(
   // FIX #3: Admin IP whitelist — enforce only after JWT/session auth. Production: empty whitelist = deny all; non-production: empty = do not enforce.
   const clientIp = getClientIp(request);
   const whitelist = config.security?.adminIpWhitelist ?? [];
-  const path = request.routerPath ?? request.url;
+  const path = (request as { routerPath?: string }).routerPath ?? request.url;
 
   if (config.isProduction && whitelist.length === 0) {
     logger.warn('Admin access denied: IP whitelist empty in production', {
@@ -572,6 +594,199 @@ export default async function adminRoutes(app: FastifyInstance) {
     }
   });
 
+  /**
+   * PHASE-12: Emergency trading halt. GET status; POST set (body: { halted: boolean }). Admin only.
+   */
+  app.get('/trading-halt', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    const { getTradingHalted } = await import('../lib/trading-halt.js');
+    const halted = await getTradingHalted();
+    return reply.send({ success: true, data: { halted } });
+  });
+  app.post<{ Body: { halted: boolean } }>('/trading-halt', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    const halted = request.body?.halted === true;
+    const { setTradingHalt } = await import('../lib/trading-halt.js');
+    await setTradingHalt(halted);
+    logger.warn('Trading halt changed', { adminId: admin.adminId, halted });
+    return reply.send({ success: true, data: { halted } });
+  });
+
+  /**
+   * PHASE-13: Exchange monitoring counters (invariant, escrow, settlement, risk, abuse, operational).
+   * In-memory counts since process start. For dashboards and alerting.
+   */
+  app.get('/monitoring/counters', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    const { getMonitoringCounters } = await import('../services/exchange-monitoring.service.js');
+    const counters = await getMonitoringCounters();
+    return reply.send({ success: true, data: counters });
+  });
+
+  // ===============================
+  // PHASE-14: OPERATOR CONTROLS (settlement, escrow, balance reconcile)
+  // ===============================
+
+  app.get('/settlement/events', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const q = request.query as { status?: string; limit?: string; offset?: string; since_id?: string };
+      const { listSettlementEvents } = await import('../services/operator-controls.service.js');
+      const result = await listSettlementEvents({
+        status: q.status,
+        limit: q.limit != null ? parseInt(q.limit, 10) : 50,
+        offset: q.offset != null ? parseInt(q.offset, 10) : 0,
+        since_id: q.since_id != null ? parseInt(q.since_id, 10) : undefined,
+      });
+      return reply.send({ success: true, data: result });
+    } catch (e) {
+      logger.error('Settlement events list failed', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to list settlement events' } });
+    }
+  });
+
+  app.get('/settlement/events/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const id = parseInt((request.params as { id: string }).id, 10);
+      if (Number.isNaN(id)) return reply.status(400).send({ success: false, error: { code: 'INVALID_ID', message: 'Invalid event id' } });
+      const { getSettlementEventById } = await import('../services/operator-controls.service.js');
+      const result = await getSettlementEventById(id);
+      if (!result) return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Settlement event not found' } });
+      return reply.send({ success: true, data: result });
+    } catch (e) {
+      logger.error('Settlement event fetch failed', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to fetch event' } });
+    }
+  });
+
+  app.get('/settlement/ledger-discrepancy', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const { runLedgerDiscrepancyReport } = await import('../services/operator-controls.service.js');
+      const result = await runLedgerDiscrepancyReport();
+      return reply.send({ success: true, data: result });
+    } catch (e) {
+      logger.error('Ledger discrepancy report failed', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to run report' } });
+    }
+  });
+
+  app.post('/settlement/circuit-reset', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, true);
+    if (!admin) return;
+    try {
+      const { setSettlementCircuitOpen } = await import('../lib/trading-halt.js');
+      const { setTradingHalted } = await import('../services/settlement/settlement-circuit.js');
+      await setSettlementCircuitOpen(false);
+      setTradingHalted(false);
+      return reply.send({ success: true, data: { message: 'Settlement circuit reset' } });
+    } catch (e) {
+      logger.error('Circuit reset failed', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'CIRCUIT_RESET_FAILED', message: 'Failed to reset circuit' } });
+    }
+  });
+
+  app.post('/settlement/balance-reconcile', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, true);
+    if (!admin) return;
+    try {
+      const body = request.body as { user_id: string; asset: string; reason: string; target_available?: string; target_locked?: string };
+      if (!body.user_id || !body.asset || !body.reason) {
+        return reply.status(400).send({ success: false, error: { code: 'MISSING_FIELDS', message: 'user_id, asset, and reason are required' } });
+      }
+      const { reconcileBalanceToLedger } = await import('../services/operator-controls.service.js');
+      const result = await reconcileBalanceToLedger({
+        user_id: body.user_id,
+        asset: body.asset,
+        reason: body.reason,
+        adminId: admin.adminId,
+        ipAddress: request.ip ?? null,
+        target_available: body.target_available,
+        target_locked: body.target_locked,
+      });
+      if (!result.ok) return reply.status(400).send({ success: false, error: { code: 'RECONCILE_FAILED', message: result.message }, ledger_sum: result.ledger_sum });
+      return reply.send({ success: true, data: result });
+    } catch (e) {
+      logger.error('Balance reconcile failed', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'RECONCILE_FAILED', message: 'Failed to reconcile' } });
+    }
+  });
+
+  app.get('/escrows', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const q = request.query as { user_id?: string; status?: string; order_id?: string; frozen?: string; limit?: string; offset?: string };
+      const { listEscrows } = await import('../services/operator-controls.service.js');
+      const frozen = q.frozen === 'true' ? true : q.frozen === 'false' ? false : undefined;
+      const result = await listEscrows({
+        user_id: q.user_id,
+        status: q.status,
+        order_id: q.order_id,
+        frozen,
+        limit: q.limit != null ? parseInt(q.limit, 10) : 50,
+        offset: q.offset != null ? parseInt(q.offset, 10) : 0,
+      });
+      return reply.send({ success: true, data: result });
+    } catch (e) {
+      logger.error('Escrows list failed', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to list escrows' } });
+    }
+  });
+
+  app.get('/escrows/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const { id } = request.params as { id: string };
+      const { getEscrowById } = await import('../services/operator-controls.service.js');
+      const result = await getEscrowById(id);
+      if (!result) return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Escrow not found' } });
+      return reply.send({ success: true, data: result });
+    } catch (e) {
+      logger.error('Escrow fetch failed', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to fetch escrow' } });
+    }
+  });
+
+  app.post('/escrows/:id/freeze', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const { id } = request.params as { id: string };
+      const body = (request.body as { reason?: string }) ?? {};
+      const { freezeEscrow } = await import('../services/operator-controls.service.js');
+      const result = await freezeEscrow(id, body.reason ?? null, admin.adminId, request.ip ?? null);
+      if (!result.ok) return reply.status(400).send({ success: false, error: { code: 'FREEZE_FAILED', message: result.message } });
+      return reply.send({ success: true, data: result });
+    } catch (e) {
+      logger.error('Escrow freeze failed', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FREEZE_FAILED', message: 'Failed to freeze escrow' } });
+    }
+  });
+
+  app.post('/escrows/:id/unfreeze', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const { id } = request.params as { id: string };
+      const { unfreezeEscrow } = await import('../services/operator-controls.service.js');
+      const result = await unfreezeEscrow(id, admin.adminId, request.ip ?? null);
+      if (!result.ok) return reply.status(400).send({ success: false, error: { code: 'UNFREEZE_FAILED', message: result.message } });
+      return reply.send({ success: true, data: result });
+    } catch (e) {
+      logger.error('Escrow unfreeze failed', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'UNFREEZE_FAILED', message: 'Failed to unfreeze escrow' } });
+    }
+  });
+
   // ===============================
   // USER MANAGEMENT
   // ===============================
@@ -635,7 +850,7 @@ export default async function adminRoutes(app: FastifyInstance) {
           pagination: {
             page: parseInt(page),
             limit: parseInt(limit),
-            total: parseInt(countResult.rows[0].count),
+            total: parseInt(countResult.rows[0]?.count ?? '0'),
           },
         },
       });
@@ -793,6 +1008,12 @@ export default async function adminRoutes(app: FastifyInstance) {
         'UPDATE users SET status = $1, updated_at = NOW() WHERE id = $2',
         [status, id]
       );
+
+      try {
+        await redis.del(`user:${id}:status`);
+      } catch {
+        /* cache invalidation best-effort */
+      }
 
       return reply.send({
         success: true,
@@ -1308,6 +1529,47 @@ export default async function adminRoutes(app: FastifyInstance) {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
     try {
+      const idempotencyKeyRaw = (request.headers[IDEMPOTENCY_KEY_HEADER] ?? request.headers['Idempotency-Key']) as string | undefined;
+      const idempotencyKey = typeof idempotencyKeyRaw === 'string' ? idempotencyKeyRaw.trim() : '';
+      if (!idempotencyKey) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'IDEMPOTENCY_KEY_REQUIRED', message: 'Idempotency-Key header is required for manual credit requests.' },
+        });
+      }
+      if (idempotencyKey.length > 256) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'IDEMPOTENCY_KEY_INVALID', message: 'Idempotency-Key must be at most 256 characters.' },
+        });
+      }
+      const creditRequestHash = buildAdminManualCreditRequestHash((request.body || {}) as Record<string, unknown>);
+      const creditRedisKey = `admin:manual-credit:idempotency:${admin.adminId}:${idempotencyKey}`;
+      const creditCached = await redis.getJson<AdminManualCreditIdempotencyCache>(creditRedisKey);
+      if (creditCached) {
+        if (creditCached.requestHash !== creditRequestHash) {
+          return reply.status(409).send({
+            success: false,
+            error: {
+              code: 'IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_BODY',
+              message: 'Idempotency-Key was already used with a different request body. Use a new key or the same request body.',
+            },
+          });
+        }
+        return reply.status(200).send(creditCached.response);
+      }
+      const creditLockKey = `admin:manual-credit:lock:${admin.adminId}:${idempotencyKey}`;
+      const creditLockAcquired = await redis.setNxEx(creditLockKey, '1', ADMIN_CREDIT_IDEMPOTENCY_LOCK_TTL_SECONDS);
+      if (!creditLockAcquired) {
+        return reply.status(409).send({
+          success: false,
+          error: {
+            code: 'DUPLICATE_REQUEST',
+            message: 'A manual credit with this Idempotency-Key is already in progress. Retry after a few seconds.',
+          },
+        });
+      }
+
       const { user: userInput, currency: symbol, amount: amountStr, reason } = request.body || {};
       if (!userInput?.trim() || !symbol?.trim() || !amountStr?.trim()) {
         return reply.status(400).send({
@@ -1315,8 +1577,15 @@ export default async function adminRoutes(app: FastifyInstance) {
           error: { code: 'INVALID_INPUT', message: 'user, currency, and amount are required' },
         });
       }
-      const amount = parseFloat(amountStr.trim());
-      if (isNaN(amount) || amount <= 0) {
+      const ROUND_DOWN = 1;
+      const PREC = 8;
+      let amountDec: DecimalInstance;
+      try {
+        amountDec = new Decimal(amountStr.trim()).toDecimalPlaces(PREC, ROUND_DOWN);
+      } catch {
+        amountDec = new Decimal(NaN);
+      }
+      if (!amountDec.isFinite() || amountDec.lte(0)) {
         return reply.status(400).send({
           success: false,
           error: { code: 'INVALID_AMOUNT', message: 'amount must be a positive number' },
@@ -1341,32 +1610,71 @@ export default async function adminRoutes(app: FastifyInstance) {
           error: { code: 'INVALID_CURRENCY', message: 'Currency not found' },
         });
       }
-      await ensureUserBalanceRow(userId, currencyId, CHAIN_ID_GLOBAL, 'funding');
-      const upd = await db.query(
-        `UPDATE user_balances SET available_balance = available_balance + $1::numeric, updated_at = NOW()
-         WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND COALESCE(account_type::text, 'funding') = 'funding'`,
-        [amount.toString(), userId, currencyId, CHAIN_ID_GLOBAL]
-      );
-      if ((upd.rowCount ?? 0) < 1) {
-        return reply.status(500).send({
-          success: false,
-          error: { code: 'CREDIT_FAILED', message: 'Balance update failed' },
+
+      await db.transaction(async (client) => {
+        await ensureUserBalanceRow(userId, currencyId, CHAIN_ID_GLOBAL, 'funding', client);
+        const sel = await client.query<{ available_balance: string }>(
+          `SELECT available_balance::text FROM user_balances
+           WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND COALESCE(account_type::text, 'funding') = 'funding'
+           FOR UPDATE`,
+          [userId, currencyId, CHAIN_ID_GLOBAL]
+        );
+        if (sel.rows.length === 0) {
+          throw new Error('ADMIN_CREDIT_BALANCE_ROW_NOT_FOUND');
+        }
+        const avBefore = new Decimal(sel.rows[0]!.available_balance);
+        const upd = await client.query(
+          `UPDATE user_balances SET available_balance = available_balance + $1::numeric, updated_at = NOW()
+           WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND COALESCE(account_type::text, 'funding') = 'funding'
+           RETURNING *`,
+          [amountDec.toString(), userId, currencyId, CHAIN_ID_GLOBAL]
+        );
+        assertUserBalanceUpdated('admin_manual_credit', upd, userId, currencyId, 'funding', CHAIN_ID_GLOBAL);
+        assertBalanceInvariant(upd.rows[0]);
+        const avAfter = new Decimal(upd.rows[0]!.available_balance ?? 0);
+        const refId = uuidv4();
+        await insertBalanceLedger({
+          client,
+          userId,
+          currencyId,
+          accountType: 'funding',
+          debit: '0',
+          credit: amountDec.toString(),
+          balanceBefore: avBefore.toFixed(),
+          balanceAfter: avAfter.toFixed(),
+          referenceType: 'adjustment',
+          referenceId: refId,
+          balanceType: 'available',
         });
-      }
+      });
+
       logger.info('Admin manual credit', {
         adminId: admin.adminId,
         userId,
         currencyId,
         symbol: symbol.trim(),
-        amount,
+        amount: amountDec.toString(),
         reason: reason ?? null,
       });
-      return reply.send({
-        success: true,
-        data: { userId, email: userRow.rows[0]!.email, currency: symbol.trim(), amount, reason: reason ?? null },
-      });
+      const response = {
+        success: true as const,
+        data: { userId, email: userRow.rows[0]!.email, currency: symbol.trim(), amount: amountDec.toString(), reason: reason ?? null },
+      };
+      try {
+        await redis.setJson(creditRedisKey, { requestHash: creditRequestHash, response }, ADMIN_CREDIT_IDEMPOTENCY_TTL_SECONDS);
+      } catch (e) {
+        logger.warn('Admin manual credit idempotency cache set failed', { adminId: admin.adminId });
+      }
+      return reply.send(response);
     } catch (error) {
-      logger.error('Manual credit error', { error: error instanceof Error ? error.message : 'Unknown' });
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg === 'ADMIN_CREDIT_BALANCE_ROW_NOT_FOUND') {
+        return reply.status(500).send({
+          success: false,
+          error: { code: 'CREDIT_FAILED', message: 'Balance row not found after ensure' },
+        });
+      }
+      logger.error('Manual credit error', { error: msg });
       return reply.status(500).send({
         success: false,
         error: { code: 'CREDIT_FAILED', message: 'Manual credit failed' },
@@ -1402,6 +1710,7 @@ export default async function adminRoutes(app: FastifyInstance) {
     let coldRows: { chain_id: string; chain_name: string; address: string | null; balance: string | null }[] = [];
     let blockchainRows: { id: string; chain_name: string; chain_symbol: string }[] = [];
     const decimalsByChainId: Record<string, number> = {};
+    let chainMap: Record<string, { name: string; decimals?: number; type?: string }> = {};
 
     // 1) Ledger totals: null-safe; if user_balances/currencies/blockchains missing or empty → []
     try {
@@ -1439,7 +1748,6 @@ export default async function adminRoutes(app: FastifyInstance) {
       const hotResult = await db.query<{ chain_id: string; balance_cache: string | null }>(
         'SELECT chain_id, balance_cache FROM hot_wallets WHERE is_active = TRUE ORDER BY chain_id'
       );
-      let chainMap: Record<string, { name: string; decimals?: number; type?: string }> = {};
       try {
         const chainsResult = await db.query<{ id: string; name: string; decimals: number | null; type: string | null }>(
           'SELECT id, name, decimals, type FROM chains WHERE is_active = TRUE'
@@ -1514,25 +1822,28 @@ export default async function adminRoutes(app: FastifyInstance) {
         const ledgerNative = ledgerTotals.find((l) => l.chain_id === blockchainId && l.token_symbol === nativeSymbol);
         if (ledgerNative == null) continue;
         const decimals = typeof decimalsByChainId[h.chain_id] === 'number' && !Number.isNaN(decimalsByChainId[h.chain_id])
-          ? decimalsByChainId[h.chain_id]
+          ? (decimalsByChainId[h.chain_id] ?? 18)
           : 18;
         const divisor = Math.pow(10, Math.min(Math.max(decimals, 0), 32)) || 1;
         const rawBalance = (h.balance ?? '0').trim() || '0';
-        let onChainWei = 0;
+        let onChainHuman: string;
         try {
           if (/^-?\d+$/.test(rawBalance)) {
-            onChainWei = Number(BigInt(rawBalance));
+            onChainHuman = new Decimal(rawBalance).div(divisor).toDecimalPlaces(Math.min(Math.max(decimals, 0), 8), 1).toString(); // ROUND_DOWN = 1
+          } else {
+            onChainHuman = '0';
           }
         } catch {
-          onChainWei = 0;
+          onChainHuman = '0';
         }
-        const onChainHuman = (onChainWei / divisor).toFixed(Math.min(Math.max(decimals, 0), 8));
+        const decimalsClamp = Math.min(Math.max(decimals, 0), 8);
         const ledgerAmount = ledgerNative.amount ?? '0';
-        const ledgerNum = parseFloat(ledgerAmount) || 0;
-        const onChainNum = parseFloat(onChainHuman) || 0;
-        const diff = ledgerNum - onChainNum;
-        const difference = Number.isFinite(diff) ? diff.toFixed(Math.min(Math.max(decimals, 0), 8)) : '0';
-        if (Math.abs(diff) > 1 / divisor) {
+        const ledgerDec = new Decimal(ledgerAmount);
+        const onChainDec = new Decimal(onChainHuman);
+        const diffDec = ledgerDec.minus(onChainDec);
+        const difference = diffDec.toDecimalPlaces(decimalsClamp, 1).toString();
+        const oneUnit = new Decimal(1).div(divisor);
+        if (diffDec.abs().gt(oneUnit)) {
           const reason = (chainType === 'bitcoin' || chainType === 'solana')
             ? 'Deposit sweep not implemented for this chain'
             : undefined;
@@ -1652,7 +1963,15 @@ export default async function adminRoutes(app: FastifyInstance) {
         `, params),
       ]);
 
-      const stats = statsResult.rows[0] ?? {};
+      const stats = statsResult.rows[0] ?? ({} as {
+        total?: string;
+        pending_approval?: string;
+        pending?: string;
+        processing?: string;
+        completed?: string;
+        failed?: string;
+        cancelled?: string;
+      });
       const byType = typeResult.rows[0] ?? { internal: '0', onchain: '0' };
       const period = periodResult.rows[0] ?? { today: '0', last_7_days: '0', last_30_days: '0' };
       const volume = volumeResult.rows[0] ?? { completed_count: '0', completed_volume: '0' };
@@ -2428,7 +2747,7 @@ export default async function adminRoutes(app: FastifyInstance) {
           const statusValues = status === 'pending' ? ['pending', 'processing'] : status === 'success' ? ['completed'] : status === 'reverted' ? ['failed'] : status === 'aborted' ? ['cancelled'] : [];
           if (statusValues.length > 0) {
             wQuery += ` AND w.status = ANY($${pi++}::text[])`;
-            wParams.push(statusValues);
+            wParams.push(statusValues as unknown as string | number);
           }
         }
         wQuery += ` ORDER BY w.created_at DESC LIMIT $${pi}`;
@@ -2470,7 +2789,7 @@ export default async function adminRoutes(app: FastifyInstance) {
             const statusValues = status === 'pending' ? ['pending', 'confirming'] : status === 'success' ? ['completed'] : status === 'reverted' ? ['failed'] : status === 'aborted' ? ['cancelled'] : [];
             if (statusValues.length > 0) {
               dQuery += ` AND tr.status = ANY($${pi++}::text[])`;
-              dParams.push(statusValues);
+              dParams.push(statusValues as unknown as string | number);
             }
           }
           dQuery += ` ORDER BY tr.created_at DESC LIMIT $${pi}`;
@@ -2512,7 +2831,7 @@ export default async function adminRoutes(app: FastifyInstance) {
             const statusValues = status === 'pending' ? ['pending', 'processing'] : status === 'success' ? ['completed'] : status === 'reverted' ? ['failed'] : status === 'aborted' ? ['cancelled'] : [];
             if (statusValues.length > 0) {
               wQuery += ` AND w.status = ANY($${pi++}::text[])`;
-              wParams.push(statusValues);
+              wParams.push(statusValues as unknown as string | number);
             }
           }
           wQuery += ` ORDER BY w.created_at DESC LIMIT $${pi++} OFFSET $${pi}`;
@@ -2551,7 +2870,7 @@ export default async function adminRoutes(app: FastifyInstance) {
               const statusValues = status === 'pending' ? ['pending', 'confirming'] : status === 'success' ? ['completed'] : status === 'reverted' ? ['failed'] : status === 'aborted' ? ['cancelled'] : [];
               if (statusValues.length > 0) {
                 dQuery += ` AND tr.status = ANY($${pi++}::text[])`;
-                dParams.push(statusValues);
+                dParams.push(statusValues as unknown as string | number);
               }
             }
             dQuery += ` ORDER BY tr.created_at DESC LIMIT $${pi++} OFFSET $${pi}`;
@@ -2780,8 +3099,8 @@ export default async function adminRoutes(app: FastifyInstance) {
       }
 
       const hotWalletService = await import('../services/hot-wallet.service.js').then(m => m);
-      let caps: { max_single_tx: number | null; max_daily_outflow: number | null } | null = null;
-      let dailyOutflowUsed = 0;
+      let caps: { max_single_tx: string | null; max_daily_outflow: string | null } | null = null;
+      let dailyOutflowUsed: string | number = 0;
       try {
         caps = await hotWalletService.getHotWalletCaps(chainIdForService);
         dailyOutflowUsed = await hotWalletService.getDailyOutflowForChain(chainIdForService);
@@ -4441,7 +4760,7 @@ export default async function adminRoutes(app: FastifyInstance) {
           if (!currenciesByBlockchain[c.blockchain_id]) {
             currenciesByBlockchain[c.blockchain_id] = [];
           }
-          currenciesByBlockchain[c.blockchain_id].push(c);
+          currenciesByBlockchain[c.blockchain_id]!.push(c);
         }
       });
 
@@ -4712,7 +5031,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         FROM currencies ${whereClause}
       `;
       const countResult = await db.query(countQuery, values);
-      const total = parseInt(countResult.rows[0].total);
+      const total = parseInt(countResult.rows[0]?.total ?? '0');
 
       // Get unique currencies with aggregated chain info
       const dataQuery = `
@@ -4996,10 +5315,13 @@ export default async function adminRoutes(app: FastifyInstance) {
             error: { code: 'NOT_FOUND', message: 'Token not found' },
           });
         }
+        const ROUND_DOWN = 1;
+        const PREC = 8;
         const before = tokenRow.rows[0]!;
-        const newMin = minVal !== undefined ? minVal : parseFloat(before.min_withdrawal);
-        const newMax = maxVal !== undefined ? maxVal : (before.max_withdrawal != null ? parseFloat(before.max_withdrawal) : null);
-        if (newMax != null && newMax < newMin) {
+        const newMin = minVal !== undefined ? new Decimal(minVal).toDecimalPlaces(PREC, ROUND_DOWN).toString() : new Decimal(before.min_withdrawal ?? '0').toDecimalPlaces(PREC, ROUND_DOWN).toString();
+        const mw = before.max_withdrawal;
+        const newMax = maxVal !== undefined && maxVal != null ? new Decimal(maxVal).toDecimalPlaces(PREC, ROUND_DOWN).toString() : (mw != null ? new Decimal(String(mw)).toDecimalPlaces(PREC, ROUND_DOWN).toString() : null);
+        if (newMax != null && new Decimal(newMax).lt(newMin)) {
           return reply.status(400).send({
             success: false,
             error: { code: 'VALIDATION_ERROR', message: 'max_withdrawal must be >= min_withdrawal' },
@@ -5288,7 +5610,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         FROM quote_assets qa
         JOIN currencies c ON qa.currency_id = c.id
         WHERE qa.id = $1
-      `, [result.rows[0].id]);
+      `, [result.rows[0]!.id]);
 
       return reply.send({
         success: true,
@@ -5357,7 +5679,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         WHERE qa.id = $1
       `, [id]);
 
-      if (parseInt(pairs.rows[0].count) > 0) {
+      if (parseInt(pairs.rows[0]?.count ?? '0') > 0) {
         return reply.status(400).send({
           success: false,
           error: { code: 'HAS_PAIRS', message: 'Cannot remove: This quote asset has trading pairs. Remove pairs first.' },
@@ -5422,7 +5744,7 @@ export default async function adminRoutes(app: FastifyInstance) {
       
       // Get total count
       const countResult = await db.query(`SELECT COUNT(*) as total ${baseQuery}`, params);
-      const total = parseInt(countResult.rows[0].total);
+      const total = parseInt(countResult.rows[0]?.total ?? '0');
       
       // Get paginated data
       const dataQuery = `
@@ -5577,7 +5899,7 @@ export default async function adminRoutes(app: FastifyInstance) {
           error: { code: 'INVALID_CURRENCY', message: `Invalid quote currency: ${quote_symbol}` },
         });
       }
-      const quoteCurrencyId = quoteCurrency.rows[0].id;
+      const quoteCurrencyId = quoteCurrency.rows[0]!.id;
 
       const created: any[] = [];
       const skipped: any[] = [];
@@ -5601,7 +5923,7 @@ export default async function adminRoutes(app: FastifyInstance) {
           skipped.push({ symbol: baseSymbol, reason: 'Currency not found' });
           continue;
         }
-        const baseCurrencyId = baseCurrency.rows[0].id;
+        const baseCurrencyId = baseCurrency.rows[0]!.id;
 
         // Check if pair already exists (by symbol pattern)
         const pairSymbol = `${baseSymbol}/${quote_symbol}`;
@@ -5848,7 +6170,7 @@ export default async function adminRoutes(app: FastifyInstance) {
       
       // Get total count
       const countResult = await db.query('SELECT COUNT(*) as total FROM p2p_assets');
-      const total = parseInt(countResult.rows[0].total);
+      const total = parseInt(countResult.rows[0]?.total ?? '0');
       
       // Get paginated data
       const result = await db.query(`
@@ -5927,11 +6249,11 @@ export default async function adminRoutes(app: FastifyInstance) {
         FROM p2p_assets pa
         JOIN currencies c ON pa.currency_id = c.id
         WHERE pa.id = $1
-      `, [result.rows[0].id]);
+      `, [result.rows[0]!.id]);
 
       return reply.send({
         success: true,
-        data: { p2p_asset: asset.rows[0] },
+        data: { p2p_asset: asset.rows[0] ?? null },
       });
     } catch (error) {
       console.error('Error adding P2P asset:', error);
@@ -6123,7 +6445,7 @@ export default async function adminRoutes(app: FastifyInstance) {
 
       // Get total count
       const countResult = await db.query(`SELECT COUNT(*) as total FROM feature_toggles ${whereClause}`, params);
-      const total = parseInt(countResult.rows[0].total);
+      const total = parseInt(countResult.rows[0]?.total ?? '0');
 
       // Get paginated data
       const dataQuery = `
@@ -6542,7 +6864,7 @@ export default async function adminRoutes(app: FastifyInstance) {
       if (is_default) {
         await db.query(
           'UPDATE api_settings SET is_default = false WHERE category = $1 AND id != $2',
-          [current.rows[0].category, id]
+          [current.rows[0]!.category, id]
         );
       }
 
@@ -6661,7 +6983,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         success: true,
         data: { 
           tested: true, 
-          message: `Connection test for ${setting.provider} completed`,
+          message: `Connection test for ${setting?.provider ?? 'unknown'} completed`,
           status: 'ok'
         },
       });

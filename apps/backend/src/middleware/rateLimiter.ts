@@ -63,18 +63,17 @@ export function createRateLimiter(options: Partial<RateLimitConfig> = {}) {
 
       // Handle skip logic for successful/failed requests
       if (skipSuccessfulRequests || skipFailedRequests) {
-        const originalEnd = res.end;
-        res.end = function (...args: Parameters<typeof originalEnd>) {
+        const originalEnd = res.end.bind(res);
+        (res as unknown as { end: (...a: unknown[]) => ReturnType<typeof res.end> }).end = function (chunk?: unknown, encoding?: unknown, cb?: unknown) {
           const shouldSkip =
             (skipSuccessfulRequests && res.statusCode < 400) ||
             (skipFailedRequests && res.statusCode >= 400);
 
           if (shouldSkip) {
-            // Decrement the counter since we're skipping this request
             redis.getClient().zremrangebyscore(key, Date.now() - 1, Date.now() + 1);
           }
 
-          return originalEnd.apply(res, args);
+          return originalEnd(chunk as any, encoding as any, cb as any);
         };
       }
 

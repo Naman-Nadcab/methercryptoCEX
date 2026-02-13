@@ -1,3 +1,4 @@
+import type { ParsedQs } from 'qs';
 import { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
@@ -66,7 +67,7 @@ export const helmetMiddleware = helmet({
 export function sanitizeRequest(req: Request, res: Response, next: NextFunction): void {
   // Sanitize query parameters
   if (req.query) {
-    req.query = sanitizeObject(req.query as Record<string, unknown>);
+    req.query = sanitizeObject(req.query as Record<string, unknown>) as ParsedQs;
   }
 
   // Sanitize body

@@ -83,9 +83,10 @@ function formatNativeBalance(balanceWei: string, chainType: string): string {
 function formatTokenBalance(raw: string, decimals: number): string {
   if (!raw) return '0';
   try {
-    const n = Number(BigInt(raw) / 10n ** BigInt(decimals));
-    const rest = BigInt(raw) % 10n ** BigInt(decimals);
-    const frac = Number(rest) / Number(10n ** BigInt(decimals));
+    const divisor = BigInt('1' + '0'.repeat(decimals));
+    const n = Number(BigInt(raw) / divisor);
+    const rest = BigInt(raw) % divisor;
+    const frac = Number(rest) / Number(divisor);
     const val = n + frac;
     if (val === 0) return '0';
     if (val >= 1e6) return `${(val / 1e6).toFixed(2)}M`;
@@ -172,7 +173,7 @@ export default function HotWalletsPage() {
         return;
       }
       if (result.success) {
-        const data = Array.isArray(result.data) ? result.data : [];
+        const data = Array.isArray(result.data) ? (result.data as HotWalletItem[]) : [];
         setList(data);
         const all = Array.isArray(result.allFamilies) && result.allFamilies.length > 0 ? result.allFamilies : [];
         const avail = Array.isArray(result.availableFamilies) && result.availableFamilies.length > 0 ? result.availableFamilies : [];

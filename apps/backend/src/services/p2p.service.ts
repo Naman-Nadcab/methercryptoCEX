@@ -1,10 +1,16 @@
-import Decimal from 'decimal.js';
+import { Decimal } from '../lib/decimal.js';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
 import { rabbitmq, EXCHANGES, QUEUES, P2PEscrowMessage } from '../lib/rabbitmq.js';
 import { logger, auditLog } from '../lib/logger.js';
 import { walletService } from './wallet.service.js';
+import { moveToEscrow, releaseFromEscrow, refundFromEscrow } from './p2p-escrow.service.js';
+import {
+  isTradingHalted,
+  assertP2PEscrowCapInTransaction,
+  assertP2POrderVelocityInTransaction,
+} from './abuse-resilience.service.js';
 import {
   P2PAd,
   P2PAdType,
@@ -104,13 +110,8 @@ class P2PService {
       throw new Error('Invalid payment methods');
     }
 
-    // For sell ads, lock the total amount
-    if (type === P2PAdType.SELL) {
-      const locked = await walletService.lockBalance(userId, tokenId, totalAmount);
-      if (!locked) {
-        throw new Error('Insufficient balance to create sell ad');
-      }
-    }
+    // PHASE-11: No lock at ad creation. Funds move to escrow only when an order is created (moveToEscrow).
+    // For sell ads we only validate; at order creation seller must have available >= quantity.
 
     // Create ad
     const result = await db.query<P2PAd>(
@@ -256,10 +257,7 @@ class P2PService {
         throw new Error('Cannot cancel ad with active orders');
       }
 
-      // Unlock remaining balance for sell ads
-      if (ad.type === P2PAdType.SELL) {
-        await walletService.unlockBalance(userId, ad.tokenId, ad.availableAmount, client);
-      }
+      // PHASE-11: No balance lock at ad creation; nothing to unlock on cancel.
 
       // Update status
       const result = await client.query<P2PAd>(
@@ -316,7 +314,7 @@ class P2PService {
       `SELECT COUNT(*) FROM p2p_ads ${whereClause}`,
       params
     );
-    const total = parseInt(countResult.rows[0].count, 10);
+    const total = parseInt((countResult.rows[0] as { count: string } | undefined)?.count ?? '0', 10);
 
     // Get ads with user info
     const offset = (page - 1) * limit;
@@ -342,10 +340,30 @@ class P2PService {
   async createOrder(params: CreateOrderParams): Promise<P2POrder> {
     const { userId, adId, quantity, paymentMethodId } = params;
 
-    // Lock to prevent race conditions
+    // Resolve sellerId for seller-level lock (need ad type)
+    const adPreview = await db.query<{ user_id: string; type: string }>(
+      'SELECT user_id, type FROM p2p_ads WHERE id = $1',
+      [adId]
+    );
+    if (adPreview.rows.length === 0) {
+      throw new Error('Ad not found');
+    }
+    const sellerId =
+      adPreview.rows[0]!.type === P2PAdType.SELL
+        ? adPreview.rows[0]!.user_id
+        : userId;
+
+    // Seller-level serialization (keep ad-level lock)
+    const sellerLockKey = `p2p:seller:${sellerId}`;
+    const sellerLockValue = await redis.acquireLock(sellerLockKey, 10000);
+    if (!sellerLockValue) {
+      throw new Error('Unable to process order. Please try again.');
+    }
+
     const lockKey = `p2p:order:${adId}`;
     const lockValue = await redis.acquireLock(lockKey, 10000);
     if (!lockValue) {
+      await redis.releaseLock(sellerLockKey, sellerLockValue);
       throw new Error('Unable to process order. Please try again.');
     }
 
@@ -395,31 +413,33 @@ class P2PService {
         const buyerId = ad.type === P2PAdType.SELL ? userId : ad.userId;
         const sellerId = ad.type === P2PAdType.SELL ? ad.userId : userId;
 
-        // Calculate fiat amount
-        const fiatAmount = qtyDec.times(ad.price).toString();
-
-        // For buy ads, the order creator (seller) needs to lock funds
-        if (ad.type === P2PAdType.BUY) {
-          const locked = await walletService.lockBalance(userId, ad.tokenId, quantity, client);
-          if (!locked) {
-            throw new Error('Insufficient balance');
-          }
+        // PHASE-12: Trading halt (outside tx). Velocity and escrow cap INSIDE tx with locks.
+        if (await isTradingHalted()) {
+          throw new Error('TRADING_HALTED');
         }
 
-        // Create escrow
-        const escrowResult = await client.query<Escrow>(
-          `INSERT INTO escrows (user_id, token_id, amount, status)
-           VALUES ($1, $2, $3, 'locked')
-           RETURNING *`,
-          [sellerId, ad.tokenId, quantity]
-        );
+        // Lock order creator so velocity is evaluated under serialized state (no concurrent bypass).
+        await client.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [userId]);
+        await assertP2POrderVelocityInTransaction(userId, client);
 
-        const escrow = escrowResult.rows[0]!;
+        // Escrow cap MUST be checked inside this transaction with row-level lock (same tx as moveToEscrow).
+        await assertP2PEscrowCapInTransaction(sellerId, quantity, client);
+
+        // Calculate fiat amount (Decimal, string)
+        const fiatAmount = qtyDec.times(ad.price).toDecimalPlaces(8, Decimal.ROUND_DOWN).toString();
+
+        // PHASE-11: Dedicated escrow. Move seller's available -> escrow_balance (not locked_balance).
+        const tokenId = (ad as { tokenId?: string }).tokenId ?? (ad as { crypto_currency_id?: string }).crypto_currency_id;
+        if (!tokenId) throw new Error('Ad missing token/crypto currency');
+        const { escrowId } = await moveToEscrow(sellerId, tokenId, quantity, null, client);
 
         // Calculate expiry time
-        const expiresAt = new Date(Date.now() + ad.paymentTimeLimit * 60 * 1000);
+        const paymentTimeLimit = (ad as { paymentTimeLimit?: number }).paymentTimeLimit ?? 15;
+        const expiresAt = new Date(Date.now() + paymentTimeLimit * 60 * 1000);
 
-        // Create order
+        const adFiat = (ad as { fiatCurrency?: string }).fiatCurrency ?? (ad as { fiat_currency?: string }).fiat_currency ?? 'USD';
+
+        // Create order (escrow_id from moveToEscrow)
         const orderResult = await client.query<P2POrder>(
           `INSERT INTO p2p_orders (
             ad_id, buyer_id, seller_id, token_id, fiat_currency,
@@ -431,13 +451,13 @@ class P2PService {
             adId,
             buyerId,
             sellerId,
-            ad.tokenId,
-            ad.fiatCurrency,
+            tokenId,
+            adFiat,
             ad.price,
             quantity,
             fiatAmount,
             paymentMethodId,
-            escrow.id,
+            escrowId,
             P2POrderStatus.PAYMENT_PENDING,
             expiresAt,
           ]
@@ -445,8 +465,9 @@ class P2PService {
 
         const order = orderResult.rows[0]!;
 
-        // Update ad available amount
-        const newAvailable = new Decimal(ad.availableAmount).minus(quantity).toString();
+        // Update ad available amount (logical cap)
+        const avail = (ad as { availableAmount?: string }).availableAmount ?? (ad as { available_amount?: string }).available_amount ?? '0';
+        const newAvailable = new Decimal(avail).minus(quantity).toDecimalPlaces(8, Decimal.ROUND_DOWN).toString();
         await client.query(
           'UPDATE p2p_ads SET available_amount = $2, updated_at = NOW() WHERE id = $1',
           [adId, newAvailable]
@@ -454,7 +475,7 @@ class P2PService {
 
         // Publish event
         await rabbitmq.sendToQueue(QUEUES.P2P_ORDER_CREATED, {
-          escrowId: escrow.id,
+          escrowId,
           orderId: order.id,
           sellerId,
           buyerId,
@@ -471,6 +492,7 @@ class P2PService {
       });
     } finally {
       await redis.releaseLock(lockKey, lockValue);
+      await redis.releaseLock(sellerLockKey, sellerLockValue);
     }
   }
 
@@ -546,15 +568,19 @@ class P2PService {
         throw new Error('Payment not yet confirmed by buyer');
       }
 
-      // Release from escrow to buyer
-      await client.query(
-        `UPDATE escrows SET status = 'released', released_at = NOW() WHERE id = $1`,
-        [order.escrowId]
-      );
+      const escrowId = (order as { escrowId?: string }).escrowId ?? (order as { escrow_id?: string }).escrow_id;
+      if (!escrowId) throw new Error('Order missing escrow_id');
 
-      // Transfer balance: unlock from seller, credit to buyer
-      await walletService.debitLockedBalance(order.sellerId, order.tokenId, order.quantity, client);
-      await walletService.creditBalance(order.buyerId, order.tokenId, order.quantity, client);
+      // PHASE-11: Idempotent release. Guarded by escrow status = 'locked'; debit escrow_balance only.
+      const releaseResult = await releaseFromEscrow(escrowId, order.buyerId, client);
+      if (releaseResult.alreadyReleased) {
+        await client.query(
+          `UPDATE p2p_orders SET status = 'completed', released_at = COALESCE(released_at, NOW()), updated_at = NOW() WHERE id = $1`,
+          [orderId]
+        );
+        const existing = await client.query<P2POrder>('SELECT * FROM p2p_orders WHERE id = $1', [orderId]);
+        return existing.rows[0]!;
+      }
 
       // Update order
       const result = await client.query<P2POrder>(
@@ -579,7 +605,7 @@ class P2PService {
       );
 
       await rabbitmq.sendToQueue(QUEUES.P2P_ESCROW_RELEASED, {
-        escrowId: order.escrowId,
+        escrowId,
         orderId: order.id,
         sellerId: order.sellerId,
         buyerId: order.buyerId,
@@ -616,25 +642,32 @@ class P2PService {
         throw new Error('Cannot cancel order in current status');
       }
 
-      // Only buyer can cancel before payment confirmation
+      // Only buyer or seller can cancel
       if (order.buyerId !== userId && order.sellerId !== userId) {
         throw new Error('Not authorized to cancel this order');
       }
 
-      // Refund escrow to seller
-      await client.query(
-        `UPDATE escrows SET status = 'refunded', refunded_at = NOW() WHERE id = $1`,
-        [order.escrowId]
-      );
+      const escrowId = (order as { escrowId?: string }).escrowId ?? (order as { escrow_id?: string }).escrow_id;
+      if (!escrowId) throw new Error('Order missing escrow_id');
 
-      // Unlock seller's balance
-      await walletService.unlockBalance(order.sellerId, order.tokenId, order.quantity, client);
+      // PHASE-11: Idempotent refund. Debit escrow_balance only; credit seller available.
+      const refundResult = await refundFromEscrow(escrowId, client);
+      if (refundResult.alreadyRefunded) {
+        await client.query(
+          `UPDATE p2p_orders SET status = 'cancelled', cancelled_at = COALESCE(cancelled_at, NOW()), updated_at = NOW() WHERE id = $1`,
+          [orderId]
+        );
+        const existing = await client.query<P2POrder>('SELECT * FROM p2p_orders WHERE id = $1', [orderId]);
+        return existing.rows[0]!;
+      }
 
-      // Return amount to ad
-      await client.query(
-        `UPDATE p2p_ads SET available_amount = available_amount + $2 WHERE id = $1`,
-        [order.adId, order.quantity]
-      );
+      const qty = (order as { quantity?: string }).quantity ?? (order as { crypto_amount?: string }).crypto_amount;
+      if (qty) {
+        await client.query(
+          `UPDATE p2p_ads SET available_amount = available_amount + $2, updated_at = NOW() WHERE id = $1`,
+          [order.adId, qty]
+        );
+      }
 
       // Update order
       const result = await client.query<P2POrder>(
@@ -752,40 +785,20 @@ class P2PService {
       );
 
       const order = orderResult.rows[0]!;
+      const escrowId = (order as { escrowId?: string }).escrowId ?? (order as { escrow_id?: string }).escrow_id;
+      if (!escrowId) throw new Error('Order missing escrow_id');
 
-      // Execute resolution
+      // PHASE-11: Use dedicated escrow service; idempotent release/refund.
       if (resolution === 'favor_buyer') {
-        // Release escrow to buyer
+        const releaseResult = await releaseFromEscrow(escrowId, order.buyerId, client);
         await client.query(
-          `UPDATE escrows SET status = 'released', released_at = NOW() WHERE id = $1`,
-          [order.escrowId]
-        );
-        await walletService.debitLockedBalance(order.sellerId, order.tokenId, order.quantity, client);
-        await walletService.creditBalance(order.buyerId, order.tokenId, order.quantity, client);
-        await client.query(
-          `UPDATE p2p_orders SET status = 'completed', released_at = NOW() WHERE id = $1`,
-          [order.id]
-        );
-      } else if (resolution === 'favor_seller') {
-        // Refund escrow to seller
-        await client.query(
-          `UPDATE escrows SET status = 'refunded', refunded_at = NOW() WHERE id = $1`,
-          [order.escrowId]
-        );
-        await walletService.unlockBalance(order.sellerId, order.tokenId, order.quantity, client);
-        await client.query(
-          `UPDATE p2p_orders SET status = 'cancelled', cancelled_at = NOW() WHERE id = $1`,
+          `UPDATE p2p_orders SET status = 'completed', released_at = COALESCE(released_at, NOW()), updated_at = NOW() WHERE id = $1`,
           [order.id]
         );
       } else {
-        // Cancelled - refund to seller
+        const refundResult = await refundFromEscrow(escrowId, client);
         await client.query(
-          `UPDATE escrows SET status = 'refunded', refunded_at = NOW() WHERE id = $1`,
-          [order.escrowId]
-        );
-        await walletService.unlockBalance(order.sellerId, order.tokenId, order.quantity, client);
-        await client.query(
-          `UPDATE p2p_orders SET status = 'cancelled', cancelled_at = NOW() WHERE id = $1`,
+          `UPDATE p2p_orders SET status = 'cancelled', cancelled_at = COALESCE(cancelled_at, NOW()), updated_at = NOW() WHERE id = $1`,
           [order.id]
         );
       }
@@ -837,7 +850,7 @@ class P2PService {
       `SELECT COUNT(*) FROM p2p_orders ${whereClause}`,
       params
     );
-    const total = parseInt(countResult.rows[0].count, 10);
+    const total = parseInt((countResult.rows[0] as { count: string } | undefined)?.count ?? '0', 10);
 
     params.push(limit, (page - 1) * limit);
     const result = await db.query<P2POrder>(

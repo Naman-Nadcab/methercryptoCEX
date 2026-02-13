@@ -88,7 +88,7 @@ export function rateLimitByUser(
   windowSeconds: number
 ): (request: FastifyRequest, reply: FastifyReply) => Promise<void> {
   return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
-    const userId = request.user?.id;
+    const userId = (request.user as { id?: string } | undefined)?.id;
     if (!userId) {
       reply.status(401).send({
         success: false,

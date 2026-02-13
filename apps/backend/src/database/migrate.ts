@@ -467,19 +467,21 @@ const migrations = [
 
   `DO $$
   BEGIN
-    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'balances' AND c.relkind = 'r') THEN
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'balances' AND c.relkind = 'r')
+       AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'balances' AND column_name = 'token_id') THEN
       CREATE INDEX IF NOT EXISTS idx_balances_user_id ON balances(user_id);
       CREATE INDEX IF NOT EXISTS idx_balances_token_id ON balances(token_id);
     END IF;
   END $$;`,
 
-  // balances table: add columns used by wallet routes (only if balances is a table, not a view)
+  // balances table: add columns used by wallet routes (only if balances is legacy table with token_id, not settlement table)
   `DO $$
   BEGIN
-    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'balances' AND c.relkind = 'r') THEN
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'balances' AND c.relkind = 'r')
+       AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'balances' AND column_name = 'token_id') THEN
       ALTER TABLE balances ADD COLUMN IF NOT EXISTS available_balance DECIMAL(36,18) DEFAULT 0;
-      ALTER TABLE balances ADD COLUMN IF NOT EXISTS locked_balance DECIMAL(36,18) DEFAULT 0;
       ALTER TABLE balances ADD COLUMN IF NOT EXISTS account_type VARCHAR(50) NOT NULL DEFAULT 'funding';
+      ALTER TABLE balances ADD COLUMN IF NOT EXISTS locked_balance DECIMAL(36,18) DEFAULT 0;
       UPDATE balances SET available_balance = COALESCE(available_balance, available, 0), locked_balance = COALESCE(locked_balance, locked, 0) WHERE available_balance IS NULL OR locked_balance IS NULL;
     END IF;
   END $$;`,
@@ -619,10 +621,24 @@ const migrations = [
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
   );`,
   `CREATE INDEX IF NOT EXISTS idx_spot_orders_user_id ON spot_orders(user_id);`,
-  `CREATE INDEX IF NOT EXISTS idx_spot_orders_market ON spot_orders(market);`,
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'spot_orders' AND column_name = 'market') THEN
+      CREATE INDEX IF NOT EXISTS idx_spot_orders_market ON spot_orders(market);
+    ELSIF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'spot_orders' AND column_name = 'trading_pair_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_spot_orders_market ON spot_orders(trading_pair_id);
+    END IF;
+  END $$;`,
   `CREATE INDEX IF NOT EXISTS idx_spot_orders_status ON spot_orders(status);`,
   `CREATE INDEX IF NOT EXISTS idx_spot_orders_created_at ON spot_orders(created_at DESC);`,
-  `CREATE INDEX IF NOT EXISTS idx_spot_orders_open ON spot_orders(market, side, status) WHERE status IN ('OPEN', 'PARTIALLY_FILLED');`,
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'spot_orders' AND column_name = 'market') THEN
+      CREATE INDEX IF NOT EXISTS idx_spot_orders_open ON spot_orders(market, side, status) WHERE status IN ('OPEN', 'PARTIALLY_FILLED');
+    ELSIF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'spot_orders' AND column_name = 'trading_pair_id') THEN
+      EXECUTE 'CREATE INDEX IF NOT EXISTS idx_spot_orders_open ON spot_orders(trading_pair_id, side, status) WHERE status IN (''new''::order_status, ''partially_filled''::order_status)';
+    END IF;
+  END $$;`,
 
   `CREATE TABLE IF NOT EXISTS spot_trades (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -636,9 +652,32 @@ const migrations = [
     fee_asset VARCHAR(20),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
   );`,
-  `CREATE INDEX IF NOT EXISTS idx_spot_trades_order_id ON spot_trades(order_id);`,
-  `CREATE INDEX IF NOT EXISTS idx_spot_trades_user_id ON spot_trades(user_id);`,
-  `CREATE INDEX IF NOT EXISTS idx_spot_trades_market ON spot_trades(market);`,
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'spot_trades' AND column_name = 'order_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_spot_trades_order_id ON spot_trades(order_id);
+    ELSIF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'spot_trades' AND column_name = 'maker_order_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_spot_trades_maker_order ON spot_trades(maker_order_id);
+      CREATE INDEX IF NOT EXISTS idx_spot_trades_taker_order ON spot_trades(taker_order_id);
+    END IF;
+  END $$;`,
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'spot_trades' AND column_name = 'user_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_spot_trades_user_id ON spot_trades(user_id);
+    ELSIF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'spot_trades' AND column_name = 'maker_user_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_spot_trades_maker ON spot_trades(maker_user_id);
+      CREATE INDEX IF NOT EXISTS idx_spot_trades_taker ON spot_trades(taker_user_id);
+    END IF;
+  END $$;`,
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'spot_trades' AND column_name = 'market') THEN
+      CREATE INDEX IF NOT EXISTS idx_spot_trades_market ON spot_trades(market);
+    ELSIF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'spot_trades' AND column_name = 'trading_pair_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_spot_trades_market ON spot_trades(trading_pair_id);
+    END IF;
+  END $$;`,
   `CREATE INDEX IF NOT EXISTS idx_spot_trades_created_at ON spot_trades(created_at DESC);`,
 
   // Phase-4: maker/taker fee per market
@@ -654,6 +693,29 @@ const migrations = [
       INSERT INTO spot_markets (symbol, base_asset, quote_asset, base_currency_id, quote_currency_id, status, min_qty, min_notional, price_precision, qty_precision)
       SELECT 'ETH_USDT', 'ETH', 'USDT', (SELECT id FROM currencies WHERE UPPER(TRIM(symbol)) = 'ETH' LIMIT 1), (SELECT id FROM currencies WHERE UPPER(TRIM(symbol)) = 'USDT' LIMIT 1), 'active', 0.0001, 1, 8, 8
       WHERE EXISTS (SELECT 1 FROM currencies LIMIT 1) AND NOT EXISTS (SELECT 1 FROM spot_markets WHERE symbol = 'ETH_USDT');
+    END IF;
+  EXCEPTION WHEN OTHERS THEN NULL;
+  END $$;`,
+
+  // Create market_prices for convert/swap and balances summary (requires currencies)
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'currencies') THEN
+      CREATE TABLE IF NOT EXISTS market_prices (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        base_currency_id UUID NOT NULL REFERENCES currencies(id),
+        quote_currency_id UUID NOT NULL REFERENCES currencies(id),
+        price DECIMAL(30, 18) NOT NULL,
+        price_24h_ago DECIMAL(30, 18),
+        change_24h DECIMAL(10, 4),
+        change_24h_percent DECIMAL(10, 4),
+        high_24h DECIMAL(30, 18),
+        low_24h DECIMAL(30, 18),
+        volume_24h DECIMAL(30, 18),
+        last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(base_currency_id, quote_currency_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_market_prices_pair ON market_prices(base_currency_id, quote_currency_id);
     END IF;
   EXCEPTION WHEN OTHERS THEN NULL;
   END $$;`,
@@ -758,6 +820,10 @@ const migrations = [
       CREATE INDEX IF NOT EXISTS idx_escrows_status ON escrows(status) WHERE status = 'locked';
     END IF;
   END $$;`,
+
+  // PHASE-14: Operator escrow freeze (admin hold blocks release/refund until unfreeze)
+  `ALTER TABLE escrows ADD COLUMN IF NOT EXISTS admin_frozen_at TIMESTAMPTZ NULL;`,
+  `ALTER TABLE escrows ADD COLUMN IF NOT EXISTS admin_frozen_reason TEXT NULL;`,
 
   // ============================================
   // P2P ORDERS TABLE
@@ -1894,6 +1960,228 @@ const migrations = [
   // Phase-7 Step-3: balance_locks reference_id for order cancel (release lock by order)
   `ALTER TABLE balance_locks ADD COLUMN IF NOT EXISTS reference_id UUID;`,
   `CREATE INDEX IF NOT EXISTS idx_balance_locks_reference_id ON balance_locks(reference_id) WHERE reference_id IS NOT NULL;`,
+
+  // ============================================
+  // PHASE-8 STEP-5: SETTLEMENT PIPELINE
+  // ============================================
+  `CREATE OR REPLACE VIEW markets AS
+   SELECT m.symbol, m.base_asset, m.quote_asset, m.price_precision, m.qty_precision,
+          COALESCE(c.decimals, m.price_precision) AS quote_precision
+   FROM spot_markets m
+   LEFT JOIN currencies c ON c.id = m.quote_currency_id;`,
+  `CREATE TABLE IF NOT EXISTS settlement_poller_cursor (
+    id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    last_engine_event_id BIGINT NOT NULL DEFAULT 0
+  );`,
+  `INSERT INTO settlement_poller_cursor (id, last_engine_event_id) VALUES (1, 0) ON CONFLICT (id) DO NOTHING;`,
+  `CREATE TABLE IF NOT EXISTS balances (
+    user_id TEXT NOT NULL,
+    asset TEXT NOT NULL,
+    available NUMERIC NOT NULL DEFAULT 0 CHECK (available >= 0),
+    locked NUMERIC NOT NULL DEFAULT 0 CHECK (locked >= 0),
+    PRIMARY KEY (user_id, asset)
+  );`,
+  `CREATE TABLE IF NOT EXISTS settlement_events (
+    id BIGSERIAL PRIMARY KEY,
+    engine_event_id BIGINT NOT NULL UNIQUE,
+    payload JSONB NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    retry_count INT NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    processed_at TIMESTAMP,
+    hash TEXT
+  );`,
+  `CREATE TABLE IF NOT EXISTS settlement_ledger_entries (
+    id BIGSERIAL PRIMARY KEY,
+    settlement_event_id BIGINT NOT NULL,
+    user_id TEXT NOT NULL,
+    asset TEXT NOT NULL,
+    delta NUMERIC NOT NULL,
+    prev_hash TEXT NULL,
+    entry_hash TEXT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );`,
+  `ALTER TABLE settlement_ledger_entries ADD COLUMN IF NOT EXISTS prev_hash TEXT NULL;`,
+  `ALTER TABLE settlement_ledger_entries ADD COLUMN IF NOT EXISTS entry_hash TEXT NULL;`,
+  `CREATE INDEX IF NOT EXISTS idx_settlement_ledger_user_asset ON settlement_ledger_entries(user_id, asset);`,
+  `CREATE OR REPLACE FUNCTION prevent_ledger_update_delete()
+   RETURNS TRIGGER AS $$
+   BEGIN
+     IF TG_OP IN ('UPDATE', 'DELETE') THEN
+       RAISE EXCEPTION 'LEDGER_IMMUTABLE_VIOLATION';
+     END IF;
+     RETURN NULL;
+   END;
+   $$ LANGUAGE plpgsql;`,
+  `DROP TRIGGER IF EXISTS trg_settlement_ledger_immutable_no_update ON settlement_ledger_entries;`,
+  `CREATE TRIGGER trg_settlement_ledger_immutable_no_update
+   BEFORE UPDATE ON settlement_ledger_entries FOR EACH ROW EXECUTE FUNCTION prevent_ledger_update_delete();`,
+  `DROP TRIGGER IF EXISTS trg_settlement_ledger_immutable_no_delete ON settlement_ledger_entries;`,
+  `CREATE TRIGGER trg_settlement_ledger_immutable_no_delete
+   BEFORE DELETE ON settlement_ledger_entries FOR EACH ROW EXECUTE FUNCTION prevent_ledger_update_delete();`,
+  `ALTER TABLE settlement_events ADD COLUMN IF NOT EXISTS hash TEXT;`,
+  `CREATE INDEX IF NOT EXISTS idx_settlement_events_status ON settlement_events(status);`,
+  `CREATE INDEX IF NOT EXISTS idx_settlement_events_engine_event_id ON settlement_events(engine_event_id);`,
+  `CREATE TABLE IF NOT EXISTS settlement_trades (
+    id BIGSERIAL PRIMARY KEY,
+    symbol TEXT NOT NULL,
+    price NUMERIC NOT NULL,
+    qty NUMERIC NOT NULL,
+    quote_qty NUMERIC NOT NULL,
+    taker_user_id TEXT NOT NULL,
+    maker_user_id TEXT NOT NULL,
+    taker_order_id TEXT NOT NULL,
+    maker_order_id TEXT NOT NULL,
+    taker_fee NUMERIC NOT NULL,
+    maker_fee NUMERIC NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_settlement_trades_symbol ON settlement_trades(symbol);`,
+  `CREATE INDEX IF NOT EXISTS idx_settlement_trades_created_at ON settlement_trades(created_at);`,
+
+  // Phase-9 Step-1: Snapshot & recovery anchors (append-only)
+  `CREATE TABLE IF NOT EXISTS system_snapshots (
+    id BIGSERIAL PRIMARY KEY,
+    snapshot_type TEXT NOT NULL,
+    engine_event_id BIGINT NOT NULL,
+    payload JSONB NOT NULL,
+    ledger_chain_head TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_system_snapshots_engine_event_id ON system_snapshots(engine_event_id DESC);`,
+  `CREATE OR REPLACE FUNCTION prevent_snapshot_update_delete()
+   RETURNS TRIGGER AS $$
+   BEGIN
+     IF TG_OP IN ('UPDATE', 'DELETE') THEN
+       RAISE EXCEPTION 'SNAPSHOT_IMMUTABLE_VIOLATION';
+     END IF;
+     RETURN NULL;
+   END;
+   $$ LANGUAGE plpgsql;`,
+  `DROP TRIGGER IF EXISTS trg_system_snapshots_immutable_no_update ON system_snapshots;`,
+  `CREATE TRIGGER trg_system_snapshots_immutable_no_update
+   BEFORE UPDATE ON system_snapshots FOR EACH ROW EXECUTE FUNCTION prevent_snapshot_update_delete();`,
+  `DROP TRIGGER IF EXISTS trg_system_snapshots_immutable_no_delete ON system_snapshots;`,
+  `CREATE TRIGGER trg_system_snapshots_immutable_no_delete
+   BEFORE DELETE ON system_snapshots FOR EACH ROW EXECUTE FUNCTION prevent_snapshot_update_delete();`,
+
+  // Phase-9 Step-3: Wallet reconciliation snapshots (append-only)
+  `CREATE TABLE IF NOT EXISTS wallet_state_snapshots (
+    id BIGSERIAL PRIMARY KEY,
+    asset TEXT NOT NULL,
+    wallet_type TEXT NOT NULL,
+    onchain_balance NUMERIC NOT NULL,
+    internal_ledger_balance NUMERIC NOT NULL,
+    balance_delta NUMERIC NOT NULL,
+    snapshot_time TIMESTAMP NOT NULL DEFAULT NOW()
+  );`,
+  `CREATE OR REPLACE FUNCTION prevent_wallet_snapshot_update_delete()
+   RETURNS TRIGGER AS $$
+   BEGIN
+     IF TG_OP IN ('UPDATE', 'DELETE') THEN
+       RAISE EXCEPTION 'WALLET_SNAPSHOT_IMMUTABLE_VIOLATION';
+     END IF;
+     RETURN NULL;
+   END;
+   $$ LANGUAGE plpgsql;`,
+  `DROP TRIGGER IF EXISTS trg_wallet_state_snapshots_immutable_no_update ON wallet_state_snapshots;`,
+  `CREATE TRIGGER trg_wallet_state_snapshots_immutable_no_update
+   BEFORE UPDATE ON wallet_state_snapshots FOR EACH ROW EXECUTE FUNCTION prevent_wallet_snapshot_update_delete();`,
+  `DROP TRIGGER IF EXISTS trg_wallet_state_snapshots_immutable_no_delete ON wallet_state_snapshots;`,
+  `CREATE TRIGGER trg_wallet_state_snapshots_immutable_no_delete
+   BEFORE DELETE ON wallet_state_snapshots FOR EACH ROW EXECUTE FUNCTION prevent_wallet_snapshot_update_delete();`,
+
+  // Phase-9 Step-4: Ledger compaction & archival (checkpoints append-only, archive append-only)
+  `CREATE TABLE IF NOT EXISTS ledger_checkpoints (
+    id BIGSERIAL PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    asset TEXT NOT NULL,
+    checkpoint_ledger_id BIGINT NOT NULL,
+    available NUMERIC NOT NULL,
+    locked NUMERIC NOT NULL,
+    chain_head TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_ledger_checkpoints_user_asset ON ledger_checkpoints(user_id, asset);`,
+  `CREATE INDEX IF NOT EXISTS idx_ledger_checkpoints_ledger_id ON ledger_checkpoints(checkpoint_ledger_id);`,
+  `CREATE OR REPLACE FUNCTION prevent_checkpoint_update_delete()
+   RETURNS TRIGGER AS $$
+   BEGIN
+     IF TG_OP IN ('UPDATE', 'DELETE') THEN
+       RAISE EXCEPTION 'CHECKPOINT_IMMUTABLE_VIOLATION';
+     END IF;
+     RETURN NULL;
+   END;
+   $$ LANGUAGE plpgsql;`,
+  `DROP TRIGGER IF EXISTS trg_ledger_checkpoints_immutable_no_update ON ledger_checkpoints;`,
+  `CREATE TRIGGER trg_ledger_checkpoints_immutable_no_update
+   BEFORE UPDATE ON ledger_checkpoints FOR EACH ROW EXECUTE FUNCTION prevent_checkpoint_update_delete();`,
+  `DROP TRIGGER IF EXISTS trg_ledger_checkpoints_immutable_no_delete ON ledger_checkpoints;`,
+  `CREATE TRIGGER trg_ledger_checkpoints_immutable_no_delete
+   BEFORE DELETE ON ledger_checkpoints FOR EACH ROW EXECUTE FUNCTION prevent_checkpoint_update_delete();`,
+  `CREATE TABLE IF NOT EXISTS settlement_ledger_entries_archive (
+    id BIGINT NOT NULL,
+    settlement_event_id BIGINT NOT NULL,
+    user_id TEXT NOT NULL,
+    asset TEXT NOT NULL,
+    delta NUMERIC NOT NULL,
+    prev_hash TEXT,
+    entry_hash TEXT,
+    created_at TIMESTAMP NOT NULL
+  );`,
+  `CREATE OR REPLACE FUNCTION prevent_archive_update_delete()
+   RETURNS TRIGGER AS $$
+   BEGIN
+     IF TG_OP IN ('UPDATE', 'DELETE') THEN
+       RAISE EXCEPTION 'ARCHIVE_IMMUTABLE_VIOLATION';
+     END IF;
+     RETURN NULL;
+   END;
+   $$ LANGUAGE plpgsql;`,
+  `DROP TRIGGER IF EXISTS trg_ledger_archive_immutable_no_update ON settlement_ledger_entries_archive;`,
+  `CREATE TRIGGER trg_ledger_archive_immutable_no_update
+   BEFORE UPDATE ON settlement_ledger_entries_archive FOR EACH ROW EXECUTE FUNCTION prevent_archive_update_delete();`,
+  `DROP TRIGGER IF EXISTS trg_ledger_archive_immutable_no_delete ON settlement_ledger_entries_archive;`,
+  `CREATE TRIGGER trg_ledger_archive_immutable_no_delete
+   BEFORE DELETE ON settlement_ledger_entries_archive FOR EACH ROW EXECUTE FUNCTION prevent_archive_update_delete();`,
+  `CREATE OR REPLACE FUNCTION prevent_ledger_update_delete()
+   RETURNS TRIGGER AS $$
+   BEGIN
+     IF TG_OP = 'UPDATE' THEN
+       RAISE EXCEPTION 'LEDGER_IMMUTABLE_VIOLATION';
+     END IF;
+     IF TG_OP = 'DELETE' THEN
+       IF NOT EXISTS (SELECT 1 FROM settlement_ledger_entries_archive a WHERE a.id = OLD.id) THEN
+         RAISE EXCEPTION 'LEDGER_IMMUTABLE_VIOLATION';
+       END IF;
+     END IF;
+     RETURN NULL;
+   END;
+   $$ LANGUAGE plpgsql;`,
+
+  // Phase-10 Step-1: Risk & exposure engine foundation
+  `CREATE TABLE IF NOT EXISTS user_positions (
+    id BIGSERIAL PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    position_size NUMERIC NOT NULL,
+    entry_price NUMERIC NOT NULL,
+    realized_pnl NUMERIC NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_user_positions_user_id ON user_positions(user_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_user_positions_user_symbol ON user_positions(user_id, symbol);`,
+  `DROP TRIGGER IF EXISTS update_user_positions_updated_at ON user_positions;`,
+  `CREATE TRIGGER update_user_positions_updated_at BEFORE UPDATE ON user_positions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();`,
+  `CREATE TABLE IF NOT EXISTS risk_metrics_cache (
+    user_id TEXT PRIMARY KEY,
+    equity NUMERIC NOT NULL,
+    maintenance_margin NUMERIC NOT NULL,
+    margin_ratio NUMERIC NOT NULL,
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+  );`,
 ];
 
 /** True if this migration SQL touches the legacy "balances" table (not user_balances). Run such steps via raw pool so runtime guard does not block. */
@@ -1928,6 +2216,7 @@ async function migrate(direction: 'up' | 'down' = 'up'): Promise<void> {
     } else {
       // Drop all tables (for development only)
       const dropTables = `
+        DROP VIEW IF EXISTS markets CASCADE;
         DROP TABLE IF EXISTS
           user_notifications,
           system_announcements,
@@ -1949,6 +2238,16 @@ async function migrate(direction: 'up' | 'down' = 'up'): Promise<void> {
           escrows,
           p2p_ads,
           payment_methods,
+          risk_metrics_cache,
+          user_positions,
+          wallet_state_snapshots,
+          system_snapshots,
+          settlement_ledger_entries_archive,
+          ledger_checkpoints,
+          settlement_ledger_entries,
+          settlement_events,
+          settlement_poller_cursor,
+          settlement_trades,
           trades,
           orders,
           trading_pairs,

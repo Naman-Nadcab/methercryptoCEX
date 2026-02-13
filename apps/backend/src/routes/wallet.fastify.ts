@@ -1,9 +1,11 @@
 import crypto from 'node:crypto';
+import { Decimal, type DecimalInstance } from '../lib/decimal.js';
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
 import { getCurrencyIdBySymbol } from '../lib/currency-resolver.js';
 import { ensureUserBalanceRow, assertUserBalanceUpdated, assertBalanceInvariant, DEFAULT_ACCOUNT_TYPE, CHAIN_ID_GLOBAL } from '../lib/user-balance-helper.js';
+import { insertBalanceLedger } from '../lib/balance-ledger.js';
 import { readUserBalances } from '../services/balance/readUserBalances.js';
 import { walletService } from '../services/wallet.service.js';
 import { logger, auditLog } from '../lib/logger.js';
@@ -14,9 +16,15 @@ import { getDeviceIdFromRequest, logUserActivity } from '../services/activity-mo
 import { isAddressAllowed } from '../services/withdrawal-whitelist.service.js';
 import { hasActiveCooldown } from '../services/security-cooldown.service.js';
 import { rateLimitByUser } from '../lib/rate-limit-fastify.js';
+import { creditOverdueDepositsForUser, applyBalanceForOneCompletedDeposit } from '../services/deposit-credit.service.js';
+import { handleWithdrawPreview, type WithdrawPreviewQuerystring } from './wallet-withdraw-preview.js';
 
+const ROUND_DOWN = 1;
+const AMOUNT_PRECISION = 8;
 const WITHDRAWAL_IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60; // 24 hours
 const WITHDRAWAL_IDEMPOTENCY_LOCK_TTL_SECONDS = 30;
+const TRANSFER_IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60; // 24 hours
+const TRANSFER_IDEMPOTENCY_LOCK_TTL_SECONDS = 30;
 const IDEMPOTENCY_KEY_HEADER = 'idempotency-key';
 
 /** Build a stable hash of withdrawal request body for idempotency (same payload => same hash). */
@@ -39,6 +47,22 @@ interface WithdrawalIdempotencyCache {
   withdrawalId: string;
   requestHash: string;
   response: { success: true; data: Record<string, unknown> };
+}
+
+/** Build a stable hash of transfer request body for idempotency. */
+function buildTransferRequestHash(body: Record<string, unknown>): string {
+  const normalized = {
+    fromAccount: String(body.fromAccount ?? '').trim(),
+    toAccount: String(body.toAccount ?? '').trim(),
+    tokenId: String(body.tokenId ?? '').trim(),
+    amount: String(body.amount ?? '').trim(),
+  };
+  return crypto.createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
+}
+
+interface TransferIdempotencyCache {
+  requestHash: string;
+  response: { success: true; message: string; data: Record<string, unknown> };
 }
 
 interface ChainDB {
@@ -260,7 +284,7 @@ export default async function walletRoutes(app: FastifyInstance) {
         };
       }
 
-      const kyc = kycCheck.rows[0];
+      const kyc = kycCheck.rows[0]!;
       const isVerified = kyc.status === 'approved';
 
       return {
@@ -284,11 +308,9 @@ export default async function walletRoutes(app: FastifyInstance) {
   });
 
   // Get deposit address (authenticated)
-  app.get('/deposit-address/:chainId', {
+  app.get<{ Params: { chainId: string } }>('/deposit-address/:chainId', {
     preHandler: [app.authenticate]
-  }, async (request: FastifyRequest<{
-    Params: { chainId: string }
-  }>, reply: FastifyReply) => {
+  }, async (request, reply) => {
     const userId = request.user!.id;
     const { chainId } = request.params;
     const dev = process.env.NODE_ENV === 'development';
@@ -463,11 +485,9 @@ export default async function walletRoutes(app: FastifyInstance) {
   });
 
   // Get recent deposits (authenticated)
-  app.get('/deposits', {
+  app.get<{ Querystring: { page?: string; limit?: string; status?: string } }>('/deposits', {
     preHandler: [app.authenticate]
-  }, async (request: FastifyRequest<{
-    Querystring: { page?: string; limit?: string; status?: string }
-  }>, reply: FastifyReply) => {
+  }, async (request, reply) => {
     try {
       const userId = request.user!.id;
       const page = parseInt(request.query.page || '1');
@@ -535,13 +555,13 @@ export default async function walletRoutes(app: FastifyInstance) {
       } catch {
         out.user_balances_rows = 'table_missing_or_error';
       }
-      let user_balances_funding_sum: number | string = 0;
+      let user_balances_funding_sum: string = '0';
       try {
         const ubSum = await db.query<{ total: string }>(`
           SELECT COALESCE(SUM(COALESCE(ub.available_balance, 0) + COALESCE(ub.locked_balance, 0)), 0)::text as total
           FROM user_balances ub WHERE ub.user_id = $1 AND COALESCE(ub.account_type::text, 'funding') IN ('funding', 'spot')
         `, [userId]);
-        user_balances_funding_sum = parseFloat(ubSum.rows[0]?.total || '0');
+        user_balances_funding_sum = new Decimal(ubSum.rows[0]?.total || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toString();
       } catch {
         user_balances_funding_sum = 'query_error';
       }
@@ -559,10 +579,12 @@ export default async function walletRoutes(app: FastifyInstance) {
         out.withdrawals_count = 'table_missing_or_error';
       }
       const ubRows = Number(out.user_balances_rows) || 0;
-      const ubFunding = typeof user_balances_funding_sum === 'number' ? user_balances_funding_sum : 0;
+      const ubFundingZero = typeof user_balances_funding_sum === 'string' && user_balances_funding_sum !== 'query_error'
+        ? new Decimal(user_balances_funding_sum).isZero()
+        : true;
       out.reason_funds_zero = ubRows === 0
         ? 'BUG: ZERO rows in user_balances (source of truth). Deposit credit or ensureUserBalanceRow must create row.'
-        : ubFunding === 0
+        : ubFundingZero
           ? 'user_balances rows exist but SUM(available_balance+locked_balance) for funding is 0. Check account_type = funding.'
           : 'user_balances data exists; dashboard API should return non-zero. Check filters.';
       const depCount = Number(out.deposits_count) || 0;
@@ -580,11 +602,9 @@ export default async function walletRoutes(app: FastifyInstance) {
   // CRITICAL DEBUG: Data truth check — resolve user by email, return full user_balances rows and dashboard summary.
   // GET /balance-debug?email=nmnsingh02@gmail.com (email must be current user's email)
   // Returns: user_id, user_balances_rows (full), dashboard_summary (what API returns), reason_if_zero.
-  app.get('/balance-debug', {
+  app.get<{ Querystring: { email?: string } }>('/balance-debug', {
     preHandler: [app.authenticate]
-  }, async (request: FastifyRequest<{
-    Querystring: { email?: string }
-  }>, reply: FastifyReply) => {
+  }, async (request, reply) => {
     try {
       const currentUserId = request.user!.id;
       let userId: string;
@@ -626,11 +646,11 @@ export default async function walletRoutes(app: FastifyInstance) {
         WHERE ub.user_id = $1 AND COALESCE(ub.account_type::text, 'funding') = 'trading'
       `, [userId]);
 
-      const fundingTotal = parseFloat(fundingSum.rows[0]?.total || '0');
-      const tradingTotal = parseFloat(tradingSum.rows[0]?.total || '0');
+      const fundingTotal = new Decimal(fundingSum.rows[0]?.total || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+      const tradingTotal = new Decimal(tradingSum.rows[0]?.total || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
       const reason_if_zero = ubRows.rows.length === 0
         ? 'BUG: ZERO rows in user_balances for this user — deposit credit or ensureUserBalanceRow did not create row.'
-        : fundingTotal === 0 && tradingTotal === 0
+        : fundingTotal.isZero() && tradingTotal.isZero()
           ? 'Rows exist but SUM(available_balance + locked_balance) is 0 for funding and trading. Check account_type matches (canonical: funding).'
           : null;
 
@@ -644,9 +664,9 @@ export default async function walletRoutes(app: FastifyInstance) {
           user_balances_rows: ubRows.rows,
           user_balances_row_count: ubRows.rows.length,
           dashboard_summary: {
-            funding_total: fundingTotal,
-            trading_total: tradingTotal,
-            total: fundingTotal + tradingTotal
+            funding_total: fundingTotal.toString(),
+            trading_total: tradingTotal.toString(),
+            total: fundingTotal.plus(tradingTotal).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toString()
           },
           reason_if_zero: reason_if_zero ?? 'Balance data present; dashboard should show non-zero.',
           balances_table_warning
@@ -672,8 +692,8 @@ export default async function walletRoutes(app: FastifyInstance) {
       const userId = request.user!.id;
       const [fundingRows, spotRows, tradingRows, namesResult] = await Promise.all([
         readUserBalances(userId, 'funding'),
-        readUserBalances(userId, 'spot').catch(() => [] as Awaited<ReturnType<typeof readUserBalances>>),
-        readUserBalances(userId, 'trading').catch(() => [] as Awaited<ReturnType<typeof readUserBalances>>),
+        readUserBalances(userId, 'spot'),
+        readUserBalances(userId, 'trading'),
         db.query<{ id: string; symbol: string; name: string }>(`SELECT id, symbol, COALESCE(name, symbol) as name FROM currencies WHERE is_active = TRUE`),
       ]);
       const nameById: Record<string, string> = {};
@@ -686,16 +706,16 @@ export default async function walletRoutes(app: FastifyInstance) {
         ...tradingRows.map(r => ({ ...r, account_type: 'trading' as const })),
       ];
       const balances = allRows.map(r => {
-        const avail = parseFloat(r.available_balance || '0');
-        const locked = parseFloat(r.locked_balance || '0');
-        const balance = avail + locked;
+        const avail = new Decimal(r.available_balance || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+        const locked = new Decimal(r.locked_balance || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+        const balance = avail.plus(locked).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
         return {
           asset: r.symbol,
           currency_id: r.currency_id,
           name: nameById[r.currency_id] ?? r.symbol,
-          balance,
-          available_balance: avail,
-          locked_balance: locked,
+          balance: balance.toString(),
+          available_balance: avail.toString(),
+          locked_balance: locked.toString(),
           account_type: r.account_type,
         };
       });
@@ -725,26 +745,21 @@ export default async function walletRoutes(app: FastifyInstance) {
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const userId = request.user!.id;
-      let rows: Awaited<ReturnType<typeof readUserBalances>>;
-      try {
-        rows = await readUserBalances(userId, 'trading');
-      } catch {
-        rows = [];
-      }
+      const rows = await readUserBalances(userId, 'trading');
       const namesResult = await db.query<{ id: string; name: string }>(
         `SELECT id, COALESCE(name, symbol) as name FROM currencies WHERE is_active = TRUE`
       );
       const nameById: Record<string, string> = {};
       namesResult.rows.forEach(row => { nameById[row.id] = row.name; });
       const data = rows.map(r => {
-        const avail = parseFloat(r.available_balance || '0');
-        const locked = parseFloat(r.locked_balance || '0');
-        const balance = avail + locked;
+        const avail = new Decimal(r.available_balance || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+        const locked = new Decimal(r.locked_balance || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+        const balance = avail.plus(locked).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
         return {
           asset: r.symbol,
-          balance: balance.toFixed(8),
-          available_balance: avail.toFixed(8),
-          locked_balance: locked.toFixed(8),
+          balance: balance.toString(),
+          available_balance: avail.toString(),
+          locked_balance: locked.toString(),
           account_type: 'spot' as const,
         };
       });
@@ -760,11 +775,9 @@ export default async function walletRoutes(app: FastifyInstance) {
   // ============================================
 
   // Get withdrawal history (authenticated)
-  app.get('/withdrawals', {
+  app.get<{ Querystring: { page?: string; limit?: string; status?: string; coin?: string } }>('/withdrawals', {
     preHandler: [app.authenticate]
-  }, async (request: FastifyRequest<{
-    Querystring: { page?: string; limit?: string; status?: string; coin?: string }
-  }>, reply: FastifyReply) => {
+  }, async (request, reply) => {
     try {
       const userId = request.user!.id;
       const page = parseInt(request.query.page || '1');
@@ -778,7 +791,8 @@ export default async function walletRoutes(app: FastifyInstance) {
         SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'withdrawals')
       `);
 
-      if (!tableCheck.rows[0].exists) {
+      const tcRow = tableCheck.rows[0] as { exists: boolean } | undefined;
+      if (!tcRow || !tcRow.exists) {
         return { success: true, data: [], pagination: { page, limit, total: 0, totalPages: 0 } };
       }
 
@@ -856,30 +870,31 @@ export default async function walletRoutes(app: FastifyInstance) {
         failed_reason?: string | null;
         rejection_reason?: string | null;
       };
-      const mappedData = result.rows.map((w: WithdrawalRow) => {
-        const rejectionReason = w.rejection_reason ?? w.failed_reason ?? null;
+      const mappedData = result.rows.map((w) => {
+        const row = w as WithdrawalRow;
+        const rejectionReason = row.rejection_reason ?? row.failed_reason ?? null;
         return {
-          id: w.id,
+          id: row.id,
           type: 'withdraw',
-          amount: w.amount,
-          fee: w.fee ?? '0',
-          net_amount: w.net_amount ?? w.amount,
-          status: w.status,
-          displayStatus: displayStatus(w.status),
-          chain: w.chain_name ?? 'Unknown',
-          token: w.symbol ?? 'Unknown',
-          tx_hash: w.tx_hash ?? null,
+          amount: row.amount,
+          fee: row.fee ?? '0',
+          net_amount: row.net_amount ?? row.amount,
+          status: row.status,
+          displayStatus: displayStatus(row.status),
+          chain: row.chain_name ?? 'Unknown',
+          token: row.symbol ?? 'Unknown',
+          tx_hash: row.tx_hash ?? null,
           rejection_reason: rejectionReason,
-          coin: w.symbol || 'Unknown',
-          coin_logo: w.logo_url || `/assets/upload/currency-logo/${(w.symbol || 'btc').toLowerCase()}.svg`,
-          chain_type: w.chain_name || 'Unknown',
-          quantity: w.amount,
-          address: w.to_address ?? '',
-          txid: w.tx_hash || '',
-          date_time: w.created_at,
-          withdrawal_type: w.withdrawal_type || 'onchain',
-          internal_user_id: w.internal_user_id ?? null,
-          internal_recipient_email: w.internal_recipient_email ?? null,
+          coin: row.symbol || 'Unknown',
+          coin_logo: row.logo_url || `/assets/upload/currency-logo/${(row.symbol || 'btc').toLowerCase()}.svg`,
+          chain_type: row.chain_name || 'Unknown',
+          quantity: row.amount,
+          address: row.to_address ?? '',
+          txid: row.tx_hash || '',
+          date_time: row.created_at,
+          withdrawal_type: row.withdrawal_type || 'onchain',
+          internal_user_id: row.internal_user_id ?? null,
+          internal_recipient_email: row.internal_recipient_email ?? null,
         };
       });
 
@@ -915,8 +930,8 @@ export default async function walletRoutes(app: FastifyInstance) {
 
       const [fundingRows, spotRows, tradingRows, namesResult] = await Promise.all([
         readUserBalances(userId, 'funding'),
-        readUserBalances(userId, 'spot').catch(() => [] as Awaited<ReturnType<typeof readUserBalances>>),
-        readUserBalances(userId, 'trading').catch(() => [] as Awaited<ReturnType<typeof readUserBalances>>),
+        readUserBalances(userId, 'spot'),
+        readUserBalances(userId, 'trading'),
         db.query<{ id: string; symbol: string; name: string }>(
           `SELECT id, symbol, REGEXP_REPLACE(COALESCE(name, symbol), '\\s*\\([A-Z0-9]+\\)\\s*$', '', 'i') as name FROM currencies WHERE is_active = TRUE`
         ),
@@ -932,12 +947,12 @@ export default async function walletRoutes(app: FastifyInstance) {
           if (!balancesByToken[sym]) {
             balancesByToken[sym] = { symbol: sym, name: nameBySymbol[sym] ?? sym, funding: '0', trading: '0', total: '0' };
           }
-          const bal = (parseFloat(r.available_balance || '0') + parseFloat(r.locked_balance || '0')).toString();
-          const cur = parseFloat(balancesByToken[sym][bucket]);
-          balancesByToken[sym][bucket] = (cur + parseFloat(bal)).toString();
-          const f = parseFloat(balancesByToken[sym].funding);
-          const t = parseFloat(balancesByToken[sym].trading);
-          balancesByToken[sym].total = (f + t).toString();
+          const bal = new Decimal(r.available_balance || '0').plus(r.locked_balance || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toString();
+          const cur = new Decimal(balancesByToken[sym][bucket]);
+          balancesByToken[sym][bucket] = cur.plus(bal).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toString();
+          const f = new Decimal(balancesByToken[sym].funding);
+          const t = new Decimal(balancesByToken[sym].trading);
+          balancesByToken[sym].total = f.plus(t).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toString();
         }
       };
       addBalance(fundingRows, 'funding');
@@ -961,11 +976,9 @@ export default async function walletRoutes(app: FastifyInstance) {
   });
 
   // Get withdrawal limits (authenticated)
-  app.get('/withdrawal-limits', {
+  app.get<{ Querystring: { symbol?: string } }>('/withdrawal-limits', {
     preHandler: [app.authenticate]
-  }, async (request: FastifyRequest<{
-    Querystring: { symbol?: string }
-  }>, reply: FastifyReply) => {
+  }, async (request, reply) => {
     try {
       const userId = request.user!.id;
       const symbol = request.query.symbol || 'USDT';
@@ -981,8 +994,8 @@ export default async function walletRoutes(app: FastifyInstance) {
       `, [userId]);
 
       const user = userResult.rows[0];
-      const dailyLimit = parseFloat(user?.daily_withdrawal_limit || '1000000');
-      const monthlyLimit = parseFloat(user?.monthly_withdrawal_limit || '10000000');
+      const dailyLimit = new Decimal(user?.daily_withdrawal_limit || '1000000').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+      const monthlyLimit = new Decimal(user?.monthly_withdrawal_limit || '10000000').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
 
       // Get today's withdrawals
       const todayResult = await db.query<{ total: string }>(`
@@ -1004,23 +1017,27 @@ export default async function walletRoutes(app: FastifyInstance) {
           AND w.created_at >= DATE_TRUNC('month', CURRENT_DATE)
       `, [userId]);
 
-      const todayUsed = parseFloat(todayResult.rows[0]?.total || '0');
-      const monthUsed = parseFloat(monthResult.rows[0]?.total || '0');
+      const todayUsed = new Decimal(todayResult.rows[0]?.total || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+      const monthUsed = new Decimal(monthResult.rows[0]?.total || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+      const dailyRemaining = Decimal.max(0, dailyLimit.minus(todayUsed)).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+      const monthlyRemaining = Decimal.max(0, monthlyLimit.minus(monthUsed)).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+      const dailyPct = dailyLimit.isZero() ? new Decimal(0) : todayUsed.div(dailyLimit).times(100).toDecimalPlaces(2, ROUND_DOWN);
+      const monthlyPct = monthlyLimit.isZero() ? new Decimal(0) : monthUsed.div(monthlyLimit).times(100).toDecimalPlaces(2, ROUND_DOWN);
 
       return {
         success: true,
         data: {
           daily: {
-            limit: dailyLimit,
-            used: todayUsed,
-            remaining: Math.max(0, dailyLimit - todayUsed),
-            percentage: (todayUsed / dailyLimit) * 100
+            limit: dailyLimit.toString(),
+            used: todayUsed.toString(),
+            remaining: dailyRemaining.toString(),
+            percentage: dailyPct.toString()
           },
           monthly: {
-            limit: monthlyLimit,
-            used: monthUsed,
-            remaining: Math.max(0, monthlyLimit - monthUsed),
-            percentage: (monthUsed / monthlyLimit) * 100
+            limit: monthlyLimit.toString(),
+            used: monthUsed.toString(),
+            remaining: monthlyRemaining.toString(),
+            percentage: monthlyPct.toString()
           },
           vipLevel: user?.vip_level || 0
         }
@@ -1040,11 +1057,9 @@ export default async function walletRoutes(app: FastifyInstance) {
   // -------------------------------------------------------------------------
   // GET /wallet/ledger — unified read-only ledger (deposits, withdrawals, conversions)
   // -------------------------------------------------------------------------
-  app.get('/ledger', {
+  app.get<{ Querystring: { page?: string; limit?: string; asset?: string; type?: string; from?: string; to?: string } }>('/ledger', {
     preHandler: [app.authenticate]
-  }, async (request: FastifyRequest<{
-    Querystring: { page?: string; limit?: string; asset?: string; type?: string; from?: string; to?: string }
-  }>, reply: FastifyReply) => {
+  }, async (request, reply) => {
     try {
       const userId = request.user!.id;
       const page = Math.max(1, parseInt(request.query.page || '1'));
@@ -1250,7 +1265,7 @@ export default async function walletRoutes(app: FastifyInstance) {
           for (const r of stRes.rows) {
             const [baseAsset, quoteAsset] = r.market.split('_');
             const asset = r.side === 'buy' ? (baseAsset || '?') : (quoteAsset || '?');
-            const amount = r.side === 'buy' ? r.quantity : (parseFloat(r.price) * parseFloat(r.quantity)).toFixed(18);
+            const amount = r.side === 'buy' ? r.quantity : new Decimal(r.price).times(r.quantity).toDecimalPlaces(18, ROUND_DOWN).toString();
             rows.push({
               id: r.id,
               type: 'spot_trade',
@@ -1295,11 +1310,9 @@ export default async function walletRoutes(app: FastifyInstance) {
   // -------------------------------------------------------------------------
   // GET /wallet/fund-history — UX: combined deposit + withdrawal history (Funds tab)
   // -------------------------------------------------------------------------
-  app.get('/fund-history', {
+  app.get<{ Querystring: { page?: string; limit?: string; kind?: string } }>('/fund-history', {
     preHandler: [app.authenticate]
-  }, async (request: FastifyRequest<{
-    Querystring: { page?: string; limit?: string; kind?: string }
-  }>, reply: FastifyReply) => {
+  }, async (request, reply) => {
     try {
       const userId = request.user!.id;
       const page = Math.max(1, parseInt(request.query.page || '1'));
@@ -1395,7 +1408,7 @@ export default async function walletRoutes(app: FastifyInstance) {
           for (const r of stRes.rows) {
             const [baseAsset, quoteAsset] = r.market.split('_');
             const asset = r.side === 'buy' ? (baseAsset || '?') : (quoteAsset || '?');
-            const amount = r.side === 'buy' ? r.quantity : (parseFloat(r.price) * parseFloat(r.quantity)).toFixed(18);
+            const amount = r.side === 'buy' ? r.quantity : new Decimal(r.price).times(r.quantity).toDecimalPlaces(18, ROUND_DOWN).toString();
             combined.push({
               id: r.id,
               kind: 'spot_trade',
@@ -1434,11 +1447,9 @@ export default async function walletRoutes(app: FastifyInstance) {
   // -------------------------------------------------------------------------
   // GET /wallet/internal-transfers — withdrawals where type = 'internal' (direction: funding ↔ trading)
   // -------------------------------------------------------------------------
-  app.get('/internal-transfers', {
+  app.get<{ Querystring: { page?: string; limit?: string; direction?: string } }>('/internal-transfers', {
     preHandler: [app.authenticate]
-  }, async (request: FastifyRequest<{
-    Querystring: { page?: string; limit?: string; direction?: string }
-  }>, reply: FastifyReply) => {
+  }, async (request, reply) => {
     try {
       const userId = request.user!.id;
       const page = Math.max(1, parseInt(request.query.page || '1'));
@@ -1465,7 +1476,8 @@ export default async function walletRoutes(app: FastifyInstance) {
       params.push(limit, offset);
 
       const tableCheck = await db.query(`SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'withdrawals')`);
-      if (!tableCheck.rows[0].exists) {
+      const tableRow = tableCheck.rows[0] as { exists: boolean } | undefined;
+      if (!tableRow || !tableRow.exists) {
         return reply.send({
           success: true,
           data: [],
@@ -1490,18 +1502,20 @@ export default async function walletRoutes(app: FastifyInstance) {
         if (v === 'rejected' || v === 'failed' || v === 'cancelled') return v === 'rejected' ? 'Rejected' : v === 'cancelled' ? 'Cancelled' : 'Failed';
         return s || 'Unknown';
       };
-      const data = result.rows.map((w: { id: string; amount: string; fee: string; status: string; created_at: Date; account_type: string; symbol: string | null; internal_recipient_email: string | null }) => ({
-        id: w.id,
-        amount: w.amount,
-        fee: w.fee,
-        asset: w.symbol || '?',
-        status: w.status,
-        displayStatus: displayStatus(w.status),
-        direction: (w.account_type || 'funding').toLowerCase() === 'trading' ? 'trading_to_funding' : 'funding_to_trading',
-        account_type: w.account_type,
-        internal_recipient_email: w.internal_recipient_email ?? null,
-        created_at: w.created_at
-      }));
+      const data = result.rows.map((w) => {
+        const row = w as { id: string; amount: string; fee: string; status: string; created_at: Date; account_type: string; symbol: string | null; internal_recipient_email: string | null };
+        return ({
+        id: row.id,
+        amount: row.amount,
+        fee: row.fee,
+        asset: row.symbol || '?',
+        status: row.status,
+        displayStatus: displayStatus(row.status),
+        direction: (row.account_type || 'funding').toLowerCase() === 'trading' ? 'trading_to_funding' : 'funding_to_trading',
+        account_type: row.account_type,
+        internal_recipient_email: row.internal_recipient_email ?? null,
+        created_at: row.created_at
+      }); });
 
       return reply.send({
         success: true,
@@ -1518,9 +1532,7 @@ export default async function walletRoutes(app: FastifyInstance) {
   });
 
   // Get withdrawal fee for a specific token and chain
-  app.get('/withdrawal-fee/:symbol/:chainId', async (request: FastifyRequest<{
-    Params: { symbol: string; chainId: string }
-  }>, reply: FastifyReply) => {
+  app.get<{ Params: { symbol: string; chainId: string } }>('/withdrawal-fee/:symbol/:chainId', async (request, reply) => {
     try {
       const { symbol, chainId } = request.params;
 
@@ -1545,7 +1557,7 @@ export default async function walletRoutes(app: FastifyInstance) {
         });
       }
 
-      const token = result.rows[0];
+      const token = result.rows[0]!;
 
       return {
         success: true,
@@ -1566,75 +1578,12 @@ export default async function walletRoutes(app: FastifyInstance) {
   });
 
   // Withdrawal preview: fee and net amount (authenticated, for UI)
-  app.get('/withdraw/preview', {
-    preHandler: [app.authenticate]
-  }, async (request: FastifyRequest<{
-    Querystring: { symbol: string; chainId?: string; amount: string; type?: 'onchain' | 'internal' }
-  }>, reply: FastifyReply) => {
-    try {
-      const { symbol, chainId, amount: amountStr, type = 'onchain' } = request.query;
-      const amount = parseFloat(amountStr || '0');
-      if (!symbol || isNaN(amount) || amount < 0) {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'INVALID_INPUT', message: 'symbol and amount required' }
-        });
-      }
-      if (type === 'internal') {
-        return reply.send({
-          success: true,
-          data: { fee: '0', net_amount: amountStr, min_withdrawal: '0', fee_exceeds_amount: false }
-        });
-      }
-      if (!chainId) {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'INVALID_INPUT', message: 'chainId required for on-chain preview' }
-        });
-      }
-      const result = await db.query(`
-        SELECT t.withdrawal_fee, t.min_withdrawal
-        FROM tokens t
-        JOIN chains c ON t.chain_id = c.id
-        WHERE UPPER(t.symbol) = UPPER($1)
-          AND (c.id = $2 OR LOWER(COALESCE(c.id, c.name)) = LOWER($2))
-          AND t.is_active = TRUE
-        LIMIT 1
-      `, [symbol, chainId]);
-      if (result.rows.length === 0) {
-        return reply.status(404).send({
-          success: false,
-          error: { code: 'NOT_FOUND', message: 'Token or chain not found' }
-        });
-      }
-      const row = result.rows[0];
-      const fee = parseFloat(row.withdrawal_fee || '0');
-      const netAmount = Math.max(0, amount - fee);
-      const feeExceedsAmount = amount > 0 && fee >= amount;
-      return reply.send({
-        success: true,
-        data: {
-          fee: fee.toString(),
-          net_amount: netAmount.toString(),
-          min_withdrawal: row.min_withdrawal || '0',
-          fee_exceeds_amount: feeExceedsAmount
-        }
-      });
-    } catch (error) {
-      logger.error('Withdraw preview failed', { error: error instanceof Error ? error.message : 'Unknown' });
-      return reply.status(500).send({
-        success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to get preview' }
-      });
-    }
-  });
+  app.get<{ Querystring: WithdrawPreviewQuerystring }>('/withdraw/preview', { preHandler: [app.authenticate] }, handleWithdrawPreview);
 
   // Create withdrawal request (authenticated)
   // type: 'onchain' | 'internal'. Internal: use internal_user_identifier (email/uid/phone); no toAddress. On-chain: toAddress required.
   // FIX #4: Rate limit 5/hour per user (after authenticate).
-  app.post('/withdrawals', {
-    preHandler: [app.authenticate, rateLimitByUser('wallet:withdrawal', 5, 3600)],
-  }, async (request: FastifyRequest<{
+  app.post<{
     Body: {
       symbol: string;
       chainId?: string;
@@ -1646,8 +1595,10 @@ export default async function walletRoutes(app: FastifyInstance) {
       withdrawalAddressId?: string;
       type?: 'onchain' | 'internal';
       internal_user_identifier?: string;
-    }
-  }>, reply: FastifyReply) => {
+    };
+  }>('/withdrawals', {
+    preHandler: [app.authenticate, rateLimitByUser('wallet:withdrawal', 5, 3600)],
+  }, async (request, reply) => {
     try {
       const userId = request.user!.id;
       const withdrawType = (request.body.type ?? 'onchain') as 'onchain' | 'internal';
@@ -1736,8 +1687,13 @@ export default async function walletRoutes(app: FastifyInstance) {
         }
       }
 
-      const withdrawAmount = parseFloat(amount);
-      if (isNaN(withdrawAmount) || withdrawAmount <= 0) {
+      let withdrawAmountDec: DecimalInstance;
+      try {
+        withdrawAmountDec = new Decimal(amount).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+      } catch {
+        withdrawAmountDec = new Decimal(NaN);
+      }
+      if (!withdrawAmountDec.isFinite() || withdrawAmountDec.lte(0)) {
         return reply.status(400).send({
           success: false,
           error: { code: 'INVALID_AMOUNT', message: 'Invalid withdrawal amount' }
@@ -1774,7 +1730,7 @@ export default async function walletRoutes(app: FastifyInstance) {
           LIMIT 1
         `, [symbolNorm]);
         if (tokenResult.rows.length > 0) {
-          token = tokenResult.rows[0];
+          token = tokenResult.rows[0]! as { token_id: string | null; chain_id: string | null; symbol: string; min_withdrawal: string | null; max_withdrawal: string | null; chain_name: string };
         } else {
           token = {
             token_id: null,
@@ -1804,26 +1760,26 @@ export default async function walletRoutes(app: FastifyInstance) {
             error: { code: 'INVALID_INTERNAL_USER', message: 'Cannot transfer to yourself' }
           });
         }
-        const fee = 0;
-        const minWithdrawal = parseFloat(token.min_withdrawal ?? '0');
-        const maxWithdrawalRaw = token.max_withdrawal != null ? parseFloat(String(token.max_withdrawal)) : null;
-        if (minWithdrawal > 0 && withdrawAmount < minWithdrawal) {
+        const feeDec = new Decimal(0);
+        const minWithdrawal = new Decimal(token.min_withdrawal ?? '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+        const maxWithdrawalRaw = token.max_withdrawal != null ? new Decimal(String(token.max_withdrawal)).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN) : null;
+        if (minWithdrawal.gt(0) && withdrawAmountDec.lt(minWithdrawal)) {
           return reply.status(400).send({
             success: false,
-            error: { code: 'BELOW_MINIMUM', message: `Minimum is ${minWithdrawal} ${symbol}` }
+            error: { code: 'BELOW_MINIMUM', message: `Minimum is ${minWithdrawal.toString()} ${symbol}` }
           });
         }
-        if (maxWithdrawalRaw != null && withdrawAmount > maxWithdrawalRaw) {
+        if (maxWithdrawalRaw != null && withdrawAmountDec.gt(maxWithdrawalRaw)) {
           return reply.status(400).send({
             success: false,
-            error: { code: 'ABOVE_MAXIMUM', message: `Maximum withdrawal is ${maxWithdrawalRaw} ${symbol}` }
+            error: { code: 'ABOVE_MAXIMUM', message: `Maximum withdrawal is ${maxWithdrawalRaw.toString()} ${symbol}` }
           });
         }
         logger.info('[WITHDRAW_LIMIT]', {
           symbol: token.symbol,
-          min_withdrawal: minWithdrawal,
-          max_withdrawal: maxWithdrawalRaw ?? 'unlimited',
-          amount: withdrawAmount,
+          min_withdrawal: minWithdrawal.toString(),
+          max_withdrawal: maxWithdrawalRaw?.toString() ?? 'unlimited',
+          amount: withdrawAmountDec.toString(),
         });
         // currencyId already resolved above for internal transfer
         // Use same rows we will debit: funding/spot with chain_id = '' (CHAIN_ID_GLOBAL). Avoids mismatch with readUserBalances.
@@ -1835,17 +1791,17 @@ export default async function walletRoutes(app: FastifyInstance) {
           [userId, currencyId, CHAIN_ID_GLOBAL]
         );
         const availableBalance = balanceRows.rows.reduce(
-          (sum, r) => sum + parseFloat(r.available_balance || '0'),
-          0
-        );
-        const epsilon = 1e-8;
-        if (availableBalance < withdrawAmount - epsilon) {
+          (sum, r) => sum.plus(r.available_balance || '0'),
+          new Decimal(0)
+        ).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+        const epsilon = new Decimal('1e-8');
+        if (availableBalance.lt(withdrawAmountDec.minus(epsilon))) {
           logger.warn('Internal transfer insufficient balance', {
             userId,
             currencyId,
             symbol: token.symbol,
-            availableBalance,
-            withdrawAmount,
+            availableBalance: availableBalance.toString(),
+            withdrawAmount: withdrawAmountDec.toString(),
             byAccountRows: balanceRows.rows.length,
           });
           return reply.status(400).send({
@@ -1864,31 +1820,82 @@ export default async function walletRoutes(app: FastifyInstance) {
               type, internal_user_id, email_verified, two_fa_verified
             ) VALUES ($1, $2, $3, $4, $5, $6, NULL, 'completed', 'funding', 'internal', $7, FALSE, FALSE)
             RETURNING id, created_at
-          `, [userId, token.token_id, token.chain_id, withdrawAmount.toString(), fee.toString(), withdrawAmount.toString(), recipientId]);
+          `, [userId, token.token_id, token.chain_id, withdrawAmountDec.toString(), feeDec.toString(), withdrawAmountDec.toString(), recipientId]);
           const w = ins.rows[0]!;
-          const senderUpd = await client.query(`
-            UPDATE user_balances
-            SET available_balance = available_balance - $1::numeric, updated_at = NOW()
-            WHERE id = (
-              SELECT id FROM user_balances
-              WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4
-                AND COALESCE(account_type::text, 'funding') IN ('funding', 'spot')
-                AND available_balance >= $1::numeric
-              ORDER BY available_balance DESC NULLS LAST
-              LIMIT 1
-            )
-          `, [withdrawAmount.toString(), userId, currencyId, CHAIN_ID_GLOBAL]);
+          const amtStr = withdrawAmountDec.toString();
+          const refId = w.id;
+
+          const senderLock = await client.query<{ id: string; available_balance: string; account_type: string }>(
+            `SELECT id, available_balance::text, COALESCE(account_type::text, 'funding') as account_type FROM user_balances
+             WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3
+               AND COALESCE(account_type::text, 'funding') IN ('funding', 'spot')
+               AND available_balance >= $4::numeric
+             ORDER BY available_balance DESC NULLS LAST
+             LIMIT 1
+             FOR UPDATE`,
+            [userId, currencyId, CHAIN_ID_GLOBAL, amtStr]
+          );
+          if (senderLock.rows.length === 0) {
+            throw new Error('INSUFFICIENT_BALANCE');
+          }
+          const senderRow = senderLock.rows[0]!;
+          const senderAvBefore = new Decimal(senderRow.available_balance);
+          const senderUpd = await client.query(
+            `UPDATE user_balances SET available_balance = available_balance - $1::numeric, updated_at = NOW() WHERE id = $2 RETURNING *`,
+            [amtStr, senderRow.id]
+          );
           assertUserBalanceUpdated('internal_transfer_debit', senderUpd, userId, currencyId, 'funding', CHAIN_ID_GLOBAL);
-          const receiverUpd = await client.query(`
-            UPDATE user_balances SET available_balance = available_balance + $1::numeric, updated_at = NOW()
-            WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND COALESCE(account_type::text, 'funding') = 'funding'
-          `, [withdrawAmount.toString(), recipientId, currencyId, CHAIN_ID_GLOBAL]);
+          assertBalanceInvariant(senderUpd.rows[0]);
+          await insertBalanceLedger({
+            client,
+            userId,
+            currencyId,
+            accountType: senderRow.account_type,
+            debit: amtStr,
+            credit: '0',
+            balanceBefore: senderAvBefore.toFixed(),
+            balanceAfter: senderAvBefore.minus(amtStr).toFixed(),
+            referenceType: 'internal_transfer',
+            referenceId: refId,
+            balanceType: 'available',
+          });
+
+          const receiverLock = await client.query<{ available_balance: string }>(
+            `SELECT available_balance::text FROM user_balances
+             WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND COALESCE(account_type::text, 'funding') = 'funding'
+             FOR UPDATE`,
+            [recipientId, currencyId, CHAIN_ID_GLOBAL]
+          );
+          if (receiverLock.rows.length === 0) {
+            throw new Error('RECIPIENT_BALANCE_ROW_NOT_FOUND');
+          }
+          const receiverAvBefore = new Decimal(receiverLock.rows[0]!.available_balance);
+          const receiverUpd = await client.query(
+            `UPDATE user_balances SET available_balance = available_balance + $1::numeric, updated_at = NOW()
+             WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND COALESCE(account_type::text, 'funding') = 'funding'
+             RETURNING *`,
+            [amtStr, recipientId, currencyId, CHAIN_ID_GLOBAL]
+          );
           assertUserBalanceUpdated('internal_transfer_credit', receiverUpd, recipientId, currencyId, 'funding', CHAIN_ID_GLOBAL);
+          assertBalanceInvariant(receiverUpd.rows[0]);
+          await insertBalanceLedger({
+            client,
+            userId: recipientId,
+            currencyId,
+            accountType: 'funding',
+            debit: '0',
+            credit: amtStr,
+            balanceBefore: receiverAvBefore.toFixed(),
+            balanceAfter: receiverAvBefore.plus(amtStr).toFixed(),
+            referenceType: 'internal_transfer',
+            referenceId: refId,
+            balanceType: 'available',
+          });
           // Create history in same transaction so it never happens without balance update (Binance-style)
           await client.query(
             `INSERT INTO internal_transfers (from_user_id, to_user_id, currency_id, amount, transfer_type, status, notes)
              VALUES ($1, $2, $3, $4::numeric, 'user_to_user', 'completed', $5)`,
-            [userId, recipientId, currencyId, withdrawAmount.toString(), `Internal transfer to recipient`]
+            [userId, recipientId, currencyId, withdrawAmountDec.toString(), `Internal transfer to recipient`]
           );
           return w;
         });
@@ -1898,14 +1905,14 @@ export default async function walletRoutes(app: FastifyInstance) {
           admin_id: null,
           token_id: token.token_id,
           chain_id: token.chain_id,
-          amount: withdrawAmount.toString(),
+          amount: withdrawAmountDec.toString(),
           ip: request.ip ?? undefined,
           user_agent: request.headers['user-agent'] ?? undefined,
         });
         auditLog('withdrawal_internal_completed', userId, {
           withdrawalId: withdrawalInternal.id,
           symbol,
-          amount: withdrawAmount,
+          amount: withdrawAmountDec.toString(),
           recipientId,
         });
         const internalResponse = {
@@ -1914,9 +1921,9 @@ export default async function walletRoutes(app: FastifyInstance) {
             id: withdrawalInternal.id,
             symbol,
             chain: token.chain_name,
-            amount: withdrawAmount,
-            fee: 0,
-            netAmount: withdrawAmount,
+            amount: withdrawAmountDec.toString(),
+            fee: '0',
+            netAmount: withdrawAmountDec.toString(),
             toAddress: null,
             type: 'internal',
             status: 'completed',
@@ -1966,7 +1973,7 @@ export default async function walletRoutes(app: FastifyInstance) {
         });
       }
 
-      const token = tokenResult.rows[0];
+      const token = tokenResult.rows[0]!;
       const rawFee = token.withdrawal_fee;
       if (rawFee == null || rawFee === '') {
         logger.warn('tokens.withdrawal_fee is NULL or empty, defaulting to 0', {
@@ -1974,44 +1981,44 @@ export default async function walletRoutes(app: FastifyInstance) {
           chain_id: token.chain_id,
         });
       }
-      const fee = parseFloat(rawFee || '0');
-      const minWithdrawal = parseFloat(token.min_withdrawal ?? '0');
-      const maxWithdrawalRaw = token.max_withdrawal != null ? parseFloat(String(token.max_withdrawal)) : null;
+      const feeDec = new Decimal(rawFee || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+      const minWithdrawal = new Decimal(token.min_withdrawal ?? '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+      const maxWithdrawalRaw = token.max_withdrawal != null ? new Decimal(String(token.max_withdrawal)).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN) : null;
 
       // Token-driven validation: min only if > 0, max only if NOT NULL
-      if (minWithdrawal > 0 && withdrawAmount < minWithdrawal) {
+      if (minWithdrawal.gt(0) && withdrawAmountDec.lt(minWithdrawal)) {
         logger.warn('Withdrawal creation failed: BELOW_MINIMUM', {
           user_id: userId,
           chain_id: token.chain_id,
           symbol: token.symbol,
-          amount: withdrawAmount,
-          min_withdrawal: minWithdrawal,
-          max_withdrawal: maxWithdrawalRaw ?? 'unlimited',
+          amount: withdrawAmountDec.toString(),
+          min_withdrawal: minWithdrawal.toString(),
+          max_withdrawal: maxWithdrawalRaw?.toString() ?? 'unlimited',
         });
         return reply.status(400).send({
           success: false,
-          error: { code: 'BELOW_MINIMUM', message: `Minimum withdrawal is ${minWithdrawal} ${symbol}` }
+          error: { code: 'BELOW_MINIMUM', message: `Minimum withdrawal is ${minWithdrawal.toString()} ${symbol}` }
         });
       }
-      if (maxWithdrawalRaw != null && withdrawAmount > maxWithdrawalRaw) {
+      if (maxWithdrawalRaw != null && withdrawAmountDec.gt(maxWithdrawalRaw)) {
         logger.warn('Withdrawal creation failed: ABOVE_MAXIMUM', {
           user_id: userId,
           chain_id: token.chain_id,
           symbol: token.symbol,
-          amount: withdrawAmount,
-          max_withdrawal: maxWithdrawalRaw,
+          amount: withdrawAmountDec.toString(),
+          max_withdrawal: maxWithdrawalRaw.toString(),
         });
         return reply.status(400).send({
           success: false,
-          error: { code: 'ABOVE_MAXIMUM', message: `Maximum withdrawal is ${maxWithdrawalRaw} ${symbol}` }
+          error: { code: 'ABOVE_MAXIMUM', message: `Maximum withdrawal is ${maxWithdrawalRaw.toString()} ${symbol}` }
         });
       }
 
       logger.info('[WITHDRAW_LIMIT]', {
         symbol: token.symbol,
-        min_withdrawal: minWithdrawal,
-        max_withdrawal: maxWithdrawalRaw ?? 'unlimited',
-        amount: withdrawAmount,
+        min_withdrawal: minWithdrawal.toString(),
+        max_withdrawal: maxWithdrawalRaw?.toString() ?? 'unlimited',
+        amount: withdrawAmountDec.toString(),
       });
 
       // Check user balance via canonical readUserBalances
@@ -2030,18 +2037,18 @@ export default async function walletRoutes(app: FastifyInstance) {
       const chainIdCheck = token.chain_id ?? CHAIN_ID_GLOBAL;
       const withdrawBalances = await readUserBalances(userId, accountType);
       const withdrawRow = withdrawBalances.find(r => r.currency_id === currencyId);
-      const availableBalance = withdrawRow ? parseFloat(withdrawRow.available_balance || '0') : 0;
-      const totalRequired = withdrawAmount + fee;
-      const netAmount = withdrawAmount - fee;
+      const availableBalance = withdrawRow ? new Decimal(withdrawRow.available_balance || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN) : new Decimal(0);
+      const totalRequired = withdrawAmountDec.plus(feeDec).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+      const netAmount = withdrawAmountDec.minus(feeDec).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
 
-      if (netAmount <= 0) {
+      if (netAmount.lte(0)) {
         logger.warn('Withdrawal creation failed: NET_AMOUNT_INVALID (amount - fee <= 0)', {
           user_id: userId,
           chain_id: token.chain_id,
           currency_id: currencyId,
-          amount: withdrawAmount,
-          fee,
-          net_amount: netAmount,
+          amount: withdrawAmountDec.toString(),
+          fee: feeDec.toString(),
+          net_amount: netAmount.toString(),
           account_type: accountType,
         });
         return reply.status(400).send({
@@ -2054,14 +2061,14 @@ export default async function walletRoutes(app: FastifyInstance) {
         user_id: userId,
         chain_id: token.chain_id,
         currency_id: currencyId,
-        available_balance: availableBalance,
-        amount: withdrawAmount,
-        fee,
-        totalRequired,
+        available_balance: availableBalance.toString(),
+        amount: withdrawAmountDec.toString(),
+        fee: feeDec.toString(),
+        totalRequired: totalRequired.toString(),
         account_type: accountType,
       };
 
-      if (availableBalance < totalRequired) {
+      if (availableBalance.lt(totalRequired)) {
         logger.warn('Withdrawal creation failed: INSUFFICIENT_BALANCE', withdrawalLogContext);
         return reply.status(400).send({
           success: false,
@@ -2082,10 +2089,10 @@ export default async function walletRoutes(app: FastifyInstance) {
         SELECT daily_withdrawal_limit FROM users WHERE id = $1
       `, [userId]);
 
-      const dailyLimit = parseFloat(userLimitResult.rows[0]?.daily_withdrawal_limit || '1000000');
-      const todayUsed = parseFloat(todayResult.rows[0]?.total || '0');
+      const dailyLimit = new Decimal(userLimitResult.rows[0]?.daily_withdrawal_limit || '1000000').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+      const todayUsed = new Decimal(todayResult.rows[0]?.total || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
 
-      if (todayUsed + withdrawAmount > dailyLimit) {
+      if (todayUsed.plus(withdrawAmountDec).gt(dailyLimit)) {
         logger.warn('Withdrawal creation failed: LIMIT_EXCEEDED', withdrawalLogContext);
         return reply.status(400).send({
           success: false,
@@ -2109,7 +2116,7 @@ export default async function walletRoutes(app: FastifyInstance) {
         actorId: userId,
         context: {
           userId,
-          amount: withdrawAmount,
+          amount: withdrawAmountDec.toString(),
           ip: req.clientIp ?? request.ip,
           countryCode: req.countryCode ?? null,
           deviceId: getDeviceIdFromRequest(request.headers as Record<string, string | undefined>),
@@ -2274,7 +2281,7 @@ export default async function walletRoutes(app: FastifyInstance) {
 
       // Admin approval: required if amount > threshold, asset is high-risk, or risk engine returned CHALLENGE
       const { requiresWithdrawalApproval } = await import('../services/withdrawal-approval.service.js');
-      const needsApproval = riskRequiresChallenge || requiresWithdrawalApproval(withdrawAmount, {
+      const needsApproval = riskRequiresChallenge || requiresWithdrawalApproval(withdrawAmountDec.toString(), {
         is_high_risk: token.is_high_risk,
       });
       const initialStatus = needsApproval ? 'pending_approval' : 'pending';
@@ -2292,40 +2299,75 @@ export default async function walletRoutes(app: FastifyInstance) {
               type, email_verified, two_fa_verified, withdrawal_address_id
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'onchain', FALSE, $11, $12)
             RETURNING id, created_at
-          `, [userId, token.token_id, token.chain_id, withdrawAmount.toString(), fee.toString(), netAmount.toString(), toAddress!, memo || null, initialStatus, accountType, twoFaVerified, withdrawalAddressIdRes]);
+          `, [userId, token.token_id, token.chain_id, withdrawAmountDec.toString(), feeDec.toString(), netAmount.toString(), toAddress!, memo || null, initialStatus, accountType, twoFaVerified, withdrawalAddressIdRes]);
           const w = insertResult.rows[0]!;
+          const totalStr = totalRequired.toString();
 
           await ensureUserBalanceRow(userId, currencyId, chainIdForLock, accountType, client);
-          let upd = await client.query(`
-            UPDATE user_balances
-            SET
-              available_balance = available_balance - $1::numeric,
-              locked_balance = locked_balance + $1::numeric,
-              updated_at = NOW()
-            WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5
-              AND available_balance >= $1::numeric
-            RETURNING *
-          `, [totalRequired.toString(), userId, currencyId, chainIdForLock, accountType]);
+          let lockSel = await client.query<{ available_balance: string; locked_balance: string }>(
+            `SELECT available_balance::text, locked_balance::text FROM user_balances
+             WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = $4
+               AND available_balance >= $5::numeric
+             FOR UPDATE`,
+            [userId, currencyId, chainIdForLock, accountType, totalStr]
+          );
           let chainUsed = chainIdForLock;
-          if (upd.rowCount === 0 && chainIdForLock !== CHAIN_ID_GLOBAL) {
+          if (lockSel.rows.length === 0 && chainIdForLock !== CHAIN_ID_GLOBAL) {
             await ensureUserBalanceRow(userId, currencyId, CHAIN_ID_GLOBAL, accountType, client);
-            upd = await client.query(`
-              UPDATE user_balances
-              SET
-                available_balance = available_balance - $1::numeric,
-                locked_balance = locked_balance + $1::numeric,
-                updated_at = NOW()
-              WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5
-                AND available_balance >= $1::numeric
-              RETURNING *
-            `, [totalRequired.toString(), userId, currencyId, CHAIN_ID_GLOBAL, accountType]);
+            lockSel = await client.query<{ available_balance: string; locked_balance: string }>(
+              `SELECT available_balance::text, locked_balance::text FROM user_balances
+               WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = $4
+                 AND available_balance >= $5::numeric
+               FOR UPDATE`,
+              [userId, currencyId, CHAIN_ID_GLOBAL, accountType, totalStr]
+            );
             chainUsed = CHAIN_ID_GLOBAL;
           }
-          if (upd.rowCount === 0) {
+          if (lockSel.rows.length === 0) {
             throw new Error('BALANCE_ROW_NOT_FOUND_OR_MISMATCH');
           }
+          const avBefore = lockSel.rows[0]!.available_balance ?? '0';
+          const lockBefore = lockSel.rows[0]!.locked_balance ?? '0';
+
+          const upd = await client.query(
+            `UPDATE user_balances
+             SET available_balance = available_balance - $1::numeric, locked_balance = locked_balance + $1::numeric, updated_at = NOW()
+             WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5
+               AND available_balance >= $1::numeric
+             RETURNING *`,
+            [totalStr, userId, currencyId, chainUsed, accountType]
+          );
           assertUserBalanceUpdated('withdrawal_lock', upd, userId, currencyId, accountType, chainUsed);
           assertBalanceInvariant(upd.rows[0]);
+          const row = upd.rows[0]!;
+
+          await insertBalanceLedger({
+            client,
+            userId,
+            currencyId,
+            accountType,
+            debit: totalStr,
+            credit: '0',
+            balanceBefore: avBefore,
+            balanceAfter: String(row.available_balance ?? 0),
+            referenceType: 'withdrawal',
+            referenceId: w.id,
+            balanceType: 'available',
+          });
+          await insertBalanceLedger({
+            client,
+            userId,
+            currencyId,
+            accountType,
+            debit: '0',
+            credit: totalStr,
+            balanceBefore: lockBefore,
+            balanceAfter: String(row.locked_balance ?? 0),
+            referenceType: 'withdrawal',
+            referenceId: w.id,
+            balanceType: 'locked',
+          });
+
           return { withdrawal: w, updatedChainId: chainUsed };
         });
         withdrawal = txResult.withdrawal;
@@ -2360,8 +2402,8 @@ export default async function walletRoutes(app: FastifyInstance) {
         withdrawalId: withdrawal.id,
         symbol,
         chain: token.chain_name,
-        amount: withdrawAmount,
-        fee,
+        amount: withdrawAmountDec.toString(),
+        fee: feeDec.toString(),
         toAddress,
         status: initialStatus,
       });
@@ -2372,7 +2414,7 @@ export default async function walletRoutes(app: FastifyInstance) {
         admin_id: null,
         token_id: token.token_id,
         chain_id: token.chain_id,
-        amount: withdrawAmount.toString(),
+        amount: withdrawAmountDec.toString(),
         ip: request.ip ?? undefined,
         user_agent: request.headers['user-agent'] ?? undefined,
       });
@@ -2381,7 +2423,7 @@ export default async function walletRoutes(app: FastifyInstance) {
         userId,
         withdrawalId: withdrawal.id,
         symbol,
-        amount: withdrawAmount,
+        amount: withdrawAmountDec.toString(),
         status: initialStatus,
       });
       // E2E withdrawal lifecycle: stage 1 — created (balance locked)
@@ -2411,9 +2453,9 @@ export default async function walletRoutes(app: FastifyInstance) {
           type: 'onchain',
           symbol,
           chain: token.chain_name,
-          amount: withdrawAmount,
-          fee,
-          netAmount,
+          amount: withdrawAmountDec.toString(),
+          fee: feeDec.toString(),
+          netAmount: netAmount.toString(),
           toAddress,
           status: initialStatus,
           createdAt: withdrawal.created_at,
@@ -2444,16 +2486,29 @@ export default async function walletRoutes(app: FastifyInstance) {
       }
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
+      const msg = err.message;
+      if (msg === 'INSUFFICIENT_BALANCE') {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INSUFFICIENT_BALANCE', message: 'Insufficient balance' },
+        });
+      }
+      if (msg === 'RECIPIENT_BALANCE_ROW_NOT_FOUND') {
+        logger.error('Internal transfer: recipient balance row not found after ensure', { userId: request.user?.id });
+        return reply.status(500).send({
+          success: false,
+          error: { code: 'INTERNAL_ERROR', message: 'Recipient account setup failed. Please try again.' },
+        });
+      }
+      const code = (err as { code?: string }).code;
       logger.error('Withdrawal creation failed: unhandled error', {
         user_id: request.user?.id,
-        error: err.message,
+        error: msg,
         stack: err.stack,
       });
-      const code = (err as { code?: string }).code;
-      const message = code === 'INSUFFICIENT_BALANCE' ? 'Insufficient balance'
-        : code === 'BALANCE_LOCK_FAILED' ? 'Balance lock failed'
+      const message = code === 'BALANCE_LOCK_FAILED' ? 'Balance lock failed'
         : code === 'BALANCE_ROW_NOT_FOUND_OR_MISMATCH' ? 'No matching balance row'
-        : err.message || 'Failed to create withdrawal';
+        : msg || 'Failed to create withdrawal';
       return reply.status(500).send({
         success: false,
         error: {
@@ -2465,11 +2520,9 @@ export default async function walletRoutes(app: FastifyInstance) {
   });
 
   // Cancel withdrawal (authenticated)
-  app.post('/withdrawals/:id/cancel', {
+  app.post<{ Params: { id: string } }>('/withdrawals/:id/cancel', {
     preHandler: [app.authenticate]
-  }, async (request: FastifyRequest<{
-    Params: { id: string }
-  }>, reply: FastifyReply) => {
+  }, async (request, reply) => {
     try {
       const userId = request.user!.id;
       const { id } = request.params;
@@ -2489,7 +2542,7 @@ export default async function walletRoutes(app: FastifyInstance) {
         });
       }
 
-      const withdrawal = withdrawalResult.rows[0];
+      const withdrawal = withdrawalResult.rows[0]!;
 
       if (withdrawal.status !== 'pending') {
         return reply.status(400).send({
@@ -2498,7 +2551,7 @@ export default async function walletRoutes(app: FastifyInstance) {
         });
       }
 
-      const totalLocked = parseFloat(withdrawal.amount) + parseFloat(withdrawal.fee);
+      const totalLocked = new Decimal(withdrawal.amount).plus(withdrawal.fee).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toString();
       const currencyId = await getCurrencyIdBySymbol(withdrawal.symbol);
       const cancelAccountType = withdrawal.account_type || 'spot';
       const chainIdCancel = withdrawal.chain_id ?? CHAIN_ID_GLOBAL;
@@ -2514,16 +2567,57 @@ export default async function walletRoutes(app: FastifyInstance) {
         }
         if (currencyId) {
           await ensureUserBalanceRow(userId, currencyId, chainIdCancel, cancelAccountType, client);
-          const cancelUpd = await client.query(`
-            UPDATE user_balances
-            SET
-              available_balance = available_balance + $1,
-              locked_balance = locked_balance - $1,
-              updated_at = NOW()
-            WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5
-              AND locked_balance >= $1
-          `, [totalLocked.toString(), userId, currencyId, chainIdCancel, cancelAccountType]);
+          const lockSel = await client.query<{ available_balance: string; locked_balance: string }>(
+            `SELECT available_balance::text, locked_balance::text FROM user_balances
+             WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = $4
+               AND locked_balance >= $5::numeric
+             FOR UPDATE`,
+            [userId, currencyId, chainIdCancel, cancelAccountType, totalLocked.toString()]
+          );
+          if (lockSel.rows.length === 0) {
+            throw new Error('WITHDRAWAL_CANCEL_BALANCE_ROW_NOT_FOUND');
+          }
+          const avBefore = lockSel.rows[0]!.available_balance ?? '0';
+          const lockBefore = lockSel.rows[0]!.locked_balance ?? '0';
+
+          const cancelUpd = await client.query(
+            `UPDATE user_balances
+             SET available_balance = available_balance + $1::numeric, locked_balance = locked_balance - $1::numeric, updated_at = NOW()
+             WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5
+               AND locked_balance >= $1::numeric
+             RETURNING *`,
+            [totalLocked.toString(), userId, currencyId, chainIdCancel, cancelAccountType]
+          );
           assertUserBalanceUpdated('withdrawal_cancel', cancelUpd, userId, currencyId, cancelAccountType, withdrawal.chain_id);
+          assertBalanceInvariant(cancelUpd.rows[0]);
+          const row = cancelUpd.rows[0]!;
+
+          await insertBalanceLedger({
+            client,
+            userId,
+            currencyId,
+            accountType: cancelAccountType,
+            debit: '0',
+            credit: totalLocked.toString(),
+            balanceBefore: avBefore,
+            balanceAfter: String(row.available_balance ?? 0),
+            referenceType: 'withdrawal',
+            referenceId: id,
+            balanceType: 'available',
+          });
+          await insertBalanceLedger({
+            client,
+            userId,
+            currencyId,
+            accountType: cancelAccountType,
+            debit: totalLocked.toString(),
+            credit: '0',
+            balanceBefore: lockBefore,
+            balanceAfter: String(row.locked_balance ?? 0),
+            referenceType: 'withdrawal',
+            referenceId: id,
+            balanceType: 'locked',
+          });
         }
       });
 
@@ -2538,13 +2632,17 @@ export default async function walletRoutes(app: FastifyInstance) {
         message: 'Withdrawal cancelled successfully'
       };
     } catch (error) {
-      logger.error('Failed to cancel withdrawal', { 
-        error: error instanceof Error ? error.message : 'Unknown',
-        userId: request.user?.id 
-      });
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg === 'Withdrawal no longer pending (possibly being processed)') {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'WITHDRAWAL_NOT_CANCELLABLE', message: msg },
+        });
+      }
+      logger.error('Failed to cancel withdrawal', { error: msg, userId: request.user?.id });
       return reply.status(500).send({
         success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to cancel withdrawal' }
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to cancel withdrawal' },
       });
     }
   });
@@ -2555,6 +2653,7 @@ export default async function walletRoutes(app: FastifyInstance) {
   // Balance read: always use readUserBalances; total USD = sum(amount * price) per currency. See docs/BALANCE_AND_DEPOSIT_RULES.md
 
   // Get balances summary for assets overview (authenticated). Uses canonical readUserBalances only.
+  // Resilient: if currencies/user_balances/market_prices missing or schema mismatch, returns zeros instead of 500.
   app.get('/balances/summary', {
     preHandler: [app.authenticate]
   }, async (request: FastifyRequest, reply: FastifyReply) => {
@@ -2567,64 +2666,86 @@ export default async function walletRoutes(app: FastifyInstance) {
         JOIN currencies qc ON mp.quote_currency_id = qc.id
         WHERE UPPER(qc.symbol) = 'USDT'
         ORDER BY UPPER(bc.symbol), mp.price DESC`;
-      const [fundingRows, spotRows, tradingRows, pricesResult] = await Promise.all([
-        readUserBalances(userId, 'funding'),
-        readUserBalances(userId, 'spot').catch(() => [] as Awaited<ReturnType<typeof readUserBalances>>),
-        readUserBalances(userId, 'trading').catch(() => [] as Awaited<ReturnType<typeof readUserBalances>>),
+      const [fundingResult, spotResult, tradingResult, pricesResult] = await Promise.all([
+        readUserBalances(userId, 'funding').catch((e) => {
+          logger.warn('Balances summary: readUserBalances(funding) failed', { userId, err: e instanceof Error ? e.message : String(e) });
+          return [] as Awaited<ReturnType<typeof readUserBalances>>;
+        }),
+        readUserBalances(userId, 'spot').catch((e) => {
+          logger.warn('Balances summary: readUserBalances(spot) failed', { userId, err: e instanceof Error ? e.message : String(e) });
+          return [] as Awaited<ReturnType<typeof readUserBalances>>;
+        }),
+        readUserBalances(userId, 'trading').catch((e) => {
+          logger.warn('Balances summary: readUserBalances(trading) failed', { userId, err: e instanceof Error ? e.message : String(e) });
+          return [] as Awaited<ReturnType<typeof readUserBalances>>;
+        }),
         db.query<{ symbol: string; usd_price: string }>(pricesSql).catch(() => ({ rows: [] })),
       ]);
-      const priceMap: Record<string, number> = { USDT: 1, USDC: 1, DAI: 1, BUSD: 1 };
+      const fundingRows = fundingResult;
+      const spotRows = spotResult;
+      const tradingRows = tradingResult;
+      const priceMap: Record<string, string> = { USDT: '1', USDC: '1', DAI: '1', BUSD: '1' };
       pricesResult.rows.forEach(row => {
-        priceMap[row.symbol.toUpperCase()] = parseFloat(row.usd_price) || 1;
+        try {
+          priceMap[row.symbol.toUpperCase()] = new Decimal(row.usd_price).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toString();
+        } catch {
+          priceMap[row.symbol.toUpperCase()] = '1';
+        }
       });
-      const toUsd = (rows: { symbol: string; available_balance: string; locked_balance: string }[]) =>
+      type BalanceLike = { symbol: string; available_balance: string; locked_balance: string };
+      const toUsd = (rows: BalanceLike[]) =>
         rows.reduce((t, r) => {
-          const q = parseFloat(r.available_balance || '0') + parseFloat(r.locked_balance || '0');
-          const price = priceMap[r.symbol?.toUpperCase()] ?? 1;
-          return t + q * price;
-        }, 0);
-      let fundingRowsForTotal = fundingRows;
-      let spotRowsForTotal = spotRows;
+          const q = new Decimal(r.available_balance || '0').plus(r.locked_balance || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+          const price = new Decimal(priceMap[r.symbol?.toUpperCase()] ?? '1');
+          return t.plus(q.times(price)).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+        }, new Decimal(0));
+      let fundingRowsForTotal: BalanceLike[] = fundingRows;
+      let spotRowsForTotal: BalanceLike[] = spotRows;
       if (fundingRows.length === 0 && spotRows.length === 0) {
-        const direct = await db.query<{ symbol: string; available_balance: string; locked_balance: string }>(
-          `SELECT COALESCE(c.symbol, '') AS symbol, COALESCE(ub.available_balance, 0)::text AS available_balance, COALESCE(ub.locked_balance, 0)::text AS locked_balance
-           FROM user_balances ub
-           LEFT JOIN currencies c ON c.id = ub.currency_id
-           WHERE ub.user_id = $1 AND (LOWER(TRIM(COALESCE(ub.account_type::text, ''))) IN ('funding', 'spot') OR ub.account_type IS NULL)`,
-          [userId]
-        );
-        fundingRowsForTotal = direct.rows.map(r => ({
-          symbol: r.symbol,
-          available_balance: r.available_balance ?? '0',
-          locked_balance: r.locked_balance ?? '0'
-        }));
+        try {
+          const direct = await db.query<{ symbol: string; available_balance: string; locked_balance: string }>(
+            `SELECT COALESCE(c.symbol, '') AS symbol, COALESCE(ub.available_balance, 0)::text AS available_balance, COALESCE(ub.locked_balance, 0)::text AS locked_balance
+             FROM user_balances ub
+             LEFT JOIN currencies c ON c.id = ub.currency_id
+             WHERE ub.user_id = $1 AND (LOWER(TRIM(COALESCE(ub.account_type::text, ''))) IN ('funding', 'spot') OR ub.account_type IS NULL)`,
+            [userId]
+          );
+          fundingRowsForTotal = direct.rows.map(r => ({
+            symbol: r.symbol,
+            available_balance: r.available_balance ?? '0',
+            locked_balance: r.locked_balance ?? '0'
+          }));
+        } catch (e) {
+          logger.warn('Balances summary: direct fallback query failed', { userId, err: e instanceof Error ? e.message : String(e) });
+        }
         spotRowsForTotal = [];
       }
-      const fundingTotal = toUsd(fundingRowsForTotal) + toUsd(spotRowsForTotal);
-      const tradingTotal = toUsd(tradingRows);
-      const btcPrice = 82000;
+      const fundingTotal = toUsd(fundingRowsForTotal).plus(toUsd(spotRowsForTotal)).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+      const tradingTotal = toUsd(tradingRows).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+      const btcPrice = new Decimal(82000);
       return reply.send({
         success: true,
         data: {
           funding: {
             type: 'funding',
-            totalUsd: fundingTotal,
-            totalBtc: fundingTotal / btcPrice
+            totalUsd: fundingTotal.toString(),
+            totalBtc: fundingTotal.div(btcPrice).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toString()
           },
           trading: {
             type: 'trading',
-            totalUsd: tradingTotal,
-            totalBtc: tradingTotal / btcPrice
+            totalUsd: tradingTotal.toString(),
+            totalBtc: tradingTotal.div(btcPrice).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toString()
           },
           total: {
-            totalUsd: fundingTotal + tradingTotal,
-            totalBtc: (fundingTotal + tradingTotal) / btcPrice
+            totalUsd: fundingTotal.plus(tradingTotal).toString(),
+            totalBtc: fundingTotal.plus(tradingTotal).div(btcPrice).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toString()
           }
         }
       });
     } catch (error) {
       logger.error('Failed to get balances summary', {
         error: error instanceof Error ? error.message : 'Unknown',
+        stack: error instanceof Error ? error.stack : undefined,
         userId: request.user?.id
       });
       return reply.status(500).send({
@@ -2640,51 +2761,32 @@ export default async function walletRoutes(app: FastifyInstance) {
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const userId = request.user!.id;
-      const btcPrice = 97500;
-      const priceMap: Record<string, number> = { 'USDT': 1, 'USDC': 1 };
+      const btcPrice = new Decimal(97500);
+      const priceMap: Record<string, string> = { 'USDT': '1', 'USDC': '1' };
 
-      // Repair: batch-credit completed deposits that were never applied (one tx per user)
+      // Repair: apply balance for completed deposits that were never applied (atomic per deposit, no double-credit)
       try {
         const hasColumn = await db.query(
           `SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'deposits' AND column_name = 'balance_applied_at'`
         );
         if (hasColumn.rows.length > 0) {
-          const unapplied = await db.query<{ id: string; user_id: string; currency_id: string; amount: string }>(
-            `SELECT id, user_id, currency_id, amount::text as amount FROM deposits
+          const unapplied = await db.query<{ id: string; currency_id: string }>(
+            `SELECT id, currency_id FROM deposits
              WHERE user_id = $1 AND status = 'completed' AND credited_at IS NOT NULL AND balance_applied_at IS NULL
              AND (amount IS NULL OR amount::numeric > 0)`,
             [userId]
           );
           if (unapplied.rows.length > 0) {
-            const currencyIds = [...new Set(unapplied.rows.map((r) => r.currency_id))];
+            const currencyIds = [...new Set(unapplied.rows.map((r) => (r as { currency_id: string }).currency_id))];
             const curCheck = await db.query(`SELECT id FROM currencies WHERE id = ANY($1::uuid[])`, [currencyIds]);
-            const validIds = new Set(curCheck.rows.map((r: { id: string }) => r.id));
+            const validIds = new Set(curCheck.rows.map((r) => (r as { id: string }).id));
             const toApply = unapplied.rows.filter((r) => validIds.has(r.currency_id));
-            if (toApply.length > 0) {
-              await db.transaction(async (client) => {
-                const byCurrency = new Map<string, { total: number; ids: string[] }>();
-                for (const row of toApply) {
-                  const amt = parseFloat(row.amount || '0');
-                  const cur = byCurrency.get(row.currency_id) ?? { total: 0, ids: [] };
-                  cur.total += amt;
-                  cur.ids.push(row.id);
-                  byCurrency.set(row.currency_id, cur);
-                }
-                for (const [currencyId, { total, ids }] of byCurrency) {
-                  if (total <= 0) continue;
-                  await ensureUserBalanceRow(userId, currencyId, CHAIN_ID_GLOBAL, 'funding', client);
-                  const upd = await client.query(
-                    `UPDATE user_balances SET available_balance = available_balance + $1::numeric, total_deposited = COALESCE(total_deposited, 0) + $1::numeric, updated_at = NOW()
-                     WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = 'funding'`,
-                    [total.toString(), userId, currencyId, CHAIN_ID_GLOBAL]
-                  );
-                  if ((upd.rowCount ?? 0) >= 1) {
-                    await client.query(`UPDATE deposits SET balance_applied_at = NOW() WHERE id = ANY($1::uuid[])`, [ids]);
-                  }
-                }
-              });
-              logger.info('Repair: credited completed deposits to user_balances', { userId, count: toApply.length });
+            let applied = 0;
+            for (const row of toApply) {
+              const res = await applyBalanceForOneCompletedDeposit(row.id);
+              if (res.credited) applied++;
             }
+            if (applied > 0) logger.info('Repair: applied balance for completed deposits', { userId, count: applied });
           }
         }
       } catch (repairErr) {
@@ -2702,7 +2804,7 @@ export default async function walletRoutes(app: FastifyInstance) {
 
       const [fundingRows, spotRowsResult, pricesResult, namesResult] = await Promise.all([
         readUserBalances(userId, 'funding'),
-        readUserBalances(userId, 'spot').catch(() => [] as Awaited<ReturnType<typeof readUserBalances>>),
+        readUserBalances(userId, 'spot'),
         db.query<{ symbol: string; usd_price: string }>(pricesSql).catch(() => ({ rows: [] })),
         db.query<{ id: string; symbol: string; name: string }>(namesSql),
       ]);
@@ -2731,72 +2833,78 @@ export default async function walletRoutes(app: FastifyInstance) {
       }
 
       pricesResult.rows.forEach(row => {
-        priceMap[row.symbol.toUpperCase()] = parseFloat(row.usd_price) || 1;
+        try {
+          priceMap[row.symbol.toUpperCase()] = new Decimal(row.usd_price).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toString();
+        } catch {
+          priceMap[row.symbol.toUpperCase()] = '1';
+        }
       });
       const nameByCurrencyId: Record<string, string> = {};
       namesResult.rows.forEach(row => {
         nameByCurrencyId[row.id] = row.name || row.symbol;
       });
 
-      const byCurrency: Record<string, { symbol: string; available: number; locked: number }> = {};
+      const byCurrency: Record<string, { symbol: string; available: DecimalInstance; locked: DecimalInstance }> = {};
       for (const r of fundingRowsFinal) {
-        const av = parseFloat(r.available_balance || '0');
-        const lk = parseFloat(r.locked_balance || '0');
+        const av = new Decimal(r.available_balance || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+        const lk = new Decimal(r.locked_balance || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
         if (!byCurrency[r.currency_id]) {
-          byCurrency[r.currency_id] = { symbol: r.symbol, available: 0, locked: 0 };
+          byCurrency[r.currency_id] = { symbol: r.symbol, available: new Decimal(0), locked: new Decimal(0) };
         }
-        byCurrency[r.currency_id].available += av;
-        byCurrency[r.currency_id].locked += lk;
+        const bc = byCurrency[r.currency_id]!;
+        bc.available = bc.available.plus(av).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+        bc.locked = bc.locked.plus(lk).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
       }
       for (const r of spotRows) {
         if (!byCurrency[r.currency_id]) {
-          byCurrency[r.currency_id] = { symbol: r.symbol, available: 0, locked: 0 };
+          byCurrency[r.currency_id] = { symbol: r.symbol, available: new Decimal(0), locked: new Decimal(0) };
         }
-        byCurrency[r.currency_id].available += parseFloat(r.available_balance || '0');
-        byCurrency[r.currency_id].locked += parseFloat(r.locked_balance || '0');
+        const bc = byCurrency[r.currency_id]!;
+        bc.available = bc.available.plus(r.available_balance || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+        bc.locked = bc.locked.plus(r.locked_balance || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
       }
 
       const balances = Object.entries(byCurrency).map(([currency_id, agg]) => {
-        const total = agg.available + agg.locked;
-        const price = priceMap[agg.symbol.toUpperCase()] || 1;
-        const usdValue = total * price;
+        const total = agg.available.plus(agg.locked).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+        const price = new Decimal(priceMap[agg.symbol.toUpperCase()] ?? '1');
+        const usdValue = total.times(price).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
         return {
           token_id: currency_id,
           symbol: agg.symbol,
           name: nameByCurrencyId[currency_id] ?? agg.symbol,
-          total_balance: total.toFixed(8),
-          available_balance: agg.available.toFixed(8),
-          locked_balance: agg.locked.toFixed(8),
-          btc_value: (usdValue / btcPrice).toFixed(8),
-          usd_value: usdValue.toFixed(2)
+          total_balance: total.toString(),
+          available_balance: agg.available.toString(),
+          locked_balance: agg.locked.toString(),
+          btc_value: usdValue.div(btcPrice).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toString(),
+          usd_value: usdValue.toDecimalPlaces(2, ROUND_DOWN).toString()
         };
       });
 
       balances.sort((a, b) => {
-        const aHasBalance = parseFloat(a.total_balance) > 0;
-        const bHasBalance = parseFloat(b.total_balance) > 0;
+        const aHasBalance = new Decimal(a.total_balance).gt(0);
+        const bHasBalance = new Decimal(b.total_balance).gt(0);
         if (aHasBalance && !bHasBalance) return -1;
         if (!aHasBalance && bHasBalance) return 1;
         return a.symbol.localeCompare(b.symbol);
       });
 
-      const totalUsd = balances.reduce((sum, b) => sum + parseFloat(b.usd_value), 0);
+      const totalUsd = balances.reduce((sum, b) => sum.plus(b.usd_value).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN), new Decimal(0));
       const availableUsd = balances.reduce((sum, b) => {
-        const price = priceMap[b.symbol.toUpperCase()] || 1;
-        return sum + parseFloat(b.available_balance) * price;
-      }, 0);
+        const price = new Decimal(priceMap[b.symbol.toUpperCase()] ?? '1');
+        return sum.plus(new Decimal(b.available_balance).times(price)).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+      }, new Decimal(0));
       const lockedUsd = balances.reduce((sum, b) => {
-        const price = priceMap[b.symbol.toUpperCase()] || 1;
-        return sum + parseFloat(b.locked_balance) * price;
-      }, 0);
+        const price = new Decimal(priceMap[b.symbol.toUpperCase()] ?? '1');
+        return sum.plus(new Decimal(b.locked_balance).times(price)).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+      }, new Decimal(0));
 
       return reply.send({
         success: true,
         data: {
           balances,
-          totalEquity: { usd: totalUsd, btc: totalUsd / btcPrice },
-          availableBalance: { usd: availableUsd, btc: availableUsd / btcPrice },
-          inUse: { usd: lockedUsd, btc: lockedUsd / btcPrice }
+          totalEquity: { usd: totalUsd.toString(), btc: totalUsd.div(btcPrice).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toString() },
+          availableBalance: { usd: availableUsd.toString(), btc: availableUsd.div(btcPrice).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toString() },
+          inUse: { usd: lockedUsd.toString(), btc: lockedUsd.div(btcPrice).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toString() }
         }
       });
     } catch (error) {
@@ -2817,17 +2925,12 @@ export default async function walletRoutes(app: FastifyInstance) {
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const userId = request.user!.id;
-      let tradingRows: Awaited<ReturnType<typeof readUserBalances>>;
-      try {
-        tradingRows = await readUserBalances(userId, 'trading');
-      } catch {
-        tradingRows = [];
-      }
-      const byCurrency: Record<string, { symbol: string; equity: number }> = {};
+      const tradingRows = await readUserBalances(userId, 'trading');
+      const byCurrency: Record<string, { symbol: string; equity: DecimalInstance }> = {};
       for (const r of tradingRows) {
         byCurrency[r.currency_id] = {
           symbol: r.symbol,
-          equity: parseFloat(r.available_balance || '0') + parseFloat(r.locked_balance || '0')
+          equity: new Decimal(r.available_balance || '0').plus(r.locked_balance || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN)
         };
       }
       const namesResult = await db.query<{ id: string; name: string }>(
@@ -2841,21 +2944,21 @@ export default async function walletRoutes(app: FastifyInstance) {
         token_id,
         symbol: agg.symbol,
         name: nameById[token_id] ?? agg.symbol,
-        equity: agg.equity.toFixed(8),
-        wallet_balance: agg.equity.toFixed(8),
+        equity: agg.equity.toString(),
+        wallet_balance: agg.equity.toString(),
         borrowed_amount: '0',
         used_as_collateral: '0',
-        usd_value: agg.equity.toFixed(8)
+        usd_value: agg.equity.toString()
       }));
-      balances.sort((a, b) => parseFloat(b.equity) - parseFloat(a.equity));
-      const totalEquity = balances.reduce((sum, b) => sum + parseFloat(b.equity), 0);
+      balances.sort((a, b) => new Decimal(b.equity).cmp(a.equity));
+      const totalEquity = balances.reduce((sum, b) => sum.plus(b.equity).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN), new Decimal(0));
 
       return {
         success: true,
         data: {
           balances,
-          totalEquity: { usd: totalEquity },
-          marginBalance: { usd: totalEquity },
+          totalEquity: { usd: totalEquity.toString() },
+          marginBalance: { usd: totalEquity.toString() },
           unrealizedPnl: { usd: 0 },
           marginInfo: { im: 0, imUsd: 0, mm: 0, mmUsd: 0 }
         }
@@ -2877,22 +2980,15 @@ export default async function walletRoutes(app: FastifyInstance) {
   // ============================================
 
   // Get transferable balances between accounts. Uses canonical readUserBalances only.
-  app.get('/transfer/balances', {
+  app.get<{ Querystring: { from?: string; to?: string } }>('/transfer/balances', {
     preHandler: [app.authenticate]
-  }, async (request: FastifyRequest<{
-    Querystring: { from?: string; to?: string }
-  }>, reply: FastifyReply) => {
+  }, async (request, reply) => {
     try {
       const userId = request.user!.id;
       const fromAccount = request.query.from || 'funding';
       const allowedFrom = ['funding', 'spot', 'trading'];
       const account = allowedFrom.includes(fromAccount) ? fromAccount : 'funding';
-      let rows: Awaited<ReturnType<typeof readUserBalances>>;
-      try {
-        rows = await readUserBalances(userId, account);
-      } catch {
-        rows = [];
-      }
+      const rows = await readUserBalances(userId, account);
       const currenciesResult = await db.query<{ id: string; symbol: string; name: string; decimals: number; chain_id: string; chain_name: string }>(`
         SELECT c.id, c.symbol,
           REGEXP_REPLACE(COALESCE(c.name, c.symbol), '\\s*\\([A-Z0-9]+\\)\\s*$', '', 'i') as name,
@@ -2903,10 +2999,10 @@ export default async function walletRoutes(app: FastifyInstance) {
         LEFT JOIN blockchains b ON c.blockchain_id = b.id
         WHERE c.is_active = TRUE
       `);
-      const byId = Object.fromEntries(currenciesResult.rows.map(r => [r.id, r]));
+      const byId = Object.fromEntries(currenciesResult.rows.map((r) => [(r as { id: string }).id, r]));
       const data = rows.map(r => {
         const cur = byId[r.currency_id];
-        const available = (parseFloat(r.available_balance || '0') + parseFloat(r.locked_balance || '0')).toString();
+        const available = new Decimal(r.available_balance || '0').plus(r.locked_balance || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toString();
         return {
           tokenId: r.currency_id,
           symbol: r.symbol,
@@ -2918,7 +3014,7 @@ export default async function walletRoutes(app: FastifyInstance) {
           availableBalance: available
         };
       });
-      data.sort((a, b) => parseFloat(b.availableBalance) - parseFloat(a.availableBalance));
+      data.sort((a, b) => new Decimal(b.availableBalance).cmp(a.availableBalance));
       return { success: true, data };
     } catch (error) {
       logger.error('Failed to get transfer balances', {
@@ -2933,19 +3029,54 @@ export default async function walletRoutes(app: FastifyInstance) {
   });
 
   // Execute internal transfer between accounts
-  app.post('/transfer', {
+  app.post<{ Body: { fromAccount: string; toAccount: string; tokenId: string; amount: string } }>('/transfer', {
     preHandler: [app.authenticate]
-  }, async (request: FastifyRequest<{
-    Body: {
-      fromAccount: string;
-      toAccount: string;
-      tokenId: string;
-      amount: string;
-    }
-  }>, reply: FastifyReply) => {
+  }, async (request, reply) => {
     try {
       const userId = request.user!.id;
       const { fromAccount, toAccount, tokenId, amount } = request.body;
+
+      // Idempotency: check before balance operations
+      const idempotencyKeyRaw = (request.headers[IDEMPOTENCY_KEY_HEADER] ?? request.headers['Idempotency-Key']) as string | undefined;
+      const idempotencyKey = typeof idempotencyKeyRaw === 'string' ? idempotencyKeyRaw.trim() : '';
+      if (!idempotencyKey) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'IDEMPOTENCY_KEY_REQUIRED', message: 'Idempotency-Key header is required for transfer requests.' },
+        });
+      }
+      if (idempotencyKey.length > 256) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'IDEMPOTENCY_KEY_INVALID', message: 'Idempotency-Key must be at most 256 characters.' },
+        });
+      }
+      const transferRequestHash = buildTransferRequestHash(request.body as Record<string, unknown>);
+      const transferRedisKey = `transfer:idempotency:${userId}:${idempotencyKey}`;
+      const transferCached = await redis.getJson<TransferIdempotencyCache>(transferRedisKey);
+      if (transferCached) {
+        if (transferCached.requestHash !== transferRequestHash) {
+          return reply.status(409).send({
+            success: false,
+            error: {
+              code: 'IDEMPOTENCY_KEY_REUSED',
+              message: 'Idempotency-Key was already used with a different request body. Use a new key or the same request body.',
+            },
+          });
+        }
+        return reply.status(200).send(transferCached.response);
+      }
+      const transferLockKey = `transfer:idempotency:lock:${userId}:${idempotencyKey}`;
+      const transferLockAcquired = await redis.setNxEx(transferLockKey, '1', TRANSFER_IDEMPOTENCY_LOCK_TTL_SECONDS);
+      if (!transferLockAcquired) {
+        return reply.status(409).send({
+          success: false,
+          error: {
+            code: 'IDEMPOTENCY_KEY_IN_PROGRESS',
+            message: 'A transfer with this Idempotency-Key is already in progress. Retry after a few seconds.',
+          },
+        });
+      }
 
       // Validate accounts (funding, spot, trading only; no unified)
       const validAccounts = ['funding', 'spot', 'trading'];
@@ -2963,8 +3094,13 @@ export default async function walletRoutes(app: FastifyInstance) {
         });
       }
 
-      const transferAmount = parseFloat(amount);
-      if (isNaN(transferAmount) || transferAmount <= 0) {
+      let transferAmountDec: DecimalInstance;
+      try {
+        transferAmountDec = new Decimal(amount).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+      } catch {
+        transferAmountDec = new Decimal(NaN);
+      }
+      if (!transferAmountDec.isFinite() || transferAmountDec.lte(0)) {
         return reply.status(400).send({
           success: false,
           error: { code: 'INVALID_AMOUNT', message: 'Invalid transfer amount' }
@@ -2983,7 +3119,7 @@ export default async function walletRoutes(app: FastifyInstance) {
         });
       }
 
-      const token = tokenResult.rows[0];
+      const token = tokenResult.rows[0]!;
       const currencyId = await getCurrencyIdBySymbol(token.symbol);
       if (!currencyId) {
         return reply.status(400).send({
@@ -2992,30 +3128,36 @@ export default async function walletRoutes(app: FastifyInstance) {
         });
       }
 
-      // Check available balance in SOURCE account only (canonical readUserBalances).
-      let sourceBalances: Awaited<ReturnType<typeof readUserBalances>>;
-      try {
-        sourceBalances = await readUserBalances(userId, fromAccount);
-      } catch {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'NO_BALANCE_FOR_ACCOUNT', message: 'No balance for this account type. Use funding if you have no spot/trading rows.' }
-        });
-      }
-      const sourceRow = sourceBalances.find(r => r.currency_id === currencyId);
-      const availableBalance = sourceRow ? parseFloat(sourceRow.available_balance || '0') : 0;
-
-      if (availableBalance < transferAmount) {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'INSUFFICIENT_BALANCE', message: 'Insufficient balance for transfer' }
-        });
-      }
-
-      const amountStr = transferAmount.toString();
+      const amountStr = transferAmountDec.toString();
 
       // Debit fromAccount, credit toAccount in user_balances (transaction; abort if debit fails)
+      // Safe pattern: BEGIN → ensure rows → SELECT FOR UPDATE → validate balance → debit → credit → COMMIT
       await db.transaction(async (client) => {
+        await ensureUserBalanceRow(userId, currencyId, CHAIN_ID_GLOBAL, fromAccount, client);
+        await ensureUserBalanceRow(userId, currencyId, CHAIN_ID_GLOBAL, toAccount, client);
+
+        const lockResult = await client.query<{ available_balance: string }>(`
+          SELECT available_balance
+          FROM user_balances
+          WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = $4
+          FOR UPDATE
+        `, [userId, currencyId, CHAIN_ID_GLOBAL, fromAccount]);
+
+        if (lockResult.rows.length === 0) {
+          const err = new Error('NO_BALANCE_FOR_ACCOUNT');
+          (err as { statusCode?: number; code?: string }).statusCode = 400;
+          (err as { statusCode?: number; code?: string }).code = 'NO_BALANCE_FOR_ACCOUNT';
+          throw err;
+        }
+
+        const availableBalance = new Decimal(lockResult.rows[0]!.available_balance || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+        if (availableBalance.lt(transferAmountDec)) {
+          const err = new Error('INSUFFICIENT_BALANCE');
+          (err as { statusCode?: number; code?: string }).statusCode = 400;
+          (err as { statusCode?: number; code?: string }).code = 'INSUFFICIENT_BALANCE';
+          throw err;
+        }
+
         await walletService.debitAvailableBalance(userId, currencyId, fromAccount, amountStr, client);
         await walletService.creditBalanceForAccount(userId, currencyId, toAccount, amountStr, client);
       });
@@ -3025,14 +3167,14 @@ export default async function walletRoutes(app: FastifyInstance) {
         toAccount,
         tokenId,
         symbol: token.symbol,
-        amount: transferAmount
+        amount: amountStr
       });
 
       try {
         await db.query(`
           INSERT INTO internal_transfers (from_user_id, to_user_id, currency_id, amount, transfer_type, status, notes)
           VALUES ($1, $1, $2, $3, 'internal', 'completed', $4)
-        `, [userId, currencyId, transferAmount, `Transfer from ${fromAccount} to ${toAccount}`]);
+        `, [userId, currencyId, amountStr, `Transfer from ${fromAccount} to ${toAccount}`]);
       } catch {
         logger.debug('internal_transfers table not available, skipping record');
       }
@@ -3042,20 +3184,43 @@ export default async function walletRoutes(app: FastifyInstance) {
         fromAccount,
         toAccount,
         symbol: token.symbol,
-        amount: transferAmount
+        amount: amountStr
       });
 
-      return {
+      const transferResponse = {
         success: true,
-        message: `Successfully transferred ${transferAmount} ${token.symbol} from ${fromAccount} to ${toAccount}`,
+        message: `Successfully transferred ${amountStr} ${token.symbol} from ${fromAccount} to ${toAccount}`,
         data: {
           fromAccount,
           toAccount,
           symbol: token.symbol,
-          amount: transferAmount
+          amount: amountStr
         }
       };
+      try {
+        await redis.setJson(
+          transferRedisKey,
+          { requestHash: transferRequestHash, response: transferResponse },
+          TRANSFER_IDEMPOTENCY_TTL_SECONDS
+        );
+      } catch (e) {
+        logger.warn('Transfer idempotency cache set failed', { userId, idempotencyKey: idempotencyKey.slice(0, 32) });
+      }
+      return transferResponse;
     } catch (error) {
+      const err = error as { statusCode?: number; code?: string; message?: string };
+      if (err.statusCode === 400 && err.code === 'NO_BALANCE_FOR_ACCOUNT') {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'NO_BALANCE_FOR_ACCOUNT', message: 'No balance for this account type. Use funding if you have no spot/trading rows.' }
+        });
+      }
+      if (err.statusCode === 400 && err.code === 'INSUFFICIENT_BALANCE') {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INSUFFICIENT_BALANCE', message: 'Insufficient balance for transfer' }
+        });
+      }
       logger.error('Failed to execute transfer', { 
         error: error instanceof Error ? error.message : 'Unknown',
         userId: request.user?.id 
@@ -3068,11 +3233,9 @@ export default async function walletRoutes(app: FastifyInstance) {
   });
 
   // Get transfer history
-  app.get('/transfer/history', {
+  app.get<{ Querystring: { limit?: string; offset?: string } }>('/transfer/history', {
     preHandler: [app.authenticate]
-  }, async (request: FastifyRequest<{
-    Querystring: { limit?: string; offset?: string }
-  }>, reply: FastifyReply) => {
+  }, async (request, reply) => {
     try {
       const userId = request.user!.id;
       const limit = parseInt(request.query.limit || '20');
@@ -3086,7 +3249,8 @@ export default async function walletRoutes(app: FastifyInstance) {
         )
       `);
 
-      if (!tableCheck.rows[0].exists) {
+      const tableRow = tableCheck.rows[0] as { exists: boolean } | undefined;
+      if (!tableRow?.exists) {
         return reply.send({ success: true, data: [], total: 0 });
       }
 
@@ -3166,11 +3330,9 @@ export default async function walletRoutes(app: FastifyInstance) {
   });
 
   // Get P&L data (authenticated)
-  app.get('/pnl', {
+  app.get<{ Querystring: { period?: string; type?: string; symbol?: string } }>('/pnl', {
     preHandler: [app.authenticate]
-  }, async (request: FastifyRequest<{
-    Querystring: { period?: string; type?: string; symbol?: string }
-  }>, reply: FastifyReply) => {
+  }, async (request, reply) => {
     try {
       const userId = request.user!.id;
       const period = request.query.period || '7D';
@@ -3198,16 +3360,20 @@ export default async function walletRoutes(app: FastifyInstance) {
         ORDER BY (sell_value - buy_value) DESC
       `, symbol !== 'all' ? [userId, startDate, symbol] : [userId, startDate]);
 
-      const rankings = tradesResult.rows.map(row => ({
-        symbol: row.symbol,
-        pnl: parseFloat(row.sell_value || '0') - parseFloat(row.buy_value || '0'),
-        pnlPercentage: 0
-      }));
+      const rankings = tradesResult.rows.map((row) => {
+        const r = row as { symbol?: string; sell_value?: string; buy_value?: string };
+        return {
+          symbol: r.symbol ?? 'Unknown',
+          pnl: new Decimal(r.sell_value || '0').minus(r.buy_value || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toString(),
+          pnlPercentage: 0
+        };
+      });
 
-      const totalPnl = rankings.reduce((sum, r) => sum + r.pnl, 0);
-      const totalFilledValue = tradesResult.rows.reduce((sum, r) => 
-        sum + parseFloat(r.buy_value || '0') + parseFloat(r.sell_value || '0'), 0
-      );
+      const totalPnl = rankings.reduce((sum, r) => sum.plus(r.pnl).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN), new Decimal(0));
+      const totalFilledValue = tradesResult.rows.reduce((sum, r) => {
+        const row = r as { buy_value?: string; sell_value?: string };
+        return sum.plus(row.buy_value || '0').plus(row.sell_value || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+      }, new Decimal(0));
 
       // Generate chart data
       const chartData = [];
@@ -3223,7 +3389,7 @@ export default async function walletRoutes(app: FastifyInstance) {
       return {
         success: true,
         data: {
-          summary: { totalPnl, totalFilledValue },
+          summary: { totalPnl: totalPnl.toString(), totalFilledValue: totalFilledValue.toString() },
           rankings,
           chartData
         }
@@ -3241,11 +3407,9 @@ export default async function walletRoutes(app: FastifyInstance) {
   });
 
   // Get deposit history with confirmation tracking (from indexer)
-  app.get('/deposit-history', {
+  app.get<{ Querystring: { page?: string; limit?: string; status?: string } }>('/deposit-history', {
     preHandler: [app.authenticate]
-  }, async (request: FastifyRequest<{
-    Querystring: { page?: string; limit?: string; status?: string }
-  }>, reply: FastifyReply) => {
+  }, async (request, reply) => {
     try {
       const userId = request.user!.id;
       const page = parseInt(request.query.page || '1');
@@ -3253,48 +3417,17 @@ export default async function walletRoutes(app: FastifyInstance) {
       const offset = (page - 1) * limit;
       const status = request.query.status;
 
-      // Repair: complete any pending deposit (only if user_balances + currencies exist; skip rows with missing currency_id)
-      const hasUserBalances = await db.query(
-        `SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_balances'`
-      );
-      if (hasUserBalances.rows.length > 0) {
-        const overdue = await db.query(`
-          SELECT id, user_id, currency_id, amount::numeric as amount
-          FROM deposits
-          WHERE user_id = $1 AND status = 'pending'
-            AND confirmations >= COALESCE(required_confirmations, 25)
-            AND (amount IS NULL OR amount::numeric > 0)
-        `, [userId]).catch(() => ({ rows: [] }));
-        for (const row of (overdue as { rows: { id: string; user_id: string; currency_id: string; amount: string | number }[] }).rows) {
-          try {
-            const cur = await db.query(`SELECT 1 FROM currencies WHERE id = $1`, [row.currency_id]);
-            if (cur.rows.length === 0) {
-              logger.warn('Repair deposit skipped: currency_id not in currencies', { depositId: row.id, currencyId: row.currency_id });
-              continue;
-            }
-            await db.query('BEGIN');
-          await db.query(
-            `UPDATE deposits SET status = 'completed', credited_at = NOW(), updated_at = NOW() WHERE id = $1`,
-            [row.id]
-          );
-          const amount = String(row.amount ?? 0);
-          await ensureUserBalanceRow(row.user_id, row.currency_id, CHAIN_ID_GLOBAL, 'funding');
-          const upd = await db.query(`
-            UPDATE user_balances
-            SET available_balance = available_balance + $1::numeric,
-                pending_balance = GREATEST(pending_balance - $1::numeric, 0),
-                total_deposited = COALESCE(total_deposited, 0) + $1::numeric,
-                updated_at = NOW()
-            WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = 'funding'
-          `, [amount, row.user_id, row.currency_id, CHAIN_ID_GLOBAL]);
-          assertUserBalanceUpdated('deposit_credit_repair', upd, row.user_id, row.currency_id, 'funding', CHAIN_ID_GLOBAL);
-          await db.query('COMMIT');
-          logger.info('Deposit completed (overdue confirmations)', { depositId: row.id, userId: row.user_id });
-        } catch (e) {
-          await db.query('ROLLBACK');
-          logger.warn('Repair deposit failed', { depositId: row.id, error: e });
+      // Repair: complete overdue pending deposits via atomic credit service (no double-credit)
+      try {
+        const hasUserBalances = await db.query(
+          `SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_balances'`
+        );
+        if (hasUserBalances.rows.length > 0) {
+          const { credited } = await creditOverdueDepositsForUser(userId);
+          if (credited > 0) logger.info('Deposit repair: credited overdue deposits', { userId, credited });
         }
-        }
+      } catch (e) {
+        logger.warn('Deposit repair skipped or failed', { userId, error: e instanceof Error ? e.message : 'Unknown' });
       }
 
       let whereClause = 'd.user_id = $1 AND (d.amount IS NULL OR d.amount::numeric > 0)';
@@ -3407,11 +3540,9 @@ export default async function walletRoutes(app: FastifyInstance) {
   });
 
   // Get ALL transactions (deposits + withdrawals + transfers combined)
-  app.get('/transactions/all', {
+  app.get<{ Querystring: { limit?: string; offset?: string; status?: string; coin?: string } }>('/transactions/all', {
     preHandler: [app.authenticate]
-  }, async (request: FastifyRequest<{
-    Querystring: { limit?: string; offset?: string; status?: string; coin?: string }
-  }>, reply: FastifyReply) => {
+  }, async (request, reply) => {
     try {
       const userId = request.user!.id;
       const limit = parseInt(request.query.limit || '50');
@@ -3419,48 +3550,17 @@ export default async function walletRoutes(app: FastifyInstance) {
       const statusFilter = request.query.status?.toLowerCase();
       const coinFilter = request.query.coin?.toUpperCase();
 
-      // Repair: only if user_balances exists; skip rows whose currency_id is not in currencies (avoids FK violation e.g. TRX)
-      const hasUB = await db.query(
-        `SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_balances'`
-      );
-      if (hasUB.rows.length > 0) {
-        const overdue2 = await db.query(`
-          SELECT id, user_id, currency_id, amount::numeric as amount
-          FROM deposits
-          WHERE user_id = $1 AND status = 'pending'
-            AND confirmations >= COALESCE(required_confirmations, 25)
-            AND (amount IS NULL OR amount::numeric > 0)
-        `, [userId]).catch(() => ({ rows: [] }));
-        for (const row of (overdue2 as { rows: { id: string; user_id: string; currency_id: string; amount: string | number }[] }).rows) {
-          try {
-            const cur = await db.query(`SELECT 1 FROM currencies WHERE id = $1`, [row.currency_id]);
-            if (cur.rows.length === 0) {
-              logger.warn('Repair deposit skipped: currency_id not in currencies', { depositId: row.id, currencyId: row.currency_id });
-              continue;
-            }
-            await db.query('BEGIN');
-            await db.query(
-              `UPDATE deposits SET status = 'completed', credited_at = NOW(), updated_at = NOW() WHERE id = $1`,
-              [row.id]
-            );
-            const amount = String(row.amount ?? 0);
-            await ensureUserBalanceRow(row.user_id, row.currency_id, CHAIN_ID_GLOBAL, 'funding');
-            const upd = await db.query(`
-              UPDATE user_balances
-              SET available_balance = available_balance + $1::numeric,
-                  pending_balance = GREATEST(pending_balance - $1::numeric, 0),
-                  total_deposited = COALESCE(total_deposited, 0) + $1::numeric,
-                  updated_at = NOW()
-              WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = 'funding'
-            `, [amount, row.user_id, row.currency_id, CHAIN_ID_GLOBAL]);
-            assertUserBalanceUpdated('deposit_credit_repair', upd, row.user_id, row.currency_id, 'funding', CHAIN_ID_GLOBAL);
-            await db.query('COMMIT');
-            logger.info('Deposit completed (overdue confirmations)', { depositId: row.id, userId: row.user_id });
-          } catch (e) {
-            await db.query('ROLLBACK');
-            logger.warn('Repair deposit failed', { depositId: row.id, error: e });
-          }
+      // Repair: overdue pending deposits via atomic credit service (no double-credit)
+      try {
+        const hasUB = await db.query(
+          `SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_balances'`
+        );
+        if (hasUB.rows.length > 0) {
+          const { credited } = await creditOverdueDepositsForUser(userId);
+          if (credited > 0) logger.info('Deposit repair: credited overdue deposits', { userId, credited });
         }
+      } catch (e) {
+        logger.warn('Deposit repair skipped or failed', { userId, error: e instanceof Error ? e.message : 'Unknown' });
       }
 
       const allTransactions: any[] = [];
@@ -3559,22 +3659,23 @@ export default async function walletRoutes(app: FastifyInstance) {
           withdrawParams.push(coinFilter);
         }
         const withdrawalsResult = await db.query(withdrawQuery, withdrawParams);
-        withdrawalsResult.rows.forEach((row: { id: string; symbol: string; logo_url: string | null; chain_name: string | null; amount: string; address: string | null; tx_hash: string | null; status: string; created_at: string; withdrawal_type?: string; internal_recipient_email?: string | null }) => {
-          const isInternal = row.withdrawal_type === 'internal';
+        withdrawalsResult.rows.forEach((row) => {
+          const r = row as { id: string; symbol: string; logo_url: string | null; chain_name: string | null; amount: string; address: string | null; tx_hash: string | null; status: string; created_at: string; withdrawal_type?: string; internal_recipient_email?: string | null };
+          const isInternal = r.withdrawal_type === 'internal';
           const chainType = isInternal
-            ? `Sent to ${row.internal_recipient_email || 'user'}`
-            : (row.chain_name || 'Unknown');
+            ? `Sent to ${r.internal_recipient_email || 'user'}`
+            : (r.chain_name || 'Unknown');
           allTransactions.push({
-            id: row.id,
+            id: r.id,
             type: 'withdraw',
-            coin: row.symbol || 'Unknown',
-            coin_logo: row.logo_url || `/assets/upload/currency-logo/${(row.symbol || 'btc').toLowerCase()}.svg`,
+            coin: r.symbol || 'Unknown',
+            coin_logo: r.logo_url || `/assets/upload/currency-logo/${(r.symbol || 'btc').toLowerCase()}.svg`,
             chain_type: chainType,
-            quantity: row.amount,
-            address: row.address || (isInternal ? (row.internal_recipient_email || '') : ''),
-            txid: row.tx_hash || '',
-            status: row.status,
-            date_time: row.created_at
+            quantity: r.amount,
+            address: r.address || (isInternal ? (r.internal_recipient_email || '') : ''),
+            txid: r.tx_hash || '',
+            status: r.status,
+            date_time: r.created_at
           });
         });
       } catch (e) {
@@ -3587,7 +3688,8 @@ export default async function walletRoutes(app: FastifyInstance) {
           SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'internal_transfers')
         `);
 
-        if (tableCheck.rows[0].exists) {
+        const tableRow = tableCheck.rows[0] as { exists: boolean } | undefined;
+        if (tableRow?.exists) {
           let transferQuery = `
             SELECT 
               it.id,
@@ -3622,20 +3724,21 @@ export default async function walletRoutes(app: FastifyInstance) {
           }
 
           const transfersResult = await db.query(transferQuery, transferParams);
-          transfersResult.rows.forEach((row: { id: string; from_user_id: string; to_user_id: string; amount: string; status: string; created_at: string; symbol: string; logo_url: string | null; from_email: string | null; to_email: string | null }) => {
-            const isOut = row.from_user_id === userId;
-            const desc = isOut ? `Sent to ${row.to_email || 'user'}` : `Received from ${row.from_email || 'user'}`;
+          transfersResult.rows.forEach((row) => {
+            const r = row as { id: string; from_user_id: string; to_user_id: string; amount: string; status: string; created_at: string; symbol: string; logo_url: string | null; from_email: string | null; to_email: string | null };
+            const isOut = r.from_user_id === userId;
+            const desc = isOut ? `Sent to ${r.to_email || 'user'}` : `Received from ${r.from_email || 'user'}`;
             allTransactions.push({
-              id: row.id,
+              id: r.id,
               type: 'transfer',
-              coin: row.symbol || 'Unknown',
-              coin_logo: row.logo_url || `/assets/upload/currency-logo/${(row.symbol || 'btc').toLowerCase()}.svg`,
+              coin: r.symbol || 'Unknown',
+              coin_logo: r.logo_url || `/assets/upload/currency-logo/${(r.symbol || 'btc').toLowerCase()}.svg`,
               chain_type: desc,
-              quantity: row.amount,
-              address: isOut ? (row.to_email || '') : (row.from_email || ''),
+              quantity: r.amount,
+              address: isOut ? (r.to_email || '') : (r.from_email || ''),
               txid: '',
-              status: row.status,
-              date_time: row.created_at
+              status: r.status,
+              date_time: r.created_at
             });
           });
         }
@@ -3667,11 +3770,9 @@ export default async function walletRoutes(app: FastifyInstance) {
   });
 
   // Get single deposit details with real-time confirmation update
-  app.get('/deposit/:txHash', {
+  app.get<{ Params: { txHash: string } }>('/deposit/:txHash', {
     preHandler: [app.authenticate]
-  }, async (request: FastifyRequest<{
-    Params: { txHash: string }
-  }>, reply: FastifyReply) => {
+  }, async (request, reply) => {
     try {
       const userId = request.user!.id;
       const { txHash } = request.params;
@@ -3697,7 +3798,7 @@ export default async function walletRoutes(app: FastifyInstance) {
         });
       }
 
-      const deposit = result.rows[0];
+      const deposit = result.rows[0]!;
 
       return {
         success: true,

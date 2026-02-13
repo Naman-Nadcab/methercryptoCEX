@@ -33,7 +33,7 @@ export async function logWithdrawalLifecycle(
   event: WithdrawalAuditEvent,
   payload: WithdrawalAuditPayload
 ): Promise<void> {
-  const amountNum = payload.amount != null && payload.amount !== '' ? parseFloat(payload.amount) : null;
+  const amountVal = payload.amount != null && payload.amount !== '' ? payload.amount : null;
   await db.query(
     `INSERT INTO audit_logs (
        action, user_id, withdrawal_id, admin_id, token_id, chain_id, amount,
@@ -46,7 +46,7 @@ export async function logWithdrawalLifecycle(
       payload.admin_id ?? null,
       payload.token_id ?? null,
       payload.chain_id ?? null,
-      amountNum,
+      amountVal,
       payload.ip ?? null,
       payload.user_agent ?? null,
       payload.withdrawal_id ?? null,

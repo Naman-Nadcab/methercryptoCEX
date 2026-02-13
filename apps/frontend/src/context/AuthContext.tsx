@@ -32,6 +32,19 @@ function getStoredAccessToken(): string | null {
   }
 }
 
+function getStoredRefreshToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { state?: { refreshToken?: string | null } };
+    const token = parsed?.state?.refreshToken;
+    return typeof token === 'string' && token.length > 0 ? token : null;
+  } catch {
+    return null;
+  }
+}
+
 function mapMeResponseToUser(data: Record<string, unknown>): User {
   return {
     id: String(data.id ?? ''),
@@ -54,6 +67,27 @@ function mapMeResponseToUser(data: Record<string, unknown>): User {
   };
 }
 
+async function tryRefreshFromStorage(): Promise<string | null> {
+  const refreshToken = getStoredRefreshToken();
+  if (!refreshToken) return null;
+  const apiUrl = getApiBaseUrl();
+  try {
+    const res = await fetch(`${apiUrl}/api/v1/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data?.success && data?.data?.accessToken) {
+      const { setTokens } = useAuthStore.getState();
+      setTokens(data.data.accessToken, data.data.refreshToken ?? refreshToken);
+      return data.data.accessToken;
+    }
+  } catch (_) {}
+  return null;
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('loading');
   const [user, setUserState] = useState<User | null>(null);
@@ -63,6 +97,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const setUser = useAuthStore((s) => s.setUser);
   const authFlags = useAuthStore((s) => s.authFlags);
   const authResolved = useAuthStore((s) => s.authResolved);
+  const _hasHydrated = useAuthStore((s) => s._hasHydrated);
   const meCalled = useRef(false);
 
   const setAuthenticated = useCallback((u: User) => {
@@ -80,25 +115,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [logout, setAuthFlags]);
 
   useEffect(() => {
-    if (meCalled.current) return;
+    if (!_hasHydrated || meCalled.current) return;
     meCalled.current = true;
+    const controller = new AbortController();
 
-    const token = getStoredAccessToken();
     const apiUrl = getApiBaseUrl();
-    const headers: HeadersInit = { 'Content-Type': 'application/json' };
-    if (token) (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
 
-    fetch(`${apiUrl}/api/v1/auth/me`, { headers })
-      .then((res) => {
+    const runMe = async () => {
+      let token = getStoredAccessToken();
+      try {
+        let res = await fetch(`${apiUrl}/api/v1/auth/me`, {
+          signal: controller.signal,
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token && { Authorization: `Bearer ${token}` }),
+          },
+        });
+        if (res.status === 401 && token) {
+          const newToken = await tryRefreshFromStorage();
+          if (newToken) {
+            token = newToken;
+            res = await fetch(`${apiUrl}/api/v1/auth/me`, {
+              signal: controller.signal,
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            });
+          }
+        }
         if (res.status === 401 || !res.ok) {
           setAuthResolved(true);
           setAuthFlags(0);
           setUnauthenticated();
-          return null;
+          return;
         }
-        return res.json();
-      })
-      .then((json) => {
+        const json = await res.json();
         setAuthResolved(true);
         if (json?.success && json?.data) {
           const flags = typeof json.data.auth_flags === 'number' ? json.data.auth_flags : 0;
@@ -115,15 +164,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setAuthFlags(0);
           setUnauthenticated();
         }
-      })
-      .catch(() => {
+      } catch (e) {
+        if ((e as Error).name === 'AbortError') return;
         setAuthResolved(true);
         setAuthFlags(0);
         setUnauthenticated();
-      });
-  }, [setAuthResolved, setAuthFlags, setUnauthenticated, setUser]);
+      }
+    };
+    runMe();
+    return () => {
+      controller.abort();
+      meCalled.current = false;
+    };
+  }, [_hasHydrated, setAuthResolved, setAuthFlags, setUnauthenticated, setUser]);
 
   const isAuthenticated = authFlags > 0;
+  const showChildren = _hasHydrated && authResolved;
 
   const value: AuthContextValue = {
     status,
@@ -136,7 +192,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider value={value}>
-      {!authResolved ? (
+      {!showChildren ? (
         <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0e11]" role="status" aria-label="Loading">
           <div className="animate-spin rounded-full h-10 w-10 border-2 border-blue-500 border-t-transparent" />
         </div>

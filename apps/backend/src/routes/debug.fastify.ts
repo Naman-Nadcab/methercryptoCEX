@@ -3,7 +3,8 @@
  * Returns user_balances rows, computed total, and warning if balances table still has rows.
  */
 
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { Decimal } from '../lib/decimal.js';
+import type { FastifyInstance } from 'fastify';
 import { db } from '../lib/database.js';
 import { logger } from '../lib/logger.js';
 
@@ -11,7 +12,7 @@ export default async function debugRoutes(app: FastifyInstance) {
   // GET /api/v1/debug/user-balance/:email — same contract as wallet balance-debug (email = path param)
   app.get<{ Params: { email: string } }>('/user-balance/:email', {
     preHandler: [app.authenticate],
-  }, async (request: FastifyRequest<{ Params: { email: string } }>, reply: FastifyReply) => {
+  }, async (request, reply) => {
     try {
       const currentUserId = request.user!.id;
       const email = request.params.email;
@@ -52,11 +53,11 @@ export default async function debugRoutes(app: FastifyInstance) {
         WHERE ub.user_id = $1 AND COALESCE(ub.account_type::text, 'funding') = 'trading'
       `, [userId]);
 
-      const fundingTotal = parseFloat(fundingSum.rows[0]?.total || '0');
-      const tradingTotal = parseFloat(tradingSum.rows[0]?.total || '0');
+      const fundingTotal = new Decimal(fundingSum.rows[0]?.total || '0');
+      const tradingTotal = new Decimal(tradingSum.rows[0]?.total || '0');
       const reason_if_zero = ubRows.rows.length === 0
         ? 'BUG: ZERO rows in user_balances for this user — deposit credit or ensureUserBalanceRow did not create row.'
-        : fundingTotal === 0 && tradingTotal === 0
+        : fundingTotal.isZero() && tradingTotal.isZero()
           ? 'Rows exist but SUM(available_balance + locked_balance) is 0 for funding and trading. Check account_type matches (canonical: funding).'
           : null;
 
@@ -70,9 +71,9 @@ export default async function debugRoutes(app: FastifyInstance) {
           user_balances_rows: ubRows.rows,
           user_balances_row_count: ubRows.rows.length,
           dashboard_summary: {
-            funding_total: fundingTotal,
-            trading_total: tradingTotal,
-            total: fundingTotal + tradingTotal,
+            funding_total: fundingTotal.toString(),
+            trading_total: tradingTotal.toString(),
+            total: fundingTotal.plus(tradingTotal).toString(),
           },
           reason_if_zero: reason_if_zero ?? 'Balance data present; dashboard should show non-zero.',
           balances_table_warning,

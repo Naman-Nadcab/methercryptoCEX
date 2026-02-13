@@ -48,7 +48,7 @@ async function tryAcquireLock(key: string): Promise<boolean> {
 
 async function authLockPlugin(app: FastifyInstance) {
   app.addHook('preHandler', async (request: FastifyRequest, reply: FastifyReply) => {
-    const path = request.url.split('?')[0];
+    const path = request.url.split('?')[0] ?? '/';
     const method = request.method;
     if (!isAuthSensitive(path, method)) return;
 

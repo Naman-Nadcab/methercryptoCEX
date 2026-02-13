@@ -11,6 +11,15 @@ export interface AuthDecision {
 const SESSION_CORE_URL = 'http://localhost:7001/validate';
 const SESSION_CORE_TIMEOUT_MS = 5000;
 
+/** Fallback when session-core is unavailable; allows request to proceed with JWT auth. */
+const FALLBACK_AUTH_DECISION: Readonly<AuthDecision> = Object.freeze({
+  session_id: null,
+  user_id: null,
+  auth_flags: 0,
+  risk_state: 'session_core_unavailable',
+  expires_at: null,
+});
+
 function isAuthDecisionShape(v: unknown): v is AuthDecision {
   if (v == null || typeof v !== 'object') return false;
   const o = v as Record<string, unknown>;
@@ -33,57 +42,51 @@ async function authDecisionPlugin(app: FastifyInstance) {
       ip_hash: null,
     });
 
-    let res: Response;
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), SESSION_CORE_TIMEOUT_MS);
-      res = await fetch(SESSION_CORE_URL, {
+      const res = await fetch(SESSION_CORE_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body,
         signal: controller.signal,
       });
       clearTimeout(timeout);
-    } catch {
-      return reply.status(503).send({
-        success: false,
-        error: { code: 'SERVICE_UNAVAILABLE', message: 'Session service unavailable' },
-      });
-    }
 
-    if (!res.ok) {
-      return reply.status(503).send({
-        success: false,
-        error: { code: 'SERVICE_UNAVAILABLE', message: 'Session service unavailable' },
-      });
-    }
+      if (!res.ok) {
+        request.log.warn({ status: res.status, url: request.url }, 'session-core validate returned non-2xx');
+        (request as FastifyRequest & { authDecision: Readonly<AuthDecision> }).authDecision = FALLBACK_AUTH_DECISION;
+        return;
+      }
 
-    let json: unknown;
-    try {
-      json = await res.json();
-    } catch {
-      return reply.status(503).send({
-        success: false,
-        error: { code: 'SERVICE_UNAVAILABLE', message: 'Session service unavailable' },
-      });
-    }
+      let json: unknown;
+      try {
+        json = await res.json();
+      } catch {
+        request.log.warn({ url: request.url }, 'session-core response not valid JSON');
+        (request as FastifyRequest & { authDecision: Readonly<AuthDecision> }).authDecision = FALLBACK_AUTH_DECISION;
+        return;
+      }
 
-    if (!isAuthDecisionShape(json)) {
-      return reply.status(503).send({
-        success: false,
-        error: { code: 'SERVICE_UNAVAILABLE', message: 'Session service unavailable' },
-      });
-    }
+      if (!isAuthDecisionShape(json)) {
+        request.log.warn({ url: request.url }, 'session-core response shape invalid');
+        (request as FastifyRequest & { authDecision: Readonly<AuthDecision> }).authDecision = FALLBACK_AUTH_DECISION;
+        return;
+      }
 
-    const authDecision: AuthDecision = {
-      session_id: json.session_id,
-      user_id: json.user_id,
-      auth_flags: json.auth_flags,
-      risk_state: json.risk_state,
-      expires_at: json.expires_at,
-    };
-    Object.freeze(authDecision);
-    (request as FastifyRequest & { authDecision: Readonly<AuthDecision> }).authDecision = authDecision;
+      const authDecision: AuthDecision = {
+        session_id: json.session_id,
+        user_id: json.user_id,
+        auth_flags: json.auth_flags,
+        risk_state: json.risk_state,
+        expires_at: json.expires_at,
+      };
+      Object.freeze(authDecision);
+      (request as FastifyRequest & { authDecision: Readonly<AuthDecision> }).authDecision = authDecision;
+    } catch (err) {
+      request.log.warn({ err: err instanceof Error ? err.message : String(err), url: request.url }, 'session-core validate failed (network/timeout)');
+      (request as FastifyRequest & { authDecision: Readonly<AuthDecision> }).authDecision = FALLBACK_AUTH_DECISION;
+    }
   });
 }
 

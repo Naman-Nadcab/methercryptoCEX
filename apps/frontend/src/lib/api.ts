@@ -67,8 +67,10 @@ async function refreshAccessToken(): Promise<string | null> {
     console.error('Token refresh failed:', error);
   }
 
-  // Refresh failed, logout user
-  useAuthStore.getState().logout();
+  // Only logout when store has hydrated - prevents false logout during bootstrap
+  if (useAuthStore.getState()._hasHydrated) {
+    useAuthStore.getState().logout();
+  }
   return null;
 }
 

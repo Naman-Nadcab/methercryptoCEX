@@ -56,13 +56,6 @@ async function scanPastDeposits() {
     if (tokenAddress === USDC_POLYGON.toLowerCase() || tokenAddress === USDC_BRIDGED_POLYGON.toLowerCase()) {
       console.log('  ✅ This is USDC!');
       
-      // Check if already in database
-      const existing = await pool.query('SELECT id FROM deposits WHERE tx_hash = $1', [log.transactionHash]);
-      if (existing.rows.length > 0) {
-        console.log('  ⏭️  Already in database');
-        continue;
-      }
-      
       // Get user ID
       const userResult = await pool.query(`
         SELECT uw.user_id 
@@ -99,8 +92,8 @@ async function scanPastDeposits() {
       const block = await provider.getBlock(log.blockNumber);
       const blockTimestamp = block?.timestamp || Math.floor(Date.now() / 1000);
       
-      // Insert deposit
-      await pool.query(`
+      // Insert deposit. ON CONFLICT DO NOTHING prevents duplicate for same (blockchain_id, tx_hash, to_address).
+      const insertResult = await pool.query(`
         INSERT INTO deposits (
           id, user_id, currency_id, blockchain_id, wallet_id, tx_hash, 
           from_address, to_address, amount, confirmations, 
@@ -110,6 +103,8 @@ async function scanPastDeposits() {
           gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, 
           $9, 128, $10, to_timestamp($11), 'completed', NOW(), NOW()
         )
+        ON CONFLICT (blockchain_id, tx_hash, to_address) DO NOTHING
+        RETURNING id
       `, [
         userId,
         currencyId,
@@ -123,10 +118,15 @@ async function scanPastDeposits() {
         log.blockNumber,
         blockTimestamp
       ]);
-      
+
+      if (insertResult.rows.length === 0) {
+        console.log('  ⏭️  Already in database (duplicate tx), skipping');
+        continue;
+      }
+
       console.log('  ✅ Deposit added to database!');
-      
-      // Credit user balance (global row: chain_id = '')
+
+      // Credit user balance only when we inserted a new deposit (avoids double credit on re-run).
       const CHAIN_ID_GLOBAL = '';
       await pool.query(`
         INSERT INTO user_balances (id, user_id, currency_id, chain_id, available_balance, locked_balance, account_type, updated_at)
@@ -134,7 +134,7 @@ async function scanPastDeposits() {
         ON CONFLICT (user_id, currency_id, chain_id, account_type)
         DO UPDATE SET available_balance = user_balances.available_balance + $4, updated_at = NOW()
       `, [userId, currencyId, CHAIN_ID_GLOBAL, amount]);
-      
+
       console.log('  ✅ Balance credited!');
     }
   }

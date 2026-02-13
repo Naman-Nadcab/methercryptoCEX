@@ -218,8 +218,7 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     if (pathname !== path) return false;
     if (!q) return searchParams.get('type') !== 'internal';
     const want = new URLSearchParams(q);
-    for (const [k, v] of want) if (searchParams.get(k) !== v) return false;
-    return true;
+    return Array.from(want.entries()).every(([k, v]) => searchParams.get(k) === v);
   };
   const isParentActive = (children?: { href: string }[]) =>
     children?.some((child) => {
@@ -227,8 +226,7 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
       if (pathname !== (p || child.href)) return false;
       if (!q) return true;
       const want = new URLSearchParams(q);
-      for (const [k, v] of want) if (searchParams.get(k) !== v) return false;
-      return true;
+      return Array.from(want.entries()).every(([k, v]) => searchParams.get(k) === v);
     });
 
   return (

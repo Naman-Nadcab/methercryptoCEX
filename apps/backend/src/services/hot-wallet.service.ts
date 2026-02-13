@@ -6,8 +6,10 @@
  * - All actions audited with actor_id and payload_hash.
  * - Explicit error codes; no silent failures. Fail closed.
  * - One hot wallet per chain family (EVM, Bitcoin, Solana, Tron, Polkadot); same as user-side chains.
+ * - Monetary amounts: Decimal.js only, no float.
  */
 
+import { Decimal } from '../lib/decimal.js';
 import { Wallet, JsonRpcProvider, Contract } from 'ethers';
 import { db } from '../lib/database.js';
 import { encryption } from '../lib/encryption.js';
@@ -360,8 +362,8 @@ export interface HotWalletCapCheck {
  * Get per-hot-wallet withdrawal caps for a chain (chain-aware via resolveHotWalletChainId).
  */
 export async function getHotWalletCaps(chainId: string): Promise<{
-  max_single_tx: number | null;
-  max_daily_outflow: number | null;
+  max_single_tx: string | null;
+  max_daily_outflow: string | null;
 } | null> {
   const resolved = await resolveHotWalletChainId(chainId);
   if (!resolved) return null;
@@ -372,17 +374,18 @@ export async function getHotWalletCaps(chainId: string): Promise<{
   const row = result.rows[0];
   if (!row) return null;
   return {
-    max_single_tx: row.max_single_tx != null ? parseFloat(row.max_single_tx) : null,
-    max_daily_outflow: row.max_daily_outflow != null ? parseFloat(row.max_daily_outflow) : null,
+    max_single_tx: row.max_single_tx != null && row.max_single_tx !== '' ? row.max_single_tx : null,
+    max_daily_outflow: row.max_daily_outflow != null && row.max_daily_outflow !== '' ? row.max_daily_outflow : null,
   };
 }
 
 /**
  * Rolling 24h outflow for a chain (sum of net_amount of completed withdrawals, chain-aware).
+ * Returns string for Decimal-safe comparison.
  */
-export async function getDailyOutflowForChain(chainId: string): Promise<number> {
+export async function getDailyOutflowForChain(chainId: string): Promise<string> {
   const resolved = await resolveHotWalletChainId(chainId);
-  if (!resolved) return 0;
+  if (!resolved) return '0';
   const result = await db.query<{ total: string }>(
     `SELECT COALESCE(SUM(net_amount), 0)::text AS total
      FROM withdrawals
@@ -390,35 +393,43 @@ export async function getDailyOutflowForChain(chainId: string): Promise<number> 
        AND completed_at >= (NOW() - INTERVAL '24 hours')`,
     [resolved]
   );
-  return parseFloat(result.rows[0]?.total ?? '0');
+  return result.rows[0]?.total ?? '0';
 }
+
+const ROUND_DOWN = 1;
 
 /**
  * Check per-hot-wallet caps before enqueue or sign. Chain-aware.
- * Withdrawal amount is the net_amount (value sent from hot wallet).
+ * Withdrawal amount is the net_amount (value sent from hot wallet). Decimal.js only.
  */
 export async function checkHotWalletCaps(
   chainId: string,
-  withdrawalNetAmount: number
+  withdrawalNetAmount: string
 ): Promise<HotWalletCapCheck> {
   const caps = await getHotWalletCaps(chainId);
   if (!caps) {
     return { allowed: true, code: HotWalletCapCodes.OK };
   }
-  if (caps.max_single_tx != null && withdrawalNetAmount > caps.max_single_tx) {
-    return {
-      allowed: false,
-      code: HotWalletCapCodes.SINGLE_TX_CAP_EXCEEDED,
-      message: `Single withdrawal exceeds hot wallet limit for this chain (max ${caps.max_single_tx})`,
-    };
+  const amount = new Decimal(withdrawalNetAmount).toDecimalPlaces(18, ROUND_DOWN);
+  if (caps.max_single_tx != null && caps.max_single_tx !== '') {
+    const maxSingle = new Decimal(caps.max_single_tx).toDecimalPlaces(18, ROUND_DOWN);
+    if (amount.gt(maxSingle)) {
+      return {
+        allowed: false,
+        code: HotWalletCapCodes.SINGLE_TX_CAP_EXCEEDED,
+        message: `Single withdrawal exceeds hot wallet limit for this chain (max ${caps.max_single_tx})`,
+      };
+    }
   }
-  if (caps.max_daily_outflow != null) {
-    const dailyOutflow = await getDailyOutflowForChain(chainId);
-    if (dailyOutflow + withdrawalNetAmount > caps.max_daily_outflow) {
+  if (caps.max_daily_outflow != null && caps.max_daily_outflow !== '') {
+    const dailyOutflowStr = await getDailyOutflowForChain(chainId);
+    const dailyOutflow = new Decimal(dailyOutflowStr).toDecimalPlaces(18, ROUND_DOWN);
+    const limit = new Decimal(caps.max_daily_outflow).toDecimalPlaces(18, ROUND_DOWN);
+    if (dailyOutflow.plus(amount).gt(limit)) {
       return {
         allowed: false,
         code: HotWalletCapCodes.DAILY_CAP_EXCEEDED,
-        message: `Daily outflow limit exceeded for this chain (used ${dailyOutflow}, limit ${caps.max_daily_outflow})`,
+        message: `Daily outflow limit exceeded for this chain (used ${dailyOutflowStr}, limit ${caps.max_daily_outflow})`,
       };
     }
   }
@@ -712,6 +723,35 @@ export async function migrateAllHotWalletsToEnvelope(): Promise<{ migrated: numb
 
 const RPC_BALANCE_TIMEOUT_MS = 15_000;
 
+/**
+ * PHASE-16: Read-only live balance fetch. Does NOT update balance_cache.
+ * Use for authority validation and drift detection. On RPC failure or non-EVM returns null (fail closed).
+ */
+export async function getLiveBalanceReadOnly(chainId: string): Promise<{ balanceWei: string } | null> {
+  chainId = String(chainId).trim();
+  const walletRow = await db.query<{ address: string }>(
+    'SELECT address FROM hot_wallets WHERE chain_id = $1 AND is_active = TRUE',
+    [chainId]
+  );
+  if (walletRow.rows.length === 0) return null;
+  const chainRow = await db.query<{ type: string; rpc_url: string }>('SELECT type, rpc_url FROM chains WHERE id = $1', [chainId]);
+  if (chainRow.rows.length === 0) return null;
+  if (chainRow.rows[0]!.type !== 'evm') return null;
+  const address = walletRow.rows[0]!.address;
+  const rpcUrl = chainRow.rows[0]!.rpc_url;
+  try {
+    const provider = new JsonRpcProvider(rpcUrl);
+    const balancePromise = provider.getBalance(address);
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('RPC timeout')), RPC_BALANCE_TIMEOUT_MS)
+    );
+    const balance = await Promise.race([balancePromise, timeoutPromise]);
+    return { balanceWei: balance.toString() };
+  } catch {
+    return null;
+  }
+}
+
 export async function refreshBalanceCache(
   chainId: string,
   actorId?: string
@@ -830,11 +870,14 @@ export async function getHotWalletBalancesForChains(
       try {
         if (t.is_native || !t.contract_address) {
           const bal = await Promise.race([provider.getBalance(address), timeout(RPC_BALANCE_TIMEOUT_MS)]);
-          balanceStr = bal.toString();
+          balanceStr = bal != null ? String(bal) : '0';
         } else {
           const contract = new Contract(t.contract_address, ERC20_ABI, provider);
-          const bal = await Promise.race([contract.balanceOf(address), timeout(RPC_BALANCE_TIMEOUT_MS)]);
-          balanceStr = bal.toString();
+          const balanceOf = contract.balanceOf;
+          const bal = balanceOf
+            ? await Promise.race([balanceOf(address), timeout(RPC_BALANCE_TIMEOUT_MS)])
+            : 0n;
+          balanceStr = bal != null ? String(bal) : '0';
         }
       } catch {
         balanceStr = '0';

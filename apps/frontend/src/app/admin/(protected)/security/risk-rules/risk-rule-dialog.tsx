@@ -22,6 +22,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import type { RiskRuleRecord, RiskScope, RiskDecision } from '@/lib/securityApi';
+import type { UseFormReturn } from 'react-hook-form';
 
 const SCOPE_OPTIONS: { value: RiskScope; label: string }[] = [
   { value: 'login', label: 'Login' },
@@ -108,6 +109,13 @@ export function RiskRuleDialog({
   });
 
   const form = isEdit ? editForm : createForm;
+  const baseForm = form as UseFormReturn<{
+    min_score: number;
+    max_score: number;
+    decision: RiskDecision;
+    priority?: number;
+    enabled: boolean;
+  }>;
 
   useEffect(() => {
     if (open && rule) {
@@ -153,8 +161,8 @@ export function RiskRuleDialog({
                 Scope
               </label>
               <Select
-                value={form.watch('scope')}
-                onValueChange={(v) => form.setValue('scope', v as RiskScope)}
+                value={createForm.watch('scope')}
+                onValueChange={(v) => createForm.setValue('scope', v as RiskScope)}
               >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select scope" />
@@ -167,9 +175,9 @@ export function RiskRuleDialog({
                   ))}
                 </SelectContent>
               </Select>
-              {form.formState.errors.scope && (
+              {createForm.formState.errors.scope && (
                 <p className="text-xs text-red-600 dark:text-red-400">
-                  {form.formState.errors.scope.message}
+                  {createForm.formState.errors.scope.message}
                 </p>
               )}
             </div>
@@ -192,11 +200,11 @@ export function RiskRuleDialog({
                 type="number"
                 min={0}
                 max={100}
-                {...form.register('min_score', { valueAsNumber: true })}
+                {...baseForm.register('min_score', { valueAsNumber: true })}
               />
-              {form.formState.errors.min_score && (
+              {baseForm.formState.errors.min_score && (
                 <p className="text-xs text-red-600 dark:text-red-400">
-                  {form.formState.errors.min_score.message}
+                  {baseForm.formState.errors.min_score.message}
                 </p>
               )}
             </div>
@@ -208,11 +216,11 @@ export function RiskRuleDialog({
                 type="number"
                 min={0}
                 max={100}
-                {...form.register('max_score', { valueAsNumber: true })}
+                {...baseForm.register('max_score', { valueAsNumber: true })}
               />
-              {form.formState.errors.max_score && (
+              {baseForm.formState.errors.max_score && (
                 <p className="text-xs text-red-600 dark:text-red-400">
-                  {form.formState.errors.max_score.message}
+                  {baseForm.formState.errors.max_score.message}
                 </p>
               )}
             </div>
@@ -223,8 +231,8 @@ export function RiskRuleDialog({
               Decision
             </label>
             <Select
-              value={form.watch('decision')}
-              onValueChange={(v) => form.setValue('decision', v as RiskDecision)}
+              value={baseForm.watch('decision')}
+              onValueChange={(v) => baseForm.setValue('decision', v as RiskDecision)}
             >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Select decision" />
@@ -237,9 +245,9 @@ export function RiskRuleDialog({
                 ))}
               </SelectContent>
             </Select>
-            {form.formState.errors.decision && (
+            {baseForm.formState.errors.decision && (
               <p className="text-xs text-red-600 dark:text-red-400">
-                {form.formState.errors.decision.message}
+                {baseForm.formState.errors.decision.message}
               </p>
             )}
           </div>
@@ -251,7 +259,7 @@ export function RiskRuleDialog({
             <Input
               type="number"
               step={1}
-              {...form.register('priority', {
+              {...baseForm.register('priority', {
                 setValueAs: (v) => {
                   if (v === '' || v === undefined) return undefined;
                   const n = Number(v);
@@ -266,8 +274,8 @@ export function RiskRuleDialog({
               Enabled
             </label>
             <Switch
-              checked={form.watch('enabled')}
-              onCheckedChange={(checked) => form.setValue('enabled', checked)}
+              checked={baseForm.watch('enabled')}
+              onCheckedChange={(checked) => baseForm.setValue('enabled', checked)}
             />
           </div>
 

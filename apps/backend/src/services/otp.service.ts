@@ -333,14 +333,12 @@ class OTPService {
       },
     });
 
-    const data = await response.json();
-    
-    if (!response.ok || data.return === false) {
+    const data = await response.json() as { return?: boolean; message?: string; request_id?: string; message_ids?: unknown } | undefined;
+    if (!response.ok || data?.return === false) {
       logger.error('Fast2SMS error response', { data });
-      throw new Error(`Fast2SMS error: ${data.message || response.statusText}`);
+      throw new Error(`Fast2SMS error: ${data?.message ?? response.statusText}`);
     }
-
-    logger.info('Fast2SMS success', { requestId: data.request_id, messageIds: data.message_ids });
+    logger.info('Fast2SMS success', { requestId: data?.request_id, messageIds: data?.message_ids });
   }
 
   /**

@@ -311,9 +311,9 @@ export default function LoginPage() {
           // Multi-step verification required
           setVerificationState({
             token: data.data.verificationToken!,
-            stepsRequired: data.data.stepsRequired ?? [],
+            stepsRequired: (data.data.stepsRequired ?? []) as VerificationStep[],
             currentStep: data.data.currentStep ?? 0,
-            nextStep: data.data.nextStep ?? null,
+            nextStep: (data.data.nextStep ?? null) as VerificationStep | null,
             maskedPhone: data.data.maskedPhone ?? null,
             maskedEmail: data.data.maskedEmail ?? null,
           });

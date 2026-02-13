@@ -1,12 +1,14 @@
 import { Router, Request, Response } from 'express';
 import { body, query, param, validationResult } from 'express-validator';
-import { authenticate, requireKYC, AuthenticatedRequest } from '../middleware/auth.js';
+import { authenticate, requireKYC } from '../middleware/auth.js';
+import type { AuthenticatedRequest } from '../types/index.js';
 import { rateLimiters } from '../middleware/rateLimiter.js';
 import { p2pService } from '../services/p2p.service.js';
+import { evaluateP2PRisk } from '../services/abuse-resilience.service.js';
 import { P2PAdType, P2PPriceType, P2POrderStatus } from '../types/index.js';
 import { logger } from '../lib/logger.js';
 
-const router = Router();
+const router: Router = Router();
 
 // Validation error handler
 const handleValidation = (req: Request, res: Response, next: Function) => {
@@ -163,16 +165,17 @@ router.patch(
   async (req: Request, res: Response) => {
     try {
       const user = (req as AuthenticatedRequest).user;
-      const { adId } = req.params;
+      const adId = req.params.adId;
+      if (!adId) return res.status(400).json({ success: false, error: { code: 'MISSING_PARAM', message: 'adId required' } });
 
       const ad = await p2pService.updateAd(adId, user.id, req.body);
 
-      res.json({
+      return res.json({
         success: true,
         data: ad,
       });
     } catch (error) {
-      res.status(400).json({
+      return res.status(400).json({
         success: false,
         error: {
           code: 'UPDATE_FAILED',
@@ -195,16 +198,17 @@ router.delete(
   async (req: Request, res: Response) => {
     try {
       const user = (req as AuthenticatedRequest).user;
-      const { adId } = req.params;
+      const adId = req.params.adId;
+      if (!adId) return res.status(400).json({ success: false, error: { code: 'MISSING_PARAM', message: 'adId required' } });
 
       const ad = await p2pService.cancelAd(adId, user.id);
 
-      res.json({
+      return res.json({
         success: true,
         data: ad,
       });
     } catch (error) {
-      res.status(400).json({
+      return res.status(400).json({
         success: false,
         error: {
           code: 'CANCEL_FAILED',
@@ -233,6 +237,24 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const user = (req as AuthenticatedRequest).user;
+      const ip = (req as { ip?: string }).ip ?? req.headers['x-forwarded-for'] ?? req.socket?.remoteAddress ?? null;
+      const ipStr = Array.isArray(ip) ? ip[0] : String(ip ?? '');
+
+      const cfCountry = req.headers['cf-ipcountry'];
+      const countryCode = (typeof cfCountry === 'string' ? cfCountry : Array.isArray(cfCountry) ? cfCountry[0] : null) ?? null;
+      const decision = await evaluateP2PRisk({
+        userId: user.id,
+        requestId: (req as { id?: string }).id ?? (typeof req.headers['x-request-id'] === 'string' ? req.headers['x-request-id'] : null),
+        ip: ipStr || undefined,
+        countryCode,
+        isVpnOrTor: (req as { isVpnOrTor?: boolean }).isVpnOrTor,
+      });
+      if (decision === 'block') {
+        return res.status(403).json({
+          success: false,
+          error: { code: 'RISK_BLOCKED', message: 'Request blocked by risk policy' },
+        });
+      }
 
       const order = await p2pService.createOrder({
         userId: user.id,
@@ -241,12 +263,12 @@ router.post(
         paymentMethodId: req.body.paymentMethodId,
       });
 
-      res.status(201).json({
+      return res.status(201).json({
         success: true,
         data: order,
       });
     } catch (error) {
-      res.status(400).json({
+      return res.status(400).json({
         success: false,
         error: {
           code: 'ORDER_FAILED',
@@ -269,16 +291,17 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const user = (req as AuthenticatedRequest).user;
-      const { orderId } = req.params;
+      const orderId = req.params.orderId;
+      if (!orderId) return res.status(400).json({ success: false, error: { code: 'MISSING_PARAM', message: 'orderId required' } });
 
       const order = await p2pService.confirmPayment(orderId, user.id);
 
-      res.json({
+      return res.json({
         success: true,
         data: order,
       });
     } catch (error) {
-      res.status(400).json({
+      return res.status(400).json({
         success: false,
         error: {
           code: 'CONFIRM_FAILED',
@@ -301,16 +324,17 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const user = (req as AuthenticatedRequest).user;
-      const { orderId } = req.params;
+      const orderId = req.params.orderId;
+      if (!orderId) return res.status(400).json({ success: false, error: { code: 'MISSING_PARAM', message: 'orderId required' } });
 
       const order = await p2pService.releaseCrypto(orderId, user.id);
 
-      res.json({
+      return res.json({
         success: true,
         data: order,
       });
     } catch (error) {
-      res.status(400).json({
+      return res.status(400).json({
         success: false,
         error: {
           code: 'RELEASE_FAILED',
@@ -336,17 +360,18 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const user = (req as AuthenticatedRequest).user;
-      const { orderId } = req.params;
+      const orderId = req.params.orderId;
+      if (!orderId) return res.status(400).json({ success: false, error: { code: 'MISSING_PARAM', message: 'orderId required' } });
       const { reason } = req.body;
 
       const order = await p2pService.cancelOrder(orderId, user.id, reason);
 
-      res.json({
+      return res.json({
         success: true,
         data: order,
       });
     } catch (error) {
-      res.status(400).json({
+      return res.status(400).json({
         success: false,
         error: {
           code: 'CANCEL_FAILED',
@@ -374,17 +399,18 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const user = (req as AuthenticatedRequest).user;
-      const { orderId } = req.params;
+      const orderId = req.params.orderId;
+      if (!orderId) return res.status(400).json({ success: false, error: { code: 'MISSING_PARAM', message: 'orderId required' } });
       const { reason, evidence } = req.body;
 
       const dispute = await p2pService.openDispute(orderId, user.id, reason, evidence);
 
-      res.status(201).json({
+      return res.status(201).json({
         success: true,
         data: dispute,
       });
     } catch (error) {
-      res.status(400).json({
+      return res.status(400).json({
         success: false,
         error: {
           code: 'DISPUTE_FAILED',

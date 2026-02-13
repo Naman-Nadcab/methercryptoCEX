@@ -1,6 +1,6 @@
 import { JsonRpcProvider } from 'ethers';
 import { CHAIN_CONFIGS } from '../config/chains';
-import { query } from '../config/database';
+import { query, getClient } from '../config/database';
 import { logger } from '../utils/logger';
 import { emailService } from './EmailService';
 
@@ -179,21 +179,29 @@ export class ConfirmationTracker {
         }
       }
 
-      // Start database transaction
-      await query('BEGIN');
-
+      // PHASE-15: Use a single DB client so BEGIN/COMMIT form a real transaction. Prevents double-credit
+      // if we crash between crediting user_balances and setting balance_applied_at (pool.query auto-commits each call).
+      const client = await getClient();
+      let committed = false;
       try {
-        // Update deposit status to completed
-        await query(`
-          UPDATE deposits SET status = 'completed', credited_at = NOW(), updated_at = NOW()
-          WHERE id = $1
-        `, [deposit.id]);
+        await client.query('BEGIN');
+        // Atomic: set completed + credited_at only if not already set; then credit balance and set balance_applied_at in same tx.
+        const updateDepositResult = await client.query(
+          `UPDATE deposits SET status = 'completed', credited_at = NOW(), updated_at = NOW()
+           WHERE id = $1 AND credited_at IS NULL
+           RETURNING id`,
+          [deposit.id]
+        );
+        const creditedNow = updateDepositResult.rowCount ?? 0;
+        if (creditedNow === 0) {
+          await client.query('ROLLBACK');
+          logger.debug(`Deposit already credited, skipping balance credit (idempotent): ${deposit.id}`);
+          return;
+        }
 
         const currencyId = deposit.currency_id;
-
         if (currencyId) {
-          // Avoid FK violation: only touch user_balances if currency exists in currencies
-          const curCheck = await query(`SELECT 1 FROM currencies WHERE id = $1`, [currencyId]);
+          const curCheck = await client.query(`SELECT 1 FROM currencies WHERE id = $1`, [currencyId]);
           if (curCheck.rows.length === 0) {
             logger.warn('ConfirmationTracker: currency_id not in currencies, skipping user_balances update', {
               depositId: deposit.id,
@@ -202,60 +210,89 @@ export class ConfirmationTracker {
             });
           } else {
             const CHAIN_ID_GLOBAL = '';
-            // Ensure row exists (same rule as backend: ensure before UPDATE so credit never misses). See backend docs/BALANCE_AND_DEPOSIT_RULES.md
-            await query(`
-              INSERT INTO user_balances (id, user_id, currency_id, chain_id, available_balance, locked_balance, pending_balance, total_deposited, account_type, updated_at)
-              VALUES (gen_random_uuid(), $1, $2, $3, 0, 0, 0, 0, 'funding', NOW())
-              ON CONFLICT (user_id, currency_id, chain_id, account_type) DO NOTHING
-            `, [deposit.user_id, currencyId, CHAIN_ID_GLOBAL]);
-
-            // Credit: UPDATE always matches exactly one row after ensure
-            const upd = await query(`
-              UPDATE user_balances 
-              SET 
-                available_balance = available_balance + $1,
-                pending_balance = GREATEST(pending_balance - $1, 0),
-                total_deposited = COALESCE(total_deposited, 0) + $1,
-                updated_at = NOW()
-              WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = 'funding'
-            `, [deposit.amount, deposit.user_id, currencyId, CHAIN_ID_GLOBAL]);
-
-            const rowCount = (upd as { rowCount?: number }).rowCount ?? 0;
-            if (rowCount >= 1) {
-              try {
-                await query(`UPDATE deposits SET balance_applied_at = NOW() WHERE id = $1`, [deposit.id]);
-              } catch {
-                // balance_applied_at column may not exist yet (migration not run)
+            await client.query(
+              `INSERT INTO user_balances (id, user_id, currency_id, chain_id, available_balance, locked_balance, pending_balance, total_deposited, account_type, updated_at)
+               VALUES (gen_random_uuid(), $1, $2, $3, 0, 0, 0, 0, 'funding', NOW())
+               ON CONFLICT (user_id, currency_id, chain_id, account_type) DO NOTHING`,
+              [deposit.user_id, currencyId, CHAIN_ID_GLOBAL]
+            );
+            const lockSel = await client.query(
+              `SELECT available_balance::text FROM user_balances
+               WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = 'funding'
+               FOR UPDATE`,
+              [deposit.user_id, currencyId, CHAIN_ID_GLOBAL]
+            );
+            if (lockSel.rows.length === 0) {
+              throw new Error('indexer_deposit_credit: balance row not found after ensure');
+            }
+            const avBefore = lockSel.rows[0]?.available_balance ?? '0';
+            const balUpd = await client.query(
+              `UPDATE user_balances
+               SET available_balance = available_balance + $1, pending_balance = GREATEST(COALESCE(pending_balance, 0) - $1, 0),
+                   total_deposited = COALESCE(total_deposited, 0) + $1, updated_at = NOW()
+               WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = 'funding'
+               RETURNING *`,
+              [deposit.amount, deposit.user_id, currencyId, CHAIN_ID_GLOBAL]
+            );
+            const row = balUpd.rows[0];
+            if (row) {
+              const av = Number(row.available_balance ?? 0);
+              if (av < 0 || !Number.isFinite(av)) {
+                throw new Error(`indexer_deposit_credit: balance invariant violated after credit`);
+              }
+            }
+            const avAfter = String(balUpd.rows[0]?.available_balance ?? 0);
+            await client.query(
+              `INSERT INTO balance_ledger (user_id, currency_id, reference_type, reference_id, debit, credit, balance_before, balance_after, balance_type, description, created_at)
+               VALUES ($1, $2, 'deposit', $3, 0, $4, $5, $6, 'available', 'account_type=funding', NOW())`,
+              [deposit.user_id, currencyId, deposit.id, deposit.amount, avBefore, avAfter]
+            );
+            try {
+              await client.query(`UPDATE deposits SET balance_applied_at = NOW() WHERE id = $1`, [deposit.id]);
+            } catch (colErr: unknown) {
+              const code = (colErr as { code?: string })?.code;
+              if (code !== '42703') {
+                logger.error('balance_applied_at update failed', { depositId: deposit.id, error: colErr });
+                throw colErr;
               }
             }
           }
         }
 
-        // Log activity
-        await query(`
-          INSERT INTO user_activity_logs (id, user_id, activity_type, description, metadata, ip_address, user_agent, created_at)
-          VALUES (gen_random_uuid(), $1, 'deposit_confirmed', $2, $3, '0.0.0.0', 'indexer', NOW())
-        `, [
-          deposit.user_id,
-          `Deposit of ${deposit.amount} ${deposit.symbol} confirmed`,
-          JSON.stringify({
-            chain: deposit.chain_key,
-            txHash: deposit.tx_hash,
-            amount: deposit.amount,
-            symbol: deposit.symbol,
-          }),
-        ]);
+        await client.query(
+          `INSERT INTO user_activity_logs (id, user_id, activity_type, description, metadata, ip_address, user_agent, created_at)
+           VALUES (gen_random_uuid(), $1, 'deposit_confirmed', $2, $3, '0.0.0.0', 'indexer', NOW())`,
+          [
+            deposit.user_id,
+            `Deposit of ${deposit.amount} ${deposit.symbol} confirmed`,
+            JSON.stringify({
+              chain: deposit.chain_key,
+              txHash: deposit.tx_hash,
+              amount: deposit.amount,
+              symbol: deposit.symbol,
+            }),
+          ]
+        );
+        await client.query('COMMIT');
+        committed = true;
+      } catch (dbError) {
+        await client.query('ROLLBACK').catch(() => {});
+        logger.error(`Database error confirming deposit, keeping as pending for retry`, {
+          depositId: deposit.id,
+          error: dbError,
+        });
+        return;
+      } finally {
+        client.release();
+      }
 
-        await query('COMMIT');
-        
+      if (committed) {
         logger.info(`Deposit confirmed and credited`, {
           depositId: deposit.id,
           userId: deposit.user_id,
           amount: deposit.amount,
           symbol: deposit.symbol,
         });
-
-        // Send confirmation email
         const explorerMap: Record<string, string> = {
           'ethereum': 'https://etherscan.io/tx/',
           'bsc': 'https://bscscan.com/tx/',
@@ -265,7 +302,6 @@ export class ConfirmationTracker {
         };
         const chainName = CHAIN_CONFIGS[deposit.chain_key]?.name || deposit.chain_key;
         const explorerUrl = explorerMap[deposit.chain_key] ? `${explorerMap[deposit.chain_key]}${deposit.tx_hash}` : undefined;
-
         emailService.sendDepositConfirmedEmail(deposit.user_id, {
           symbol: deposit.symbol,
           amount: deposit.amount,
@@ -273,14 +309,6 @@ export class ConfirmationTracker {
           txHash: deposit.tx_hash,
           explorerUrl,
         });
-      } catch (dbError) {
-        await query('ROLLBACK');
-        // Database error - DON'T mark as failed, keep as pending for retry
-        logger.error(`Database error confirming deposit, keeping as pending for retry`, { 
-          deposit, 
-          error: dbError 
-        });
-        // DO NOT mark as failed - the blockchain tx is valid!
       }
     } catch (error) {
       // General error - DON'T mark as failed unless we verified blockchain status

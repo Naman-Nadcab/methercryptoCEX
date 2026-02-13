@@ -49,7 +49,7 @@ function generateTokens(app: FastifyInstance, payload: {
   role: string;
   sessionId: string;
 }) {
-  const accessToken = app.jwt.sign(payload, { expiresIn: '15m' });
+  const accessToken = app.jwt.sign(payload, { expiresIn: config.jwt.expiresIn });
   const refreshToken = app.jwt.sign(
     { userId: payload.userId, sessionId: payload.sessionId, type: 'refresh' },
     { expiresIn: '7d' }

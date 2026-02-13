@@ -2,12 +2,22 @@
  * FREEZE BALANCE FOUNDATION: user_balances is the single source of truth.
  * Ensures a row exists before every balance update so user funds never disappear.
  * Unique key: (user_id, currency_id, chain_id, account_type).
+ * Re-exports monetary invariants for use at balance mutation boundaries.
  */
 
+import { Decimal } from './decimal.js';
 import { db } from './database.js';
 import { logger } from './logger.js';
 import type { PoolClient } from 'pg';
 import type { QueryResult } from 'pg';
+
+export {
+  assertNonNegative,
+  assertValidDecimal,
+  assertDebitNotExceedLocked,
+  assertUnlockNotExceedLocked,
+  assertDebitNotExceedAvailable,
+} from './monetary-invariants.js';
 
 /** Canonical account type for main wallet. Use 'spot' for all balance rows. */
 export const DEFAULT_ACCOUNT_TYPE = 'spot';
@@ -133,35 +143,43 @@ export function assertUserBalanceUpdated(
 export interface UserBalanceRowLike {
   available_balance: string | number;
   locked_balance: string | number;
+  pending_balance?: string | number | null;
+  escrow_balance?: string | number | null;
 }
 
 /**
- * Assert invariants after every balance update: no negative balances,
- * and available_balance + locked_balance must be non-negative (conservative).
+ * Assert invariants after every balance update:
+ * - All bucket values must be finite (no NaN, no ±Infinity).
+ * - No negative buckets: available >= 0, locked >= 0, pending >= 0, escrow >= 0.
  * Call with the row returned from UPDATE ... RETURNING *.
+ * Uses Decimal for comparisons; no float/Number in financial path.
  */
 export function assertBalanceInvariant(row: UserBalanceRowLike | null | undefined): void {
   if (row == null) return;
-  const av = Number(row.available_balance);
-  const lk = Number(row.locked_balance);
-  if (av < 0 || lk < 0) {
-    logger.error('Balance invariant violated: negative balance', {
-      available_balance: av,
-      locked_balance: lk,
+  const av = new Decimal(String(row.available_balance ?? 0));
+  const lk = new Decimal(String(row.locked_balance ?? 0));
+  const pd = new Decimal(String(row.pending_balance ?? 0));
+  const esc = new Decimal(String(row.escrow_balance ?? 0));
+  if (!av.isFinite() || !lk.isFinite() || !pd.isFinite() || !esc.isFinite()) {
+    logger.error('Balance invariant violated: non-finite value', {
+      available_balance: String(row.available_balance ?? 0),
+      locked_balance: String(row.locked_balance ?? 0),
+      pending_balance: String(row.pending_balance ?? 0),
+      escrow_balance: String(row.escrow_balance ?? 0),
     });
     throw new Error(
-      `user_balances invariant violated: available_balance=${av}, locked_balance=${lk} (must be >= 0)`
+      `user_balances invariant violated: non-finite bucket value (available=${String(row.available_balance)}, locked=${String(row.locked_balance)}, pending=${String(row.pending_balance)}, escrow=${String(row.escrow_balance)})`
     );
   }
-  const total = av + lk;
-  if (total < 0) {
-    logger.error('Balance invariant violated: available + locked is negative', {
-      available_balance: av,
-      locked_balance: lk,
-      sum: total,
+  if (av.lt(0) || lk.lt(0) || pd.lt(0) || esc.lt(0)) {
+    logger.error('Balance invariant violated: negative balance', {
+      available_balance: av.toString(),
+      locked_balance: lk.toString(),
+      pending_balance: pd.toString(),
+      escrow_balance: esc.toString(),
     });
     throw new Error(
-      `user_balances invariant violated: available_balance + locked_balance = ${total} (must be >= 0)`
+      `user_balances invariant violated: available=${av.toString()}, locked=${lk.toString()}, pending=${pd.toString()}, escrow=${esc.toString()} (all must be >= 0)`
     );
   }
 }

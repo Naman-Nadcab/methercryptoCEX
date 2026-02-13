@@ -329,16 +329,6 @@ export class ChainIndexer {
         return;
       }
 
-      // Check if deposit already exists (same tx = one record only)
-      const existing = await query(`
-        SELECT id FROM deposits WHERE tx_hash = $1
-      `, [deposit.txHash]);
-      
-      if (existing.rows.length > 0) {
-        logger.debug(`Deposit already recorded: ${deposit.txHash}`);
-        return;
-      }
-
       // Skip zero-value deposits (e.g. contract calls that emit 0 transfer)
       if (!deposit.amount || parseFloat(deposit.amount) <= 0) {
         logger.debug(`Skipping zero-value deposit: ${deposit.txHash}`);
@@ -392,8 +382,9 @@ export class ChainIndexer {
         return;
       }
 
-      // Record the deposit using existing table schema
-      await query(`
+      // Record the deposit. ON CONFLICT DO NOTHING prevents duplicate rows for same on-chain tx
+      // (DB constraint: UNIQUE(blockchain_id, tx_hash, to_address)). Replay or reindex safely reuses existing row.
+      const insertResult = await query(`
         INSERT INTO deposits (
           id, user_id, currency_id, blockchain_id, wallet_id, tx_hash, 
           from_address, to_address, amount, fee, confirmations, 
@@ -403,6 +394,8 @@ export class ChainIndexer {
           gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, 0, 0, $9, $10, 
           to_timestamp($11), 'pending', NOW(), NOW()
         )
+        ON CONFLICT (blockchain_id, tx_hash, to_address) DO NOTHING
+        RETURNING id
       `, [
         userId,
         currencyId,
@@ -416,6 +409,11 @@ export class ChainIndexer {
         deposit.blockNumber,
         deposit.blockTimestamp,
       ]);
+
+      if (insertResult.rows.length === 0) {
+        logger.debug(`Deposit already recorded (duplicate tx), skipping: ${deposit.txHash}`);
+        return;
+      }
 
       logger.info(`Recorded deposit`, {
         chain: this.config.name,

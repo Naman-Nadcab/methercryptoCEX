@@ -30,3 +30,18 @@ export async function getCurrencyIdForToken(tokenId: string): Promise<string | n
     return null;
   }
 }
+
+/** Get token ids for a currency (for cache invalidation). */
+export async function getTokenIdsByCurrencyId(currencyId: string): Promise<string[]> {
+  try {
+    const r = await db.query<{ id: string }>(
+      `SELECT t.id FROM tokens t
+       JOIN currencies c ON UPPER(TRIM(c.symbol)) = UPPER(TRIM(t.symbol))
+       WHERE c.id = $1 AND t.is_active = TRUE`,
+      [currencyId]
+    );
+    return r.rows.map((x) => x.id);
+  } catch {
+    return [];
+  }
+}

@@ -3,6 +3,7 @@
  * Admin JWT required.
  */
 
+import { Decimal } from '../lib/decimal.js';
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db } from '../lib/database.js';
 import { config } from '../config/index.js';
@@ -81,7 +82,7 @@ export default async function adminAmlRoutes(app: FastifyInstance): Promise<void
         alertsOpenHighSeverity: parseInt(openHighSeverityAlerts.rows[0]?.count ?? '0', 10),
         strPending: parseInt(pendingSTR.rows[0]?.count ?? '0', 10),
         ctrPending: parseInt(pendingCTR.rows[0]?.count ?? '0', 10),
-        totalInrToday: parseFloat(totalInrToday.rows[0]?.total ?? '0'),
+        totalInrToday: new Decimal(totalInrToday.rows[0]?.total ?? '0').toString(),
         largeInrTxnsToday: parseInt(largeInrTxnsToday.rows[0]?.count ?? '0', 10),
         largeInrThreshold: threshold,
         kycViolationLast7Days: parseInt(kycViolationLast7d.rows[0]?.count ?? '0', 10),

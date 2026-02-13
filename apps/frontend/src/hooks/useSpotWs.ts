@@ -27,7 +27,8 @@ type WsMessage =
   | { type: 'trades'; data: TradeMessage[] }
   | { type: 'ticker'; data: TickerMessage }
   | { type: 'order_update'; data: OrderUpdateMessage }
-  | { type: 'user_trade'; data: TradeUpdateMessage };
+  | { type: 'user_trade'; data: TradeUpdateMessage }
+  | { type: 'trade'; data: TradeUpdateMessage }; // Legacy alias for user_trade
 
 export interface UseSpotWsCallbacks {
   onOrderbook?: (data: OrderbookSnapshot) => void;

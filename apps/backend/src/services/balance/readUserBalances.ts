@@ -16,6 +16,8 @@ export interface BalanceRow {
   account_type: string;
   available_balance: string;
   locked_balance: string;
+  /** PHASE-11: P2P escrow (non-withdrawable, non-tradable). */
+  escrow_balance?: string;
 }
 
 const ACTIVE_CURRENCIES_SQL = `
@@ -28,7 +30,8 @@ const BALANCE_READ_SQL = `
     COALESCE(c.symbol, '') AS symbol,
     ub.account_type::text AS account_type,
     COALESCE(ub.available_balance, 0)::text AS available_balance,
-    COALESCE(ub.locked_balance, 0)::text AS locked_balance
+    COALESCE(ub.locked_balance, 0)::text AS locked_balance,
+    COALESCE(ub.escrow_balance, 0)::text AS escrow_balance
   FROM user_balances ub
   LEFT JOIN currencies c ON c.id = ub.currency_id
   WHERE
@@ -47,24 +50,17 @@ export async function readUserBalances(userId: string, accountType: string): Pro
   const currencyIds = active.rows.map((r) => r.id);
 
   if (currencyIds.length > 0) {
-    try {
-      await ensureUserBalanceRowsBulk(userId, currencyIds, CHAIN_ID_GLOBAL, accountType);
-    } catch (err) {
-      logger.warn('ensureUserBalanceRowsBulk failed, continuing with read', {
-        userId,
-        accountType,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
+    await ensureUserBalanceRowsBulk(userId, currencyIds, CHAIN_ID_GLOBAL, accountType);
   }
 
-  const result = await db.query<BalanceRow>(BALANCE_READ_SQL, [userId, accountType]);
+  const result = await db.query<BalanceRow & { escrow_balance?: string }>(BALANCE_READ_SQL, [userId, accountType]);
   const rows = result.rows.map((r) => ({
     currency_id: r.currency_id,
     symbol: r.symbol,
     account_type: r.account_type,
     available_balance: r.available_balance ?? '0',
     locked_balance: r.locked_balance ?? '0',
+    escrow_balance: (r as { escrow_balance?: string }).escrow_balance ?? '0',
   }));
 
   if (rows.length === 0) {

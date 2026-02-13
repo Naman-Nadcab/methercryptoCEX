@@ -293,7 +293,7 @@ export default function ChangePasswordPage() {
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={submitting || !isValidPassword || !validations.passwordsMatch || (hasPassword && !oldPassword)}
+              disabled={Boolean(submitting || !isValidPassword || !(validations.passwordsMatch ?? false) || (hasPassword === true && !oldPassword))}
               className="w-full py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
             >
               {submitting ? (

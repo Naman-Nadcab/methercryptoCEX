@@ -487,7 +487,7 @@ export default function FeatureTogglesPage() {
                       <div className="flex items-center gap-2">
                         <span className="font-medium text-gray-900 dark:text-white">{feature.feature_name}</span>
                         {feature.is_critical && (
-                          <AlertTriangle className="w-3.5 h-3.5 text-yellow-500" title="Critical Feature" />
+                          <span title="Critical Feature"><AlertTriangle className="w-3.5 h-3.5 text-yellow-500" /></span>
                         )}
                       </div>
                       {feature.description && (
