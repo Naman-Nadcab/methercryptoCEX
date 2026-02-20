@@ -5,7 +5,13 @@ import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { useAuthStore } from '@/store/auth';
 
 const getWsUrl = (token: string | null): string => {
-  const base = getApiBaseUrl().replace(/^http/, 'ws');
+  let base = getApiBaseUrl();
+  // WebSocket needs a valid base URL; getApiBaseUrl() returns '' in browser for same-origin fetch
+  if (!base && typeof window !== 'undefined') {
+    base = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+  }
+  if (!base) base = 'http://localhost:4000';
+  base = base.replace(/\/$/, '').replace(/^http/, 'ws');
   const url = new URL('/api/v1/spot/ws', base);
   if (token) url.searchParams.set('token', token);
   return url.toString();

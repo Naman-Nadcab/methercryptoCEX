@@ -26,6 +26,7 @@ import {
   ArrowDownUp,
   Copy,
   ChevronRight,
+  ChevronLeft,
   Sparkles,
   TrendingUp,
   CreditCard,
@@ -41,6 +42,7 @@ import SessionManager from '@/components/SessionManager';
 import ThemeToggle from '@/components/ThemeToggle';
 import ThemeProvider from '@/components/ThemeProvider';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { useBalancesSummary, useBalancesByAccount } from '@/lib/balances';
 
 interface MenuItem {
   id: string;
@@ -58,6 +60,46 @@ const menuItems: MenuItem[] = [
     href: '/dashboard',
   },
   {
+    id: 'spot',
+    label: 'Spot',
+    icon: <TrendingUp className="w-5 h-5" />,
+    href: '/dashboard/spot',
+  },
+  {
+    id: 'p2p',
+    label: 'P2P',
+    icon: <Users className="w-5 h-5" />,
+    children: [
+      { id: 'p2p-trading', label: 'P2P Trading', href: '/dashboard/p2p' },
+      { id: 'p2p-payment-methods', label: 'Payment Methods', href: '/dashboard/p2p/payment-methods' },
+    ],
+  },
+  {
+    id: 'orders',
+    label: 'Orders',
+    icon: <ClipboardList className="w-5 h-5" />,
+    href: '/orders',
+  },
+  {
+    id: 'assets',
+    label: 'Assets',
+    icon: <Wallet className="w-5 h-5" />,
+    children: [
+      { id: 'assets-overview', label: 'Overview', href: '/dashboard/assets/overview' },
+      { id: 'assets-funding', label: 'Funding', href: '/dashboard/assets/funding' },
+      { id: 'assets-unified', label: 'Unified Trading', href: '/dashboard/assets/unified' },
+      { id: 'assets-convert', label: 'Convert', href: '/dashboard/assets/convert' },
+      { id: 'assets-history', label: 'History', href: '/dashboard/assets/history' },
+      { id: 'assets-pnl', label: 'P&L Analysis', href: '/dashboard/assets/pnl' },
+    ],
+  },
+  {
+    id: 'history',
+    label: 'History',
+    icon: <FileText className="w-5 h-5" />,
+    href: '/history',
+  },
+  {
     id: 'account',
     label: 'Account',
     icon: <User className="w-5 h-5" />,
@@ -68,16 +110,10 @@ const menuItems: MenuItem[] = [
       { id: 'data-export', label: 'Data Export', href: '/dashboard/data-export' },
     ],
   },
-  // {
-  //   id: 'rewards',
-  //   label: 'Rewards Hub',
-  //   icon: <Gift className="w-5 h-5" />,
-  //   href: '/dashboard/rewards',
-  // },
   {
     id: 'referral',
     label: 'Referral Program',
-    icon: <Users className="w-5 h-5" />,
+    icon: <Gift className="w-5 h-5" />,
     href: '/dashboard/referral',
   },
   {
@@ -86,12 +122,6 @@ const menuItems: MenuItem[] = [
     icon: <Settings className="w-5 h-5" />,
     href: '/dashboard/preferences',
   },
-  // {
-  //   id: 'subaccount',
-  //   label: 'Subaccount',
-  //   icon: <Layers className="w-5 h-5" />,
-  //   href: '/dashboard/subaccount',
-  // },
   {
     id: 'api',
     label: 'API',
@@ -107,23 +137,17 @@ const menuItems: MenuItem[] = [
   {
     id: 'spot-wallet',
     label: 'Spot Wallet',
-    icon: <TrendingUp className="w-5 h-5" />,
+    icon: <CreditCard className="w-5 h-5" />,
     href: '/dashboard/wallet/spot',
   },
-  // {
-  //   id: 'audit',
-  //   label: 'Audit',
-  //   icon: <ClipboardList className="w-5 h-5" />,
-  //   href: '/dashboard/audit',
-  // },
 ];
 
 const navItems = [
-  { label: 'Buy Crypto', href: '/dashboard/assets/convert' },
-  { label: 'Markets', href: '/dashboard/markets' },
-  { label: 'Trade', href: '/dashboard/trade' },
-  { label: 'Finance', href: '/dashboard/finance' },
-  { label: 'More', href: '#' },
+  { label: 'Spot', href: '/dashboard/spot' },
+  { label: 'P2P', href: '/dashboard/p2p' },
+  { label: 'Orders', href: '/orders' },
+  { label: 'Assets', href: '/assets' },
+  { label: 'History', href: '/history' },
 ];
 
 export default function DashboardLayout({
@@ -135,7 +159,7 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const { user, accessToken, _hasHydrated } = useAuthStore();
   const { setUnauthenticated } = useAuth();
-  const [expandedMenus, setExpandedMenus] = useState<string[]>(['account']);
+  const [expandedMenus, setExpandedMenus] = useState<string[]>(['account', 'assets', 'p2p']);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -149,13 +173,19 @@ export default function DashboardLayout({
   const [kycVerified, setKycVerified] = useState(true); // Default true to hide banner initially
   const [showKycBanner, setShowKycBanner] = useState(true);
 
+  const { data: balanceSummary } = useBalancesSummary(!!_hasHydrated && !!accessToken);
+  const { data: balancesByAccount } = useBalancesByAccount(!!_hasHydrated && !!accessToken);
+  const totalEquityUsd = (balanceSummary?.fundingBalance?.totalUsd ?? 0) + (balanceSummary?.tradingBalance?.totalUsd ?? 0);
+  const totalEquityBtc = (balanceSummary?.fundingBalance?.totalBtc ?? 0) + (balanceSummary?.tradingBalance?.totalBtc ?? 0);
+  const previewBalances = Array.isArray(balancesByAccount) ? balancesByAccount.slice(0, 6) : [];
+
   // Fetch KYC status
   useEffect(() => {
     if (!_hasHydrated || !accessToken) return;
     const checkKycStatus = async () => {
       
       try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/v1/wallet/kyc-status`, {
+        const res = await fetch(`${getApiBaseUrl()}/api/v1/wallet/kyc-status`, {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
         
@@ -226,6 +256,14 @@ export default function DashboardLayout({
       setTimeout(() => setUidCopied(false), 2000);
     }
   };
+
+  const isAutoCollapsePage =
+    pathname?.startsWith('/dashboard/spot') ||
+    pathname?.startsWith('/dashboard/p2p') ||
+    pathname?.startsWith('/dashboard/orders');
+  useEffect(() => {
+    if (isAutoCollapsePage === true) setSidebarOpen(false);
+  }, [isAutoCollapsePage]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -379,7 +417,7 @@ export default function DashboardLayout({
           {/* All Dropdowns - Fixed Position at Top Right */}
           {/* Notifications Dropdown */}
           {notificationMenuOpen && (
-            <div className="notification-dropdown fixed right-4 top-14 w-80 bg-white dark:bg-[#1e2026] border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl z-[100] overflow-hidden">
+            <div className="notification-dropdown fixed right-4 top-14 w-80 bg-white dark:bg-[#1e2026] border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-[100] overflow-hidden">
               <div className="p-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
                 <p className="text-sm font-semibold text-gray-900 dark:text-white">Notifications</p>
                 {unreadCount > 0 && (
@@ -420,7 +458,7 @@ export default function DashboardLayout({
 
           {/* Deposit Dropdown */}
           {depositMenuOpen && (
-            <div className="deposit-dropdown fixed right-4 top-14 w-72 bg-white dark:bg-[#1e2026] border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl z-[100] overflow-hidden">
+            <div className="deposit-dropdown fixed right-4 top-14 w-72 bg-white dark:bg-[#1e2026] border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-[100] overflow-hidden">
               <div className="p-3 border-b border-gray-200 dark:border-gray-700">
                 <p className="text-sm font-semibold text-gray-900 dark:text-white">Select Payment Method</p>
               </div>
@@ -428,7 +466,7 @@ export default function DashboardLayout({
                 <p className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">Already have crypto</p>
                 <Link 
                   href="/dashboard/deposit/crypto" 
-                  className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
+                  className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
                   onClick={() => setDepositMenuOpen(false)}
                 >
                   <div className="w-8 h-8 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg flex items-center justify-center">
@@ -440,8 +478,8 @@ export default function DashboardLayout({
                   </div>
                 </Link>
                 <Link 
-                  href="/p2p" 
-                  className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
+                  href="/dashboard/p2p" 
+                  className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
                   onClick={() => setDepositMenuOpen(false)}
                 >
                   <div className="w-8 h-8 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center">
@@ -455,7 +493,7 @@ export default function DashboardLayout({
                 <p className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider mt-2">Don&apos;t have crypto</p>
                 <Link 
                   href="/dashboard/buy-crypto" 
-                  className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl"
+                  className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
                   onClick={() => setDepositMenuOpen(false)}
                 >
                   <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
@@ -472,7 +510,7 @@ export default function DashboardLayout({
 
           {/* Assets Dropdown */}
           {assetsMenuOpen && (
-            <div className="assets-dropdown fixed right-4 top-14 w-80 bg-white dark:bg-[#1e2026] border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl z-[100] overflow-hidden">
+            <div className="assets-dropdown fixed right-4 top-14 w-80 bg-white dark:bg-[#1e2026] border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-[100] overflow-hidden">
               <Link 
                 href="/dashboard/assets/overview"
                 onClick={() => setAssetsMenuOpen(false)}
@@ -485,21 +523,31 @@ export default function DashboardLayout({
                   </div>
                   <ChevronRight className="w-4 h-4 text-gray-400" />
                 </div>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">****** <span className="text-sm font-normal text-gray-500">USD</span></p>
-                <p className="text-sm text-gray-500 mt-1">≈ ****** BTC</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white tabular-nums">{Number.isFinite(totalEquityUsd) ? totalEquityUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'} <span className="text-sm font-normal text-gray-500">USD</span></p>
+                <p className="text-sm text-gray-500 mt-1 tabular-nums">≈ {Number.isFinite(totalEquityBtc) ? totalEquityBtc.toFixed(8) : '—'} BTC</p>
+                {previewBalances.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-blue-100 dark:border-blue-900/30 space-y-1">
+                    {previewBalances.map((row) => (
+                      <div key={row.symbol} className="flex justify-between text-xs">
+                        <span className="text-gray-600 dark:text-gray-400">{row.symbol}</span>
+                        <span className="tabular-nums text-gray-900 dark:text-white font-medium">{row.total}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <p className="text-xs text-gray-400 mt-2">*Data may be delayed.</p>
               </Link>
               <div className="p-3 bg-white dark:bg-[#1e2026] border-t border-gray-100 dark:border-gray-800">
                 <div className="grid grid-cols-3 gap-2">
-                  <Link href="/dashboard/deposit/crypto" onClick={() => setAssetsMenuOpen(false)} className="flex flex-col items-center gap-1.5 px-3 py-2.5 bg-blue-500 text-white text-xs font-medium rounded-xl hover:bg-blue-600 transition-colors">
+                  <Link href="/dashboard/deposit/crypto" onClick={() => setAssetsMenuOpen(false)} className="flex flex-col items-center gap-1.5 px-3 py-2.5 bg-blue-500 text-white text-xs font-medium rounded-lg hover:bg-blue-600 transition-colors">
                     <Download className="w-4 h-4" />
                     Deposit
                   </Link>
-                  <Link href="/dashboard/withdraw/crypto" onClick={() => setAssetsMenuOpen(false)} className="flex flex-col items-center gap-1.5 px-3 py-2.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                  <Link href="/dashboard/withdraw/crypto" onClick={() => setAssetsMenuOpen(false)} className="flex flex-col items-center gap-1.5 px-3 py-2.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
                     <ArrowDownUp className="w-4 h-4" />
                     Withdraw
                   </Link>
-                  <Link href="/dashboard/transfer" onClick={() => setAssetsMenuOpen(false)} className="flex flex-col items-center gap-1.5 px-3 py-2.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                  <Link href="/dashboard/transfer" onClick={() => setAssetsMenuOpen(false)} className="flex flex-col items-center gap-1.5 px-3 py-2.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
                     <ArrowDownUp className="w-4 h-4 rotate-90" />
                     Transfer
                   </Link>
@@ -507,26 +555,26 @@ export default function DashboardLayout({
               </div>
               <div className="p-2 bg-white dark:bg-[#1e2026]">
                 <p className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">Account</p>
-                <Link href="/dashboard/assets/unified" onClick={() => setAssetsMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl">
+                <Link href="/dashboard/assets/unified" onClick={() => setAssetsMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg">
                   <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center"><Wallet className="w-4 h-4 text-blue-500" /></div>
                   <span className="font-medium">Unified Trading Account</span>
                 </Link>
-                <Link href="/dashboard/assets/funding" onClick={() => setAssetsMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl">
+                <Link href="/dashboard/assets/funding" onClick={() => setAssetsMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg">
                   <div className="w-8 h-8 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center"><CreditCard className="w-4 h-4 text-green-500" /></div>
                   <span className="font-medium">Funding Account</span>
                 </Link>
-                <Link href="/dashboard/wallet/spot" onClick={() => setAssetsMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl">
+                <Link href="/dashboard/wallet/spot" onClick={() => setAssetsMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg">
                   <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center"><TrendingUp className="w-4 h-4 text-amber-600 dark:text-amber-400" /></div>
                   <span className="font-medium">Spot Wallet</span>
                 </Link>
               </div>
               <div className="p-2 bg-gray-50 dark:bg-[#181a20] border-t border-gray-100 dark:border-gray-800">
                 <p className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">Invested Products</p>
-                <Link href="/dashboard/earn" onClick={() => setAssetsMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl">
+                <Link href="/dashboard/earn" onClick={() => setAssetsMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg">
                   <div className="w-8 h-8 rounded-lg bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center"><PiggyBank className="w-4 h-4 text-yellow-600" /></div>
                   <span className="font-medium">Earn</span>
                 </Link>
-                <Link href="/dashboard/copy-trading" onClick={() => setAssetsMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl">
+                <Link href="/dashboard/copy-trading" onClick={() => setAssetsMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg">
                   <div className="w-8 h-8 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center"><TrendingUp className="w-4 h-4 text-purple-500" /></div>
                   <span className="font-medium">Copy Trading</span>
                 </Link>
@@ -536,35 +584,23 @@ export default function DashboardLayout({
 
           {/* Orders Dropdown */}
           {ordersMenuOpen && (
-            <div className="orders-dropdown fixed right-4 top-14 w-64 bg-white dark:bg-[#1e2026] border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl z-[100] overflow-hidden">
+            <div className="orders-dropdown fixed right-4 top-14 w-64 bg-white dark:bg-[#1e2026] border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-[100] overflow-hidden">
               <div className="p-2">
-                <Link href="/dashboard/orders/unified" onClick={() => setOrdersMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl">
-                  <LineChart className="w-4 h-4" />
-                  Unified Trading Order
+                <Link href="/dashboard/orders" onClick={() => setOrdersMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg">
+                  <ClipboardList className="w-4 h-4" />
+                  All Orders
                 </Link>
-                <Link href="/dashboard/orders/buy-crypto" onClick={() => setOrdersMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl">
-                  <ShoppingCart className="w-4 h-4" />
-                  Buy Crypto Order
-                </Link>
-                <Link href="/dashboard/orders/tradfi" onClick={() => setOrdersMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl">
+                <Link href="/dashboard/orders/spot" onClick={() => setOrdersMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg">
                   <TrendingUp className="w-4 h-4" />
-                  TradFi Order
+                  Spot Orders
                 </Link>
-                <Link href="/dashboard/orders/earn" onClick={() => setOrdersMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl">
-                  <PiggyBank className="w-4 h-4" />
-                  Earn Order
-                </Link>
-                <Link href="/dashboard/orders/loan" onClick={() => setOrdersMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl">
-                  <Percent className="w-4 h-4" />
-                  Loan Order
-                </Link>
-                <Link href="/dashboard/orders/margin-staked" onClick={() => setOrdersMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl">
-                  <Layers className="w-4 h-4" />
-                  Margin Staked SOL Orders
+                <Link href="/dashboard/orders/p2p" onClick={() => setOrdersMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg">
+                  <Users className="w-4 h-4" />
+                  P2P Orders
                 </Link>
               </div>
               <div className="p-2 border-t border-gray-200 dark:border-gray-700">
-                <Link href="/dashboard/deposit" onClick={() => setOrdersMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl">
+                <Link href="/dashboard/deposit/crypto" onClick={() => setOrdersMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg">
                   <Download className="w-4 h-4" />
                   Deposit
                 </Link>
@@ -574,7 +610,7 @@ export default function DashboardLayout({
 
           {/* User Dropdown */}
           {userMenuOpen && (
-            <div className="user-dropdown fixed right-4 top-14 w-72 bg-white dark:bg-[#1e2026] border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl z-[100] overflow-hidden">
+            <div className="user-dropdown fixed right-4 top-14 w-72 bg-white dark:bg-[#1e2026] border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl z-[100] overflow-hidden">
               {/* User Info Header */}
               <div className="p-4 border-b border-gray-200 dark:border-gray-700">
                 <div className="flex items-center gap-3">
@@ -682,22 +718,25 @@ export default function DashboardLayout({
       </header>
 
       <div className="flex">
-        {/* Fixed Sidebar - Hidden on assets/deposit/withdraw/transfer pages */}
-        {!pathname?.startsWith('/dashboard/assets') && 
-         !pathname?.startsWith('/dashboard/deposit') && 
+        {/* Fixed Sidebar - Hidden only on deposit/withdraw/transfer pages */}
+        {!pathname?.startsWith('/dashboard/deposit') && 
          !pathname?.startsWith('/dashboard/withdraw') && 
          !pathname?.startsWith('/dashboard/transfer') && (
         <aside
+          onMouseEnter={() => { if (isAutoCollapsePage) setSidebarOpen(true); }}
+          onMouseLeave={() => { if (isAutoCollapsePage) setSidebarOpen(false); }}
           className={`${
             sidebarOpen ? 'w-48' : 'w-14'
           } hidden lg:flex flex-col fixed left-0 top-12 bottom-0 bg-white dark:bg-[#181a20] border-r border-gray-200 dark:border-gray-800 transition-all duration-300 z-30`}
         >
-          {/* Sidebar Toggle - Hamburger at extreme left */}
+          {/* Sidebar Toggle - Arrow for manual expand/collapse */}
           <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="w-full p-3 flex items-start justify-start hover:bg-gray-50 dark:hover:bg-gray-800 border-b border-gray-200 dark:border-gray-800 flex-shrink-0"
+            type="button"
+            onClick={() => setSidebarOpen((o) => !o)}
+            className="w-full p-3 flex items-center justify-center hover:bg-gray-50 dark:hover:bg-gray-800 border-b border-gray-200 dark:border-gray-800 flex-shrink-0"
+            aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
           >
-            <Menu className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+            {sidebarOpen ? <ChevronLeft className="w-5 h-5 text-gray-600 dark:text-gray-300" /> : <ChevronRight className="w-5 h-5 text-gray-600 dark:text-gray-300" />}
           </button>
 
           {/* Menu Items - Scrollable */}
@@ -761,9 +800,8 @@ export default function DashboardLayout({
         </aside>
         )}
 
-        {/* Mobile Sidebar Overlay - Hidden on assets/deposit/withdraw/transfer pages */}
-        {!pathname?.startsWith('/dashboard/assets') && 
-         !pathname?.startsWith('/dashboard/deposit') && 
+        {/* Mobile Sidebar Overlay - Hidden only on deposit/withdraw/transfer pages */}
+        {!pathname?.startsWith('/dashboard/deposit') && 
          !pathname?.startsWith('/dashboard/withdraw') && 
          !pathname?.startsWith('/dashboard/transfer') && 
          mobileMenuOpen && (
@@ -853,22 +891,31 @@ export default function DashboardLayout({
           </div>
         )}
 
-        {/* Main Content - with left margin for fixed sidebar (except on assets/deposit/withdraw/transfer pages) */}
+        {/* Main Content - with left margin for fixed sidebar (except on deposit/withdraw/transfer pages) */}
         <main className={`flex-1 min-h-[calc(100vh-48px)] overflow-x-hidden transition-all duration-300 ${
-          (pathname?.startsWith('/dashboard/assets') || 
-           pathname?.startsWith('/dashboard/deposit') || 
+          (pathname?.startsWith('/dashboard/deposit') || 
            pathname?.startsWith('/dashboard/withdraw') || 
            pathname?.startsWith('/dashboard/transfer')) ? '' : (sidebarOpen ? 'lg:ml-48' : 'lg:ml-14')
         }`}>
-          {children}
+          {pathname === '/dashboard/spot' ? (
+            <div className="w-full h-[calc(100vh-48px)] min-h-0">
+              {children}
+            </div>
+          ) : (
+            <div className="flex-1 flex justify-center">
+              <div className="w-full max-w-[1400px] px-4">
+                {children}
+              </div>
+            </div>
+          )}
         </main>
       </div>
 
-      {/* Footer - with left margin for fixed sidebar (except on assets/deposit/withdraw/transfer pages) */}
-      {!pathname?.startsWith('/dashboard/assets') && 
-       !pathname?.startsWith('/dashboard/deposit') && 
+      {/* Footer - with left margin for fixed sidebar (except on deposit/withdraw/transfer/spot pages) */}
+      {!pathname?.startsWith('/dashboard/deposit') && 
        !pathname?.startsWith('/dashboard/withdraw') && 
-       !pathname?.startsWith('/dashboard/transfer') && (
+       !pathname?.startsWith('/dashboard/transfer') && 
+       pathname !== '/dashboard/spot' && (
       <footer className={`bg-white dark:bg-[#181a20] border-t border-gray-200 dark:border-gray-800 py-4 transition-all duration-300 ${
         sidebarOpen ? 'lg:ml-48' : 'lg:ml-14'
       }`}>

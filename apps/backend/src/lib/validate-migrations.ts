@@ -74,6 +74,32 @@ export async function validateRequiredTables(): Promise<void> {
       'SELECT t.min_withdrawal::text, t.max_withdrawal::text FROM tokens t LIMIT 1'
     );
     logger.info('✓ tokens.min_withdrawal and tokens.max_withdrawal verified');
+
+    // spot_orders and spot_trades: require either "market" or "trading_pair_id" (legacy)
+    const spotTables = ['spot_orders', 'spot_trades'];
+    const colResult = await db.query<{ table_name: string; column_name: string }>(
+      `SELECT table_name, column_name FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = ANY($1::text[])
+       AND column_name IN ('market', 'trading_pair_id')`,
+      [spotTables]
+    );
+    const byTable = new Map<string, Set<string>>();
+    for (const r of colResult.rows) {
+      if (!byTable.has(r.table_name)) byTable.set(r.table_name, new Set());
+      byTable.get(r.table_name)!.add(r.column_name);
+    }
+    const missingColumns: string[] = [];
+    for (const t of spotTables) {
+      const cols = byTable.get(t);
+      if (!cols || (!cols.has('market') && !cols.has('trading_pair_id'))) {
+        missingColumns.push(`${t}.market or ${t}.trading_pair_id`);
+      }
+    }
+    if (missingColumns.length > 0) {
+      logger.error('Schema drift: spot_orders/spot_trades need market or trading_pair_id. Refusing to start.', { missing: missingColumns });
+      throw new Error(`SCHEMA_DRIFT: ${missingColumns.join('; ')}. Run migrations.`);
+    }
+    logger.info('✓ spot_orders and spot_trades (market or trading_pair_id) verified');
   } catch (err) {
     logger.error('Failed to validate required tables', {
       error: err instanceof Error ? err.message : 'Unknown',

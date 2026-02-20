@@ -25,7 +25,11 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
   }
 
   if (!isAuthenticated) {
-    return null;
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0e11]" role="status" aria-label="Redirecting">
+        <div className="animate-spin rounded-full h-10 w-10 border-2 border-blue-500 border-t-transparent" />
+      </div>
+    );
   }
 
   return <>{children}</>;

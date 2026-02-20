@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { X, ArrowLeftRight, ChevronDown, AlertCircle, CheckCircle2, Loader2, Search, Wallet, ArrowRight } from 'lucide-react';
 import Image from 'next/image';
 import { useAuthStore } from '@/store/auth';
@@ -20,6 +21,7 @@ interface TransferModalProps {
   accessToken?: string;
   defaultFromAccount?: 'funding' | 'trading';
   defaultToAccount?: 'funding' | 'trading';
+  /** Called after successful transfer. Balances are invalidated by the modal; use for any extra side effects. */
   onSuccess?: () => void;
 }
 
@@ -31,6 +33,7 @@ export default function TransferModal({
   defaultToAccount = 'trading',
   onSuccess,
 }: TransferModalProps) {
+  const queryClient = useQueryClient();
   const { accessToken: storeAccessToken } = useAuthStore();
   const accessToken = propAccessToken || storeAccessToken;
   
@@ -82,10 +85,10 @@ export default function TransferModal({
         setTokens(data.data || []);
         // Don't auto-select a token - let user choose
       } else {
-        console.error('Failed to fetch balances:', data);
+        setError(data.error?.message || 'Failed to load balances. Please try again.');
       }
     } catch (err) {
-      console.error('Failed to fetch balances:', err);
+      setError('Failed to load balances. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -106,14 +109,14 @@ export default function TransferModal({
     }
     
     if (!amount || parseFloat(amount) <= 0) {
-      setError('Please enter a valid amount');
+      setError('Enter a positive amount.');
       return;
     }
 
     const transferAmount = parseFloat(amount);
     const availableBalance = parseFloat(selectedToken.availableBalance);
     if (transferAmount > availableBalance) {
-      setError('Insufficient balance');
+      setError('Insufficient balance. Reduce the amount or check the source account.');
       return;
     }
 
@@ -139,15 +142,16 @@ export default function TransferModal({
 
       if (data.success) {
         setSuccess(true);
+        queryClient.invalidateQueries({ queryKey: ['balances'] });
         setTimeout(() => {
           onSuccess?.();
           onClose();
         }, 1500);
       } else {
-        setError(data.error?.message || 'Transfer failed');
+        setError(data.error?.message || 'Transfer could not be completed. Check balance and try again.');
       }
     } catch {
-      setError('Network error. Please try again.');
+      setError('Connection issue. Your request may not have reached the server. Safe to try again.');
     } finally {
       setSubmitting(false);
     }
@@ -474,7 +478,7 @@ export default function TransferModal({
 
           {/* Error Message */}
           {error && (
-            <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl">
+            <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
               <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
               <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
             </div>
@@ -482,7 +486,7 @@ export default function TransferModal({
 
           {/* Success Message */}
           {success && (
-            <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl">
+            <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
               <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
               <p className="text-sm text-green-600 dark:text-green-400">Transfer successful!</p>
             </div>
@@ -492,7 +496,7 @@ export default function TransferModal({
           <button
             onClick={handleTransfer}
             disabled={!selectedToken || !amount || submitting || success}
-            className={`w-full py-3 rounded-xl font-medium text-sm transition-all ${
+            className={`w-full py-3 rounded-lg font-medium text-sm transition-all active:scale-[0.98] ${
               !selectedToken || !amount || submitting || success
                 ? 'bg-gray-200 dark:bg-gray-700 text-gray-400 cursor-not-allowed'
                 : 'bg-blue-500 hover:bg-blue-600 text-white'

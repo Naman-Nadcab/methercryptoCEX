@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store/auth';
 import { ChevronDown, ChevronUp, Loader2, Info, Settings, Bell, Mail, Globe, DollarSign, TrendingUp, Wallet, MessageCircle, Check } from 'lucide-react';
+import { notifyError } from '@/lib/notifyError';
 
 interface PreferenceSettings {
   // General Settings
@@ -163,7 +164,7 @@ export default function PreferencesPage() {
         setSettings(prev => ({ ...prev, ...result.data }));
       }
     } catch (error) {
-      console.error('Failed to fetch preferences:', error);
+      notifyError('Failed to load preferences. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -184,7 +185,7 @@ export default function PreferencesPage() {
         body: JSON.stringify({ [key]: value })
       });
     } catch (error) {
-      console.error('Failed to update preference:', error);
+      notifyError('Failed to update preference. Please try again.');
     } finally {
       setTimeout(() => setSaving(null), 500);
     }
@@ -493,12 +494,6 @@ export default function PreferencesPage() {
                         saving={saving === 'showConfirmationMobile'}
                       />
                       <Checkbox
-                        checked={settings.promptLeverageAdjustment}
-                        onChange={(v) => updateSetting('promptLeverageAdjustment', v)}
-                        label="Prompt confirmation for leverage adjustment while holding positions"
-                        saving={saving === 'promptLeverageAdjustment'}
-                      />
-                      <Checkbox
                         checked={settings.turnOnOrderbookAnimation}
                         onChange={(v) => updateSetting('turnOnOrderbookAnimation', v)}
                         label="Turn on orderbook animation"
@@ -711,7 +706,6 @@ export default function PreferencesPage() {
                         <SettingRow label="Perks and rewards" checked={settings.perksAndRewards} onChange={(v) => updateSetting('perksAndRewards', v)} settingKey="perksAndRewards" />
                         <SettingRow label="Financial product listings" checked={settings.financialProductListings} onChange={(v) => updateSetting('financialProductListings', v)} settingKey="financialProductListings" />
                         <SettingRow label="Spot listings" checked={settings.spotListings} onChange={(v) => updateSetting('spotListings', v)} settingKey="spotListings" />
-                        <SettingRow label="Perpetual contract listings" checked={settings.perpetualContractListings} onChange={(v) => updateSetting('perpetualContractListings', v)} settingKey="perpetualContractListings" />
                         <SettingRow label="Trustpilot ratings" checked={settings.trustpilotRatings} onChange={(v) => updateSetting('trustpilotRatings', v)} settingKey="trustpilotRatings" />
                         <SettingRow label="Web3 events" checked={settings.web3Events} onChange={(v) => updateSetting('web3Events', v)} settingKey="web3Events" />
                       </div>

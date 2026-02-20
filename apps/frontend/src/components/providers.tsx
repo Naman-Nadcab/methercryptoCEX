@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { AuthProvider } from '@/context/AuthContext';
 import ThemeProvider from '@/components/ThemeProvider';
 import { rehydrateAuthStore } from '@/store/auth';
+import { notifyError } from '@/lib/notifyError';
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
@@ -21,6 +22,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
             staleTime: 60 * 1000, // 1 minute
             retry: 1,
             refetchOnWindowFocus: false,
+          },
+          mutations: {
+            onError: (error) => {
+              const msg = error instanceof Error ? error.message : 'Action failed';
+              notifyError(msg);
+            },
           },
         },
       })

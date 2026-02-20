@@ -115,6 +115,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [logout, setAuthFlags]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleRefreshFailed = () => setUnauthenticated();
+    window.addEventListener('auth:refresh-failed', handleRefreshFailed);
+    return () => window.removeEventListener('auth:refresh-failed', handleRefreshFailed);
+  }, [setUnauthenticated]);
+
+  useEffect(() => {
     if (!_hasHydrated || meCalled.current) return;
     meCalled.current = true;
     const controller = new AbortController();
@@ -141,25 +148,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             });
           }
         }
-        if (res.status === 401 || !res.ok) {
+        // Only 401/403 mean session invalid; 5xx/network must not log user out
+        if (res.status === 401 || res.status === 403) {
           setAuthResolved(true);
           setAuthFlags(0);
           setUnauthenticated();
           return;
         }
+        if (!res.ok) {
+          setAuthResolved(true);
+          const existingUser = useAuthStore.getState().user;
+          if (existingUser) {
+            setUserState(existingUser);
+            setStatus('authenticated');
+          } else {
+            setAuthFlags(0);
+            setUnauthenticated();
+          }
+          return;
+        }
         const json = await res.json();
         setAuthResolved(true);
         if (json?.success && json?.data) {
-          const flags = typeof json.data.auth_flags === 'number' ? json.data.auth_flags : 0;
-          setAuthFlags(flags);
-          if (flags > 0) {
-            const u = mapMeResponseToUser(json.data as Record<string, unknown>);
-            setUser(u);
-            setUserState(u);
-            setStatus('authenticated');
-          } else {
-            setUnauthenticated();
-          }
+          // Valid JWT + user data = authenticated. auth_flags must NOT control login state.
+          const u = mapMeResponseToUser(json.data as Record<string, unknown>);
+          setUser(u);
+          setUserState(u);
+          setStatus('authenticated');
+          setAuthFlags(typeof json.data.auth_flags === 'number' ? json.data.auth_flags : 1);
         } else {
           setAuthFlags(0);
           setUnauthenticated();
@@ -167,8 +183,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (e) {
         if ((e as Error).name === 'AbortError') return;
         setAuthResolved(true);
-        setAuthFlags(0);
-        setUnauthenticated();
+        const existingUser = useAuthStore.getState().user;
+        if (existingUser) {
+          setUserState(existingUser);
+          setStatus('authenticated');
+        } else {
+          setAuthFlags(0);
+          setUnauthenticated();
+        }
       }
     };
     runMe();
@@ -178,7 +200,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [_hasHydrated, setAuthResolved, setAuthFlags, setUnauthenticated, setUser]);
 
-  const isAuthenticated = authFlags > 0;
+  const isAuthenticated = status === 'authenticated';
   const showChildren = _hasHydrated && authResolved;
 
   const value: AuthContextValue = {

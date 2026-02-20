@@ -25,6 +25,7 @@ const nextConfig = {
         source: '/api/v1/:path*',
         destination: `${apiBase.replace(/\/$/, '')}/api/v1/:path*`,
       },
+      { source: '/spot', destination: '/dashboard/trade' },
     ];
   },
   async headers() {

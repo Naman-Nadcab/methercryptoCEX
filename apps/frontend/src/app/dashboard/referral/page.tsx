@@ -315,7 +315,7 @@ export default function ReferralProgramPage() {
                 <div className="w-12 h-12 bg-yellow-500/20 rounded-xl flex items-center justify-center mb-3">
                   <Trophy className="w-6 h-6 text-yellow-400" />
                 </div>
-                <p className="text-3xl font-bold">${stats ? Math.max(0, stats.totalEarnings).toFixed(0) : '0'}</p>
+                <p className="text-3xl font-bold">${stats && Number.isFinite(stats.totalEarnings) ? Math.max(0, stats.totalEarnings).toFixed(0) : '0'}</p>
                 <p className="text-blue-200 text-sm">Your Earnings</p>
               </div>
               <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-5 border border-white/10">

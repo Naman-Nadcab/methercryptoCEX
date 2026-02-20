@@ -100,30 +100,44 @@ export default async function spotRoutes(app: FastifyInstance) {
   app.get<{ Params: { symbol: string } }>('/ticker/:symbol', async (request, reply) => {
     try {
       const symbol = request.params.symbol?.toUpperCase().replace(/-/g, '_') || '';
+      // Prefer spot_markets; fallback to trading_pairs for symbol lookup
       const market = await db.query(
-        `SELECT symbol, base_asset, quote_asset, status FROM spot_markets WHERE symbol = $1 AND status IN ('active', 'maintenance')`,
+        `SELECT symbol, base_asset, quote_asset, status FROM spot_markets WHERE symbol = $1 AND status IN ('active', 'maintenance') LIMIT 1`,
         [symbol]
       );
       if (market.rows.length === 0) {
-        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Market not found' } });
+        const tp = await db.query<{ symbol: string; base_asset: string; quote_asset: string }>(`SELECT tp.symbol, bc.symbol as base_asset, qc.symbol as quote_asset
+          FROM trading_pairs tp JOIN currencies bc ON tp.base_currency_id = bc.id JOIN currencies qc ON tp.quote_currency_id = qc.id
+          WHERE tp.symbol = $1 AND tp.trading_enabled = TRUE LIMIT 1`, [symbol]);
+        if (tp.rows.length === 0) {
+          return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Market not found' } });
+        }
+        const r = tp.rows[0]!;
+        market.rows.push({ symbol: r.symbol, base_asset: r.base_asset ?? symbol.split('_')[0], quote_asset: r.quote_asset ?? symbol.split('_')[1], status: 'active' });
       }
-      const last = await db.query<{ price: string; created_at: string }>(
-        `SELECT price::text, created_at FROM spot_trades WHERE market = $1 ORDER BY created_at DESC LIMIT 1`,
-        [symbol]
-      );
+      const hasMarketCol = await db.query(`SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='spot_trades' AND column_name='market' LIMIT 1`);
+      const useMarket = hasMarketCol.rows.length > 0;
+
+      const last = useMarket
+        ? await db.query<{ price: string; created_at: string }>(`SELECT price::text, created_at FROM spot_trades WHERE market = $1 ORDER BY created_at DESC LIMIT 1`, [symbol])
+        : await db.query<{ price: string; created_at: string }>(`SELECT t.price::text, t.created_at FROM spot_trades t JOIN trading_pairs tp ON t.trading_pair_id = tp.id WHERE tp.symbol = $1 ORDER BY t.created_at DESC LIMIT 1`, [symbol]);
       const row = last.rows[0];
-      const openOrders = await db.query<{ bid: string; ask: string }>(`
-        SELECT
+
+      const openOrders = useMarket
+        ? await db.query<{ bid: string; ask: string }>(`SELECT
           (SELECT MIN(price)::text FROM spot_orders WHERE market = $1 AND side = 'sell' AND status IN ('OPEN', 'PARTIALLY_FILLED')) as ask,
           (SELECT MAX(price)::text FROM spot_orders WHERE market = $1 AND side = 'buy' AND status IN ('OPEN', 'PARTIALLY_FILLED')) as bid
-      `, [symbol]);
+        `, [symbol])
+        : await db.query<{ bid: string; ask: string }>(`SELECT
+          (SELECT MIN(o.price)::text FROM spot_orders o JOIN trading_pairs tp ON o.trading_pair_id = tp.id WHERE tp.symbol = $1 AND o.side::text = 'sell' AND o.status::text IN ('new','partially_filled')) as ask,
+          (SELECT MAX(o.price)::text FROM spot_orders o JOIN trading_pairs tp ON o.trading_pair_id = tp.id WHERE tp.symbol = $1 AND o.side::text = 'buy' AND o.status::text IN ('new','partially_filled')) as bid
+        `, [symbol]);
       const bid = openOrders.rows[0]?.bid ?? null;
       const ask = openOrders.rows[0]?.ask ?? null;
-      const stats24h = await db.query<{ volume: string; high: string; low: string }>(
-        `SELECT COALESCE(SUM(quantity * price), 0)::text as volume, COALESCE(MAX(price), 0)::text as high, COALESCE(MIN(price), 0)::text as low
-         FROM spot_trades WHERE market = $1 AND created_at >= NOW() - INTERVAL '24 hours'`,
-        [symbol]
-      );
+
+      const stats24h = useMarket
+        ? await db.query<{ volume: string; high: string; low: string }>(`SELECT COALESCE(SUM(quantity * price), 0)::text as volume, COALESCE(MAX(price), 0)::text as high, COALESCE(MIN(price), 0)::text as low FROM spot_trades WHERE market = $1 AND created_at >= NOW() - INTERVAL '24 hours'`, [symbol])
+        : await db.query<{ volume: string; high: string; low: string }>(`SELECT COALESCE(SUM(t.quantity * t.price), 0)::text as volume, COALESCE(MAX(t.price), 0)::text as high, COALESCE(MIN(t.price), 0)::text as low FROM spot_trades t JOIN trading_pairs tp ON t.trading_pair_id = tp.id WHERE tp.symbol = $1 AND t.created_at >= NOW() - INTERVAL '24 hours'`, [symbol]);
       const s = stats24h.rows[0];
       return reply.send({
         success: true,
@@ -152,9 +166,12 @@ export default async function spotRoutes(app: FastifyInstance) {
     try {
       const symbol = request.params.symbol?.toUpperCase().replace(/-/g, '_') || '';
       const limit = Math.min(100, Math.max(5, parseInt(request.query.limit || '20')));
-      const market = await db.query(`SELECT 1 FROM spot_markets WHERE symbol = $1 AND status IN ('active', 'maintenance')`, [symbol]);
+      let market = await db.query(`SELECT 1 FROM spot_markets WHERE symbol = $1 AND status IN ('active', 'maintenance')`, [symbol]);
       if (market.rows.length === 0) {
-        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Market not found' } });
+        const tp = await db.query(`SELECT 1 FROM trading_pairs WHERE symbol = $1 AND trading_enabled = TRUE`, [symbol]);
+        if (tp.rows.length === 0) {
+          return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Market not found' } });
+        }
       }
       let snapshot: OrderbookSnapshot | null = await getCachedOrderbook(symbol, limit);
       if (!snapshot) {
@@ -865,8 +882,6 @@ export default async function spotRoutes(app: FastifyInstance) {
         });
       }
 
-      const ORDER_LOCK_TTL_DAYS = 30;
-
       const orderResult = await db.transaction(async (client) => {
         if (clientOrderId) {
           const existing = await client.query<{ id: string; market: string; side: string; type: string; price: string | null; quantity: string; filled_quantity: string; status: string; created_at: Date }>(
@@ -879,23 +894,8 @@ export default async function spotRoutes(app: FastifyInstance) {
           }
         }
 
-        const balanceRow = await client.query<{ available_balance: string; locked_balance: string }>(
-          `SELECT COALESCE(available_balance, 0)::text AS available_balance, COALESCE(locked_balance, 0)::text AS locked_balance
-           FROM user_balances WHERE user_id = $1 AND currency_id = $2 AND chain_id = $3 AND account_type::text = 'trading'
-           FOR UPDATE`,
-          [userId, lockCurrencyId, CHAIN_ID_GLOBAL]
-        );
-        const total = balanceRow.rows.length === 0
-          ? new Decimal(0)
-          : new Decimal(balanceRow.rows[0]!.available_balance || '0').plus(balanceRow.rows[0]!.locked_balance || '0').toDecimalPlaces(precision, ROUND_DOWN);
-        const sumLock = await client.query<{ sum: string }>(
-          `SELECT COALESCE(SUM(amount), 0)::text AS sum FROM balance_locks WHERE user_id = $1 AND currency_id = $2 AND account_type::text = 'trading' AND expires_at > NOW()`,
-          [userId, lockCurrencyId]
-        );
-        const lockedSum = new Decimal(sumLock.rows[0]?.sum || '0').toDecimalPlaces(precision, ROUND_DOWN);
-        const spendable = total.minus(lockedSum).toDecimalPlaces(precision, ROUND_DOWN);
-        const required = new Decimal(lockAmount).toDecimalPlaces(precision, ROUND_DOWN);
-        if (required.gt(0) && spendable.lt(required)) {
+        const locked = await lockTradingBalance(userId, lockCurrencyId, lockAmount, client);
+        if (!locked) {
           throw new Error('INSUFFICIENT_BALANCE');
         }
 
@@ -916,13 +916,7 @@ export default async function spotRoutes(app: FastifyInstance) {
            RETURNING id, market, side, type, price, quantity, filled_quantity, status, created_at`,
           [userId, marketSymbol, side, type, insertPrice, qtyRounded.toString(), clientOrderId]
         );
-        const orderRow = orderIns.rows[0]!;
-        const expiresAt = new Date(Date.now() + ORDER_LOCK_TTL_DAYS * 24 * 60 * 60 * 1000);
-        await client.query(
-          `INSERT INTO balance_locks (user_id, currency_id, account_type, amount, reason, expires_at, reference_id) VALUES ($1, $2, 'trading', $3::numeric, 'order', $4, $5)`,
-          [userId, lockCurrencyId, lockAmount, expiresAt, orderRow.id]
-        );
-        return orderRow;
+        return orderIns.rows[0]!;
       });
 
       return reply.send({
@@ -1020,7 +1014,7 @@ export default async function spotRoutes(app: FastifyInstance) {
     }
   });
 
-  // POST /spot/orders/:orderId/cancel — idempotent cancel OPEN order, release balance lock.
+  // POST /spot/orders/:orderId/cancel — idempotent cancel OPEN order, release user_balances lock.
   app.post<{ Params: { orderId: string } }>('/orders/:orderId/cancel', {
     preHandler: [app.authenticate],
   }, async (request, reply) => {
@@ -1030,56 +1024,55 @@ export default async function spotRoutes(app: FastifyInstance) {
       return reply.status(400).send({ success: false, error: { code: 'INVALID_ORDER', message: 'Order ID required' } });
     }
     try {
-      const result = await db.transaction(async (client) => {
-        const orderRow = await client.query<{
-          id: string;
-          user_id: string;
-          market: string;
-          side: string;
-          type: string;
-          price: string | null;
-          quantity: string;
-          filled_quantity: string;
-          status: string;
-          created_at: Date;
-        }>(
-          `SELECT id, user_id, market, side, type, price, quantity, filled_quantity, status, created_at
-           FROM spot_orders WHERE id = $1 AND user_id = $2 FOR UPDATE`,
-          [orderId, userId]
-        );
-        if (orderRow.rows.length === 0) {
-          return { notFound: true as const, order: null };
-        }
-        const o = orderRow.rows[0]!;
-        if (o.status !== 'OPEN') {
-          return { notFound: false as const, order: o };
-        }
-        await client.query(
-          `UPDATE spot_orders SET status = 'CANCELLED', updated_at = NOW() WHERE id = $1`,
-          [orderId]
-        );
-        await client.query(
-          `DELETE FROM balance_locks WHERE reference_id = $1 AND reason = 'order'`,
-          [orderId]
-        );
-        return { notFound: false as const, order: { ...o, status: 'CANCELLED' } };
-      });
-      if (result.notFound && result.order === null) {
+      const orderRow = await db.query<{
+        id: string;
+        user_id: string;
+        market: string;
+        side: string;
+        type: string;
+        price: string | null;
+        quantity: string;
+        filled_quantity: string;
+        status: string;
+        created_at: Date;
+      }>(`SELECT id, user_id, market, side, type, price, quantity, filled_quantity, status, created_at FROM spot_orders WHERE id = $1 AND user_id = $2`, [orderId, userId]);
+      if (orderRow.rows.length === 0) {
         return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Order not found' } });
       }
-      const order = result.order!;
+      const o = orderRow.rows[0]!;
+      if (o.status !== 'OPEN') {
+        return reply.status(400).send({ success: false, error: { code: 'ORDER_NOT_CANCELLABLE', message: 'Order cannot be cancelled' } });
+      }
+      const m = await db.query<{ base_currency_id: string | null; quote_currency_id: string | null; base_asset: string; quote_asset: string }>(
+        `SELECT base_currency_id, quote_currency_id, base_asset, quote_asset FROM spot_markets WHERE symbol = $1`,
+        [o.market]
+      );
+      const row = m.rows[0];
+      const baseId = row?.base_currency_id ?? (await getCurrencyIdBySymbol(row?.base_asset ?? '')) ?? '';
+      const quoteId = row?.quote_currency_id ?? (await getCurrencyIdBySymbol(row?.quote_asset ?? '')) ?? '';
+      const remainingQty = new Decimal(o.quantity).minus(new Decimal(o.filled_quantity)).toDecimalPlaces(8, ROUND_DOWN);
+      const unlockCurrencyId = o.side === 'buy' ? quoteId : baseId;
+      const unlockAmount = o.side === 'buy'
+        ? unlockAmountQuote(o.price ?? '0', remainingQty.toString(), 8)
+        : unlockAmountBase(remainingQty.toString(), 8);
+
+      await db.transaction(async (client) => {
+        await client.query(`UPDATE spot_orders SET status = 'CANCELLED', updated_at = NOW() WHERE id = $1`, [orderId]);
+        await unlockTradingBalance(userId, unlockCurrencyId, unlockAmount, client);
+      });
+
       return reply.send({
         success: true,
         data: {
-          id: order.id,
-          market: order.market,
-          side: order.side,
-          type: order.type,
-          price: order.price,
-          quantity: order.quantity,
-          filled_quantity: order.filled_quantity,
-          status: order.status,
-          created_at: order.created_at,
+          id: o.id,
+          market: o.market,
+          side: o.side,
+          type: o.type,
+          price: o.price,
+          quantity: o.quantity,
+          filled_quantity: o.filled_quantity,
+          status: 'CANCELLED',
+          created_at: o.created_at,
         },
       });
     } catch (error) {

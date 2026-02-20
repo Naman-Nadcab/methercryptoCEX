@@ -27,6 +27,7 @@ export const ERROR_CODE_MESSAGES: Record<string, string> = {
   ORDER_FAILED: 'Order could not be placed. Please try again.',
   CANCEL_FAILED: 'Could not cancel order. Please try again.',
   MARKET_PAUSED: 'Trading is temporarily paused for this market. Please try again later.',
+  NETWORK_ERROR: 'Connection issue. Your request may not have reached the server. Safe to try again—no funds have been moved.',
   // Admin (spot markets, etc.)
   UNAUTHORIZED: 'Session expired or not authenticated. Please log in again.',
   INVALID_TOKEN: 'Session expired or invalid. Please log in again.',

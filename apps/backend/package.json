@@ -16,7 +16,8 @@
     "fix:wallets-chain-id": "tsx fix-wallets-chain-id.ts",
     "ensure:wallets": "tsx ensure-wallets-relation.ts",
     "clean": "rm -rf dist",
-    "test:balance": "tsx src/services/balance/balance-read.integration.test.ts"
+    "test:balance": "tsx src/services/balance/balance-read.integration.test.ts",
+    "test:p2p-orders": "tsx src/routes/p2p-orders.integration.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-kms": "^3.989.0",

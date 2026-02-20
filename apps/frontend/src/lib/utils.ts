@@ -76,6 +76,16 @@ export function formatPrice(price: string | number, quoteAsset: string = 'USDT')
   return formatNumber(num, decimals);
 }
 
+/** Admin control plane: format financial/balance amounts. No scientific notation for normal range. */
+export function formatAmountAdmin(raw: string, maxDecimals = 8): string {
+  const n = parseFloat(raw);
+  if (Number.isNaN(n)) return (typeof raw === 'string' && raw.trim()) ? raw : '0';
+  if (n === 0) return '0';
+  if (Math.abs(n) >= 1e12 || (Math.abs(n) < 1e-10 && n !== 0)) return n.toExponential(4);
+  const s = n.toFixed(maxDecimals);
+  return s.replace(/\.?0+$/, '') || '0';
+}
+
 // Shorten address
 export function shortenAddress(address: string, chars: number = 4): string {
   if (!address) return '';

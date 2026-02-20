@@ -1,7 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth';
+import { useTransferBalances } from '@/lib/balances';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
@@ -21,15 +23,6 @@ import {
   ArrowRight,
   RefreshCw,
 } from 'lucide-react';
-
-interface Token {
-  tokenId: string;
-  symbol: string;
-  name: string;
-  iconUrl: string | null;
-  decimals: number;
-  availableBalance: string;
-}
 
 interface TransferHistory {
   id: string;
@@ -51,15 +44,14 @@ const SIDEBAR_LINKS = [
 ];
 
 export default function TransferPage() {
+  const queryClient = useQueryClient();
   const { accessToken, _hasHydrated } = useAuthStore();
 
   const [fromAccount, setFromAccount] = useState<'funding' | 'trading'>('funding');
   const [toAccount, setToAccount] = useState<'funding' | 'trading'>('trading');
-  const [selectedToken, setSelectedToken] = useState<Token | null>(null);
+  const [selectedToken, setSelectedToken] = useState<{ tokenId: string; symbol: string; name: string; iconUrl: string | null; decimals: number; availableBalance: string } | null>(null);
   const [amount, setAmount] = useState('');
-  const [tokens, setTokens] = useState<Token[]>([]);
   const [transferHistory, setTransferHistory] = useState<TransferHistory[]>([]);
-  const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
@@ -70,29 +62,14 @@ export default function TransferPage() {
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
+  const { data: tokensData = [], isLoading: loading } = useTransferBalances(fromAccount, !!_hasHydrated && !!accessToken);
+  const tokens = tokensData;
+
   useEffect(() => {
     if (_hasHydrated && accessToken) {
-      fetchTransferableBalances();
       fetchTransferHistory();
     }
   }, [_hasHydrated, accessToken, fromAccount]);
-
-  const fetchTransferableBalances = async () => {
-    try {
-      setLoading(true);
-      const res = await fetch(`${API_URL}/api/v1/wallet/transfer/balances?from=${fromAccount}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setTokens(Array.isArray(data.data) ? data.data : []);
-      }
-    } catch (err) {
-      console.error('Failed to fetch balances:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const fetchTransferHistory = async () => {
     try {
@@ -117,18 +94,18 @@ export default function TransferPage() {
   };
 
   const handleTransfer = async () => {
+    if (submitting) return;
     if (!selectedToken) {
       setError('Please select a coin');
       return;
     }
-    if (!amount || parseFloat(amount) <= 0) {
+    const transferAmount = parseFloat(amount);
+    const availableNum = parseFloat(selectedToken.availableBalance ?? '0');
+    if (!Number.isFinite(transferAmount) || transferAmount <= 0) {
       setError('Please enter a valid amount');
       return;
     }
-
-    const transferAmount = parseFloat(amount);
-    const availableBalance = parseFloat(selectedToken.availableBalance ?? '0');
-    if (transferAmount > availableBalance) {
+    if (!Number.isFinite(availableNum) || transferAmount > availableNum) {
       setError('Insufficient balance');
       return;
     }
@@ -157,14 +134,14 @@ export default function TransferPage() {
       if (data.success) {
         setSuccess(true);
         setAmount('');
-        fetchTransferableBalances();
+        queryClient.invalidateQueries({ queryKey: ['balances'] });
         fetchTransferHistory();
         setTimeout(() => setSuccess(false), 3000);
       } else {
         setError(data.error?.message || 'Transfer failed');
       }
     } catch {
-      setError('Network error. Please try again.');
+      setError('Connection issue. Your request may not have reached the server. Safe to try again.');
     } finally {
       setSubmitting(false);
     }
@@ -552,6 +529,7 @@ export default function TransferPage() {
                 <button
                   onClick={handleTransfer}
                   disabled={!selectedToken || !amount || submitting}
+                  aria-busy={submitting}
                   className={`w-full py-4 rounded-xl font-semibold transition-all ${
                     selectedToken && amount && !submitting
                       ? 'bg-blue-500 hover:bg-blue-600 text-white shadow-lg shadow-blue-500/25'

@@ -48,6 +48,69 @@ export default async function tradingRoutes(app: FastifyInstance) {
   });
 
   /**
+   * GET /trading/candles/:symbol?interval=60
+   * Read-only market data. Returns OHLCV candles for chart.
+   */
+  const INTERVAL_MAP: Record<number, string> = {
+    60: '1m',
+    300: '5m',
+    900: '15m',
+    1800: '30m',
+    3600: '1h',
+    14400: '4h',
+    86400: '1d',
+    604800: '1w',
+    2592000: '1M',
+  };
+  app.get<{ Params: { symbol: string }; Querystring: { interval?: string } }>('/candles/:symbol', async (request, reply) => {
+    try {
+      const symbol = (request.params.symbol ?? '').toUpperCase().replace(/-/g, '_').trim();
+      if (!symbol) {
+        return reply.status(400).send({ success: false, error: { code: 'INVALID_SYMBOL', message: 'Invalid symbol' } });
+      }
+      const intervalParam = request.query.interval;
+      if (intervalParam === undefined || intervalParam === '') {
+        return reply.status(400).send({ success: false, error: { code: 'INVALID_INTERVAL', message: 'interval is required' } });
+      }
+      const intervalSeconds = parseInt(intervalParam, 10);
+      if (!Number.isFinite(intervalSeconds) || intervalSeconds <= 0) {
+        return reply.status(400).send({ success: false, error: { code: 'INVALID_INTERVAL', message: 'Invalid interval' } });
+      }
+      const intervalType = INTERVAL_MAP[intervalSeconds];
+      if (!intervalType) {
+        return reply.status(400).send({ success: false, error: { code: 'INVALID_INTERVAL', message: 'Invalid interval' } });
+      }
+      const pair = await db.query<{ id: string }>(
+        'SELECT id FROM trading_pairs WHERE symbol = $1 AND trading_enabled = TRUE',
+        [symbol]
+      );
+      if (pair.rows.length === 0) {
+        return reply.send({ success: true, data: [] });
+      }
+      const tradingPairId = pair.rows[0]!.id;
+      const result = await db.query<{ time: number; open: string; high: string; low: string; close: string }>(`
+        SELECT
+          EXTRACT(EPOCH FROM open_time)::bigint AS time,
+          open_price::text AS open,
+          high_price::text AS high,
+          low_price::text AS low,
+          close_price::text AS close
+        FROM ohlcv_candles
+        WHERE trading_pair_id = $1 AND interval_type = $2
+        ORDER BY open_time ASC
+        LIMIT 500
+      `, [tradingPairId, intervalType]);
+      return reply.send({ success: true, data: result.rows });
+    } catch (error) {
+      logger.error('Failed to fetch candles', { error });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'FETCH_FAILED', message: 'Failed to fetch candles' },
+      });
+    }
+  });
+
+  /**
    * GET /trading/balances
    * Get user balances
    */

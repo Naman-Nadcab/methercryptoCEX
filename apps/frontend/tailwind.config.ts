@@ -96,14 +96,39 @@ const config: Config = {
           '0%, 100%': { backgroundColor: 'rgba(246, 70, 93, 0)' },
           '50%': { backgroundColor: 'rgba(246, 70, 93, 0.2)' },
         },
+        'admin-fade-in': {
+          from: { opacity: '0' },
+          to: { opacity: '1' },
+        },
+        'admin-slide-up': {
+          from: { opacity: '0', transform: 'translateY(8px)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
+        },
+        'admin-slide-in-left': {
+          from: { opacity: '0', transform: 'translateX(-8px)' },
+          to: { opacity: '1', transform: 'translateX(0)' },
+        },
+        'admin-scale-in': {
+          from: { opacity: '0', transform: 'scale(0.98)' },
+          to: { opacity: '1', transform: 'scale(1)' },
+        },
       },
       animation: {
         'accordion-down': 'accordion-down 0.2s ease-out',
         'accordion-up': 'accordion-up 0.2s ease-out',
         'fade-in': 'fade-in 0.3s ease-out',
+        'fade-in-fast': 'fade-in 0.15s ease-out',
         'slide-up': 'slide-up 0.3s ease-out',
         'pulse-buy': 'pulse-buy 0.5s ease-out',
         'pulse-sell': 'pulse-sell 0.5s ease-out',
+        'admin-fade-in': 'admin-fade-in 0.25s ease-out',
+        'admin-slide-up': 'admin-slide-up 0.3s ease-out',
+        'admin-slide-in-left': 'admin-slide-in-left 0.25s ease-out',
+        'admin-scale-in': 'admin-scale-in 0.2s ease-out',
+      },
+      transitionDuration: {
+        '250': '250ms',
+        '400': '400ms',
       },
       fontFamily: {
         sans: ['var(--font-inter)', 'system-ui', 'sans-serif'],

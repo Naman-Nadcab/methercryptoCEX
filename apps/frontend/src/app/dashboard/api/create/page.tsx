@@ -405,24 +405,6 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
                 />
                 <div className="ml-8 border-l-2 border-gray-100 dark:border-gray-800 pl-4">
                   <PermissionCheckbox
-                    checked={permissions.contractOrders}
-                    onChange={() => togglePermission('contractOrders')}
-                    label="Contract Orders"
-                    description="Query derivative orders"
-                  />
-                  <PermissionCheckbox
-                    checked={permissions.contractPositions}
-                    onChange={() => togglePermission('contractPositions')}
-                    label="Positions"
-                    description="View positions and filled orders"
-                  />
-                  <PermissionCheckbox
-                    checked={permissions.usdcDerivativesTrading}
-                    onChange={() => togglePermission('usdcDerivativesTrading')}
-                    label="USDC Derivatives"
-                    description="USDC contracts API access"
-                  />
-                  <PermissionCheckbox
                     checked={permissions.spotTrade}
                     onChange={() => togglePermission('spotTrade')}
                     label="Spot Trading"

@@ -3,45 +3,89 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAdminAuthStore } from '@/store/admin-auth';
-import { ArrowUpFromLine, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import {
+  SectionHeader,
+  MetricWidget,
+  Panel,
+  ActionButton,
+  DataTableContainer,
+  DataTableHead,
+  DataTableTh,
+  DataTableBody,
+  DataTableRow,
+  DataTableCell,
+  StatusBadge,
+} from '@/components/admin/control-plane';
+import { Loader2, ChevronLeft, ChevronRight, Check, X } from 'lucide-react';
+import { formatAmountAdmin } from '@/lib/utils';
 
 interface WithdrawalStats {
-  total: number;
+  total?: number;
   pending_approval?: number;
-  pending: number;
-  processing: number;
-  completed: number;
-  failed: number;
-  cancelled: number;
+  pending?: number;
+  processing?: number;
+  completed?: number;
+  failed?: number;
+  cancelled?: number;
 }
 
-interface Withdrawal {
+interface WithdrawalRow {
   id: string;
-  to_address: string | null;
-  amount: string;
-  fee: string;
-  net_amount: string;
-  status: string;
+  user_id: string;
   email: string;
-  username: string;
+  username?: string | null;
   currency_symbol: string;
-  chain_name: string;
+  amount: string;
+  fee?: string;
+  net_amount?: string;
+  to_address?: string | null;
+  status: string;
+  created_at: string;
+  chain_name?: string;
   withdrawal_type?: string;
   internal_recipient_email?: string | null;
-  tx_hash: string | null;
-  created_at: string;
+  failed_reason?: string | null;
+  rejection_reason?: string | null;
 }
 
-export default function WithdrawalsPage() {
+const withdrawalStatusVariant: Record<string, 'LIVE' | 'HALTED' | 'DEGRADED' | 'RISK' | 'NEUTRAL'> = {
+  pending_approval: 'DEGRADED',
+  pending: 'NEUTRAL',
+  processing: 'NEUTRAL',
+  completed: 'LIVE',
+  failed: 'RISK',
+  cancelled: 'NEUTRAL',
+};
+
+function WithdrawalStatusBadge({ status }: { status: string }) {
+  const variant = withdrawalStatusVariant[status] ?? 'NEUTRAL';
+  const label = status.replace(/_/g, ' ');
+  return <StatusBadge variant={variant} label={label} showDot={variant !== 'NEUTRAL'} />;
+}
+
+function truncateAddress(addr: string | null | undefined, len = 6): string {
+  if (!addr) return '—';
+  if (addr.length <= len * 2 + 2) return addr;
+  return `${addr.slice(0, len)}…${addr.slice(-len)}`;
+}
+
+export default function WithdrawalsCommandCenter() {
   const searchParams = useSearchParams();
   const { accessToken } = useAdminAuthStore();
   const [stats, setStats] = useState<WithdrawalStats | null>(null);
-  const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
+  const [withdrawals, setWithdrawals] = useState<WithdrawalRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') || 'all');
-  const [typeFilter, setTypeFilter] = useState(() => searchParams.get('type') || 'all');
-  const [page, setPage] = useState(() => Math.max(1, parseInt(searchParams.get('page') || '1', 10)));
-  const [pagination, setPagination] = useState<{ page: number; limit: number; total: number; totalPages: number } | null>(null);
+  const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') ?? 'all');
+  const [page, setPage] = useState(() => Math.max(1, parseInt(searchParams.get('page') ?? '1', 10)));
+  const [pagination, setPagination] = useState<{
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  } | null>(null);
+  const [actingId, setActingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<{ id: string; message: string } | null>(null);
+  const [confirmReject, setConfirmReject] = useState<WithdrawalRow | null>(null);
 
   const fetchWithdrawals = useCallback(async () => {
     setLoading(true);
@@ -49,222 +93,312 @@ export default function WithdrawalsPage() {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
       const params = new URLSearchParams({ limit: '20', page: String(page) });
       if (statusFilter !== 'all') params.set('status', statusFilter);
-      if (typeFilter === 'internal' || typeFilter === 'onchain') params.set('type', typeFilter);
-
-      const response = await fetch(`${apiUrl}/api/v1/admin/withdrawals?${params}`, {
+      const res = await fetch(`${apiUrl}/api/v1/admin/withdrawals?${params}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
-      const result = await response.json();
-      if (result.success) {
-        setStats(result.data.stats);
-        setWithdrawals(result.data.withdrawals);
+      const result = await res.json();
+      if (result?.success && result?.data) {
+        setStats(result.data.stats ?? {});
+        setWithdrawals(result.data.withdrawals ?? []);
         setPagination(result.data.pagination ?? null);
       }
-    } catch (error) {
-      console.error('Failed to fetch withdrawals:', error);
     } finally {
       setLoading(false);
     }
-  }, [accessToken, statusFilter, typeFilter, page]);
+  }, [accessToken, statusFilter, page]);
 
   useEffect(() => {
     fetchWithdrawals();
   }, [fetchWithdrawals]);
 
-  // Sync URL with state
   useEffect(() => {
     const next = new URLSearchParams(searchParams.toString());
-    if (statusFilter !== 'all') next.set('status', statusFilter); else next.delete('status');
-    if (typeFilter !== 'all') next.set('type', typeFilter); else next.delete('type');
-    if (page > 1) next.set('page', String(page)); else next.delete('page');
+    if (statusFilter !== 'all') next.set('status', statusFilter);
+    else next.delete('status');
+    if (page > 1) next.set('page', String(page));
+    else next.delete('page');
     const q = next.toString();
     const url = q ? `?${q}` : '';
     if (typeof window !== 'undefined' && (window.location.search || '') !== url) {
       window.history.replaceState(null, '', `${window.location.pathname}${url}`);
     }
-  }, [statusFilter, typeFilter, page, searchParams]);
+  }, [statusFilter, page, searchParams]);
 
-  const getStatusBadge = (status: string) => {
-    const colors: Record<string, string> = {
-      pending_approval: 'bg-amber-500/20 text-amber-400',
-      pending: 'bg-yellow-500/20 text-yellow-400',
-      processing: 'bg-blue-500/20 text-blue-400',
-      completed: 'bg-green-500/20 text-green-400',
-      failed: 'bg-red-500/20 text-red-400',
-      cancelled: 'bg-gray-500/20 text-gray-400',
-    };
-    return colors[status] || 'bg-gray-500/20 text-gray-400';
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
+  const handleApprove = async (id: string) => {
+    if (!accessToken) return;
+    setActionError(null);
+    setActingId(id);
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/admin/withdrawals/${id}/approve`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (data?.success) {
+        await fetchWithdrawals();
+      } else {
+        setActionError({ id, message: data?.error?.message ?? data?.error?.code ?? 'Approve failed' });
+      }
+    } catch {
+      setActionError({ id, message: 'Request failed' });
+    } finally {
+      setActingId(null);
+    }
   };
 
-  if (loading && !stats) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
-      </div>
-    );
-  }
+  const handleReject = async (id: string) => {
+    if (!accessToken || !confirmReject) return;
+    setActionError(null);
+    setActingId(id);
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/admin/withdrawals/${id}/reject`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Rejected by operator' }),
+      });
+      const data = await res.json();
+      if (data?.success) {
+        setConfirmReject(null);
+        await fetchWithdrawals();
+      } else {
+        setActionError({ id, message: data?.error?.message ?? data?.error?.code ?? 'Reject failed' });
+      }
+    } catch {
+      setActionError({ id, message: 'Request failed' });
+    } finally {
+      setActingId(null);
+    }
+  };
+
+  const pendingApproval = stats?.pending_approval ?? 0;
+  const signing = stats?.pending ?? 0;
+  const broadcasted = stats?.completed ?? 0;
+  const failed = stats?.failed ?? 0;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Withdrawals</h1>
-        <p className="text-gray-400 text-sm mt-1">
-          Manage on-chain and internal withdrawals. Internal transfer history: use <strong>Type → Internal</strong> or open <strong>Internal Transfers</strong> in the sidebar.
-        </p>
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-        <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-sm">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Total</p>
-          <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{stats?.total || 0}</p>
-        </div>
-        <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl p-4">
-          <p className="text-sm text-amber-600 dark:text-amber-400">Pending Approval</p>
-          <p className="text-2xl font-bold text-amber-700 dark:text-amber-300 mt-1">{stats?.pending_approval ?? 0}</p>
-        </div>
-        <div className="bg-yellow-50 dark:bg-yellow-500/10 border border-yellow-200 dark:border-yellow-500/30 rounded-xl p-4">
-          <p className="text-sm text-yellow-600 dark:text-yellow-400">Pending</p>
-          <p className="text-2xl font-bold text-yellow-700 dark:text-yellow-300 mt-1">{stats?.pending ?? 0}</p>
-        </div>
-        <div className="bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 rounded-xl p-4">
-          <p className="text-sm text-blue-600 dark:text-blue-400">Processing</p>
-          <p className="text-2xl font-bold text-blue-700 dark:text-blue-300 mt-1">{stats?.processing ?? 0}</p>
-        </div>
-        <div className="bg-green-50 dark:bg-green-500/10 border border-green-200 dark:border-green-500/30 rounded-xl p-4">
-          <p className="text-sm text-green-600 dark:text-green-400">Completed</p>
-          <p className="text-2xl font-bold text-green-700 dark:text-green-300 mt-1">{stats?.completed ?? 0}</p>
-        </div>
-        <div className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 rounded-xl p-4">
-          <p className="text-sm text-red-600 dark:text-red-400">Failed / Cancelled</p>
-          <p className="text-2xl font-bold text-red-700 dark:text-red-300 mt-1">{(stats?.failed ?? 0) + (stats?.cancelled ?? 0)}</p>
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-4">
-        <select
-          value={statusFilter}
-          onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-          className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white"
-        >
-          <option value="all">All statuses</option>
-          <option value="pending_approval">Pending Approval</option>
-          <option value="pending">Pending</option>
-          <option value="processing">Processing</option>
-          <option value="completed">Completed</option>
-          <option value="failed">Failed</option>
-          <option value="cancelled">Cancelled</option>
-        </select>
-        <select
-          value={typeFilter}
-          onChange={(e) => { setTypeFilter(e.target.value); setPage(1); }}
-          className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-white"
-        >
-          <option value="all">All types</option>
-          <option value="onchain">On-chain only</option>
-          <option value="internal">Internal transfers only</option>
-        </select>
-      </div>
-
-      {/* Withdrawals Table */}
-      <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
-        {withdrawals.length === 0 ? (
-          <div className="p-8 text-center">
-            <ArrowUpFromLine className="w-12 h-12 text-gray-600 mx-auto mb-4" />
-            <p className="text-gray-500 dark:text-gray-400">No withdrawals found</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-200 dark:border-gray-700">
-                  <th className="text-left px-6 py-4 text-xs font-medium text-gray-400 uppercase">User</th>
-                  <th className="text-left px-6 py-4 text-xs font-medium text-gray-400 uppercase">Amount</th>
-                  <th className="text-left px-6 py-4 text-xs font-medium text-gray-400 uppercase">Chain</th>
-                  <th className="text-left px-6 py-4 text-xs font-medium text-gray-400 uppercase">To Address</th>
-                  <th className="text-left px-6 py-4 text-xs font-medium text-gray-400 uppercase">Status</th>
-                  <th className="text-left px-6 py-4 text-xs font-medium text-gray-400 uppercase">Tx Hash</th>
-                  <th className="text-left px-6 py-4 text-xs font-medium text-gray-400 uppercase">Date</th>
-                </tr>
-              </thead>
-              <tbody>
-                {withdrawals.map((withdrawal) => (
-                  <tr key={withdrawal.id} className="border-b border-gray-200 dark:border-gray-100 dark:border-gray-700/50 hover:bg-gray-100 dark:hover:bg-gray-700/20">
-                    <td className="px-6 py-4">
-                      <p className="text-gray-900 dark:text-white">{withdrawal.email}</p>
-                      {withdrawal.username && (
-                        <p className="text-xs text-gray-500">{withdrawal.username}</p>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-gray-900 dark:text-white font-medium">{parseFloat(withdrawal.amount).toFixed(8)}</span>
-                      <span className="text-gray-400 ml-1">{withdrawal.currency_symbol}</span>
-                      <p className="text-xs text-gray-500">Fee: {parseFloat(withdrawal.fee || '0').toFixed(8)}</p>
-                    </td>
-                    <td className="px-6 py-4 text-gray-500 dark:text-gray-400">{withdrawal.chain_name}</td>
-                    <td className="px-6 py-4">
-                      {(withdrawal.withdrawal_type === 'internal' || withdrawal.chain_name === 'Internal') ? (
-                        <span className="text-gray-500">Internal → {withdrawal.internal_recipient_email ?? '—'}</span>
-                      ) : (
-                        <p className="text-gray-400 truncate max-w-[180px]" title={withdrawal.to_address ?? ''}>{withdrawal.to_address ?? '—'}</p>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadge(withdrawal.status)}`}>
-                        {withdrawal.status.replace('_', ' ')}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      {(withdrawal.withdrawal_type === 'internal' || withdrawal.chain_name === 'Internal') ? (
-                        <span className="text-gray-500">—</span>
-                      ) : withdrawal.tx_hash ? (
-                        <a
-                          href={`https://etherscan.io/tx/${withdrawal.tx_hash}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-500 hover:underline truncate max-w-[120px] block"
-                        >
-                          {withdrawal.tx_hash.slice(0, 10)}…
-                        </a>
-                      ) : (
-                        <span className="text-gray-500">—</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
-                      {new Date(withdrawal.created_at).toLocaleString()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Pagination */}
-      {pagination && pagination.totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            Page {pagination.page} of {pagination.totalPages} ({pagination.total} total)
-          </p>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={pagination.page <= 1 || loading}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              className="p-2 rounded-lg border border-gray-200 dark:border-gray-700 disabled:opacity-50 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+    <div className="space-y-5">
+      <SectionHeader
+        title="Withdrawals Command Center"
+        subtitle="Monitor approvals, signing, and failures"
+        action={
+          <div className="flex items-center gap-2">
+            <select
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setPage(1);
+              }}
+              className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-1.5 text-xs text-gray-900 dark:text-white"
             >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              disabled={pagination.page >= pagination.totalPages || loading}
-              onClick={() => setPage((p) => p + 1)}
-              className="p-2 rounded-lg border border-gray-200 dark:border-gray-700 disabled:opacity-50 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+              <option value="all">All statuses</option>
+              <option value="pending_approval">Pending approval</option>
+              <option value="pending">Pending</option>
+              <option value="processing">Processing</option>
+              <option value="completed">Completed</option>
+              <option value="failed">Failed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+            <ActionButton
+              variant="secondary"
+              onClick={() => fetchWithdrawals()}
+              loading={loading}
+              icon={!loading ? <span className="text-xs">↻</span> : undefined}
             >
-              <ChevronRight className="w-4 h-4" />
-            </button>
+              Refresh
+            </ActionButton>
+          </div>
+        }
+      />
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <MetricWidget
+          label="Pending approval"
+          value={pendingApproval}
+          variant={pendingApproval > 0 ? 'warning' : 'neutral'}
+          statusBadge={pendingApproval > 0 ? 'DEGRADED' : undefined}
+        />
+        <MetricWidget label="Signing" value={signing} sublabel="in queue" />
+        <MetricWidget label="Broadcasted" value={broadcasted} variant="positive" />
+        <MetricWidget
+          label="Failed"
+          value={failed}
+          variant={failed > 0 ? 'danger' : 'neutral'}
+        />
+      </div>
+
+      <DataTableContainer
+        title="Withdrawals"
+        subtitle={`${pagination?.total ?? 0} total`}
+        headerAction={
+          pagination && pagination.totalPages > 1 ? (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                disabled={pagination.page <= 1 || loading}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="p-1.5 rounded border border-gray-200 dark:border-gray-700 disabled:opacity-50 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="text-xs text-gray-500 dark:text-gray-400 px-2">
+                {pagination.page} / {pagination.totalPages}
+              </span>
+              <button
+                type="button"
+                disabled={pagination.page >= pagination.totalPages || loading}
+                onClick={() => setPage((p) => p + 1)}
+                className="p-1.5 rounded border border-gray-200 dark:border-gray-700 disabled:opacity-50 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          ) : null
+        }
+        emptyMessage="No withdrawals found"
+        isEmpty={!loading && withdrawals.length === 0}
+      >
+        <DataTableHead>
+          <DataTableTh>Withdrawal ID</DataTableTh>
+          <DataTableTh>User</DataTableTh>
+          <DataTableTh>Asset</DataTableTh>
+          <DataTableTh align="right">Amount</DataTableTh>
+          <DataTableTh>Address</DataTableTh>
+          <DataTableTh>Status</DataTableTh>
+          <DataTableTh>Created</DataTableTh>
+          <DataTableTh align="right">Actions</DataTableTh>
+        </DataTableHead>
+        <DataTableBody>
+          {withdrawals.map((w) => (
+            <DataTableRow key={w.id} className="cursor-default">
+              <DataTableCell mono>
+                <span className="text-gray-700 dark:text-gray-300" title={w.id}>
+                  {w.id.slice(0, 8)}…
+                </span>
+              </DataTableCell>
+              <DataTableCell>
+                <div>
+                  <span className="text-gray-900 dark:text-white">{w.email}</span>
+                  {w.username && (
+                    <span className="text-gray-500 dark:text-gray-400 text-xs block">
+                      {w.username}
+                    </span>
+                  )}
+                </div>
+              </DataTableCell>
+              <DataTableCell>{w.currency_symbol}</DataTableCell>
+              <DataTableCell align="right" mono>
+                {formatAmountAdmin(w.amount)}
+              </DataTableCell>
+              <DataTableCell mono className="max-w-[120px] truncate" title={w.to_address ?? undefined}>
+                {w.withdrawal_type === 'internal' || w.chain_name === 'Internal'
+                  ? truncateAddress(w.internal_recipient_email ?? null, 4)
+                  : truncateAddress(w.to_address ?? undefined)}
+              </DataTableCell>
+              <DataTableCell>
+                <div>
+                  <WithdrawalStatusBadge status={w.status} />
+                  {(w.status === 'failed' && w.failed_reason) && (
+                    <p className="text-xs text-red-600 dark:text-red-400 mt-1 truncate max-w-[180px]" title={w.failed_reason}>
+                      {w.failed_reason}
+                    </p>
+                  )}
+                  {(w.status === 'rejected' || w.rejection_reason) && w.rejection_reason && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-1 truncate max-w-[180px]" title={w.rejection_reason}>
+                      {w.rejection_reason}
+                    </p>
+                  )}
+                </div>
+              </DataTableCell>
+              <DataTableCell className="text-xs text-gray-500 dark:text-gray-400">
+                {new Date(w.created_at).toLocaleString()}
+              </DataTableCell>
+              <DataTableCell align="right">
+                {w.status === 'pending_approval' && (
+                  <div className="flex flex-col items-end gap-1">
+                    <div className="flex items-center justify-end gap-1">
+                      <ActionButton
+                        variant="primary"
+                        icon={<Check className="w-3.5 h-3.5" />}
+                        onClick={() => { setActionError(null); handleApprove(w.id); }}
+                        loading={actingId === w.id}
+                        disabled={actingId != null && actingId !== w.id}
+                      >
+                        Approve
+                      </ActionButton>
+                      <ActionButton
+                        variant="danger"
+                        icon={<X className="w-3.5 h-3.5" />}
+                        onClick={() => { setActionError(null); setConfirmReject(w); }}
+                        loading={actingId === w.id}
+                        disabled={actingId != null && actingId !== w.id}
+                      >
+                        Reject
+                      </ActionButton>
+                    </div>
+                    {actionError?.id === w.id && (
+                      <span className="text-xs text-red-600 dark:text-red-400" role="alert">{actionError.message}</span>
+                    )}
+                  </div>
+                )}
+              </DataTableCell>
+            </DataTableRow>
+          ))}
+        </DataTableBody>
+      </DataTableContainer>
+
+      {loading && withdrawals.length > 0 && (
+        <div className="flex items-center justify-center py-4">
+          <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
+        </div>
+      )}
+
+      {confirmReject && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reject-withdrawal-title"
+        >
+          <div className="w-full max-w-md rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-xl">
+            <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
+              <X className="w-5 h-5 text-red-500 shrink-0" />
+              <h2 id="reject-withdrawal-title" className="text-sm font-semibold text-gray-900 dark:text-white">
+                Reject withdrawal
+              </h2>
+            </div>
+            <div className="p-4 space-y-3 text-sm">
+              <p className="text-gray-600 dark:text-gray-400">
+                Locked funds will be returned to the user. This cannot be undone.
+              </p>
+              <div className="rounded-lg bg-gray-100 dark:bg-gray-800 p-3 space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-gray-500 dark:text-gray-400">User</span>
+                  <span className="text-gray-900 dark:text-white truncate max-w-[200px]" title={confirmReject.email}>{confirmReject.email}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500 dark:text-gray-400">Amount</span>
+                  <span className="font-mono text-gray-900 dark:text-white tabular-nums">{formatAmountAdmin(confirmReject.amount)} {confirmReject.currency_symbol}</span>
+                </div>
+              </div>
+              {actionError?.id === confirmReject.id && (
+                <p className="text-xs text-red-600 dark:text-red-400" role="alert">{actionError.message}</p>
+              )}
+            </div>
+            <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-2">
+              <ActionButton variant="secondary" onClick={() => { setConfirmReject(null); setActionError(null); }}>
+                Back
+              </ActionButton>
+              <ActionButton
+                variant="danger"
+                loading={actingId === confirmReject.id}
+                disabled={actingId != null && actingId !== confirmReject.id}
+                onClick={() => handleReject(confirmReject.id)}
+              >
+                Reject withdrawal
+              </ActionButton>
+            </div>
           </div>
         </div>
       )}

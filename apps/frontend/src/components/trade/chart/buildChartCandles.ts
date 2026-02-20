@@ -1,0 +1,25 @@
+/**
+ * Pipeline: raw backend candles → normalized → continuity-validated with gap fill → CandleData[].
+ * No UI or chart logic. Pure TypeScript helper.
+ */
+
+import type { CandleData } from './ChartAdapter';
+import type { RawCandle } from './normalizeCandleData';
+import { normalizeCandleData } from './normalizeCandleData';
+import { validateCandleContinuity } from './validateCandleContinuity';
+
+/**
+ * 1. normalizeCandleData(rawCandles)
+ * 2. validateCandleContinuity(candles, intervalSeconds, { fillGaps: true })
+ * 3. Return cleaned CandleData[]
+ */
+export function buildChartCandles(
+  rawCandles: RawCandle[],
+  intervalSeconds: number
+): CandleData[] {
+  const candles = normalizeCandleData(rawCandles);
+  const { candles: cleaned } = validateCandleContinuity(candles, intervalSeconds, {
+    fillGaps: true,
+  });
+  return cleaned;
+}

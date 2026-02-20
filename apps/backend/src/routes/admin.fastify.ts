@@ -13,6 +13,7 @@ import { getCurrencyIdBySymbol } from '../lib/currency-resolver.js';
 import { logAuditFromRequest } from '../services/audit-log.service.js';
 import { logAdminActivity, getDeviceIdFromRequest } from '../services/activity-monitor.service.js';
 import { refreshMatchEventsCache } from '../services/matchingEngine.js';
+import { p2pService } from '../services/p2p.service.js';
 import { getClientIp } from '../lib/client-ip.js';
 import { isIpInWhitelist } from '../lib/admin-ip-whitelist.js';
 import { enforceAdminRateLimit } from '../lib/rate-limit-fastify.js';
@@ -335,9 +336,9 @@ export default async function adminRoutes(app: FastifyInstance) {
         data: { message: 'Logged out successfully' },
       });
     } catch {
-      return reply.send({
-        success: true,
-        data: { message: 'Logged out' },
+      return reply.status(401).send({
+        success: false,
+        error: { code: 'INVALID_TOKEN', message: 'Invalid or expired token' },
       });
     }
   });
@@ -486,6 +487,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Get dashboard statistics
    */
   app.get('/dashboard/stats', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       // Get user stats
       const userStats = await db.query(`
@@ -614,18 +617,6 @@ export default async function adminRoutes(app: FastifyInstance) {
     return reply.send({ success: true, data: { halted } });
   });
 
-  /**
-   * PHASE-13: Exchange monitoring counters (invariant, escrow, settlement, risk, abuse, operational).
-   * In-memory counts since process start. For dashboards and alerting.
-   */
-  app.get('/monitoring/counters', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
-    if (!admin) return;
-    const { getMonitoringCounters } = await import('../services/exchange-monitoring.service.js');
-    const counters = await getMonitoringCounters();
-    return reply.send({ success: true, data: counters });
-  });
-
   // ===============================
   // PHASE-14: OPERATOR CONTROLS (settlement, escrow, balance reconcile)
   // ===============================
@@ -665,6 +656,28 @@ export default async function adminRoutes(app: FastifyInstance) {
     }
   });
 
+  /**
+   * GET /admin/monitoring/counters
+   * Read-only. Returns Redis-backed monitoring counters (monitoring:*). For observability; Redis failure returns empty object.
+   */
+  app.get('/monitoring/counters', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const keys = await redis.keys('monitoring:*');
+      const counters: Record<string, string> = {};
+      for (const key of keys) {
+        const val = await redis.get(key);
+        const shortKey = key.startsWith('monitoring:') ? key.slice('monitoring:'.length) : key;
+        counters[shortKey] = val ?? '0';
+      }
+      return reply.send({ success: true, data: { counters } });
+    } catch (e) {
+      logger.warn('Admin monitoring counters failed (Redis)', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.send({ success: true, data: { counters: {} } });
+    }
+  });
+
   app.get('/settlement/ledger-discrepancy', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
@@ -675,6 +688,131 @@ export default async function adminRoutes(app: FastifyInstance) {
     } catch (e) {
       logger.error('Ledger discrepancy report failed', { error: e instanceof Error ? e.message : 'Unknown' });
       return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to run report' } });
+    }
+  });
+
+  /**
+   * GET /admin/ledger/balance
+   * Read-only. List balance_ledger entries with filters: user_id, currency_id, reference_type, date_from, date_to. Paginated.
+   */
+  app.get<{
+    Querystring: { page?: string; limit?: string; user_id?: string; currency_id?: string; reference_type?: string; date_from?: string; date_to?: string };
+  }>('/ledger/balance', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const { page = 1, limit = 50, user_id, currency_id, reference_type, date_from, date_to } = request.query;
+      const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+      const limitNum = Math.min(100, Math.max(1, parseInt(String(limit), 10) || 50));
+      const offset = (pageNum - 1) * limitNum;
+      const conditions: string[] = [];
+      const params: (string | number)[] = [];
+      let paramIndex = 1;
+      if (user_id?.trim()) {
+        conditions.push(`bl.user_id = $${paramIndex++}`);
+        params.push(user_id.trim());
+      }
+      if (currency_id?.trim()) {
+        conditions.push(`bl.currency_id = $${paramIndex++}`);
+        params.push(currency_id.trim());
+      }
+      if (reference_type?.trim()) {
+        conditions.push(`bl.reference_type::text = $${paramIndex++}`);
+        params.push(reference_type.trim());
+      }
+      if (date_from?.trim()) {
+        conditions.push(`bl.created_at >= $${paramIndex++}::timestamptz`);
+        params.push(date_from.trim());
+      }
+      if (date_to?.trim()) {
+        conditions.push(`bl.created_at <= $${paramIndex++}::timestamptz`);
+        params.push(date_to.trim());
+      }
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+      const countResult = await db.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM balance_ledger bl ${whereClause}`,
+        params
+      );
+      const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+      const listParams = [...params, limitNum, offset];
+      const listQuery = `
+        SELECT bl.id, bl.user_id, bl.currency_id, bl.reference_type, bl.reference_id,
+               bl.debit::text, bl.credit::text, bl.balance_before::text, bl.balance_after::text,
+               bl.balance_type, bl.description, bl.created_at
+        FROM balance_ledger bl
+        ${whereClause}
+        ORDER BY bl.id DESC
+        LIMIT $${paramIndex++} OFFSET $${paramIndex}
+      `;
+      const result = await db.query(listQuery, listParams);
+      return reply.send({
+        success: true,
+        data: { entries: result.rows, pagination: { page: pageNum, limit: limitNum, total, totalPages: Math.ceil(total / limitNum) || 1 } },
+      });
+    } catch (e) {
+      logger.error('Admin balance ledger list failed', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to list balance ledger' } });
+    }
+  });
+
+  /**
+   * GET /admin/ledger/settlement
+   * Read-only. List settlement_ledger_entries with filters: user_id, settlement_event_id, date_from, date_to. Paginated.
+   */
+  app.get<{
+    Querystring: { page?: string; limit?: string; user_id?: string; settlement_event_id?: string; date_from?: string; date_to?: string };
+  }>('/ledger/settlement', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const { page = 1, limit = 50, user_id, settlement_event_id, date_from, date_to } = request.query;
+      const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+      const limitNum = Math.min(100, Math.max(1, parseInt(String(limit), 10) || 50));
+      const offset = (pageNum - 1) * limitNum;
+      const conditions: string[] = [];
+      const params: (string | number)[] = [];
+      let paramIndex = 1;
+      if (user_id?.trim()) {
+        conditions.push(`sle.user_id = $${paramIndex++}`);
+        params.push(user_id.trim());
+      }
+      if (settlement_event_id?.trim()) {
+        const n = parseInt(settlement_event_id.trim(), 10);
+        if (!Number.isNaN(n)) {
+          conditions.push(`sle.settlement_event_id = $${paramIndex++}`);
+          params.push(n);
+        }
+      }
+      if (date_from?.trim()) {
+        conditions.push(`sle.created_at >= $${paramIndex++}::timestamptz`);
+        params.push(date_from.trim());
+      }
+      if (date_to?.trim()) {
+        conditions.push(`sle.created_at <= $${paramIndex++}::timestamptz`);
+        params.push(date_to.trim());
+      }
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+      const countResult = await db.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM settlement_ledger_entries sle ${whereClause}`,
+        params
+      );
+      const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+      const listParams = [...params, limitNum, offset];
+      const listQuery = `
+        SELECT sle.id, sle.settlement_event_id, sle.user_id, sle.asset, sle.delta::text, sle.prev_hash, sle.entry_hash, sle.created_at
+        FROM settlement_ledger_entries sle
+        ${whereClause}
+        ORDER BY sle.id DESC
+        LIMIT $${paramIndex++} OFFSET $${paramIndex}
+      `;
+      const result = await db.query(listQuery, listParams);
+      return reply.send({
+        success: true,
+        data: { entries: result.rows, pagination: { page: pageNum, limit: limitNum, total, totalPages: Math.ceil(total / limitNum) || 1 } },
+      });
+    } catch (e) {
+      logger.error('Admin settlement ledger list failed', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to list settlement ledger' } });
     }
   });
 
@@ -711,7 +849,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         target_available: body.target_available,
         target_locked: body.target_locked,
       });
-      if (!result.ok) return reply.status(400).send({ success: false, error: { code: 'RECONCILE_FAILED', message: result.message }, ledger_sum: result.ledger_sum });
+      if (!result.ok) return reply.status(400).send({ success: false, error: { code: 'RECONCILE_FAILED', message: result.message, ledger_sum: result.ledger_sum } });
       return reply.send({ success: true, data: result });
     } catch (e) {
       logger.error('Balance reconcile failed', { error: e instanceof Error ? e.message : 'Unknown' });
@@ -796,6 +934,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Get all users with pagination
    */
   app.get('/users', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { page = 1, limit = 20, status, search, kycLevel } = request.query as any;
       const offset = (parseInt(page) - 1) * parseInt(limit);
@@ -935,6 +1075,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Get user details
    */
   app.get('/users/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
 
@@ -1000,19 +1142,52 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Update user status (suspend/ban/activate)
    */
   app.patch('/users/:id/status', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
       const { status, reason } = request.body as { status: string; reason?: string };
 
-      await db.query(
+      const allowedStatuses = ['active', 'suspended', 'locked'];
+      if (typeof status !== 'string' || !allowedStatuses.includes(status)) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_STATUS', message: 'Invalid user status' },
+        });
+      }
+
+      const prevRow = await db.query<{ status: string }>('SELECT status FROM users WHERE id = $1', [id]);
+      const previousStatus = prevRow.rows[0]?.status ?? null;
+
+      const result = await db.query(
         'UPDATE users SET status = $1, updated_at = NOW() WHERE id = $2',
         [status, id]
       );
 
+      if (result.rowCount === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'User not found' },
+        });
+      }
       try {
         await redis.del(`user:${id}:status`);
       } catch {
         /* cache invalidation best-effort */
+      }
+
+      try {
+        await logAuditFromRequest(request, {
+          actorType: 'admin',
+          actorId: admin.adminId,
+          action: 'admin_user_status_change',
+          resourceType: 'user',
+          resourceId: id,
+          oldValue: previousStatus,
+          newValue: { status, reason },
+        });
+      } catch {
+        /* best-effort */
       }
 
       return reply.send({
@@ -1037,6 +1212,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Get pending KYC applications
    */
   app.get('/kyc/pending', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const result = await db.query(`
         SELECT 
@@ -1066,6 +1243,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Approve or reject KYC
    */
   app.patch('/kyc/:id/review', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
       const { action, reason } = request.body as { action: 'approve' | 'reject'; reason?: string };
@@ -1111,11 +1290,13 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Get P2P disputes
    */
   app.get('/p2p/disputes', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const result = await db.query(`
         SELECT 
           d.*,
-          o.crypto_amount, o.fiat_amount, o.fiat_currency,
+          o.buyer_id, o.seller_id, o.crypto_amount, o.fiat_amount, o.fiat_currency,
           buyer.email as buyer_email, buyer.username as buyer_username,
           seller.email as seller_email, seller.username as seller_username
         FROM p2p_disputes d
@@ -1141,31 +1322,43 @@ export default async function adminRoutes(app: FastifyInstance) {
 
   /**
    * PATCH /admin/p2p/disputes/:id/resolve
-   * Resolve dispute
+   * Resolve dispute (admin only). Delegates to p2pService for escrow release/refund.
    */
   app.patch('/p2p/disputes/:id/resolve', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
-      const { resolution, notes } = request.body as { 
+      const { resolution, notes } = request.body as {
         resolution: 'favor_buyer' | 'favor_seller' | 'split' | 'cancelled';
         notes?: string;
       };
 
-      await db.query(`
-        UPDATE p2p_disputes 
-        SET status = 'resolved', resolution = $1, resolution_notes = $2, resolved_at = NOW()
-        WHERE id = $3
-      `, [resolution, notes, id]);
+      const allowedResolutions = ['favor_buyer', 'favor_seller', 'cancelled'] as const;
+      if (typeof resolution !== 'string' || !allowedResolutions.includes(resolution as (typeof allowedResolutions)[number])) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_RESOLUTION', message: 'Invalid dispute resolution' },
+        });
+      }
+
+      await p2pService.resolveDispute(id, admin.adminId, resolution as 'favor_buyer' | 'favor_seller' | 'cancelled', notes ?? '');
 
       return reply.send({
         success: true,
         data: { message: 'Dispute resolved successfully' },
       });
-
     } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg === 'Dispute not found') {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Dispute not found' },
+        });
+      }
       return reply.status(500).send({
         success: false,
-        error: { code: 'RESOLVE_FAILED', message: 'Failed to resolve dispute' },
+        error: { code: 'RESOLVE_FAILED', message: msg || 'Failed to resolve dispute' },
       });
     }
   });
@@ -1179,6 +1372,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Get system settings
    */
   app.get('/settings', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const result = await db.query('SELECT * FROM system_settings');
       
@@ -1205,6 +1400,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Update system settings
    */
   app.patch('/settings', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const settings = request.body as Record<string, any>;
 
@@ -1238,6 +1435,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Get KYC stats and all applications
    */
   app.get('/kyc', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { page = 1, limit = 20, status } = request.query as any;
       const offset = (parseInt(page) - 1) * parseInt(limit);
@@ -1306,6 +1505,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Get wallets overview
    */
   app.get('/wallets', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       // Get all blockchains
       const blockchains = await db.query(`
@@ -1526,7 +1727,7 @@ export default async function adminRoutes(app: FastifyInstance) {
   app.post<{
     Body: { user: string; currency: string; amount: string; reason?: string };
   }>('/deposits/manual-credit', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
+    const admin = await getAdminFromRequest(app, request, reply, true);
     if (!admin) return;
     try {
       const idempotencyKeyRaw = (request.headers[IDEMPOTENCY_KEY_HEADER] ?? request.headers['Idempotency-Key']) as string | undefined;
@@ -1647,6 +1848,19 @@ export default async function adminRoutes(app: FastifyInstance) {
           balanceType: 'available',
         });
       });
+
+      try {
+        await logAuditFromRequest(request, {
+          actorType: 'admin',
+          actorId: admin.adminId,
+          action: 'admin_manual_credit',
+          resourceType: 'user',
+          resourceId: userId,
+          newValue: { currency: symbol.trim(), amount: amountDec.toString(), reason: reason ?? undefined },
+        });
+      } catch {
+        /* best-effort */
+      }
 
       logger.info('Admin manual credit', {
         adminId: admin.adminId,
@@ -3243,7 +3457,13 @@ export default async function adminRoutes(app: FastifyInstance) {
       }
       const list = await hotWalletService.listHotWallets();
       const updated = list.find(hw => hw.chain_id === chainId);
-      return reply.send({ success: true, data: updated ?? null });
+      if (updated == null) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Hot wallet not found' },
+        });
+      }
+      return reply.send({ success: true, data: updated });
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown';
       logger.error('Update hot wallet error', { error: msg });
@@ -3327,7 +3547,7 @@ export default async function adminRoutes(app: FastifyInstance) {
       const ip = (request.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || request.ip;
       const userAgent = request.headers['user-agent'];
       await hotWalletService.removeHotWallet(chainId, admin.adminId, ip, userAgent);
-      return reply.send({ success: true });
+      return reply.send({ success: true, data: { deleted: true } });
     } catch (error: unknown) {
       const err = error as { message?: string; code?: string };
       const msg = err?.message ?? (error instanceof Error ? error.message : 'Unknown');
@@ -3354,6 +3574,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Get trading overview
    */
   app.get('/trading', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       // Get trading pairs
       const pairs = await db.query(`
@@ -3413,6 +3635,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Get P2P overview
    */
   app.get('/p2p', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       // Get ads stats
       const adsStats = await db.query(`
@@ -3473,6 +3697,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Get P2P ads
    */
   app.get('/p2p/ads', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { page = 1, limit = 20, status, type } = request.query as any;
       const offset = (parseInt(page) - 1) * parseInt(limit);
@@ -3534,9 +3760,26 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Get P2P orders
    */
   app.get('/p2p/orders', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
-      const { page = 1, limit = 20, status } = request.query as any;
+      const { page = 1, limit = 20, status, ad_id } = request.query as any;
       const offset = (parseInt(page) - 1) * parseInt(limit);
+
+      const conditions: string[] = ['1=1'];
+      const params: any[] = [];
+      let paramIndex = 1;
+
+      if (status && status !== 'all') {
+        conditions.push(`o.status = $${paramIndex++}`);
+        params.push(status);
+      }
+      if (ad_id) {
+        conditions.push(`o.ad_id = $${paramIndex++}`);
+        params.push(ad_id);
+      }
+
+      const whereClause = conditions.join(' AND ');
 
       let query = `
         SELECT 
@@ -3548,24 +3791,18 @@ export default async function adminRoutes(app: FastifyInstance) {
         JOIN users buyer ON o.buyer_id = buyer.id
         JOIN users seller ON o.seller_id = seller.id
         JOIN currencies c ON o.crypto_currency_id = c.id
-        WHERE 1=1
+        WHERE ${whereClause}
+        ORDER BY o.created_at DESC
+        LIMIT $${paramIndex++} OFFSET $${paramIndex}
       `;
-      const params: any[] = [];
-      let paramIndex = 1;
-
-      if (status && status !== 'all') {
-        query += ` AND o.status = $${paramIndex++}`;
-        params.push(status);
-      }
-
-      query += ` ORDER BY o.created_at DESC`;
-      query += ` LIMIT $${paramIndex++} OFFSET $${paramIndex}`;
       params.push(parseInt(limit), offset);
 
       const result = await db.query(query, params);
 
-      // Count
-      const countResult = await db.query('SELECT COUNT(*) FROM p2p_orders');
+      const countResult = await db.query(
+        `SELECT COUNT(*) FROM p2p_orders o WHERE ${whereClause}`,
+        params.slice(0, params.length - 2)
+      );
 
       return reply.send({
         success: true,
@@ -3596,6 +3833,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Get referrals overview
    */
   app.get('/referrals', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       // Get codes
       const codes = await db.query(`
@@ -3654,6 +3893,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * List referral codes with optional filters and pagination
    */
   app.get('/referrals/codes', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const q = request.query as { page?: string; limit?: string; search?: string; is_active?: string };
       const page = Math.max(1, parseInt(q.page || '1', 10));
@@ -3710,6 +3951,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * List referral relationships (referrer -> referee)
    */
   app.get('/referrals/relationships', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const q = request.query as { page?: string; limit?: string; referrer_email?: string; referee_email?: string; status?: string };
       const page = Math.max(1, parseInt(q.page || '1', 10));
@@ -3777,6 +4020,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * List referral commissions with filters
    */
   app.get('/referrals/commissions', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const q = request.query as { page?: string; limit?: string; status?: string; referrer_id?: string };
       const page = Math.max(1, parseInt(q.page || '1', 10));
@@ -3844,6 +4089,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * List referral campaigns
    */
   app.get('/referrals/campaigns', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const rows = await db.query(`
         SELECT * FROM referral_campaigns
@@ -3867,6 +4114,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Create referral campaign
    */
   app.post('/referrals/campaigns', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const body = request.body as {
         campaign_name: string;
@@ -3932,6 +4181,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Update referral campaign (is_active, end_date, etc.)
    */
   app.patch('/referrals/campaigns/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
       const body = request.body as Record<string, unknown>;
@@ -3973,6 +4224,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Toggle referral code active status
    */
   app.patch('/referrals/codes/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
       const body = request.body as { is_active?: boolean };
@@ -4004,6 +4257,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Get fee tiers
    */
   app.get('/fees', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const tiers = await db.query(`
         SELECT * FROM fee_tiers ORDER BY tier_level
@@ -4025,6 +4280,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Create fee tier
    */
   app.post('/fees/tiers', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const body = request.body as {
         tier_name: string;
@@ -4071,6 +4328,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Update fee tier
    */
   app.patch('/fees/tiers/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
       const body = request.body as Record<string, unknown>;
@@ -4106,6 +4365,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * List trading pairs with maker/taker fees (spot). Default = tier 0.
    */
   app.get('/fees/trading', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const [pairs, defaultTier] = await Promise.all([
         db.query(`
@@ -4137,6 +4398,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Update a trading pair's maker/taker fee
    */
   app.patch('/fees/trading/pair/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
       const body = request.body as { maker_fee?: number; taker_fee?: number };
@@ -4166,6 +4429,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * List currencies with withdrawal fee settings
    */
   app.get('/fees/withdrawal', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const rows = await db.query(`
         SELECT c.id, c.symbol, c.name, c.withdrawal_fee, c.withdrawal_fee_type, c.min_withdrawal, c.withdrawal_enabled,
@@ -4186,6 +4451,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Update currency withdrawal fee
    */
   app.patch('/fees/withdrawal/currency/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
       const body = request.body as { withdrawal_fee?: number; withdrawal_fee_type?: 'fixed' | 'percentage' };
@@ -4215,6 +4482,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * List fee promotions
    */
   app.get('/fees/promotions', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const rows = await db.query(`
         SELECT * FROM fee_promotions ORDER BY start_date DESC
@@ -4231,6 +4500,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Create fee promotion
    */
   app.post('/fees/promotions', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const body = request.body as {
         name: string;
@@ -4278,6 +4549,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Update fee promotion
    */
   app.patch('/fees/promotions/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
       const body = request.body as Record<string, unknown>;
@@ -4312,6 +4585,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * DELETE /admin/fees/promotions/:id
    */
   app.delete('/fees/promotions/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
       const result = await db.query('DELETE FROM fee_promotions WHERE id = $1 RETURNING id', [id]);
@@ -4352,9 +4627,9 @@ export default async function adminRoutes(app: FastifyInstance) {
    * POST /admin/notifications/announcements
    */
   app.post('/notifications/announcements', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
-      const admin = await getAdminFromRequest(app, request, reply, false);
-      if (!admin) return;
       const body = request.body as {
         title: string;
         body?: string;
@@ -4395,6 +4670,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * PATCH /admin/notifications/announcements/:id
    */
   app.patch('/notifications/announcements/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
       const body = request.body as Record<string, unknown>;
@@ -4429,6 +4706,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * DELETE /admin/notifications/announcements/:id
    */
   app.delete('/notifications/announcements/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
       const result = await db.query('DELETE FROM system_announcements WHERE id = $1 RETURNING id', [id]);
@@ -4461,6 +4740,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * POST /admin/notifications/email-templates
    */
   app.post('/notifications/email-templates', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const body = request.body as { slug: string; name: string; subject: string; body_html: string; body_text?: string; variables?: string[]; is_active?: boolean };
       const { slug, name, subject, body_html, body_text, variables, is_active = true } = body;
@@ -4484,6 +4765,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * PATCH /admin/notifications/email-templates/:id
    */
   app.patch('/notifications/email-templates/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
       const body = request.body as Record<string, unknown>;
@@ -4519,6 +4802,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * DELETE /admin/notifications/email-templates/:id
    */
   app.delete('/notifications/email-templates/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
       const result = await db.query('DELETE FROM email_templates WHERE id = $1 RETURNING id', [id]);
@@ -4551,6 +4836,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * POST /admin/notifications/sms-templates
    */
   app.post('/notifications/sms-templates', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const body = request.body as { slug: string; name: string; body: string; variables?: string[]; is_active?: boolean };
       const { slug, name, body: bodyText, variables, is_active = true } = body;
@@ -4574,6 +4861,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * PATCH /admin/notifications/sms-templates/:id
    */
   app.patch('/notifications/sms-templates/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
       const body = request.body as Record<string, unknown>;
@@ -4609,6 +4898,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * DELETE /admin/notifications/sms-templates/:id
    */
   app.delete('/notifications/sms-templates/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
       const result = await db.query('DELETE FROM sms_templates WHERE id = $1 RETURNING id', [id]);
@@ -4627,9 +4918,9 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Send push (in-app) notification to all users or by segment. Creates user_notifications rows.
    */
   app.post('/notifications/push-broadcast', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
-      const admin = await getAdminFromRequest(app, request, reply, false);
-      if (!admin) return;
       const body = request.body as { title: string; message: string; target?: 'all' | 'verified' };
       const { title, message, target = 'all' } = body;
       if (!title?.trim() || !message?.trim()) {
@@ -4667,6 +4958,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Get admin users
    */
   app.get('/admins', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const admins = await db.query(`
         SELECT id, email, name, role, permissions, is_active, last_login_at, created_at
@@ -4694,6 +4987,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Get admin activity logs
    */
   app.get('/admins/logs', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { page = 1, limit = 50 } = request.query as any;
       const offset = (parseInt(page) - 1) * parseInt(limit);
@@ -4736,44 +5031,77 @@ export default async function adminRoutes(app: FastifyInstance) {
 
   /**
    * GET /admin/settings/blockchains
-   * Get all blockchains with their currencies
+   * Get all blockchains with their currencies.
+   * Uses blockchains + currencies if present; otherwise fallback to chains + tokens (same source as user panel).
    */
   app.get('/settings/blockchains', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
-      const blockchains = await db.query(`
-        SELECT 
-          b.*,
-          (SELECT COUNT(*) FROM currencies WHERE blockchain_id = b.id) as currency_count
-        FROM blockchains b
-        ORDER BY b.chain_name ASC
-      `);
+      let blockchainsRows: any[] = [];
+      let currenciesByBlockchain: Record<string, any[]> = {};
 
-      // Get currencies grouped by blockchain
-      const currencies = await db.query(`
-        SELECT * FROM currencies ORDER BY symbol ASC
-      `);
+      const hasBlockchains = await db.query(
+        `SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'blockchains' LIMIT 1`
+      ).then((r) => r.rows.length > 0).catch(() => false);
 
-      // Group currencies by blockchain
-      const currenciesByBlockchain: Record<string, any[]> = {};
-      currencies.rows.forEach((c: any) => {
-        if (c.blockchain_id) {
-          if (!currenciesByBlockchain[c.blockchain_id]) {
-            currenciesByBlockchain[c.blockchain_id] = [];
+      if (hasBlockchains) {
+        const blockchains = await db.query(`
+          SELECT b.*, (SELECT COUNT(*) FROM currencies WHERE blockchain_id = b.id) as currency_count
+          FROM blockchains b ORDER BY b.chain_name ASC
+        `);
+        const currencies = await db.query(`SELECT * FROM currencies ORDER BY symbol ASC`);
+        blockchainsRows = blockchains.rows || [];
+        currencies.rows.forEach((c: any) => {
+          if (c.blockchain_id) {
+            if (!currenciesByBlockchain[c.blockchain_id]) currenciesByBlockchain[c.blockchain_id] = [];
+            currenciesByBlockchain[c.blockchain_id]!.push(c);
           }
-          currenciesByBlockchain[c.blockchain_id]!.push(c);
-        }
-      });
+        });
+      }
+
+      if (blockchainsRows.length === 0) {
+        const chains = await db.query<{ id: string; name: string; type: string; rpc_url: string; explorer_url: string; native_currency: string; decimals: number }>(
+          `SELECT id, name, type, rpc_url, explorer_url, native_currency, decimals FROM chains WHERE is_active = TRUE ORDER BY name ASC`
+        ).catch(() => ({ rows: [] }));
+        const tokens = await db.query<{ id: string; symbol: string; name: string; chain_id: string; decimals: number; contract_address: string | null }>(
+          `SELECT id, symbol, name, chain_id, decimals, contract_address FROM tokens WHERE is_active = TRUE ORDER BY symbol ASC`
+        ).catch(() => ({ rows: [] }));
+        const tokensByChain: Record<string, any[]> = {};
+        (tokens.rows || []).forEach((t) => {
+          if (!tokensByChain[t.chain_id]) tokensByChain[t.chain_id] = [];
+          tokensByChain[t.chain_id]!.push({
+            id: t.id,
+            symbol: t.symbol,
+            name: t.name,
+            blockchain_id: t.chain_id,
+            decimals: t.decimals,
+            contract_address: t.contract_address,
+          });
+        });
+        blockchainsRows = (chains.rows || []).map((c) => ({
+          id: c.id,
+          chain_name: c.name,
+          chain_symbol: c.native_currency || c.id,
+          chain_id: c.id,
+          type: c.type,
+          rpc_url: c.rpc_url,
+          explorer_url: c.explorer_url,
+          currency_count: (tokensByChain[c.id] || []).length,
+          _source: 'chains',
+        }));
+        currenciesByBlockchain = tokensByChain;
+      }
 
       return reply.send({
         success: true,
         data: {
-          blockchains: blockchains.rows.map((b: any) => ({
+          blockchains: blockchainsRows.map((b: any) => ({
             ...b,
             currencies: currenciesByBlockchain[b.id] || [],
           })),
         },
       });
-
     } catch (error) {
       logger.error('Failed to fetch blockchains', { error });
       return reply.status(500).send({
@@ -4788,6 +5116,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Get single blockchain with details
    */
   app.get('/settings/blockchains/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
 
@@ -4831,6 +5161,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Add new blockchain
    */
   app.post('/settings/blockchains', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const body = request.body as any;
       const {
@@ -4891,6 +5223,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Update blockchain
    */
   app.put('/settings/blockchains/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
       const body = request.body as any;
@@ -4957,6 +5291,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Delete blockchain (soft delete or disable)
    */
   app.delete('/settings/blockchains/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
 
@@ -4974,7 +5310,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         );
         return reply.send({
           success: true,
-          message: 'Blockchain disabled (has linked currencies)',
+          data: { message: 'Blockchain disabled (has linked currencies)' },
         });
       }
 
@@ -4982,7 +5318,7 @@ export default async function adminRoutes(app: FastifyInstance) {
 
       return reply.send({
         success: true,
-        message: 'Blockchain deleted',
+        data: { message: 'Blockchain deleted' },
       });
 
     } catch (error) {
@@ -4999,88 +5335,96 @@ export default async function adminRoutes(app: FastifyInstance) {
 
   /**
    * GET /admin/settings/currencies
-   * Get unique currencies with all their chain deployments (paginated)
+   * Get unique currencies with all their chain deployments (paginated).
+   * Uses currencies + blockchains if present; otherwise fallback to tokens + chains (same as user panel).
    */
   app.get('/settings/currencies', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { search, currency_type, limit, offset } = request.query as any;
-      
-      const pageLimit = parseInt(limit || '20');
-      const pageOffset = parseInt(offset || '0');
+      const pageLimit = Math.min(100, parseInt(limit || '20') || 20);
+      const pageOffset = parseInt(offset || '0') || 0;
 
-      // Build WHERE clause
+      const hasCurrencies = await db.query(
+        `SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'currencies' LIMIT 1`
+      ).then((r) => r.rows.length > 0).catch(() => false);
+
+      if (!hasCurrencies) {
+        const tokensRows = await db.query<{ id: string; symbol: string; name: string; chain_id: string; decimals: number; contract_address: string | null; is_active: boolean }>(
+          `SELECT t.id, t.symbol, t.name, t.chain_id, t.decimals, t.contract_address, t.is_active FROM tokens t WHERE t.is_active = TRUE ORDER BY t.symbol`
+        ).catch(() => ({ rows: [] }));
+        const chainIds = [...new Set((tokensRows.rows || []).map((t) => t.chain_id))];
+        const chainsRows = chainIds.length
+          ? await db.query<{ id: string; name: string; native_currency: string }>(`SELECT id, name, native_currency FROM chains WHERE id = ANY($1::text[])`, [chainIds]).catch(() => ({ rows: [] }))
+          : { rows: [] };
+        const chainMap = Object.fromEntries((chainsRows.rows || []).map((c) => [c.id, c]));
+        const bySymbol: Record<string, { id: string; symbol: string; name: string; decimals: number; chains: any[] }> = {};
+        (tokensRows.rows || []).forEach((t) => {
+          const sym = t.symbol.toUpperCase();
+          if (!bySymbol[sym]) {
+            bySymbol[sym] = { id: t.id, symbol: t.symbol, name: t.name, decimals: t.decimals, chains: [] };
+          }
+          const ch = chainMap[t.chain_id];
+          bySymbol[sym]!.chains.push({
+            id: t.id,
+            blockchain_id: t.chain_id,
+            chain_name: ch?.name ?? t.chain_id,
+            chain_symbol: ch?.native_currency ?? t.chain_id,
+            contract_address: t.contract_address,
+            decimals: t.decimals,
+            is_active: t.is_active,
+          });
+        });
+        let list = Object.values(bySymbol).sort((a, b) => a.symbol.localeCompare(b.symbol));
+        if (search) {
+          const s = String(search).toLowerCase();
+          list = list.filter((c) => c.symbol.toLowerCase().includes(s) || c.name.toLowerCase().includes(s));
+        }
+        const total = list.length;
+        const currencies = list.slice(pageOffset, pageOffset + pageLimit);
+        return reply.send({
+          success: true,
+          data: { currencies, total, limit: pageLimit, offset: pageOffset, hasMore: pageOffset + currencies.length < total },
+        });
+      }
+
       let whereClause = 'WHERE 1=1';
       const values: any[] = [];
       let paramCount = 1;
-
       if (search) {
         whereClause += ` AND (symbol ILIKE $${paramCount} OR name ILIKE $${paramCount})`;
         values.push(`%${search}%`);
         paramCount++;
       }
-
       if (currency_type && currency_type !== 'all') {
         whereClause += ` AND currency_type = $${paramCount}`;
         values.push(currency_type);
         paramCount++;
       }
-
-      // Get unique currencies by symbol with their chain deployments
-      const countQuery = `
-        SELECT COUNT(DISTINCT symbol) as total 
-        FROM currencies ${whereClause}
-      `;
-      const countResult = await db.query(countQuery, values);
+      const countResult = await db.query(`SELECT COUNT(DISTINCT symbol) as total FROM currencies ${whereClause}`, values);
       const total = parseInt(countResult.rows[0]?.total ?? '0');
-
-      // Get unique currencies with aggregated chain info
       const dataQuery = `
         WITH unique_currencies AS (
-          SELECT DISTINCT ON (symbol) 
-            id, symbol, name, currency_type, logo_url,
-            is_active, deposit_enabled, withdrawal_enabled, 
-            COALESCE(trade_enabled, true) as trade_enabled,
-            min_deposit, min_withdrawal, withdrawal_fee, withdrawal_fee_type,
-            decimals, display_decimals
-          FROM currencies
-          ${whereClause}
-          ORDER BY symbol, created_at ASC
+          SELECT DISTINCT ON (symbol) id, symbol, name, currency_type, logo_url,
+            is_active, deposit_enabled, withdrawal_enabled, COALESCE(trade_enabled, true) as trade_enabled,
+            min_deposit, min_withdrawal, withdrawal_fee, withdrawal_fee_type, decimals, display_decimals
+          FROM currencies ${whereClause} ORDER BY symbol, created_at ASC
         ),
         chain_deployments AS (
-          SELECT 
-            c.symbol,
-            json_agg(
-              json_build_object(
-                'id', c.id,
-                'blockchain_id', c.blockchain_id,
-                'chain_name', b.chain_name,
-                'chain_symbol', b.chain_symbol,
-                'chain_logo', b.logo_url,
-                'contract_address', c.contract_address,
-                'decimals', c.decimals,
-                'is_active', c.is_active,
-                'deposit_enabled', c.deposit_enabled,
-                'withdrawal_enabled', c.withdrawal_enabled
-              ) ORDER BY b.chain_name
-            ) FILTER (WHERE c.blockchain_id IS NOT NULL) as chains
-          FROM currencies c
-          LEFT JOIN blockchains b ON c.blockchain_id = b.id
-          GROUP BY c.symbol
+          SELECT c.symbol,
+            json_agg(json_build_object('id', c.id, 'blockchain_id', c.blockchain_id, 'chain_name', b.chain_name, 'chain_symbol', b.chain_symbol, 'chain_logo', b.logo_url, 'contract_address', c.contract_address, 'decimals', c.decimals, 'is_active', c.is_active, 'deposit_enabled', c.deposit_enabled, 'withdrawal_enabled', c.withdrawal_enabled) ORDER BY b.chain_name) FILTER (WHERE c.blockchain_id IS NOT NULL) as chains
+          FROM currencies c LEFT JOIN blockchains b ON c.blockchain_id = b.id GROUP BY c.symbol
         )
-        SELECT 
-          uc.*,
-          COALESCE(cd.chains, '[]'::json) as chains
-        FROM unique_currencies uc
-        LEFT JOIN chain_deployments cd ON uc.symbol = cd.symbol
-        ORDER BY uc.symbol ASC
-        LIMIT $${paramCount} OFFSET $${paramCount + 1}
+        SELECT uc.*, COALESCE(cd.chains, '[]'::json) as chains
+        FROM unique_currencies uc LEFT JOIN chain_deployments cd ON uc.symbol = cd.symbol
+        ORDER BY uc.symbol ASC LIMIT $${paramCount} OFFSET $${paramCount + 1}
       `;
-
       const result = await db.query(dataQuery, [...values, pageLimit, pageOffset]);
 
       return reply.send({
         success: true,
-        data: { 
+        data: {
           currencies: result.rows,
           total,
           limit: pageLimit,
@@ -5102,6 +5446,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Add new currency
    */
   app.post('/settings/currencies', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const body = request.body as any;
       const {
@@ -5165,6 +5511,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Update currency
    */
   app.put('/settings/currencies/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
       const body = request.body as any;
@@ -5362,6 +5710,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Delete currency
    */
   app.delete('/settings/currencies/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
 
@@ -5379,7 +5729,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         );
         return reply.send({
           success: true,
-          message: 'Currency disabled (has user wallets)',
+          data: { message: 'Currency disabled (has user wallets)' },
         });
       }
 
@@ -5387,7 +5737,7 @@ export default async function adminRoutes(app: FastifyInstance) {
 
       return reply.send({
         success: true,
-        message: 'Currency deleted',
+        data: { message: 'Currency deleted' },
       });
 
     } catch (error) {
@@ -5403,6 +5753,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Toggle blockchain settings (active, deposit, withdrawal)
    */
   app.patch('/settings/blockchains/:id/toggle', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
       const { field } = request.body as { field: 'is_active' | 'deposit_enabled' | 'withdrawal_enabled' };
@@ -5446,6 +5798,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Toggle currency settings (single currency by ID)
    */
   app.patch('/settings/currencies/:id/toggle', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
       const { field } = request.body as { field: string };
@@ -5489,6 +5843,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Toggle currency settings for ALL chains by symbol
    */
   app.patch('/settings/currencies/symbol/:symbol/toggle', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { symbol } = request.params as { symbol: string };
       const { field, value } = request.body as { field: string; value?: boolean };
@@ -5525,7 +5881,7 @@ export default async function adminRoutes(app: FastifyInstance) {
       });
 
     } catch (error) {
-      console.error('Toggle by symbol error:', error);
+      logger.error('Toggle by symbol error', { error: error instanceof Error ? error.message : String(error) });
       return reply.status(500).send({
         success: false,
         error: { code: 'UPDATE_FAILED', message: 'Failed to toggle currency setting' },
@@ -5542,6 +5898,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Get all quote assets (base currencies for trading pairs)
    */
   app.get('/settings/quote-assets', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const result = await db.query(`
         SELECT 
@@ -5566,7 +5924,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         data: { quote_assets: result.rows },
       });
     } catch (error) {
-      console.error('Error fetching quote assets:', error);
+      logger.error('Error fetching quote assets', { error: error instanceof Error ? error.message : String(error) });
       return reply.status(500).send({
         success: false,
         error: { code: 'FETCH_FAILED', message: 'Failed to fetch quote assets' },
@@ -5579,6 +5937,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Add a new quote asset
    */
   app.post('/settings/quote-assets', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { currency_id, display_order = 0, min_price_increment = '0.00000001' } = request.body as any;
 
@@ -5617,7 +5977,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         data: { quote_asset: fullData.rows[0] },
       });
     } catch (error) {
-      console.error('Error adding quote asset:', error);
+      logger.error('Error adding quote asset', { error: error instanceof Error ? error.message : String(error) });
       return reply.status(500).send({
         success: false,
         error: { code: 'CREATE_FAILED', message: 'Failed to add quote asset' },
@@ -5630,6 +5990,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Update quote asset
    */
   app.put('/settings/quote-assets/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
       const { display_order, is_active, min_price_increment } = request.body as any;
@@ -5669,6 +6031,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Remove quote asset
    */
   app.delete('/settings/quote-assets/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
 
@@ -5712,6 +6076,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Get all trading pairs with pagination
    */
   app.get('/settings/trading-pairs', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { quote_currency_id, quote_symbol, limit, offset } = request.query as { 
         quote_currency_id?: string; 
@@ -5774,7 +6140,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         },
       });
     } catch (error) {
-      console.error('Error fetching trading pairs:', error);
+      logger.error('Error fetching trading pairs', { error: error instanceof Error ? error.message : String(error) });
       return reply.status(500).send({
         success: false,
         error: { code: 'FETCH_FAILED', message: 'Failed to fetch trading pairs' },
@@ -5787,6 +6153,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Create a new trading pair
    */
   app.post('/settings/trading-pairs', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const body = request.body as any;
       const {
@@ -5862,7 +6230,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         data: { trading_pair: result.rows[0] },
       });
     } catch (error: any) {
-      console.error('Error creating trading pair:', error);
+      logger.error('Error creating trading pair', { error: error instanceof Error ? error.message : String(error) });
       return reply.status(500).send({
         success: false,
         error: { code: 'CREATE_FAILED', message: error.message || 'Failed to create trading pair' },
@@ -5875,6 +6243,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Create multiple trading pairs at once (accepts symbols for centralized exchange)
    */
   app.post('/settings/trading-pairs/bulk', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { quote_symbol, base_symbols } = request.body as any;
 
@@ -5964,7 +6334,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         data: { created, skipped, created_count: created.length, skipped_count: skipped.length },
       });
     } catch (error) {
-      console.error('Error bulk creating pairs:', error);
+      logger.error('Error bulk creating pairs', { error: error instanceof Error ? error.message : String(error) });
       return reply.status(500).send({
         success: false,
         error: { code: 'BULK_CREATE_FAILED', message: 'Failed to create trading pairs' },
@@ -5977,6 +6347,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Update trading pair
    */
   app.put('/settings/trading-pairs/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
       const body = request.body as any;
@@ -6037,6 +6409,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Toggle trading pair active status
    */
   app.patch('/settings/trading-pairs/:id/toggle', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
 
@@ -6071,6 +6445,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Delete trading pair
    */
   app.delete('/settings/trading-pairs/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
 
@@ -6100,6 +6476,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Get currencies that can be used as base for trading pairs (unique by symbol)
    */
   app.get('/settings/available-base-currencies', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { quote_currency_id, include_fiat } = request.query as { quote_currency_id?: string; include_fiat?: string };
 
@@ -6145,7 +6523,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         data: { currencies: result.rows },
       });
     } catch (error) {
-      console.error('Error fetching currencies:', error);
+      logger.error('Error fetching currencies', { error: error instanceof Error ? error.message : String(error) });
       return reply.status(500).send({
         success: false,
         error: { code: 'FETCH_FAILED', message: 'Failed to fetch currencies' },
@@ -6162,6 +6540,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Get all P2P enabled assets with pagination
    */
   app.get('/settings/p2p-assets', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { limit, offset } = request.query as { limit?: string; offset?: string };
       
@@ -6197,7 +6577,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         },
       });
     } catch (error) {
-      console.error('Error fetching P2P assets:', error);
+      logger.error('Error fetching P2P assets', { error: error instanceof Error ? error.message : String(error) });
       return reply.status(500).send({
         success: false,
         error: { code: 'FETCH_FAILED', message: 'Failed to fetch P2P assets' },
@@ -6210,6 +6590,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Add a new P2P asset
    */
   app.post('/settings/p2p-assets', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { currency_id, min_amount, max_amount, price_precision, amount_precision, maker_fee, taker_fee } = request.body as any;
 
@@ -6256,7 +6638,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         data: { p2p_asset: asset.rows[0] ?? null },
       });
     } catch (error) {
-      console.error('Error adding P2P asset:', error);
+      logger.error('Error adding P2P asset', { error: error instanceof Error ? error.message : String(error) });
       return reply.status(500).send({
         success: false,
         error: { code: 'CREATE_FAILED', message: 'Failed to add P2P asset' },
@@ -6269,6 +6651,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Update a P2P asset
    */
   app.put('/settings/p2p-assets/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
       const { min_amount, max_amount, price_precision, amount_precision, maker_fee, taker_fee, display_order, is_active } = request.body as any;
@@ -6308,7 +6692,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         data: { p2p_asset: asset.rows[0] },
       });
     } catch (error) {
-      console.error('Error updating P2P asset:', error);
+      logger.error('Error updating P2P asset', { error: error instanceof Error ? error.message : String(error) });
       return reply.status(500).send({
         success: false,
         error: { code: 'UPDATE_FAILED', message: 'Failed to update P2P asset' },
@@ -6321,6 +6705,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Toggle P2P asset active status
    */
   app.patch('/settings/p2p-assets/:id/toggle', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
 
@@ -6355,6 +6741,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Remove a P2P asset
    */
   app.delete('/settings/p2p-assets/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
 
@@ -6384,6 +6772,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Get currencies that can be added to P2P (unique by symbol)
    */
   app.get('/settings/available-p2p-currencies', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       // Get unique currencies by symbol that are not already in P2P
       const result = await db.query(`
@@ -6404,7 +6794,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         data: { currencies: result.rows },
       });
     } catch (error) {
-      console.error('Error fetching available currencies:', error);
+      logger.error('Error fetching available currencies', { error: error instanceof Error ? error.message : String(error) });
       return reply.status(500).send({
         success: false,
         error: { code: 'FETCH_FAILED', message: 'Failed to fetch currencies' },
@@ -6421,6 +6811,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Get all feature toggles with pagination
    */
   app.get('/settings/features', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { category, search, limit, offset } = request.query as any;
       
@@ -6479,7 +6871,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         },
       });
     } catch (error) {
-      console.error('Error fetching features:', error);
+      logger.error('Error fetching features', { error: error instanceof Error ? error.message : String(error) });
       return reply.status(500).send({
         success: false,
         error: { code: 'FETCH_FAILED', message: 'Failed to fetch features' },
@@ -6492,6 +6884,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Create a new feature toggle
    */
   app.post('/settings/features', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { category, feature_key, feature_name, description, is_enabled, is_critical, depends_on, metadata } = request.body as any;
 
@@ -6522,7 +6916,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         data: { feature: result.rows[0] },
       });
     } catch (error) {
-      console.error('Error creating feature:', error);
+      logger.error('Error creating feature', { error: error instanceof Error ? error.message : String(error) });
       return reply.status(500).send({
         success: false,
         error: { code: 'CREATE_FAILED', message: 'Failed to create feature' },
@@ -6535,6 +6929,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Create multiple feature toggles at once
    */
   app.post('/settings/features/bulk', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { features } = request.body as { features: any[] };
 
@@ -6566,7 +6962,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         data: { created: created.length, features: created },
       });
     } catch (error) {
-      console.error('Error bulk creating features:', error);
+      logger.error('Error bulk creating features', { error: error instanceof Error ? error.message : String(error) });
       return reply.status(500).send({
         success: false,
         error: { code: 'CREATE_FAILED', message: 'Failed to create features' },
@@ -6579,6 +6975,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Toggle feature enabled status
    */
   app.patch('/settings/features/:id/toggle', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
 
@@ -6613,6 +7011,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Toggle multiple features at once
    */
   app.patch('/settings/features/bulk-toggle', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { ids, enabled } = request.body as { ids: string[]; enabled: boolean };
 
@@ -6647,6 +7047,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Toggle all features in a category
    */
   app.patch('/settings/features/category/:category/toggle', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { category } = request.params as { category: string };
       const { enabled } = request.body as { enabled: boolean };
@@ -6675,6 +7077,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Update feature details
    */
   app.put('/settings/features/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
       const { feature_name, description, is_critical, depends_on, metadata } = request.body as any;
@@ -6715,6 +7119,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Delete a feature toggle
    */
   app.delete('/settings/features/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
 
@@ -6748,6 +7154,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Get API settings by category
    */
   app.get('/settings/api', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { category } = request.query as { category?: string };
       
@@ -6768,7 +7176,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         data: { settings: result.rows },
       });
     } catch (error) {
-      console.error('Error fetching API settings:', error);
+      logger.error('Error fetching API settings', { error: error instanceof Error ? error.message : String(error) });
       return reply.status(500).send({
         success: false,
         error: { code: 'FETCH_FAILED', message: 'Failed to fetch API settings' },
@@ -6781,6 +7189,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Create or update API setting
    */
   app.post('/settings/api', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { 
         category, provider, name, api_key, api_secret, api_url, 
@@ -6831,7 +7241,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         data: { setting: result.rows[0] },
       });
     } catch (error) {
-      console.error('Error saving API setting:', error);
+      logger.error('Error saving API setting', { error: error instanceof Error ? error.message : String(error) });
       return reply.status(500).send({
         success: false,
         error: { code: 'SAVE_FAILED', message: 'Failed to save API setting' },
@@ -6844,6 +7254,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Update API setting
    */
   app.put('/settings/api/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
       const { 
@@ -6887,7 +7299,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         data: { setting: result.rows[0] },
       });
     } catch (error) {
-      console.error('Error updating API setting:', error);
+      logger.error('Error updating API setting', { error: error instanceof Error ? error.message : String(error) });
       return reply.status(500).send({
         success: false,
         error: { code: 'UPDATE_FAILED', message: 'Failed to update API setting' },
@@ -6900,6 +7312,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Toggle API setting active status
    */
   app.patch('/settings/api/:id/toggle', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
 
@@ -6934,6 +7348,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Delete API setting
    */
   app.delete('/settings/api/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
 
@@ -6963,6 +7379,8 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Test API connection
    */
   app.post('/settings/api/:id/test', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
     try {
       const { id } = request.params as { id: string };
 

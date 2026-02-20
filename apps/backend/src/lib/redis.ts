@@ -13,9 +13,7 @@ class RedisClient {
   private static instance: RedisClient;
 
   private constructor() {
-    const options: RedisOptions = {
-      host: '127.0.0.1',
-      port: 6379,
+    const baseOptions: RedisOptions = {
       maxRetriesPerRequest: 3,
       retryStrategy(times) {
         if (times > 5) return null; // Stop retrying
@@ -25,13 +23,17 @@ class RedisClient {
       connectTimeout: 5000,
     };
 
-    if (config.redis.password) {
-      options.password = config.redis.password;
-    }
+    // Use REDIS_URL when available; ioredis accepts URL string or options
+    const useUrl = config.redis.url?.startsWith('redis://');
+    const options: RedisOptions = useUrl
+      ? { ...baseOptions }
+      : { ...baseOptions, host: '127.0.0.1', port: 6379, ...(config.redis.password && { password: config.redis.password }) };
 
-    this.client = new RedisConstructor(options);
-    this.subscriber = new RedisConstructor(options);
-    this.publisher = new RedisConstructor(options);
+    // ioredis accepts URL string at runtime; TypeScript types expect RedisOptions
+    const connArg = useUrl ? (config.redis.url! as unknown as RedisOptions) : options;
+    this.client = new RedisConstructor(connArg);
+    this.subscriber = new RedisConstructor(connArg);
+    this.publisher = new RedisConstructor(connArg);
 
     this.setupEventHandlers(this.client, 'main');
     this.setupEventHandlers(this.subscriber, 'subscriber');
@@ -119,6 +121,11 @@ class RedisClient {
   async exists(key: string): Promise<boolean> {
     const result = await this.client.exists(key);
     return result === 1;
+  }
+
+  /** Return keys matching pattern (e.g. 'monitoring:*'). Use sparingly; prefer SCAN in production. */
+  async keys(pattern: string): Promise<string[]> {
+    return this.client.keys(pattern);
   }
 
   async incr(key: string): Promise<number> {

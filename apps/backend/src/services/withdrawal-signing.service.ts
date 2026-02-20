@@ -16,7 +16,7 @@ import { getCurrencyIdForToken } from '../lib/currency-resolver.js';
 import { ensureUserBalanceRow, assertUserBalanceUpdated, assertBalanceInvariant, CHAIN_ID_GLOBAL } from '../lib/user-balance-helper.js';
 import { insertBalanceLedger } from '../lib/balance-ledger.js';
 import { ROUND_DOWN, AMOUNT_PRECISION } from '../config/monetary-precision.js';
-import { getSignerForChain, getHotWalletByChainId, checkHotWalletCaps, refreshBalanceCache } from './hot-wallet.service.js';
+import { getSignerForChain, getHotWalletByChainId, checkHotWalletCaps, resolveHotWalletChainId } from './hot-wallet.service.js';
 
 const ACTOR_SYSTEM = 'withdrawal-signing-processor';
 const RATE_LIMIT_MS_PER_CHAIN = 2000;
@@ -389,6 +389,14 @@ export async function processSigningQueue(): Promise<void> {
     return;
   }
 
+  const resolvedChainId = await resolveHotWalletChainId(chainId);
+  if (resolvedChainId) {
+    await db.query(
+      `UPDATE hot_wallets SET balance_cache = balance_cache - $1::numeric, updated_at = CURRENT_TIMESTAMP WHERE chain_id = $2 AND is_active = TRUE`,
+      [valueWei.toString(), resolvedChainId]
+    );
+  }
+
   await logHotWalletAudit({
     actorId: ACTOR_SYSTEM,
     actorType: 'system',
@@ -469,10 +477,12 @@ async function markQueueFailed(queueId: string, errorMessage: string): Promise<v
           const refundUpd = await client.query(
             `UPDATE user_balances
              SET available_balance = available_balance + $1, locked_balance = locked_balance - $1, updated_at = NOW()
-             WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5`,
+             WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5
+             RETURNING *`,
             [total, w.user_id, currencyId, chainId, accountType]
           );
           assertUserBalanceUpdated('withdrawal_fail_refund', refundUpd, w.user_id, currencyId, accountType, w.chain_id ?? undefined);
+          assertBalanceInvariant(refundUpd.rows[0]);
           await insertBalanceLedger({
             client,
             userId: w.user_id,

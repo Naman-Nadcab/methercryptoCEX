@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 export default function DashboardP2PPage() {
   const router = useRouter();
   useEffect(() => {
-    router.replace('/p2p');
+    router.replace('/dashboard/p2p/buy/USDT/INR');
   }, [router]);
   return (
     <div className="min-h-[40vh] flex items-center justify-center">

@@ -84,9 +84,20 @@ class WalletService {
       [userId, encryptedSeed]
     );
 
+    // Re-read from DB so concurrent callers always get the same seed (winner's row). Prevents wrong-seed cache and address mismatch.
+    const after = await queryRunner.query<{ encrypted_seed: string }>(
+      'SELECT encrypted_seed FROM user_master_keys WHERE user_id = $1',
+      [userId]
+    );
+    if (after.rows.length > 0) {
+      const decrypted = encryption.decryptPrivateKey(after.rows[0]!.encrypted_seed, userId);
+      const fromDb = Buffer.from(decrypted, 'hex');
+      this.masterSeedCache.set(userId, fromDb);
+      logger.info('Master seed for user (from DB)', { userId });
+      return fromDb;
+    }
     this.masterSeedCache.set(userId, seedBuffer);
     logger.info('Generated new master seed for user', { userId });
-
     return seedBuffer;
   }
 

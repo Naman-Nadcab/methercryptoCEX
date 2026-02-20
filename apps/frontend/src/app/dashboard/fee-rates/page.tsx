@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store/auth';
 import Link from 'next/link';
+import { notifyError } from '@/lib/notifyError';
 import {
   HelpCircle,
   ChevronRight,
@@ -77,7 +78,7 @@ export default function FeeRatesPage() {
           setMntDiscountEnabled(result.data.mntDiscount || false);
         }
       } catch (error) {
-        console.error('Failed to fetch fee rates:', error);
+        notifyError('Failed to load fee rates. Please try again.');
       } finally {
         setLoading(false);
       }
@@ -101,9 +102,11 @@ export default function FeeRatesPage() {
       
       if (result.success) {
         setMntDiscountEnabled(!mntDiscountEnabled);
+      } else {
+        notifyError(result.error?.message || 'Failed to update MNT discount.');
       }
     } catch (error) {
-      console.error('Failed to toggle MNT discount:', error);
+      notifyError('Failed to update MNT discount. Please try again.');
     }
   };
 
@@ -295,7 +298,7 @@ export default function FeeRatesPage() {
 
                 {/* Trade Link */}
                 <Link
-                  href="/dashboard/trade"
+                  href="/dashboard/spot"
                   className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm font-medium"
                 >
                   Trade Spot <ChevronRight className="w-4 h-4" />
@@ -330,7 +333,7 @@ export default function FeeRatesPage() {
               <div className="bg-white dark:bg-[#181a20] rounded-xl p-6">
                 <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Spot Interest Rates</h3>
                 <p className="text-gray-500 dark:text-gray-400 text-sm mb-6">
-                  Interest rates for margin trading and borrowing are based on your VIP level.
+                  This exchange supports Spot and P2P only. Rates shown are for reference.
                 </p>
 
                 <div className="overflow-x-auto">

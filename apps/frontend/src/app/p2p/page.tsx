@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 export default function P2PRedirect() {
   const router = useRouter();
   useEffect(() => {
-    router.replace('/p2p/buy/USDT/INR');
+    router.replace('/dashboard/p2p/buy/USDT/INR');
   }, [router]);
   return (
     <div className="min-h-screen bg-[#0b0e11] flex items-center justify-center">

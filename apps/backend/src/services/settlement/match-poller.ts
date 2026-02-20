@@ -45,6 +45,7 @@ async function pollOnce(): Promise<void> {
     }
     return;
   }
+  let maxInsertedId = afterId;
   for (const ev of events) {
     await db.query(
       `INSERT INTO settlement_events (engine_event_id, payload, status)
@@ -52,9 +53,11 @@ async function pollOnce(): Promise<void> {
        ON CONFLICT (engine_event_id) DO NOTHING`,
       [ev.event_id, JSON.stringify(ev)]
     );
+    if (ev.event_id > maxInsertedId) maxInsertedId = ev.event_id;
   }
-  await setLastEngineEventId(last_id);
-  logger.debug('Match poller inserted events', { count: events.length, last_id });
+  const cursorToSet = events.length > 0 ? maxInsertedId : last_id;
+  await setLastEngineEventId(cursorToSet);
+  logger.debug('Match poller inserted events', { count: events.length, last_id, cursorToSet });
 }
 
 let pollIntervalId: ReturnType<typeof setInterval> | null = null;

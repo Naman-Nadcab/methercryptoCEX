@@ -9,7 +9,7 @@ import { db } from '../lib/database.js';
 import { logger } from '../lib/logger.js';
 import { config } from '../config/index.js';
 
-export type TxnType = 'deposit' | 'withdrawal' | 'trade' | 'p2p';
+export type TxnType = 'deposit' | 'withdrawal' | 'trade' | 'p2p' | 'internal_transfer';
 
 export interface RecordTransactionParams {
   userId: string;
@@ -184,7 +184,39 @@ export async function evaluateTransactionForAlerts(params: EvaluateTransactionPa
 
 export async function recordAndEvaluate(params: RecordTransactionParams): Promise<void> {
   const logId = await recordTransaction(params);
-  await evaluateTransactionForAlerts({ ...params, transactionLogId: logId });
+  await evaluateTransactionForAlerts({ ...params, transactionLogId: logId   });
+}
+
+// ---------------------------------------------------------------------------
+// recordAndEvaluateForDeposit — fetch deposit by id, then record + evaluate (best-effort).
+// Call after creditDepositIfConfirmed or applyBalanceForOneCompletedDeposit when credited.
+// ---------------------------------------------------------------------------
+export async function recordAndEvaluateForDeposit(depositId: string): Promise<void> {
+  try {
+    const row = await db.query<{ user_id: string; currency_id: string; amount: string; symbol: string | null }>(
+      `SELECT d.user_id, d.currency_id, d.amount::text AS amount, c.symbol
+       FROM deposits d
+       LEFT JOIN currencies c ON c.id = d.currency_id
+       WHERE d.id = $1`,
+      [depositId]
+    );
+    if (row.rows.length === 0) return;
+    const r = row.rows[0]!;
+    await recordAndEvaluate({
+      userId: r.user_id,
+      txnType: 'deposit',
+      asset: r.symbol ?? undefined,
+      amount: r.amount,
+      fiatAmount: null,
+      fiatCurrency: 'INR',
+      countryCode: null,
+    });
+  } catch (e) {
+    logger.warn('AML recordAndEvaluateForDeposit failed (best-effort)', {
+      depositId,
+      error: e instanceof Error ? e.message : 'Unknown',
+    });
+  }
 }
 
 /*

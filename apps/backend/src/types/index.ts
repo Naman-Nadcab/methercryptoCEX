@@ -276,10 +276,8 @@ export enum P2PAdStatus {
 }
 
 export enum P2POrderStatus {
-  PENDING = 'pending',
   PAYMENT_PENDING = 'payment_pending',
   PAYMENT_CONFIRMED = 'payment_confirmed',
-  RELEASING = 'releasing',
   COMPLETED = 'completed',
   CANCELLED = 'cancelled',
   DISPUTED = 'disputed',
@@ -460,6 +458,8 @@ export enum AuditAction {
   P2P_AD_UPDATED = 'p2p_ad_updated',
   P2P_ORDER_CREATED = 'p2p_order_created',
   P2P_PAYMENT_CONFIRMED = 'p2p_payment_confirmed',
+  P2P_ORDER_CANCELLED = 'p2p_order_cancelled',
+  P2P_ORDER_RELEASED = 'p2p_order_released',
   P2P_DISPUTE_OPENED = 'p2p_dispute_opened',
   P2P_DISPUTE_RESOLVED = 'p2p_dispute_resolved',
   

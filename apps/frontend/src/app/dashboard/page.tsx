@@ -188,7 +188,7 @@ export default function DashboardPage() {
                       Withdraw
                     </Link>
                     <Link
-                      href="/dashboard/trade"
+                      href="/dashboard/spot"
                       className="flex items-center gap-2 px-5 py-2.5 bg-white/20 backdrop-blur-sm text-white font-semibold rounded-xl hover:bg-white/30 transition-colors"
                     >
                       <BarChart3 className="w-5 h-5" />
@@ -298,7 +298,7 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <Link
-                  href="/dashboard/trade"
+                  href="/dashboard/spot"
                   className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium flex items-center gap-1"
                 >
                   View All Markets <ChevronRight className="w-4 h-4" />
@@ -397,7 +397,7 @@ export default function DashboardPage() {
                         </td>
                         <td className="px-6 py-4 text-right">
                           <Link
-                            href="/dashboard/trade"
+                            href="/dashboard/spot"
                             className="inline-flex items-center gap-1 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium rounded-lg transition-colors"
                           >
                             Trade

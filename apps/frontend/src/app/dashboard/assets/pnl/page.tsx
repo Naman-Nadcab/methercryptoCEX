@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store/auth';
 import Link from 'next/link';
+import { notifyError } from '@/lib/notifyError';
 import {
   ChevronRight,
   ChevronDown,
@@ -79,7 +80,7 @@ export default function PnlAnalysisPage() {
         setChartData(generateMockChartData());
       }
     } catch (error) {
-      console.error('Failed to fetch P&L data:', error);
+      notifyError('Failed to load P&L data. Please try again.');
       setChartData(generateMockChartData());
     } finally {
       setLoading(false);
@@ -113,83 +114,7 @@ export default function PnlAnalysisPage() {
   }));
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0b0e11]">
-      <div className="flex">
-        {/* Sidebar */}
-        <aside className="w-60 min-h-screen bg-white dark:bg-[#181a20] border-r border-gray-200 dark:border-gray-800">
-          <nav className="p-4 space-y-1">
-            <Link
-              href="/dashboard/assets/overview"
-              className="flex items-center gap-3 px-4 py-3 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-colors"
-            >
-              <LayoutGrid className="w-5 h-5" />
-              Overview
-            </Link>
-            <Link
-              href="/dashboard/assets/funding"
-              className="flex items-center gap-3 px-4 py-3 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-colors"
-            >
-              <div className="w-5 h-5 rounded-full border-2 border-gray-400 dark:border-gray-500 flex items-center justify-center">
-                <div className="w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500" />
-              </div>
-              Funding
-            </Link>
-            <Link
-              href="/dashboard/assets/unified"
-              className="flex items-center gap-3 px-4 py-3 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-colors"
-            >
-              <Wallet className="w-5 h-5" />
-              Unified Trading
-            </Link>
-            <Link
-              href="/dashboard/assets/convert"
-              className="flex items-center gap-3 px-4 py-3 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-colors"
-            >
-              <RefreshCw className="w-5 h-5" />
-              Convert
-            </Link>
-            <Link
-              href="/dashboard/assets/history"
-              className="flex items-center gap-3 px-4 py-3 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-colors"
-            >
-              <Clock className="w-5 h-5" />
-              History
-            </Link>
-            
-            <div className="pt-6">
-              <p className="px-4 pb-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">Analysis</p>
-              <Link
-                href="/dashboard/assets/pnl"
-                className="flex items-center gap-3 px-4 py-3 text-sm font-medium bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 text-blue-600 dark:text-blue-400 rounded-xl border border-blue-100 dark:border-blue-800/30"
-              >
-                <TrendingUp className="w-5 h-5" />
-                P&L Analysis
-              </Link>
-            </div>
-            
-            <div className="pt-4">
-              <button
-                onClick={() => setOrdersExpanded(!ordersExpanded)}
-                className="w-full flex items-center justify-between px-4 py-3 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <Clock className="w-5 h-5" />
-                  Orders
-                </div>
-                <ChevronRight className={`w-4 h-4 transition-transform ${ordersExpanded ? 'rotate-90' : ''}`} />
-              </button>
-              {ordersExpanded && (
-                <div className="mt-1 ml-4 pl-4 border-l border-gray-200 dark:border-gray-700 space-y-1">
-                  <Link href="/dashboard/orders/spot" className="block px-3 py-2 text-sm text-gray-500 hover:text-gray-900 dark:hover:text-white">Spot Orders</Link>
-                  <Link href="/dashboard/orders/convert" className="block px-3 py-2 text-sm text-gray-500 hover:text-gray-900 dark:hover:text-white">Convert Orders</Link>
-                </div>
-              )}
-            </div>
-          </nav>
-        </aside>
-
-        {/* Main Content */}
-        <main className="flex-1 p-6">
+    <div className="p-6">
           {/* Header */}
           <div className="flex items-center justify-between mb-8">
             <div className="flex items-center gap-4">
@@ -463,7 +388,7 @@ export default function PnlAnalysisPage() {
                   <p className="text-gray-500 font-medium">No trading data yet</p>
                   <p className="text-sm text-gray-400 mt-1">Start trading to see your P&L</p>
                   <Link
-                    href="/dashboard/trade"
+                    href="/dashboard/spot"
                     className="mt-4 px-6 py-2.5 bg-blue-500 hover:bg-blue-600 text-white font-medium text-sm rounded-xl transition-colors"
                   >
                     Start Trading
@@ -472,8 +397,6 @@ export default function PnlAnalysisPage() {
               )}
             </div>
           </div>
-        </main>
-      </div>
     </div>
   );
 }

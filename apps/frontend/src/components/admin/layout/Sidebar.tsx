@@ -14,18 +14,18 @@ import {
   TrendingUp,
   Repeat,
   Receipt,
-  Bell,
   Lock,
   BarChart3,
   Settings,
-  UserCog,
+  FileText,
   HeadphonesIcon,
   ChevronDown,
   ChevronRight,
-  AlertCircle,
   X,
-  Menu as MenuIcon,
+  AlertTriangle,
+  Banknote,
 } from 'lucide-react';
+import { StatusBadge } from '@/components/admin/control-plane';
 
 interface MenuItem {
   id: string;
@@ -42,139 +42,141 @@ interface MenuItem {
   }[];
 }
 
+/**
+ * Mandatory Binance-grade admin sidebar hierarchy.
+ * Do not remove or restructure — only extend.
+ */
 const menuItems: MenuItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4" />, href: '/admin/dashboard' },
   {
     id: 'users',
-    label: 'User Management',
+    label: 'Users',
     icon: <Users className="w-4 h-4" />,
     children: [
-      { label: 'Users', href: '/admin/users' },
-      { label: 'Suspended Users', href: '/admin/users/suspended' },
-      { label: 'Login Activity', href: '/admin/security/sessions' },
+      { label: 'User List', href: '/admin/users' },
+      { label: 'User Detail', href: '/admin/users/detail' },
+      { label: 'User Risk Profile', href: '/admin/users/risk' },
+      { label: 'User Activity / Sessions', href: '/admin/security/sessions' },
     ],
   },
   {
     id: 'kyc',
-    label: 'KYC Management',
+    label: 'KYC / Identity',
     icon: <Shield className="w-4 h-4" />,
     children: [
-      { label: 'Pending KYC', href: '/admin/kyc/pending' },
-      { label: 'Approved KYC', href: '/admin/kyc/approved' },
-      { label: 'Rejected KYC', href: '/admin/kyc/rejected' },
+      { label: 'Pending Verifications', href: '/admin/kyc/pending' },
+      { label: 'Approved / Rejected', href: '/admin/kyc/approved' },
+      { label: 'KYC Audit Trail', href: '/admin/kyc/audit' },
       { label: 'KYC Settings', href: '/admin/kyc/settings' },
     ],
   },
   {
     id: 'wallets',
-    label: 'Wallets',
+    label: 'Wallet & Funds',
     icon: <Wallet className="w-4 h-4" />,
     children: [
-      { label: 'Asset Balances', href: '/admin/wallets/funds-summary' },
-      { label: 'Hot Wallets', href: '/admin/wallets/hot' },
-      { label: 'Cold Wallets', href: '/admin/wallets/cold' },
-      { label: 'Wallet Health', href: '/admin/wallets/blockchain' },
+      { label: 'Deposits', href: '/admin/wallets/deposits' },
+      { label: 'Withdrawals', href: '/admin/wallets/withdrawals' },
+      { label: 'Manual Adjustments', href: '/admin/wallets/adjust' },
+      { label: 'Balance Summary', href: '/admin/wallets/funds-summary' },
+      { label: 'Hot / Cold Wallet Monitor', href: '/admin/wallets/hot' },
+      { label: 'Reconciliation (Super Admin)', href: '/admin/wallets/reconciliation' },
+      { label: 'Balance Ledger', href: '/admin/wallets/ledger/balance' },
+      { label: 'Settlement Ledger', href: '/admin/wallets/ledger/settlement' },
     ],
   },
   {
-    id: 'trading',
-    label: 'Spot Trading',
+    id: 'spot',
+    label: 'Spot Markets',
     icon: <TrendingUp className="w-4 h-4" />,
     children: [
-      { label: 'Market List', href: '/admin/trading/spot-markets' },
-      { label: 'Market Control', href: '/admin/trading/market-control' },
-      { label: 'Fees & Limits', href: '/admin/trading/fees' },
+      { label: 'Market Pairs', href: '/admin/trading/spot-markets' },
+      { label: 'Order Monitoring', href: '/admin/trading/orders' },
+      { label: 'Trade History', href: '/admin/trading/trade-history' },
       { label: 'Circuit Breakers', href: '/admin/trading/circuit-breakers' },
-      { label: 'Live Orders', href: '/admin/trading/orders' },
-      { label: 'Failed Orders', href: '/admin/trading/orders?status=failed' },
-      { label: 'Cancel Orders', href: '/admin/trading/orders' },
-      { label: 'Live Trades', href: '/admin/trading/trade-history' },
-      { label: 'Trade Audit', href: '/admin/trading/trade-history' },
+      { label: 'Fee Controls', href: '/admin/trading/fees' },
+      { label: 'Market Halt Controls', href: '/admin/trading/market-control' },
     ],
   },
   {
     id: 'p2p',
-    label: 'P2P Trading',
+    label: 'P2P System',
     icon: <Repeat className="w-4 h-4" />,
     children: [
-      { label: 'Orders', href: '/admin/p2p/orders' },
+      { label: 'P2P Overview', href: '/admin/p2p' },
+      { label: 'Active Trades', href: '/admin/p2p/trades' },
+      { label: 'Orders / Ads', href: '/admin/p2p/orders' },
+      { label: 'Escrow Monitor', href: '/admin/p2p/escrows' },
       { label: 'Disputes', href: '/admin/p2p/disputes' },
+      { label: 'Merchants', href: '/admin/p2p/merchants' },
+      { label: 'Payment Methods', href: '/admin/p2p/payment-methods' },
+      { label: 'P2P Settings', href: '/admin/p2p/settings' },
     ],
   },
   {
-    id: 'deposits',
-    label: 'Deposits',
-    icon: <ArrowDownToLine className="w-4 h-4" />,
+    id: 'compliance',
+    label: 'Compliance / AML',
+    icon: <AlertTriangle className="w-4 h-4" />,
     children: [
-      { label: 'Pending Deposits', href: '/admin/deposits/pending' },
-      { label: 'Failed Deposits', href: '/admin/deposits/flagged' },
-    ],
-  },
-  {
-    id: 'withdrawals',
-    label: 'Withdrawals',
-    icon: <ArrowUpFromLine className="w-4 h-4" />,
-    children: [
-      { label: 'Pending Withdrawals', href: '/admin/withdrawals/pending-approval', badgeKey: 'pending_approval' },
-      { label: 'Risk Holds', href: '/admin/withdrawals/pending' },
-      { label: 'Manual Review', href: '/admin/withdrawals/pending-approval' },
-    ],
-  },
-  {
-    id: 'fees',
-    label: 'Fee Management',
-    icon: <Receipt className="w-4 h-4" />,
-    children: [
-      { label: 'Spot Fees', href: '/admin/fees/trading' },
-      { label: 'Withdrawal Fees', href: '/admin/fees/withdrawal' },
+      { label: 'AML Alerts', href: '/admin/compliance/alerts' },
+      { label: 'Alert Detail', href: '/admin/compliance/alert' },
+      { label: 'STR / CTR Reports', href: '/admin/compliance/reports' },
+      { label: 'Case Management', href: '/admin/compliance/cases' },
+      { label: 'AML Dashboard', href: '/admin/security/compliance' },
     ],
   },
   {
     id: 'security',
-    label: 'Security',
+    label: 'Security & Risk',
     icon: <Lock className="w-4 h-4" />,
     children: [
-      { label: 'Risk Flags', href: '/admin/security/risk-rules' },
-      { label: 'Circuit Breakers', href: '/admin/trading/circuit-breakers' },
-      { label: 'Admin IP Whitelist', href: '/admin/security/ip-rules' },
-      { label: 'Audit Logs', href: '/admin/security/audit-logs' },
+      { label: 'Audit Logs (Immutable)', href: '/admin/security/audit-logs' },
+      { label: 'Active Sessions', href: '/admin/security/sessions' },
+      { label: 'IP / Device Risk Rules', href: '/admin/security/ip-rules' },
+      { label: 'Withdrawal Risk Monitor', href: '/admin/security/withdrawals' },
+      { label: 'Risk Rules', href: '/admin/security/risk-rules' },
+      { label: 'Security Dashboard', href: '/admin/security/dashboard' },
     ],
   },
   {
-    id: 'reports',
-    label: 'Reports',
-    icon: <BarChart3 className="w-4 h-4" />,
-    children: [
-      { label: 'Volume', href: '/admin/reports/trading' },
-      { label: 'Revenue', href: '/admin/reports/financial' },
-      { label: 'User Growth', href: '/admin/reports/users' },
-    ],
-  },
-  {
-    id: 'settings',
-    label: 'Settings',
+    id: 'system',
+    label: 'System Controls',
     icon: <Settings className="w-4 h-4" />,
     children: [
       { label: 'System Settings', href: '/admin/settings' },
-      { label: 'Feature Toggles', href: '/admin/settings/features' },
+      { label: 'API Settings', href: '/admin/system/api-settings' },
+      { label: 'Feature Flags', href: '/admin/settings/features' },
+      { label: 'Blockchain / Token Config', href: '/admin/settings/blockchain' },
+      { label: 'Counters / Limits', href: '/admin/monitoring/counters' },
+    ],
+  },
+  {
+    id: 'finance',
+    label: 'Finance & Fees',
+    icon: <Banknote className="w-4 h-4" />,
+    children: [
+      { label: 'Fee Configuration', href: '/admin/fees/trading' },
+      { label: 'Revenue Metrics', href: '/admin/reports/financial' },
+      { label: 'Referral System', href: '/admin/referrals/campaigns' },
+    ],
+  },
+  {
+    id: 'support',
+    label: 'Support & Reports',
+    icon: <HeadphonesIcon className="w-4 h-4" />,
+    children: [
+      { label: 'Support Tickets', href: '/admin/support' },
+      { label: 'Reports / Exports', href: '/admin/reports' },
+      { label: 'Notifications', href: '/admin/notifications' },
     ],
   },
   {
     id: 'admins',
     label: 'Admin Users',
-    icon: <UserCog className="w-4 h-4" />,
+    icon: <FileText className="w-4 h-4" />,
     children: [
       { label: 'Roles & Permissions', href: '/admin/admins/roles' },
-      { label: 'Activity Logs', href: '/admin/security/audit-logs' },
-    ],
-  },
-  {
-    id: 'support',
-    label: 'Support',
-    icon: <HeadphonesIcon className="w-4 h-4" />,
-    children: [
-      { label: 'Tickets', href: '/admin/support' },
-      { label: 'User Messages', href: '/admin/support' },
+      { label: 'Admin List', href: '/admin/admins' },
     ],
   },
 ];
@@ -190,19 +192,36 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   const { accessToken } = useAdminAuthStore();
   const [expandedMenus, setExpandedMenus] = useState<string[]>(['dashboard']);
   const [withdrawalStats, setWithdrawalStats] = useState<{ pending_approval?: number } | null>(null);
+  const [tradingHalted, setTradingHalted] = useState<boolean | null>(null);
+
+  // Defer non-critical badge fetches so admin shell paints immediately
+  useEffect(() => {
+    if (!accessToken) return;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+    const t = setTimeout(() => {
+      fetch(`${apiUrl}/api/v1/admin/trading-halt`, { headers: { Authorization: `Bearer ${accessToken}` } })
+        .then((r) => r.json())
+        .then((d) => setTradingHalted(d?.success && d?.data ? !!d.data.halted : null))
+        .catch(() => setTradingHalted(null));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [accessToken]);
 
   useEffect(() => {
-    if (!accessToken || !expandedMenus.includes('withdrawals')) return;
+    if (!accessToken) return;
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-    fetch(`${apiUrl}/api/v1/admin/withdrawals?limit=1`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    })
-      .then((r) => r.json())
-      .then((data) => {
-        if (data?.success && data?.data?.stats) setWithdrawalStats(data.data.stats);
+    const t = setTimeout(() => {
+      fetch(`${apiUrl}/api/v1/admin/withdrawals?limit=1`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
       })
-      .catch(() => {});
-  }, [accessToken, expandedMenus]);
+        .then((r) => r.json())
+        .then((data) => {
+          if (data?.success && data?.data?.stats) setWithdrawalStats(data.data.stats);
+        })
+        .catch(() => {});
+    }, 400);
+    return () => clearTimeout(t);
+  }, [accessToken]);
 
   const toggleMenu = (menuId: string) => {
     setExpandedMenus((prev) =>
@@ -215,7 +234,9 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   const isActive = (href: string) => {
     const [p, q] = href.split('?');
     const path = p || href;
-    if (pathname !== path) return false;
+    if (pathname === path) return true;
+    if (path === '/admin/users/detail' && pathname.startsWith('/admin/users/') && pathname !== '/admin/users' && pathname !== '/admin/users/suspended' && pathname !== '/admin/users/banned' && pathname !== '/admin/users/verification' && pathname !== '/admin/users/tiers' && pathname !== '/admin/users/risk') return false;
+    if (path === '/admin/compliance/alert' && pathname.startsWith('/admin/compliance/alerts/')) return true;
     if (!q) return searchParams.get('type') !== 'internal';
     const want = new URLSearchParams(q);
     return Array.from(want.entries()).every(([k, v]) => searchParams.get(k) === v);
@@ -223,7 +244,10 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   const isParentActive = (children?: { href: string }[]) =>
     children?.some((child) => {
       const [p, q] = child.href.split('?');
-      if (pathname !== (p || child.href)) return false;
+      const path = p || child.href;
+      if (pathname === path) return true;
+      if (path === '/admin/users/detail' && pathname.startsWith('/admin/users/') && pathname !== '/admin/users') return true;
+      if (path === '/admin/compliance/alert' && pathname.startsWith('/admin/compliance/alerts/')) return true;
       if (!q) return true;
       const want = new URLSearchParams(q);
       return Array.from(want.entries()).every(([k, v]) => searchParams.get(k) === v);
@@ -233,100 +257,102 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     <>
       {isOpen && (
         <div
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden animate-admin-fade-in"
           onClick={() => setIsOpen(false)}
+          aria-hidden
         />
       )}
 
       <aside
-        className={`fixed top-0 left-0 z-50 h-full bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 transition-transform duration-300 lg:translate-x-0 ${
+        className={`fixed top-0 left-0 z-50 h-full w-[220px] flex flex-col text-[13px] transition-transform duration-200 lg:translate-x-0 bg-card border-r border-border ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
-        } w-60 flex flex-col text-[10px]`}
+        }`}
       >
-        <div className="h-14 flex items-center justify-between px-3 border-b border-gray-200 dark:border-gray-800">
-          <Link href="/admin/dashboard" className="flex items-center gap-2">
-            <div className="w-7 h-7 bg-gradient-to-br from-blue-500 to-blue-500 rounded-lg flex items-center justify-center">
-              <span className="text-gray-900 dark:text-white font-bold text-[10px]">CE</span>
+        <div className="h-11 flex items-center justify-between px-2.5 border-b border-border shrink-0">
+          <Link
+            href="/admin/dashboard"
+            className="flex items-center gap-2 min-w-0"
+          >
+            <div className="w-6 h-6 rounded bg-muted flex items-center justify-center shrink-0">
+              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-tight">CE</span>
             </div>
-            <span className="text-gray-900 dark:text-white font-semibold text-xs">Admin Panel</span>
+            <span className="font-semibold text-foreground truncate text-xs">Admin</span>
           </Link>
           <button
             onClick={() => setIsOpen(false)}
-            className="lg:hidden text-gray-400 hover:text-gray-900 dark:hover:text-gray-900 dark:hover:text-white"
+            className="lg:hidden p-1.5 text-muted-foreground hover:text-foreground"
+            aria-label="Close menu"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto py-3 px-2">
+        <nav className="flex-1 overflow-y-auto py-2 px-1.5">
           <ul className="space-y-0.5">
             {menuItems.map((item) => (
               <li key={item.id}>
                 {item.href ? (
                   <Link
                     href={item.href}
-                    className={`flex items-center gap-2 px-2.5 py-2 rounded-lg transition-colors ${
+                    className={`flex items-center gap-2 px-2.5 py-1.5 rounded-[4px] text-[12px] ${
                       isActive(item.href)
-                        ? 'bg-blue-600 text-white'
-                        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-900 dark:hover:text-white'
+                        ? 'bg-muted text-foreground border-l-2 border-primary pl-2'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
                     }`}
                   >
-                    {item.icon}
-                    <span className="text-[10px] font-medium">{item.label}</span>
+                    <span className="opacity-80">{item.icon}</span>
+                    <span className="truncate">{item.label}</span>
                   </Link>
                 ) : (
                   <>
                     <button
                       onClick={() => toggleMenu(item.id)}
-                      className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg transition-colors ${
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-[4px] text-[12px] text-left ${
                         isParentActive(item.children)
-                          ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white'
-                          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-900 dark:hover:text-white'
+                          ? 'text-foreground bg-muted/60'
+                          : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
                       }`}
                     >
-                      <div className="flex items-center gap-2">
-                        {item.icon}
-                        <span className="text-[10px] font-medium">{item.label}</span>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="opacity-80 shrink-0">{item.icon}</span>
+                        <span className="truncate">{item.label}</span>
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        {item.badge && (
-                          <span
-                            className={`px-2 py-0.5 text-xs font-medium text-white rounded-full ${
-                              item.badgeColor || 'bg-blue-500'
-                            }`}
-                          >
+                      <div className="flex items-center gap-1 shrink-0">
+                        {item.badge != null && (
+                          <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-destructive text-destructive-foreground">
                             {item.badge}
                           </span>
                         )}
+                        {item.id === 'wallets' && withdrawalStats && Number(withdrawalStats.pending_approval ?? 0) > 0 && (
+                          <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-warning text-black">
+                            {withdrawalStats.pending_approval}
+                          </span>
+                        )}
                         {expandedMenus.includes(item.id) ? (
-                          <ChevronDown className="w-4 h-4" />
+                          <ChevronDown className="w-3.5 h-3.5 opacity-70" />
                         ) : (
-                          <ChevronRight className="w-4 h-4" />
+                          <ChevronRight className="w-3.5 h-3.5 opacity-70" />
                         )}
                       </div>
                     </button>
                     {expandedMenus.includes(item.id) && item.children && (
-                      <ul className="mt-1 ml-4 pl-4 border-l border-gray-200 dark:border-gray-700 space-y-1">
+                      <ul className="mt-0.5 ml-4 pl-2 border-l border-border space-y-0.5 overflow-hidden">
                         {item.children.map((child) => (
                           <li key={child.href}>
                             <Link
                               href={child.href}
-                              className={`flex items-center justify-between px-3 py-1.5 rounded-lg text-[10px] transition-colors ${
+                              className={`block py-1 px-1.5 text-[11px] rounded-[4px] ${
                                 isActive(child.href)
-                                  ? 'bg-blue-100 dark:bg-blue-600/20 text-blue-600 dark:text-blue-400'
-                                  : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-900 dark:hover:text-white'
+                                  ? 'text-foreground font-medium'
+                                  : 'text-muted-foreground hover:text-foreground'
                               }`}
                             >
-                              <span>{child.label}</span>
-                              {(child.badgeKey && item.id === 'withdrawals' && withdrawalStats && Number(withdrawalStats[child.badgeKey as keyof typeof withdrawalStats] ?? 0) > 0) ? (
-                                <span className="px-2 py-0.5 text-xs font-medium text-white bg-amber-500 rounded-full">
-                                  {withdrawalStats[child.badgeKey as keyof typeof withdrawalStats]}
-                                </span>
-                              ) : child.badge ? (
-                                <span className="px-2 py-0.5 text-xs font-medium text-white bg-red-500 rounded-full">
+                              {child.label}
+                              {child.badge != null && (
+                                <span className="ml-1.5 px-1.5 py-0.5 text-[10px] font-medium rounded bg-destructive text-destructive-foreground">
                                   {child.badge}
                                 </span>
-                              ) : null}
+                              )}
                             </Link>
                           </li>
                         ))}
@@ -339,13 +365,14 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
           </ul>
         </nav>
 
-        <div className="p-3 border-t border-gray-200 dark:border-gray-800">
-          <div className="flex items-center gap-2 px-2 py-2 rounded-lg bg-gray-100 dark:bg-gray-800/50">
-            <AlertCircle className="w-4 h-4 text-yellow-500" />
-            <div className="flex-1 min-w-0">
-              <p className="text-[10px] text-gray-500 dark:text-gray-600 dark:text-gray-400">System Status</p>
-              <p className="text-[10px] text-green-500 dark:text-green-400 font-medium">All Systems Normal</p>
-            </div>
+        <div className="p-2 border-t border-border shrink-0">
+          <div className="flex items-center justify-between px-2 py-1.5 rounded-[4px] bg-muted/50">
+            <span className="text-[11px] text-muted-foreground">Trading</span>
+            {tradingHalted === null ? (
+              <span className="text-[11px] text-muted-foreground">—</span>
+            ) : (
+              <StatusBadge variant={tradingHalted ? 'HALTED' : 'LIVE'} showDot />
+            )}
           </div>
         </div>
       </aside>

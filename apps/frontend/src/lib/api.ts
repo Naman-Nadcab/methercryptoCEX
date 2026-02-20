@@ -1,12 +1,12 @@
 /**
  * Centralized API Client with automatic authentication
  * Handles token attachment, refresh, and error handling
+ * Enforces: no user action fails silently - errors always produce visible feedback.
  */
 
 import { useAuthStore } from '@/store/auth';
+import { notifyError } from './notifyError';
 import { getApiBaseUrl } from './getApiUrl';
-
-const API_URL = getApiBaseUrl();
 
 interface ApiResponse<T = unknown> {
   success: boolean;
@@ -20,6 +20,8 @@ interface ApiResponse<T = unknown> {
 interface RequestOptions extends Omit<RequestInit, 'body'> {
   body?: unknown;
   skipAuth?: boolean;
+  /** When true (default), show toast on error. Set false when caller handles error inline. */
+  notifyOnError?: boolean;
 }
 
 /**
@@ -44,7 +46,8 @@ async function refreshAccessToken(): Promise<string | null> {
   if (!refreshToken) return null;
 
   try {
-    const response = await fetch(`${API_URL}/api/v1/auth/refresh`, {
+    const apiUrl = getApiBaseUrl();
+    const response = await fetch(`${apiUrl}/api/v1/auth/refresh`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -63,15 +66,16 @@ async function refreshAccessToken(): Promise<string | null> {
         return data.data.accessToken;
       }
     }
+    // Only treat definitive auth failure (4xx) as session invalid; do not logout on 5xx/network.
+    if (response.status >= 400 && response.status < 500 && typeof window !== 'undefined' && useAuthStore.getState()._hasHydrated) {
+      window.dispatchEvent(new CustomEvent('auth:refresh-failed'));
+    }
+    return null;
   } catch (error) {
     console.error('Token refresh failed:', error);
+    // Do not logout on network error—allow retry on next request.
+    return null;
   }
-
-  // Only logout when store has hydrated - prevents false logout during bootstrap
-  if (useAuthStore.getState()._hasHydrated) {
-    useAuthStore.getState().logout();
-  }
-  return null;
 }
 
 /**
@@ -81,7 +85,7 @@ export async function apiRequest<T = unknown>(
   endpoint: string,
   options: RequestOptions = {}
 ): Promise<ApiResponse<T>> {
-  const { body, skipAuth = false, ...fetchOptions } = options;
+  const { body, skipAuth = false, notifyOnError = true, ...fetchOptions } = options;
 
   // Build headers
   const headers: Record<string, string> = {
@@ -92,9 +96,14 @@ export async function apiRequest<T = unknown>(
   // Add auth token if not skipped
   if (!skipAuth) {
     const token = getAccessToken();
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
+    if (!token) {
+      const err = { code: 'UNAUTHORIZED', message: 'Please log in' };
+      if (notifyOnError && typeof window !== 'undefined') {
+        notifyError(err.message);
+      }
+      return { success: false, error: err } as ApiResponse<T>;
     }
+    headers['Authorization'] = `Bearer ${token}`;
   }
 
   // Build fetch options
@@ -107,7 +116,8 @@ export async function apiRequest<T = unknown>(
     config.body = JSON.stringify(body);
   }
 
-  const url = endpoint.startsWith('http') ? endpoint : `${API_URL}${endpoint}`;
+  const baseUrl = getApiBaseUrl();
+  const url = endpoint.startsWith('http') ? endpoint : `${baseUrl}${endpoint}`;
 
   try {
     let response = await fetch(url, config);
@@ -123,24 +133,48 @@ export async function apiRequest<T = unknown>(
       }
     }
 
-    const data = await response.json();
-
-    if (!response.ok) {
-      return {
-        success: false,
-        error: data.error || { code: 'REQUEST_FAILED', message: 'Request failed' },
-      };
+    let data: unknown;
+    try {
+      const text = await response.text();
+      if (!text || !text.trim()) {
+        throw new Error('Empty response body');
+      }
+      data = JSON.parse(text);
+    } catch (parseError) {
+      const msg = parseError instanceof SyntaxError || (parseError instanceof Error && parseError.message?.includes('JSON'))
+        ? 'Invalid JSON response from server'
+        : parseError instanceof Error
+          ? parseError.message
+          : 'Invalid JSON response from server';
+      throw new Error(msg);
     }
 
-    return data;
+    if (!response.ok) {
+      const d = data as { error?: { code?: string; message?: string } };
+      const raw = d?.error || {};
+      const err = { code: raw.code ?? 'REQUEST_FAILED', message: raw.message ?? 'Request failed' };
+      if (notifyOnError && typeof window !== 'undefined') {
+        notifyError(err.message || 'Request failed');
+      }
+      return { success: false, error: err };
+    }
+
+    return data as ApiResponse<T>;
   } catch (error) {
     console.error('API request failed:', error);
+    const msg = error instanceof Error ? error.message : 'Network error';
+    if (notifyOnError && typeof window !== 'undefined') {
+      const key = 'lastNetworkErrorNotify';
+      const last = (window as unknown as { [key: string]: number })[key] ?? 0;
+      const now = Date.now();
+      if (now - last > 8000) {
+        (window as unknown as { [key: string]: number })[key] = now;
+        notifyError(msg.includes('fetch') || msg.includes('Network') ? 'Cannot reach server. Ensure backend is running on port 4000.' : msg);
+      }
+    }
     return {
       success: false,
-      error: {
-        code: 'NETWORK_ERROR',
-        message: error instanceof Error ? error.message : 'Network error',
-      },
+      error: { code: 'NETWORK_ERROR', message: msg },
     };
   }
 }
@@ -181,7 +215,8 @@ export function createAuthenticatedFetch() {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const url = endpoint.startsWith('http') ? endpoint : `${API_URL}${endpoint}`;
+    const baseUrl = getApiBaseUrl();
+    const url = endpoint.startsWith('http') ? endpoint : `${baseUrl}${endpoint}`;
     
     const response = await fetch(url, {
       ...options,

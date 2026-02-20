@@ -185,10 +185,10 @@ export class ConfirmationTracker {
       let committed = false;
       try {
         await client.query('BEGIN');
-        // Atomic: set completed + credited_at only if not already set; then credit balance and set balance_applied_at in same tx.
+        // Atomic: set completed + credited_at + balance_applied_at only if not already applied; then credit balance.
         const updateDepositResult = await client.query(
-          `UPDATE deposits SET status = 'completed', credited_at = NOW(), updated_at = NOW()
-           WHERE id = $1 AND credited_at IS NULL
+          `UPDATE deposits SET status = 'completed', credited_at = NOW(), balance_applied_at = NOW(), updated_at = NOW()
+           WHERE id = $1 AND balance_applied_at IS NULL
            RETURNING id`,
           [deposit.id]
         );
@@ -247,15 +247,6 @@ export class ConfirmationTracker {
                VALUES ($1, $2, 'deposit', $3, 0, $4, $5, $6, 'available', 'account_type=funding', NOW())`,
               [deposit.user_id, currencyId, deposit.id, deposit.amount, avBefore, avAfter]
             );
-            try {
-              await client.query(`UPDATE deposits SET balance_applied_at = NOW() WHERE id = $1`, [deposit.id]);
-            } catch (colErr: unknown) {
-              const code = (colErr as { code?: string })?.code;
-              if (code !== '42703') {
-                logger.error('balance_applied_at update failed', { depositId: deposit.id, error: colErr });
-                throw colErr;
-              }
-            }
           }
         }
 

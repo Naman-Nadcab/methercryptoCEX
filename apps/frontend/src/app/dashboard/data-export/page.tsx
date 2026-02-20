@@ -45,7 +45,6 @@ export default function DataExportPage() {
   const statementTypeOptions = [
     { value: 'all', label: 'All' },
     { value: 'spot', label: 'Spot' },
-    { value: 'derivatives', label: 'Derivatives' },
     { value: 'funding', label: 'Funding' },
   ];
 

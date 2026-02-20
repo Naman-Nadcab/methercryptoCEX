@@ -17,6 +17,7 @@ import { isAddressAllowed } from '../services/withdrawal-whitelist.service.js';
 import { hasActiveCooldown } from '../services/security-cooldown.service.js';
 import { rateLimitByUser } from '../lib/rate-limit-fastify.js';
 import { creditOverdueDepositsForUser, applyBalanceForOneCompletedDeposit } from '../services/deposit-credit.service.js';
+import { recordAndEvaluate } from '../services/aml-transaction-monitor.service.js';
 import { handleWithdrawPreview, type WithdrawPreviewQuerystring } from './wallet-withdraw-preview.js';
 
 const ROUND_DOWN = 1;
@@ -691,9 +692,18 @@ export default async function walletRoutes(app: FastifyInstance) {
     try {
       const userId = request.user!.id;
       const [fundingRows, spotRows, tradingRows, namesResult] = await Promise.all([
-        readUserBalances(userId, 'funding'),
-        readUserBalances(userId, 'spot'),
-        readUserBalances(userId, 'trading'),
+        readUserBalances(userId, 'funding').catch((e) => {
+          logger.warn('Balances: readUserBalances(funding) failed', { userId, err: e instanceof Error ? e.message : String(e) });
+          return [] as Awaited<ReturnType<typeof readUserBalances>>;
+        }),
+        readUserBalances(userId, 'spot').catch((e) => {
+          logger.warn('Balances: readUserBalances(spot) failed', { userId, err: e instanceof Error ? e.message : String(e) });
+          return [] as Awaited<ReturnType<typeof readUserBalances>>;
+        }),
+        readUserBalances(userId, 'trading').catch((e) => {
+          logger.warn('Balances: readUserBalances(trading) failed', { userId, err: e instanceof Error ? e.message : String(e) });
+          return [] as Awaited<ReturnType<typeof readUserBalances>>;
+        }),
         db.query<{ id: string; symbol: string; name: string }>(`SELECT id, symbol, COALESCE(name, symbol) as name FROM currencies WHERE is_active = TRUE`),
       ]);
       const nameById: Record<string, string> = {};
@@ -929,9 +939,18 @@ export default async function walletRoutes(app: FastifyInstance) {
       const balancesByToken: Record<string, { symbol: string; name: string; funding: string; trading: string; total: string }> = {};
 
       const [fundingRows, spotRows, tradingRows, namesResult] = await Promise.all([
-        readUserBalances(userId, 'funding'),
-        readUserBalances(userId, 'spot'),
-        readUserBalances(userId, 'trading'),
+        readUserBalances(userId, 'funding').catch((e) => {
+          logger.warn('Balances by-account: readUserBalances(funding) failed', { userId, err: e instanceof Error ? e.message : String(e) });
+          return [] as Awaited<ReturnType<typeof readUserBalances>>;
+        }),
+        readUserBalances(userId, 'spot').catch((e) => {
+          logger.warn('Balances by-account: readUserBalances(spot) failed', { userId, err: e instanceof Error ? e.message : String(e) });
+          return [] as Awaited<ReturnType<typeof readUserBalances>>;
+        }),
+        readUserBalances(userId, 'trading').catch((e) => {
+          logger.warn('Balances by-account: readUserBalances(trading) failed', { userId, err: e instanceof Error ? e.message : String(e) });
+          return [] as Awaited<ReturnType<typeof readUserBalances>>;
+        }),
         db.query<{ id: string; symbol: string; name: string }>(
           `SELECT id, symbol, REGEXP_REPLACE(COALESCE(name, symbol), '\\s*\\([A-Z0-9]+\\)\\s*$', '', 'i') as name FROM currencies WHERE is_active = TRUE`
         ),
@@ -1915,6 +1934,35 @@ export default async function walletRoutes(app: FastifyInstance) {
           amount: withdrawAmountDec.toString(),
           recipientId,
         });
+        const amtStr = withdrawAmountDec.toString();
+        recordAndEvaluate({
+          userId,
+          txnType: 'internal_transfer',
+          asset: symbol,
+          amount: amtStr,
+          fiatAmount: null,
+          fiatCurrency: null,
+          countryCode: null,
+        }).catch((e) =>
+          logger.warn('AML internal_transfer (sender) failed (best-effort)', {
+            userId,
+            error: e instanceof Error ? e.message : String(e),
+          })
+        );
+        recordAndEvaluate({
+          userId: recipientId,
+          txnType: 'internal_transfer',
+          asset: symbol,
+          amount: amtStr,
+          fiatAmount: null,
+          fiatCurrency: null,
+          countryCode: null,
+        }).catch((e) =>
+          logger.warn('AML internal_transfer (recipient) failed (best-effort)', {
+            userId: recipientId,
+            error: e instanceof Error ? e.message : String(e),
+          })
+        );
         const internalResponse = {
           success: true as const,
           data: {
@@ -2419,6 +2467,22 @@ export default async function walletRoutes(app: FastifyInstance) {
         user_agent: request.headers['user-agent'] ?? undefined,
       });
 
+      recordAndEvaluate({
+        userId,
+        txnType: 'withdrawal',
+        asset: symbol,
+        amount: withdrawAmountDec.toString(),
+        fiatAmount: null,
+        fiatCurrency: 'INR',
+        countryCode: (request as { countryCode?: string }).countryCode ?? null,
+      }).catch((e) =>
+        logger.warn('AML withdrawal record failed (best-effort)', {
+          userId,
+          withdrawalId: withdrawal.id,
+          error: e instanceof Error ? e.message : String(e),
+        })
+      );
+
       logger.info('Withdrawal request created', {
         userId,
         withdrawalId: withdrawal.id,
@@ -2527,37 +2591,35 @@ export default async function walletRoutes(app: FastifyInstance) {
       const userId = request.user!.id;
       const { id } = request.params;
 
-      // Get withdrawal
-      const withdrawalResult = await db.query(`
-        SELECT w.*, t.symbol
-        FROM withdrawals w
-        JOIN tokens t ON w.token_id = t.id
-        WHERE w.id = $1 AND w.user_id = $2
-      `, [id, userId]);
+      let withdrawalForAudit: { symbol: string; amount: string } | null = null;
 
-      if (withdrawalResult.rows.length === 0) {
-        return reply.status(404).send({
-          success: false,
-          error: { code: 'NOT_FOUND', message: 'Withdrawal not found' }
-        });
-      }
-
-      const withdrawal = withdrawalResult.rows[0]!;
-
-      if (withdrawal.status !== 'pending') {
-        return reply.status(400).send({
-          success: false,
-          error: { code: 'CANNOT_CANCEL', message: 'Only pending withdrawals can be cancelled' }
-        });
-      }
-
-      const totalLocked = new Decimal(withdrawal.amount).plus(withdrawal.fee).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toString();
-      const currencyId = await getCurrencyIdBySymbol(withdrawal.symbol);
-      const cancelAccountType = withdrawal.account_type || 'spot';
-      const chainIdCancel = withdrawal.chain_id ?? CHAIN_ID_GLOBAL;
-
-      // Update withdrawal status and release balance atomically (no partial state on failure).
+      // Update withdrawal status and release balance atomically (lock row first so processor cannot complete between check and update).
       await db.transaction(async (client) => {
+        const sel = await client.query<{ status: string; tx_hash: string | null; amount: string; fee: string; symbol: string; account_type: string; chain_id: string | null }>(
+          `SELECT w.status, w.tx_hash, w.amount, w.fee, t.symbol, w.account_type, w.chain_id
+           FROM withdrawals w
+           JOIN tokens t ON w.token_id = t.id
+           WHERE w.id = $1 AND w.user_id = $2
+           FOR UPDATE`,
+          [id, userId]
+        );
+        if (sel.rows.length === 0) {
+          throw new Error('NOT_FOUND');
+        }
+        const w = sel.rows[0]!;
+        if (w.status !== 'pending') {
+          throw new Error('Withdrawal no longer pending (possibly being processed)');
+        }
+        if (w.tx_hash != null && w.tx_hash !== '') {
+          throw new Error('ALREADY_BROADCAST');
+        }
+        withdrawalForAudit = { symbol: w.symbol, amount: w.amount };
+
+        const totalLocked = new Decimal(w.amount).plus(w.fee).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toString();
+        const currencyId = await getCurrencyIdBySymbol(w.symbol);
+        const cancelAccountType = w.account_type || 'spot';
+        const chainIdCancel = w.chain_id ?? CHAIN_ID_GLOBAL;
+
         const upd = await client.query(
           `UPDATE withdrawals SET status = 'cancelled', processed_at = NOW() WHERE id = $1 AND status = 'pending' RETURNING id`,
           [id]
@@ -2588,7 +2650,7 @@ export default async function walletRoutes(app: FastifyInstance) {
              RETURNING *`,
             [totalLocked.toString(), userId, currencyId, chainIdCancel, cancelAccountType]
           );
-          assertUserBalanceUpdated('withdrawal_cancel', cancelUpd, userId, currencyId, cancelAccountType, withdrawal.chain_id);
+          assertUserBalanceUpdated('withdrawal_cancel', cancelUpd, userId, currencyId, cancelAccountType, w.chain_id ?? undefined);
           assertBalanceInvariant(cancelUpd.rows[0]);
           const row = cancelUpd.rows[0]!;
 
@@ -2623,8 +2685,8 @@ export default async function walletRoutes(app: FastifyInstance) {
 
       auditLog('withdrawal_cancelled', userId, {
         withdrawalId: id,
-        symbol: withdrawal.symbol,
-        amount: withdrawal.amount
+        symbol: withdrawalForAudit!.symbol,
+        amount: withdrawalForAudit!.amount
       });
 
       return {
@@ -2633,6 +2695,18 @@ export default async function walletRoutes(app: FastifyInstance) {
       };
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
+      if (msg === 'NOT_FOUND') {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Withdrawal not found' }
+        });
+      }
+      if (msg === 'ALREADY_BROADCAST') {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'ALREADY_BROADCAST', message: 'Withdrawal already broadcast; cannot cancel' }
+        });
+      }
       if (msg === 'Withdrawal no longer pending (possibly being processed)') {
         return reply.status(400).send({
           success: false,
@@ -2685,13 +2759,18 @@ export default async function walletRoutes(app: FastifyInstance) {
       const spotRows = spotResult;
       const tradingRows = tradingResult;
       const priceMap: Record<string, string> = { USDT: '1', USDC: '1', DAI: '1', BUSD: '1' };
-      pricesResult.rows.forEach(row => {
+      const rows = Array.isArray(pricesResult?.rows) ? pricesResult.rows : [];
+      for (const row of rows) {
+        const sym = row?.symbol != null ? String(row.symbol).trim() : '';
+        if (!sym) continue;
+        const key = sym.toUpperCase();
         try {
-          priceMap[row.symbol.toUpperCase()] = new Decimal(row.usd_price).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toString();
+          const raw = row?.usd_price != null ? String(row.usd_price) : '1';
+          priceMap[key] = new Decimal(raw).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toString();
         } catch {
-          priceMap[row.symbol.toUpperCase()] = '1';
+          priceMap[key] = '1';
         }
-      });
+      }
       type BalanceLike = { symbol: string; available_balance: string; locked_balance: string };
       const toUsd = (rows: BalanceLike[]) =>
         rows.reduce((t, r) => {
@@ -2743,6 +2822,7 @@ export default async function walletRoutes(app: FastifyInstance) {
         }
       });
     } catch (error) {
+      request.log.error(error);
       logger.error('Failed to get balances summary', {
         error: error instanceof Error ? error.message : 'Unknown',
         stack: error instanceof Error ? error.stack : undefined,
@@ -2750,7 +2830,7 @@ export default async function walletRoutes(app: FastifyInstance) {
       });
       return reply.status(500).send({
         success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to get balances summary' }
+        error: { code: 'INTERNAL_ERROR', message: error instanceof Error ? error.message : 'Failed to get balances summary' }
       });
     }
   });
@@ -2803,33 +2883,43 @@ export default async function walletRoutes(app: FastifyInstance) {
       const namesSql = `SELECT id, symbol, REGEXP_REPLACE(COALESCE(name, symbol), '\\s*\\([A-Z0-9]+\\)\\s*$', '', 'i') as name FROM currencies WHERE is_active = TRUE`;
 
       const [fundingRows, spotRowsResult, pricesResult, namesResult] = await Promise.all([
-        readUserBalances(userId, 'funding'),
-        readUserBalances(userId, 'spot'),
+        readUserBalances(userId, 'funding').catch((e) => {
+          logger.warn('Funding route: readUserBalances(funding) failed', { userId, err: e instanceof Error ? e.message : String(e) });
+          return [] as Awaited<ReturnType<typeof readUserBalances>>;
+        }),
+        readUserBalances(userId, 'spot').catch((e) => {
+          logger.warn('Funding route: readUserBalances(spot) failed', { userId, err: e instanceof Error ? e.message : String(e) });
+          return [] as Awaited<ReturnType<typeof readUserBalances>>;
+        }),
         db.query<{ symbol: string; usd_price: string }>(pricesSql).catch(() => ({ rows: [] })),
         db.query<{ id: string; symbol: string; name: string }>(namesSql),
       ]);
       let spotRows = spotRowsResult;
       let fundingRowsFinal = fundingRows;
 
-      // Fallback: if canonical read returned nothing, read directly from user_balances (funding/spot) so balance is never hidden
+      // Fallback: if canonical read returned nothing, read directly from user_balances (funding/spot) so balance is never hidden (same logic as summary)
       if (fundingRows.length === 0 && spotRows.length === 0) {
-        const direct = await db.query<{ currency_id: string; symbol: string; available_balance: string; locked_balance: string }>(
-          `SELECT ub.currency_id, COALESCE(c.symbol, '') AS symbol,
-                  COALESCE(ub.available_balance, 0)::text AS available_balance, COALESCE(ub.locked_balance, 0)::text AS locked_balance
-           FROM user_balances ub
-           LEFT JOIN currencies c ON c.id = ub.currency_id
-           WHERE ub.user_id = $1 AND (LOWER(TRIM(COALESCE(ub.account_type::text, ''))) IN ('funding', 'spot') OR ub.account_type IS NULL)
-           ORDER BY COALESCE(c.symbol, ub.currency_id::text)`,
-          [userId]
-        );
-        fundingRowsFinal = direct.rows.map(r => ({
-          currency_id: r.currency_id,
-          symbol: r.symbol,
-          account_type: 'funding',
-          available_balance: r.available_balance ?? '0',
-          locked_balance: r.locked_balance ?? '0'
-        }));
-        spotRows = [];
+        try {
+          const direct = await db.query<{ currency_id: string; symbol: string; available_balance: string; locked_balance: string }>(
+            `SELECT ub.currency_id, COALESCE(c.symbol, '') AS symbol,
+                    COALESCE(ub.available_balance, 0)::text AS available_balance, COALESCE(ub.locked_balance, 0)::text AS locked_balance
+             FROM user_balances ub
+             LEFT JOIN currencies c ON c.id = ub.currency_id
+             WHERE ub.user_id = $1 AND (LOWER(TRIM(COALESCE(ub.account_type::text, ''))) IN ('funding', 'spot') OR ub.account_type IS NULL)
+             ORDER BY COALESCE(c.symbol, ub.currency_id::text)`,
+            [userId]
+          );
+          fundingRowsFinal = direct.rows.map(r => ({
+            currency_id: r.currency_id,
+            symbol: r.symbol,
+            account_type: 'funding',
+            available_balance: r.available_balance ?? '0',
+            locked_balance: r.locked_balance ?? '0'
+          }));
+          spotRows = [];
+        } catch (e) {
+          logger.warn('Funding route: direct fallback query failed', { userId, err: e instanceof Error ? e.message : String(e) });
+        }
       }
 
       pricesResult.rows.forEach(row => {
@@ -2879,6 +2969,11 @@ export default async function walletRoutes(app: FastifyInstance) {
           usd_value: usdValue.toDecimalPlaces(2, ROUND_DOWN).toString()
         };
       });
+
+      if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'production') {
+        console.log('Funding raw balances:', balances);
+        console.log('Funding byCurrency:', byCurrency);
+      }
 
       balances.sort((a, b) => {
         const aHasBalance = new Decimal(a.total_balance).gt(0);
@@ -3131,16 +3226,27 @@ export default async function walletRoutes(app: FastifyInstance) {
       const amountStr = transferAmountDec.toString();
 
       // Debit fromAccount, credit toAccount in user_balances (transaction; abort if debit fails)
-      // Safe pattern: BEGIN → ensure rows → SELECT FOR UPDATE → validate balance → debit → credit → COMMIT
+      // Lock both account rows in deterministic order to avoid deadlock when concurrent transfers run (e.g. funding→trading and trading→funding).
+      const [firstAccount, secondAccount] = [fromAccount, toAccount].slice().sort();
       await db.transaction(async (client) => {
         await ensureUserBalanceRow(userId, currencyId, CHAIN_ID_GLOBAL, fromAccount, client);
         await ensureUserBalanceRow(userId, currencyId, CHAIN_ID_GLOBAL, toAccount, client);
+
+        await client.query(
+          `SELECT available_balance FROM user_balances
+           WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = $4 FOR UPDATE`,
+          [userId, currencyId, CHAIN_ID_GLOBAL, firstAccount]
+        );
+        await client.query(
+          `SELECT available_balance FROM user_balances
+           WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = $4 FOR UPDATE`,
+          [userId, currencyId, CHAIN_ID_GLOBAL, secondAccount]
+        );
 
         const lockResult = await client.query<{ available_balance: string }>(`
           SELECT available_balance
           FROM user_balances
           WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = $4
-          FOR UPDATE
         `, [userId, currencyId, CHAIN_ID_GLOBAL, fromAccount]);
 
         if (lockResult.rows.length === 0) {

@@ -59,16 +59,18 @@ export class ChainIndexer {
         await this.processBlock(blockNumber);
       });
 
-      // Handle WebSocket errors
-      this.wsProvider.websocket.on('error', (error: Error) => {
-        logger.error(`WebSocket error on ${this.config.name}`, { error: error.message });
-        this.handleDisconnect();
-      });
-
-      this.wsProvider.websocket.on('close', () => {
-        logger.warn(`WebSocket closed for ${this.config.name}`);
-        this.handleDisconnect();
-      });
+      // Handle WebSocket errors (WebSocketLike may not have .on in types; cast for Node ws)
+      const ws = this.wsProvider.websocket as unknown as { on?: (ev: string, cb: (e?: Error) => void) => void };
+      if (typeof ws?.on === 'function') {
+        ws.on('error', (error?: Error) => {
+          logger.error(`WebSocket error on ${this.config.name}`, { error: error?.message });
+          this.handleDisconnect();
+        });
+        ws.on('close', () => {
+          logger.warn(`WebSocket closed for ${this.config.name}`);
+          this.handleDisconnect();
+        });
+      }
 
       this.reconnectAttempts = 0;
       logger.info(`WebSocket connected for ${this.config.name}`);
@@ -258,9 +260,10 @@ export class ChainIndexer {
       
       if (!tokenInfo) {
         // Try to fetch token info if not in our list
-        tokenInfo = await this.fetchTokenInfo(tokenAddress);
-        if (tokenInfo) {
-          this.tokenContracts.set(tokenAddress, tokenInfo);
+        const fetched = await this.fetchTokenInfo(tokenAddress);
+        if (fetched) {
+          this.tokenContracts.set(tokenAddress, fetched);
+          tokenInfo = fetched;
         } else {
           return; // Unknown token, skip
         }

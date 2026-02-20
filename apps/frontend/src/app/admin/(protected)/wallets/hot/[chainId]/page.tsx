@@ -18,6 +18,8 @@ import {
   ArrowDownLeft,
   Info,
   Zap,
+  Settings,
+  Save,
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
@@ -105,6 +107,12 @@ export default function HotWalletDetailPage() {
   const [copiedAddress, setCopiedAddress] = useState(false);
   const [runningSweep, setRunningSweep] = useState(false);
   const [sweepResult, setSweepResult] = useState<{ swept: number; errors: string[] } | null>(null);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [editMinBalanceAlert, setEditMinBalanceAlert] = useState('');
+  const [editMinHotBalance, setEditMinHotBalance] = useState('');
+  const [editColdAddress, setEditColdAddress] = useState('');
+  const [editActive, setEditActive] = useState(true);
 
   const fetchDetail = useCallback(async () => {
     if (!chainId || !accessToken) return;
@@ -115,7 +123,12 @@ export default function HotWalletDetailPage() {
       );
       const json = await res.json();
       if (res.ok && json.success && json.data) {
-        setDetail(json.data);
+        const d = json.data;
+        setDetail(d);
+        setEditMinBalanceAlert(d.minBalanceAlert ?? '');
+        setEditMinHotBalance(d.minHotBalance ?? '');
+        setEditColdAddress(d.coldWalletAddress ?? '');
+        setEditActive(d.isActive !== false);
         setError(null);
       } else {
         setDetail(null);
@@ -191,6 +204,40 @@ export default function HotWalletDetailPage() {
       navigator.clipboard.writeText(detail.address);
       setCopiedAddress(true);
       setTimeout(() => setCopiedAddress(false), 2000);
+    }
+  };
+
+  const handleSaveSettings = async () => {
+    if (!chainId || !accessToken) return;
+    setSettingsSaving(true);
+    setSettingsError(null);
+    try {
+      const res = await fetch(
+        `${API_URL}/api/v1/admin/hot-wallets/${encodeURIComponent(chainId)}`,
+        {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            minBalanceAlert: editMinBalanceAlert || undefined,
+            minHotBalance: editMinHotBalance || undefined,
+            coldWalletAddress: editColdAddress.trim() || null,
+            isActive: editActive,
+          }),
+        }
+      );
+      const json = await res.json();
+      if (res.ok && json.success) {
+        await fetchDetail();
+      } else {
+        setSettingsError(json?.error?.message ?? 'Failed to update settings');
+      }
+    } catch (e) {
+      setSettingsError(e instanceof Error ? e.message : 'Request failed');
+    } finally {
+      setSettingsSaving(false);
     }
   };
 
@@ -474,6 +521,72 @@ export default function HotWalletDetailPage() {
               </code>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Admin: Edit wallet settings (Super Admin) */}
+      <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2 mb-4">
+          <Settings className="w-5 h-5" />
+          Wallet settings (admin)
+        </h2>
+        {settingsError && (
+          <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">
+            {settingsError}
+          </div>
+        )}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Min balance alert</label>
+            <input
+              type="text"
+              value={editMinBalanceAlert}
+              onChange={(e) => setEditMinBalanceAlert(e.target.value)}
+              placeholder="Wei or decimal"
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Min hot balance (sweep threshold)</label>
+            <input
+              type="text"
+              value={editMinHotBalance}
+              onChange={(e) => setEditMinHotBalance(e.target.value)}
+              placeholder="Wei or decimal"
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Cold wallet address (sweep target)</label>
+            <input
+              type="text"
+              value={editColdAddress}
+              onChange={(e) => setEditColdAddress(e.target.value)}
+              placeholder="0x... or leave empty"
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-3 py-2 text-sm font-mono"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="edit-active"
+              checked={editActive}
+              onChange={(e) => setEditActive(e.target.checked)}
+              className="rounded border-gray-300 dark:border-gray-600 text-blue-500"
+            />
+            <label htmlFor="edit-active" className="text-sm font-medium text-gray-700 dark:text-gray-300">Wallet active (used for withdrawals)</label>
+          </div>
+        </div>
+        <div className="mt-4 flex justify-end">
+          <button
+            type="button"
+            onClick={handleSaveSettings}
+            disabled={settingsSaving}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium disabled:opacity-50"
+          >
+            {settingsSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            Save settings
+          </button>
         </div>
       </div>
 

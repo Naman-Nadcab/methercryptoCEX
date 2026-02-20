@@ -2,7 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth';
+import { useBalancesByAccount, type ByAccountRow } from '@/lib/balances';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
@@ -43,14 +45,6 @@ interface Token {
   decimals: number;
   is_native: boolean;
   icon?: string;
-}
-
-interface Balance {
-  symbol: string;
-  name: string;
-  funding: string;
-  trading: string;
-  total: string;
 }
 
 interface WithdrawalLimits {
@@ -123,6 +117,7 @@ const SIDEBAR_LINKS = [
 
 export default function WithdrawCryptoPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { accessToken, _hasHydrated } = useAuthStore();
 
   // State
@@ -130,7 +125,6 @@ export default function WithdrawCryptoPage() {
   const [selectedToken, setSelectedToken] = useState<Token | null>(null);
   const [availableChains, setAvailableChains] = useState<Chain[]>([]);
   const [selectedChain, setSelectedChain] = useState<Chain | null>(null);
-  const [balances, setBalances] = useState<Balance[]>([]);
   const [withdrawalLimits, setWithdrawalLimits] = useState<WithdrawalLimits | null>(null);
   const [withdrawalFee, setWithdrawalFee] = useState<WithdrawalFee | null>(null);
   const [previewData, setPreviewData] = useState<WithdrawPreview | null>(null);
@@ -157,6 +151,7 @@ export default function WithdrawCryptoPage() {
   const [tokenSearch, setTokenSearch] = useState('');
   const [copied, setCopied] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -186,11 +181,13 @@ export default function WithdrawCryptoPage() {
     return `/assets/upload/blockchain-logo/${icon}.svg`;
   };
 
+  const { data: balancesData } = useBalancesByAccount(!!_hasHydrated && !!accessToken);
+  const balances: ByAccountRow[] = balancesData ?? [];
+
   useEffect(() => {
     if (!_hasHydrated) return;
     fetchTokens();
     if (accessToken) {
-      fetchBalances();
       fetchWithdrawalLimits();
       fetchRecentWithdrawals();
     } else {
@@ -266,23 +263,6 @@ export default function WithdrawCryptoPage() {
       console.error('Failed to fetch tokens:', error);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const fetchBalances = async () => {
-    if (!accessToken) return;
-    try {
-      const res = await fetch(`${API_URL}/api/v1/wallet/balances/by-account`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) {
-          setBalances(data.data || []);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to fetch balances:', error);
     }
   };
 
@@ -384,10 +364,8 @@ export default function WithdrawCryptoPage() {
     const sym = (selectedToken.symbol || '').toUpperCase();
     const tokenBalance = balances.find(b => (b?.symbol || '').toUpperCase() === sym);
     if (!tokenBalance) return 0;
-    let total = 0;
-    if (selectedAccounts.funding) total += safeNum(tokenBalance.funding);
-    if (selectedAccounts.trading) total += safeNum(tokenBalance.trading);
-    return total;
+    const accountType = selectedAccounts.funding ? 'funding' : 'trading';
+    return safeNum(accountType === 'funding' ? tokenBalance.funding : tokenBalance.trading);
   };
 
   const getWithdrawFee = (): number => {
@@ -418,6 +396,7 @@ export default function WithdrawCryptoPage() {
   };
 
   const handleSubmit = async () => {
+    if (submitting) return;
     const isInternal = withdrawType === 'internal';
     if (!selectedToken || !amount) {
       setError('Please select a coin and enter amount');
@@ -468,7 +447,7 @@ export default function WithdrawCryptoPage() {
         setAmount('');
         setToAddress('');
         setInternalRecipient('');
-        fetchBalances();
+        queryClient.invalidateQueries({ queryKey: ['balances'] });
         fetchWithdrawalLimits();
         fetchRecentWithdrawals();
         const status = data.data?.status;
@@ -482,10 +461,10 @@ export default function WithdrawCryptoPage() {
         }
         setTimeout(() => setSuccessMessage(null), 5000);
       } else {
-        setError(data.error?.message || 'Failed to submit withdrawal');
+        setError(data.error?.message || 'Withdrawal could not be submitted. Check amount, address, and limits, then try again.');
       }
     } catch {
-      setError('Network error. Please try again.');
+      setError('Connection issue. Your request may not have reached the server. Safe to try again.');
     } finally {
       setSubmitting(false);
     }
@@ -493,21 +472,26 @@ export default function WithdrawCryptoPage() {
 
   const cancelWithdrawal = async (id: string) => {
     if (!accessToken) return;
-    if (!confirm('Are you sure you want to cancel this withdrawal?')) return;
+    setCancelError(null);
+    if (!confirm('Cancel this withdrawal? Funds will remain in your account.')) return;
     try {
       const res = await fetch(`${API_URL}/api/v1/wallet/withdrawals/${id}/cancel`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${accessToken}` },
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Idempotency-Key': crypto.randomUUID(),
+        },
       });
       const data = await res.json();
       if (data.success) {
+        queryClient.invalidateQueries({ queryKey: ['balances'] });
         fetchRecentWithdrawals();
-        fetchBalances();
       } else {
-        alert(data.error?.message || 'Failed to cancel withdrawal');
+        setCancelError(data.error?.message || 'Could not cancel withdrawal. It may already be processing. Try again or contact support.');
       }
     } catch (error) {
       console.error('Failed to cancel withdrawal:', error);
+      setCancelError('Connection issue. Safe to try again.');
     }
   };
 
@@ -925,6 +909,7 @@ export default function WithdrawCryptoPage() {
                   <button
                     onClick={handleSubmit}
                     disabled={!isValid || submitting}
+                    aria-busy={submitting}
                     className={`w-full py-3.5 rounded-xl font-semibold transition-all ${
                       isValid && !submitting
                         ? 'bg-blue-500 hover:bg-blue-600 text-white shadow-lg shadow-blue-500/25'
@@ -1000,6 +985,12 @@ export default function WithdrawCryptoPage() {
 
           {/* Recent Withdrawals */}
           <div className="mt-8">
+            {cancelError && (
+              <div className="mb-4 flex items-center justify-between gap-2 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-300 text-sm">
+                <span className="min-w-0 flex-1">{cancelError}</span>
+                <button type="button" onClick={() => setCancelError(null)} className="flex-shrink-0 p-1 rounded hover:bg-red-200/50 dark:hover:bg-red-800/30 transition-colors" aria-label="Dismiss">×</button>
+              </div>
+            )}
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Recent Withdrawal Records</h2>
               <Link
@@ -1011,9 +1002,9 @@ export default function WithdrawCryptoPage() {
               </Link>
             </div>
 
-            <div className="bg-white dark:bg-[#1e2329] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
+            <div className="bg-white dark:bg-[#1e2026] rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
               {/* Table Header */}
-              <div className="grid grid-cols-8 gap-4 px-6 py-4 bg-gray-50 dark:bg-[#0b0e11] border-b border-gray-100 dark:border-gray-800 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              <div className="grid grid-cols-8 gap-4 px-6 py-4 bg-gray-50 dark:bg-[#0b0e11] border-b border-gray-200 dark:border-gray-700 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 <span>Coin</span>
                 <span>Chain Type</span>
                 <span>Qty</span>

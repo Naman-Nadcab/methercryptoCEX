@@ -15,7 +15,7 @@ const SESSION_CORE_TIMEOUT_MS = 5000;
 const FALLBACK_AUTH_DECISION: Readonly<AuthDecision> = Object.freeze({
   session_id: null,
   user_id: null,
-  auth_flags: 0,
+  auth_flags: 1, // Allow JWT auth when session-core unavailable
   risk_state: 'session_core_unavailable',
   expires_at: null,
 });

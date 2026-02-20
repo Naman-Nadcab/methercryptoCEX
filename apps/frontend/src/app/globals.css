@@ -228,3 +228,115 @@ input[type="number"] {
   opacity: 1;
   transform: translateY(0);
 }
+
+/* ========== ADMIN PANEL: Tier-1 Exchange Backoffice Design System ========== */
+/* Data-dense, operator-focused, institutional. Dark default, light optional. */
+
+.admin-panel {
+  font-family: var(--font-inter), 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 13px;
+  /* Density: tight spacing */
+  --admin-space-1: 4px;
+  --admin-space-2: 8px;
+  --admin-space-3: 12px;
+  --admin-space-4: 16px;
+  --admin-radius: 4px;
+  --admin-sidebar-w: 220px;
+}
+
+/* ---- Dark theme (default) ---- */
+.dark .admin-panel {
+  --admin-bg: 222 18% 7%;
+  --admin-bg-elevated: 222 16% 10%;
+  --admin-bg-overlay: 222 14% 12%;
+  --admin-fg: 210 14% 92%;
+  --admin-fg-muted: 215 12% 62%;
+  --admin-border: 220 12% 18%;
+  --admin-border-subtle: 220 12% 14%;
+  --admin-accent: 210 100% 52%;
+  --admin-accent-fg: 0 0% 100%;
+  --admin-danger: 0 72% 51%;
+  --admin-warning: 38 92% 50%;
+  --admin-success: 142 71% 45%;
+}
+
+/* ---- Light theme ---- */
+.admin-panel.light-theme,
+:root:not(.dark) .admin-panel {
+  --admin-bg: 210 20% 98%;
+  --admin-bg-elevated: 0 0% 100%;
+  --admin-bg-overlay: 210 20% 96%;
+  --admin-fg: 220 18% 14%;
+  --admin-fg-muted: 215 14% 42%;
+  --admin-border: 214 20% 88%;
+  --admin-border-subtle: 214 24% 92%;
+  --admin-accent: 210 100% 45%;
+  --admin-accent-fg: 0 0% 100%;
+  --admin-danger: 0 72% 51%;
+  --admin-warning: 38 92% 45%;
+  --admin-success: 142 71% 40%;
+}
+
+/* Map to Tailwind-style tokens for admin */
+.dark .admin-panel {
+  --background: var(--admin-bg);
+  --foreground: var(--admin-fg);
+  --card: var(--admin-bg-elevated);
+  --card-foreground: var(--admin-fg);
+  --muted: var(--admin-bg-overlay);
+  --muted-foreground: var(--admin-fg-muted);
+  --border: var(--admin-border);
+  --primary: var(--admin-accent);
+  --primary-foreground: var(--admin-accent-fg);
+  --ring: var(--admin-accent);
+}
+.admin-panel.light-theme,
+:root:not(.dark) .admin-panel {
+  --background: var(--admin-bg);
+  --foreground: var(--admin-fg);
+  --card: var(--admin-bg-elevated);
+  --card-foreground: var(--admin-fg);
+  --muted: var(--admin-bg-overlay);
+  --muted-foreground: var(--admin-fg-muted);
+  --border: var(--admin-border);
+  --primary: var(--admin-accent);
+  --primary-foreground: var(--admin-accent-fg);
+  --ring: var(--admin-accent);
+}
+
+@keyframes admin-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes admin-slide-up { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes admin-scale-in { from { opacity: 0; transform: scale(0.99); } to { opacity: 1; transform: scale(1); } }
+
+.admin-panel .animate-admin-fade-in { animation: admin-fade-in 0.15s ease-out; }
+.admin-panel .animate-admin-slide-up { animation: admin-slide-up 0.2s ease-out; }
+.admin-panel .animate-admin-scale-in { animation: admin-scale-in 0.15s ease-out; }
+
+/* Admin tables: dense, sticky header (all tables in admin) */
+.admin-panel table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: hsl(var(--admin-bg-elevated));
+}
+.admin-panel table th {
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: var(--admin-space-2) var(--admin-space-3);
+  border-bottom: 1px solid hsl(var(--admin-border));
+}
+.admin-panel table td {
+  padding: var(--admin-space-2) var(--admin-space-3);
+  border-bottom: 1px solid hsl(var(--admin-border-subtle));
+  vertical-align: middle;
+  font-size: 12px;
+}
+.admin-panel table tbody tr:hover {
+  background: hsl(var(--admin-bg-overlay) / 0.6);
+}
+.admin-panel table .num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}

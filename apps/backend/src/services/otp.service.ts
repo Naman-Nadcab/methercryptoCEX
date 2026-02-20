@@ -5,6 +5,9 @@ import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
 import { config } from '../config/index.js';
 
+/** Timeout for OTP delivery (SMTP/SMS). Prevents login request from hanging when provider is slow/unreachable. */
+const OTP_SEND_TIMEOUT_MS = 15_000;
+
 interface OTPConfig {
   email?: {
     host: string;
@@ -117,7 +120,7 @@ class OTPService {
     }
 
     try {
-      await this.emailTransporter.sendMail({
+      const sendPromise = this.emailTransporter.sendMail({
         from: process.env.SMTP_FROM || '"CryptoExchange" <onboarding@resend.dev>',
         to: email,
         subject: 'Your Verification Code - CryptoExchange',
@@ -142,6 +145,10 @@ class OTPService {
         `,
         text: `Your CryptoExchange verification code is: ${otp}. This code will expire in 10 minutes.`,
       });
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('SMTP send timeout')), OTP_SEND_TIMEOUT_MS);
+      });
+      await Promise.race([sendPromise, timeoutPromise]);
 
       logger.info(`Email OTP sent to ${email}`);
       return true;
@@ -249,6 +256,8 @@ class OTPService {
     const authToken = config!.apiSecret;
     const fromNumber = config!.senderId;
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), OTP_SEND_TIMEOUT_MS);
     const response = await fetch(
       `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
       {
@@ -262,8 +271,10 @@ class OTPService {
           From: fromNumber!,
           Body: message,
         }),
+        signal: controller.signal,
       }
     );
+    clearTimeout(timeout);
 
     if (!response.ok) {
       throw new Error(`Twilio error: ${response.statusText}`);
@@ -274,10 +285,13 @@ class OTPService {
     const authKey = config!.apiKey;
     const senderId = config!.senderId || 'EXCHNG';
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), OTP_SEND_TIMEOUT_MS);
     const response = await fetch(
       `https://api.msg91.com/api/v5/otp?template_id=YOUR_TEMPLATE_ID&mobile=${phone}&authkey=${authKey}&otp=${otp}`,
-      { method: 'POST' }
+      { method: 'POST', signal: controller.signal }
     );
+    clearTimeout(timeout);
 
     if (!response.ok) {
       throw new Error(`MSG91 error: ${response.statusText}`);
@@ -288,10 +302,13 @@ class OTPService {
     const apiKey = config!.apiKey;
     const sender = config!.senderId || 'EXCHNG';
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), OTP_SEND_TIMEOUT_MS);
     const response = await fetch(
       `https://api.textlocal.in/send/?apikey=${apiKey}&numbers=${phone}&message=${encodeURIComponent(message)}&sender=${sender}`,
-      { method: 'POST' }
+      { method: 'POST', signal: controller.signal }
     );
+    clearTimeout(timeout);
 
     if (!response.ok) {
       throw new Error(`TextLocal error: ${response.statusText}`);
@@ -326,12 +343,16 @@ class OTPService {
 
     logger.info('Sending Fast2SMS request', { phone: cleanPhone, messageId, route });
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), OTP_SEND_TIMEOUT_MS);
     const response = await fetch(url.toString(), {
       method: 'GET',
       headers: {
         'cache-control': 'no-cache',
       },
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
 
     const data = await response.json() as { return?: boolean; message?: string; request_id?: string; message_ids?: unknown } | undefined;
     if (!response.ok || data?.return === false) {

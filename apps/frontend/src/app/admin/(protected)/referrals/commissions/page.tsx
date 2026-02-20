@@ -73,7 +73,7 @@ export default function ReferralCommissionsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Referral Commissions</h1>
-        <p className="text-gray-400 text-sm mt-1">Monitor commission payouts from spot/P2P/futures and status (pending/credited).</p>
+        <p className="text-gray-400 text-sm mt-1">Monitor commission payouts from spot/P2P and status (pending/credited).</p>
       </div>
 
       {/* Stats */}

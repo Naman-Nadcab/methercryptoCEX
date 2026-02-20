@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useAuthStore } from '@/store/auth';
-import { api } from '@/lib/api';
+import { useBalancesFunding, type TokenBalance } from '@/lib/balances';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
@@ -23,17 +23,6 @@ import {
   Sparkles,
   ArrowUpRight,
 } from 'lucide-react';
-interface TokenBalance {
-  token_id: string;
-  symbol: string;
-  name: string;
-  total_balance: string;
-  available_balance: string;
-  locked_balance: string;
-  btc_value: string;
-  usd_value: string;
-  is_delisted?: boolean;
-}
 
 export default function FundingAccountPage() {
   const { accessToken, _hasHydrated } = useAuthStore();
@@ -42,76 +31,16 @@ export default function FundingAccountPage() {
   const [activeTab, setActiveTab] = useState<'crypto' | 'fiat'>('crypto');
   const [hideSmallBalances, setHideSmallBalances] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [balances, setBalances] = useState<TokenBalance[]>([]);
-  const [totalEquity, setTotalEquity] = useState({ usd: 0, btc: 0 });
-  const [availableBalance, setAvailableBalance] = useState({ usd: 0, btc: 0 });
-  const [inUse, setInUse] = useState({ usd: 0, btc: 0 });
-  const [loading, setLoading] = useState(true);
   const [sortBy, setSortBy] = useState<string>('symbol');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [ordersExpanded, setOrdersExpanded] = useState(false);
 
-  // Wait for hydration before fetching
-  useEffect(() => {
-    if (_hasHydrated && accessToken) {
-      fetchBalances();
-    } else if (_hasHydrated && !accessToken) {
-      setLoading(false);
-    }
-  }, [_hasHydrated, accessToken]);
-
-  const fetchBalances = async () => {
-    try {
-      setLoading(true);
-      const response = await api.get<{
-        balances: TokenBalance[];
-        totalEquity: { usd: number; btc: number };
-        availableBalance: { usd: number; btc: number };
-        inUse: { usd: number; btc: number };
-      }>('/api/v1/wallet/balances/funding');
-
-      if (response.success && response.data) {
-        const bal = response.data.balances || [];
-        if (bal.length > 0) {
-          setBalances(bal);
-          setTotalEquity(response.data.totalEquity || { usd: 0, btc: 0 });
-          setAvailableBalance(response.data.availableBalance || { usd: 0, btc: 0 });
-          setInUse(response.data.inUse || { usd: 0, btc: 0 });
-          return;
-        }
-      }
-
-      // Fallback: fetch by-account (same source as withdraw) and show as funding list
-      const byRes = await api.get<{ symbol: string; name: string; funding: string; trading: string; total: string }[]>('/api/v1/wallet/balances/by-account');
-      if (byRes.success && Array.isArray(byRes.data) && byRes.data.length > 0) {
-        const btcPrice = 97500;
-        const mapped: TokenBalance[] = byRes.data.map((row) => {
-          const total = parseFloat(row.total || '0');
-          const available = parseFloat(row.funding || '0') + parseFloat(row.trading || '0');
-          const usdVal = total;
-          return {
-            token_id: '',
-            symbol: row.symbol,
-            name: row.name || row.symbol,
-            total_balance: row.total || '0',
-            available_balance: String(available),
-            locked_balance: '0',
-            btc_value: (usdVal / btcPrice).toFixed(8),
-            usd_value: usdVal.toFixed(2),
-          };
-        });
-        const totalUsd = mapped.reduce((s, b) => s + parseFloat(b.usd_value), 0);
-        setBalances(mapped);
-        setTotalEquity({ usd: totalUsd, btc: totalUsd / btcPrice });
-        setAvailableBalance({ usd: totalUsd, btc: totalUsd / btcPrice });
-        setInUse({ usd: 0, btc: 0 });
-      }
-    } catch (error) {
-      console.error('Failed to fetch balances:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { data: fundingData, isLoading: loading } = useBalancesFunding(!!_hasHydrated && !!accessToken);
+  const balances = fundingData?.balances ?? [];
+  const totalEquity = fundingData?.totalEquity ?? { usd: 0, btc: 0 };
+  const availableBalance = fundingData?.availableBalance ?? { usd: 0, btc: 0 };
+  const inUse = fundingData?.inUse ?? { usd: 0, btc: 0 };
+  const sessionError = fundingData?.sessionError ?? null;
 
   const getTokenIcon = (symbol: string) => {
     return `/assets/upload/currency-logo/${symbol.toLowerCase()}.svg`;
@@ -119,6 +48,7 @@ export default function FundingAccountPage() {
 
   const formatNumber = (num: number | string, decimals = 8) => {
     const n = typeof num === 'string' ? parseFloat(num) : num;
+    if (!Number.isFinite(n)) return '0.' + '0'.repeat(Math.min(decimals, 8));
     return n.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
   };
 
@@ -150,83 +80,7 @@ export default function FundingAccountPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0b0e11]">
-      <div className="flex">
-        {/* Sidebar */}
-        <aside className="w-60 min-h-screen bg-white dark:bg-[#181a20] border-r border-gray-200 dark:border-gray-800">
-          <nav className="p-4 space-y-1">
-            <Link
-              href="/dashboard/assets/overview"
-              className="flex items-center gap-3 px-4 py-3 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-colors"
-            >
-              <LayoutGrid className="w-5 h-5" />
-              Overview
-            </Link>
-            <Link
-              href="/dashboard/assets/funding"
-              className="flex items-center gap-3 px-4 py-3 text-sm font-medium bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 text-blue-600 dark:text-blue-400 rounded-xl border border-blue-100 dark:border-blue-800/30"
-            >
-              <div className="w-5 h-5 rounded-full border-2 border-blue-500 flex items-center justify-center">
-                <div className="w-2 h-2 rounded-full bg-blue-500" />
-              </div>
-              Funding
-            </Link>
-            <Link
-              href="/dashboard/assets/unified"
-              className="flex items-center gap-3 px-4 py-3 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-colors"
-            >
-              <Wallet className="w-5 h-5" />
-              Unified Trading
-            </Link>
-            <Link
-              href="/dashboard/assets/convert"
-              className="flex items-center gap-3 px-4 py-3 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-colors"
-            >
-              <RefreshCw className="w-5 h-5" />
-              Convert
-            </Link>
-            <Link
-              href="/dashboard/assets/history"
-              className="flex items-center gap-3 px-4 py-3 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-colors"
-            >
-              <Clock className="w-5 h-5" />
-              History
-            </Link>
-            
-            <div className="pt-6">
-              <p className="px-4 pb-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">Analysis</p>
-              <Link
-                href="/dashboard/assets/pnl"
-                className="flex items-center gap-3 px-4 py-3 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-colors"
-              >
-                <TrendingUp className="w-5 h-5" />
-                P&L Analysis
-              </Link>
-            </div>
-            
-            <div className="pt-4">
-              <button
-                onClick={() => setOrdersExpanded(!ordersExpanded)}
-                className="w-full flex items-center justify-between px-4 py-3 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <Clock className="w-5 h-5" />
-                  Orders
-                </div>
-                <ChevronRight className={`w-4 h-4 transition-transform ${ordersExpanded ? 'rotate-90' : ''}`} />
-              </button>
-              {ordersExpanded && (
-                <div className="mt-1 ml-4 pl-4 border-l border-gray-200 dark:border-gray-700 space-y-1">
-                  <Link href="/dashboard/orders/spot" className="block px-3 py-2 text-sm text-gray-500 hover:text-gray-900 dark:hover:text-white">Spot Orders</Link>
-                  <Link href="/dashboard/orders/convert" className="block px-3 py-2 text-sm text-gray-500 hover:text-gray-900 dark:hover:text-white">Convert Orders</Link>
-                </div>
-              )}
-            </div>
-          </nav>
-        </aside>
-
-        {/* Main Content */}
-        <main className="flex-1 p-6">
+    <div className="p-6">
           {/* Header */}
           <div className="flex items-center justify-between mb-8">
             <div className="flex items-center gap-4">
@@ -277,6 +131,19 @@ export default function FundingAccountPage() {
               </Link>
             </div>
           </div>
+
+          {/* Session error banner */}
+          {sessionError && (
+            <div className="mb-6 p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 flex flex-wrap items-center justify-between gap-4">
+              <p className="text-sm text-amber-800 dark:text-amber-200">{sessionError}</p>
+              <Link
+                href="/login"
+                className="px-4 py-2 text-sm font-medium rounded-lg bg-amber-600 text-white hover:bg-amber-700"
+              >
+                Log in again
+              </Link>
+            </div>
+          )}
 
           {/* Balance Summary */}
           <div className="bg-white dark:bg-[#1e2329] rounded-2xl p-6 mb-8 border border-gray-100 dark:border-gray-800">
@@ -515,9 +382,6 @@ export default function FundingAccountPage() {
               </tbody>
             </table>
           </div>
-        </main>
-      </div>
-
     </div>
   );
 }

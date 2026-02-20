@@ -14,12 +14,13 @@ import {
 } from 'lucide-react';
 import ThemeToggle from '@/components/ThemeToggle';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { useAuthStore } from '@/store/auth';
 
-const NAV_LINKS = [
+const NAV_LINKS = (spotHref: string) => [
   { label: 'Buy Crypto', href: '/dashboard/assets/convert' },
   { label: 'Markets', href: '/dashboard/markets' },
-  { label: 'Trade', href: '/dashboard/trade' },
-  { label: 'P2P', href: '/p2p' },
+  { label: 'Trade', href: spotHref },
+  { label: 'P2P', href: '/dashboard/p2p' },
 ];
 
 const FALLBACK_TICKERS = [
@@ -31,9 +32,9 @@ const FALLBACK_TICKERS = [
   { base_symbol: 'DOGE', price: '0.38', change_24h_percent: '0.91', pair: 'DOGE/USDT' },
 ];
 
-const FOOTER_PRODUCTS = [
-  { label: 'Spot Trading', href: '/dashboard/trade' },
-  { label: 'P2P Trading', href: '/p2p' },
+const FOOTER_PRODUCTS = (spotHref: string) => [
+  { label: 'Spot Trading', href: spotHref },
+  { label: 'P2P Trading', href: '/dashboard/p2p' },
   { label: 'Markets', href: '/dashboard/markets' },
   { label: 'Buy Crypto', href: '/dashboard/assets/convert' },
 ];
@@ -91,6 +92,8 @@ function logoUrl(symbol: string) {
 
 export default function HomePage() {
   const { tickers, loading } = useMarketPrices();
+  const { accessToken, _hasHydrated } = useAuthStore();
+  const spotHref = _hasHydrated && accessToken ? '/dashboard/spot' : '/spot';
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-[#0b0e11]">
@@ -105,7 +108,7 @@ export default function HomePage() {
           </Link>
 
           <nav className="hidden lg:flex items-center gap-1">
-            {NAV_LINKS.map((link) => (
+            {NAV_LINKS(spotHref).map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
@@ -258,7 +261,7 @@ export default function HomePage() {
               </li>
             </ul>
             <Link
-              href="/p2p"
+              href="/dashboard/p2p"
               className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-white bg-blue-500 hover:bg-blue-600 transition-colors"
             >
               Go to P2P <ArrowRight className="h-4 w-4" />
@@ -370,7 +373,7 @@ export default function HomePage() {
               <div>
                 <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Products</h4>
                 <ul className="space-y-2">
-                  {FOOTER_PRODUCTS.map((link) => (
+                  {FOOTER_PRODUCTS(spotHref).map((link) => (
                     <li key={link.href}>
                       <Link href={link.href} className="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
                         {link.label}

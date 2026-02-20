@@ -7,10 +7,11 @@
 
 import { JsonRpcProvider, Wallet } from 'ethers';
 import { db } from '../lib/database.js';
+import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
 import { config } from '../config/index.js';
 import { encryption } from '../lib/encryption.js';
-import { updateBalanceCache, resolveHotWalletChainId } from './hot-wallet.service.js';
+import { resolveHotWalletChainId } from './hot-wallet.service.js';
 import { logWithdrawalLifecycle } from '../lib/withdrawal-audit.js';
 
 const ACTOR_SYSTEM = 'deposit-sweep';
@@ -230,106 +231,115 @@ export interface ExecuteSweepResult {
  * Fail-closed: on any error mark as failed and return { success: false, error }.
  * Returns { success: true } only when sweep completed and balance_cache + audit log updated.
  */
+const HOT_SWEEP_LOCK_TTL_MS = 120_000;
+
 export async function executeOneSweep(item: SweepableAddress): Promise<ExecuteSweepResult> {
   const { chain_id, from_address, to_address, user_id, encrypted_private_key, balance_wei } = item;
   const sweepWei = BigInt(balance_wei);
 
-  const existing = await db.query<{ status: string }>(
-    `SELECT status FROM deposit_sweeps WHERE chain_id = $1 AND from_address = $2`,
-    [chain_id, from_address]
-  );
-  if (existing.rows.length > 0) {
-    if (existing.rows[0]!.status === 'completed') return { success: false, error: 'already_completed' };
-    if (existing.rows[0]!.status === 'pending') {
-      await db.query(
-        `UPDATE deposit_sweeps SET status = 'failed', error_message = $1, completed_at = NOW() WHERE chain_id = $2 AND from_address = $3`,
-        ['Retry: previous attempt left pending', chain_id, from_address]
-      );
-    }
-  }
-
-  await db.query(
-    `INSERT INTO deposit_sweeps (chain_id, from_address, to_address, amount_raw, status)
-     VALUES ($1, $2, $3, $4, 'pending')
-     ON CONFLICT (chain_id, from_address) DO UPDATE SET status = 'pending', error_message = NULL, completed_at = NULL, amount_raw = $4`,
-    [chain_id, from_address, to_address, balance_wei]
-  );
-
-  let privateKey: string;
+  let lockValue: string | null = null;
   try {
-    privateKey = encryption.decryptPrivateKey(encrypted_private_key, user_id);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    logger.error('Deposit sweep: decrypt failed', { chain_id, from_address, error: msg });
-    await db.query(
-      `UPDATE deposit_sweeps SET status = 'failed', error_message = $1, completed_at = NOW() WHERE chain_id = $2 AND from_address = $3`,
-      [msg, chain_id, from_address]
-    );
-    return { success: false, error: `decrypt: ${msg}` };
+    lockValue = await redis.acquireLock(`hot_sweep:${chain_id}`, HOT_SWEEP_LOCK_TTL_MS);
+    if (!lockValue) return { success: false, error: 'sweep_locked' };
+  } catch {
+    return { success: false, error: 'sweep_locked' };
   }
 
-  const chainRow = await db.query<{ rpc_url: string }>('SELECT rpc_url FROM chains WHERE id = $1', [chain_id]);
-  if (chainRow.rows.length === 0) {
-    await db.query(
-      `UPDATE deposit_sweeps SET status = 'failed', error_message = 'Chain not found', completed_at = NOW() WHERE chain_id = $1 AND from_address = $2`,
+  try {
+    const existing = await db.query<{ status: string }>(
+      `SELECT status FROM deposit_sweeps WHERE chain_id = $1 AND from_address = $2`,
       [chain_id, from_address]
     );
-    return { success: false, error: 'Chain not found' };
-  }
-
-  const provider = new JsonRpcProvider(chainRow.rows[0]!.rpc_url);
-  const signer = new Wallet(privateKey, provider);
-
-  let txHash: string;
-  try {
-    const tx = await signer.sendTransaction({
-      to: to_address,
-      value: sweepWei,
-      gasLimit: 21000n,
-    });
-    txHash = tx.hash;
-    await tx.wait().catch(() => {});
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    logger.error('Deposit sweep: send failed', { chain_id, from_address, error: msg });
-    await db.query(
-      `UPDATE deposit_sweeps SET status = 'failed', error_message = $1, completed_at = NOW() WHERE chain_id = $2 AND from_address = $3`,
-      [msg.substring(0, 500), chain_id, from_address]
-    );
-    return { success: false, error: `send: ${msg}` };
-  }
-
-  await db.query(
-    `UPDATE deposit_sweeps SET status = 'completed', tx_hash = $1, completed_at = NOW() WHERE chain_id = $2 AND from_address = $3`,
-    [txHash, chain_id, from_address]
-  );
-
-  const resolved = await resolveHotWalletChainId(chain_id);
-  if (resolved) {
-    const hotRow = await db.query<{ balance_cache: string }>(
-      'SELECT balance_cache::text as balance_cache FROM hot_wallets WHERE chain_id = $1 AND is_active = TRUE',
-      [resolved]
-    );
-    if (hotRow.rows.length > 0) {
-      const current = BigInt(hotRow.rows[0]!.balance_cache || '0');
-      const next = (current + sweepWei).toString();
-      await updateBalanceCache(resolved, next);
+    if (existing.rows.length > 0) {
+      if (existing.rows[0]!.status === 'completed') return { success: false, error: 'already_completed' };
+      if (existing.rows[0]!.status === 'pending') {
+        await db.query(
+          `UPDATE deposit_sweeps SET status = 'failed', error_message = $1, completed_at = NOW() WHERE chain_id = $2 AND from_address = $3`,
+          ['Retry: previous attempt left pending', chain_id, from_address]
+        );
+      }
     }
+
+    await db.query(
+      `INSERT INTO deposit_sweeps (chain_id, from_address, to_address, amount_raw, status)
+       VALUES ($1, $2, $3, $4, 'pending')
+       ON CONFLICT (chain_id, from_address) DO UPDATE SET status = 'pending', error_message = NULL, completed_at = NULL, amount_raw = $4`,
+      [chain_id, from_address, to_address, balance_wei]
+    );
+
+    let privateKey: string;
+    try {
+      privateKey = encryption.decryptPrivateKey(encrypted_private_key, user_id);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error('Deposit sweep: decrypt failed', { chain_id, from_address, error: msg });
+      await db.query(
+        `UPDATE deposit_sweeps SET status = 'failed', error_message = $1, completed_at = NOW() WHERE chain_id = $2 AND from_address = $3`,
+        [msg, chain_id, from_address]
+      );
+      return { success: false, error: `decrypt: ${msg}` };
+    }
+
+    const chainRow = await db.query<{ rpc_url: string }>('SELECT rpc_url FROM chains WHERE id = $1', [chain_id]);
+    if (chainRow.rows.length === 0) {
+      await db.query(
+        `UPDATE deposit_sweeps SET status = 'failed', error_message = 'Chain not found', completed_at = NOW() WHERE chain_id = $1 AND from_address = $2`,
+        [chain_id, from_address]
+      );
+      return { success: false, error: 'Chain not found' };
+    }
+
+    const provider = new JsonRpcProvider(chainRow.rows[0]!.rpc_url);
+    const signer = new Wallet(privateKey, provider);
+
+    let txHash: string;
+    try {
+      const tx = await signer.sendTransaction({
+        to: to_address,
+        value: sweepWei,
+        gasLimit: 21000n,
+      });
+      txHash = tx.hash;
+      await tx.wait().catch(() => {});
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error('Deposit sweep: send failed', { chain_id, from_address, error: msg });
+      await db.query(
+        `UPDATE deposit_sweeps SET status = 'failed', error_message = $1, completed_at = NOW() WHERE chain_id = $2 AND from_address = $3`,
+        [msg.substring(0, 500), chain_id, from_address]
+      );
+      return { success: false, error: `send: ${msg}` };
+    }
+
+    await db.query(
+      `UPDATE deposit_sweeps SET status = 'completed', tx_hash = $1, completed_at = NOW() WHERE chain_id = $2 AND from_address = $3`,
+      [txHash, chain_id, from_address]
+    );
+
+    const resolved = await resolveHotWalletChainId(chain_id);
+    if (resolved) {
+      await db.query(
+        `UPDATE hot_wallets SET balance_cache = balance_cache + $1::numeric, updated_at = CURRENT_TIMESTAMP WHERE chain_id = $2 AND is_active = TRUE`,
+        [sweepWei.toString(), resolved]
+      );
+    }
+
+    await logWithdrawalLifecycle('deposit_sweep_completed', {
+      withdrawal_id: null,
+      user_id,
+      admin_id: null,
+      token_id: null,
+      chain_id,
+      amount: sweepWei.toString(),
+      ip: null,
+      user_agent: null,
+    });
+
+    logger.info('Deposit sweep completed', { chain_id, from_address, txHash, sweepWei: sweepWei.toString() });
+    return { success: true };
+  } finally {
+    if (lockValue) redis.releaseLock(`hot_sweep:${chain_id}`, lockValue).catch(() => {});
   }
-
-  await logWithdrawalLifecycle('deposit_sweep_completed', {
-    withdrawal_id: null,
-    user_id,
-    admin_id: null,
-    token_id: null,
-    chain_id,
-    amount: sweepWei.toString(),
-    ip: null,
-    user_agent: null,
-  });
-
-  logger.info('Deposit sweep completed', { chain_id, from_address, txHash, sweepWei: sweepWei.toString() });
-  return { success: true };
 }
 
 export interface RunDepositSweepResult {

@@ -9,6 +9,8 @@ import { db } from '../lib/database.js';
 import { ensureUserBalanceRow, assertUserBalanceUpdated, assertBalanceInvariant, CHAIN_ID_GLOBAL } from '../lib/user-balance-helper.js';
 import { ROUND_DOWN, AMOUNT_PRECISION } from '../config/monetary-precision.js';
 import { insertBalanceLedger } from '../lib/balance-ledger.js';
+import { recordAndEvaluateForDeposit } from './aml-transaction-monitor.service.js';
+import { logger } from '../lib/logger.js';
 
 Decimal.set({ rounding: Decimal.ROUND_DOWN });
 
@@ -83,6 +85,11 @@ export async function creditDepositIfConfirmed(depositId: string): Promise<Credi
     });
     return { credited: true };
   });
+  if (result.credited) {
+    recordAndEvaluateForDeposit(depositId).catch((e) =>
+      logger.warn('AML deposit record failed (best-effort)', { depositId, error: e instanceof Error ? e.message : String(e) })
+    );
+  }
   return result;
 }
 
@@ -165,5 +172,10 @@ export async function applyBalanceForOneCompletedDeposit(depositId: string): Pro
     });
     return { credited: true };
   });
+  if (result.credited) {
+    recordAndEvaluateForDeposit(depositId).catch((e) =>
+      logger.warn('AML deposit record failed (best-effort)', { depositId, error: e instanceof Error ? e.message : String(e) })
+    );
+  }
   return result;
 }

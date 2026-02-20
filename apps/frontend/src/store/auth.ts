@@ -96,6 +96,8 @@ export const useAuthStore = create<AuthState>()(
         accessToken: null,
         refreshToken: null,
         isAuthenticated: false,
+        authFlags: 0,
+        authResolved: true,
       }),
 
       setLoading: (isLoading) => set({ isLoading }),
@@ -118,12 +120,10 @@ export const useAuthStore = create<AuthState>()(
         isAuthenticated: state.isAuthenticated,
       }),
       skipHydration: true,
-      onRehydrateStorage: () => (state, error) => {
+      onRehydrateStorage: () => () => {
         const s = useAuthStore.getState();
         s.setHasHydrated(true);
-        if (state) {
-          state.setLoading(false);
-        }
+        s.setLoading(false);
       },
     }
   )

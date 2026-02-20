@@ -7,6 +7,7 @@
 
 import { JsonRpcProvider } from 'ethers';
 import { db } from '../lib/database.js';
+import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
 import { logHotWalletAudit } from '../lib/hot-wallet-audit.js';
 import { logWithdrawalLifecycle } from '../lib/withdrawal-audit.js';
@@ -14,6 +15,7 @@ import { getSignerForChain, updateBalanceCache } from './hot-wallet.service.js';
 
 const ACTOR_SYSTEM = 'hot-wallet-sweep';
 const GAS_RESERVE_WEI = 21000n * 50n * 10n ** 9n;
+const HOT_SWEEP_LOCK_TTL_MS = 300_000;
 
 export async function runAutoSweep(): Promise<void> {
   const rows = await db.query<{
@@ -29,13 +31,18 @@ export async function runAutoSweep(): Promise<void> {
      WHERE is_active = TRUE AND cold_wallet_address IS NOT NULL AND cold_wallet_address != ''`
   );
   for (const hw of rows.rows) {
+    let lockValue: string | null = null;
     try {
+      lockValue = await redis.acquireLock(`hot_sweep:${hw.chain_id}`, HOT_SWEEP_LOCK_TTL_MS);
+      if (!lockValue) continue;
       await sweepOneChain(hw.chain_id, hw.address, hw.balance_cache, hw.min_hot_balance, hw.cold_wallet_address);
     } catch (err) {
       logger.error('Sweep failed for chain', {
         chainId: hw.chain_id,
         error: err instanceof Error ? err.message : 'Unknown',
       });
+    } finally {
+      if (lockValue) redis.releaseLock(`hot_sweep:${hw.chain_id}`, lockValue).catch(() => {});
     }
   }
 }

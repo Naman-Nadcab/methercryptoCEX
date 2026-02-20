@@ -73,32 +73,28 @@ export default function MyReferralsPage() {
   const commissionRate = refCode ? parseFloat(refCode.referrer_commission_rate || '0.2') * 100 : 20;
   const qualifiedCount = referrals.filter((r) => r.status === 'active').length;
 
-  const signupTabs = [
-    { id: 'signups' as SignupTab, label: 'Signups' },
-    { id: 'fiat' as SignupTab, label: 'Fiat' },
-    { id: 'card' as SignupTab, label: 'Card' },
-    { id: 'earn' as SignupTab, label: 'Earn' },
+  const signupTabs: { id: SignupTab; label: string }[] = [
+    { id: 'signups', label: 'Signups' },
+    { id: 'fiat', label: 'Fiat' },
+    { id: 'card', label: 'Card' },
+    { id: 'earn', label: 'Earn' },
   ];
 
-  const historyTabs = [
-    { id: 'commission' as HistoryTab, label: 'Commission History' },
-    { id: 'task' as HistoryTab, label: 'Task Rewards History' },
-    { id: 'lucky' as HistoryTab, label: 'Lucky Draw Prizes' },
+  const historyTabs: { id: HistoryTab; label: string }[] = [
+    { id: 'commission', label: 'Commission History' },
+    { id: 'task', label: 'Task Rewards History' },
+    { id: 'lucky', label: 'Lucky Draw Prizes' },
   ];
-
-  const spotTabs = [
-    { id: 'spot' as SpotTab, label: 'Spot' },
-  ];
-
-  return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0b0e11]">
+  const spotTabs: { id: SpotTab; label: string }[] = [{ id: 'spot', label: 'Spot' }];
+  const content = (
+    <div>
       <div className="max-w-5xl mx-auto px-4 lg:px-8 py-6">
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-sm mb-6">
           <Link href="/dashboard/referral" className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">
             Referral Program
           </Link>
-          <span className="text-gray-400 dark:text-gray-600">{'>'}</span>
+          <span className="text-gray-400 dark:text-gray-600">{'\u003e'}</span>
           <span className="text-blue-500 dark:text-blue-400">My Referrals</span>
         </div>
 
@@ -115,7 +111,7 @@ export default function MyReferralsPage() {
             <button onClick={() => window.location.reload()} className="mt-2 text-sm text-blue-600 dark:text-blue-400 hover:underline">Retry</button>
           </div>
         ) : (
-        <>
+        <div>
         {/* Overview Card */}
         <div className="bg-white dark:bg-[#181a20] rounded-xl p-5 mb-6 border border-gray-200 dark:border-transparent">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between">
@@ -124,7 +120,7 @@ export default function MyReferralsPage() {
                 <span>Total Commissions</span>
                 <Info className="w-4 h-4" />
               </div>
-              <p className="text-3xl font-bold text-gray-900 dark:text-white">{totalEarnings.toFixed(2)} <span className="text-sm text-gray-500 dark:text-gray-400">USDT</span></p>
+              <p className="text-3xl font-bold text-gray-900 dark:text-white">{Number.isFinite(totalEarnings) ? totalEarnings.toFixed(2) : '0.00'} <span className="text-sm text-gray-500 dark:text-gray-400">USDT</span></p>
             </div>
             <div className="flex items-center gap-8 mt-4 lg:mt-0">
               <div className="text-center">
@@ -180,12 +176,12 @@ export default function MyReferralsPage() {
                     <span>Total Commission</span>
                     <Info className="w-4 h-4" />
                   </div>
-                  <p className="text-xl font-semibold text-gray-900 dark:text-white">{totalEarnings.toFixed(2)} <span className="text-sm text-gray-500 dark:text-gray-400">USDT</span></p>
+                  <p className="text-xl font-semibold text-gray-900 dark:text-white">{Number.isFinite(totalEarnings) ? totalEarnings.toFixed(2) : '0.00'} <span className="text-sm text-gray-500 dark:text-gray-400">USDT</span></p>
                 </div>
                 <div className="mt-4 lg:mt-0">
                   <p className="text-gray-500 dark:text-gray-400 text-sm mb-2">Withdrawable Balance</p>
                   <div className="flex items-center gap-3">
-                    <p className="text-xl font-semibold text-gray-900 dark:text-white">{totalEarnings.toFixed(2)} <span className="text-sm text-gray-500 dark:text-gray-400">USDT</span></p>
+                    <p className="text-xl font-semibold text-gray-900 dark:text-white">{Number.isFinite(totalEarnings) ? totalEarnings.toFixed(2) : '0.00'} <span className="text-sm text-gray-500 dark:text-gray-400">USDT</span></p>
                     <button className="px-4 py-1.5 bg-transparent border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-white text-sm rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
                       Withdraw
                     </button>
@@ -200,7 +196,7 @@ export default function MyReferralsPage() {
               <div className="bg-white dark:bg-[#181a20] rounded-xl p-5 flex items-center justify-between border border-gray-200 dark:border-transparent">
                 <div>
                   <p className="text-gray-500 dark:text-gray-400 text-sm mb-2">Total Bonus</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{totalEarnings.toFixed(2)} <span className="text-sm text-gray-500 dark:text-gray-400">USDT</span></p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{Number.isFinite(totalEarnings) ? totalEarnings.toFixed(2) : '0.00'} <span className="text-sm text-gray-500 dark:text-gray-400">USDT</span></p>
                 </div>
                 <div className="text-4xl">🎁</div>
               </div>
@@ -438,7 +434,7 @@ export default function MyReferralsPage() {
                     <td className="px-6 py-3">
                       <span className={`text-xs px-2 py-1 rounded ${r.status === 'active' ? 'bg-green-500/20 text-green-500' : 'bg-amber-500/20 text-amber-500'}`}>{r.status}</span>
                     </td>
-                    <td className="px-6 py-3 text-green-600 dark:text-green-400">${parseFloat(r.total_commission_earned || '0').toFixed(2)}</td>
+                    <td className="px-6 py-3 text-green-600 dark:text-green-400">${(Number(r.total_commission_earned) || 0).toFixed(2)}</td>
                     <td className="px-6 py-3 text-gray-500 text-sm">{new Date(r.created_at).toLocaleDateString()}</td>
                   </tr>
                 ))}
@@ -479,7 +475,7 @@ export default function MyReferralsPage() {
             </div>
           </div>
         )}
-        </>
+        </div>
         )}
       </div>
 
@@ -564,7 +560,7 @@ export default function MyReferralsPage() {
               <h4 className="font-semibold mb-3 text-gray-900 dark:text-white">Products</h4>
               <ul className="space-y-2 text-sm text-gray-500 dark:text-gray-400">
                 <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Trade</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Derivatives</li>
+                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">P2P</li>
                 <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Earn</li>
                 <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Launchpad</li>
                 <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Methereum Card</li>
@@ -583,4 +579,5 @@ export default function MyReferralsPage() {
       </footer>
     </div>
   );
+  return content;
 }

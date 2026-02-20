@@ -20,25 +20,58 @@ export interface OrderbookSnapshot {
   lastUpdateId: number;
 }
 
+/** Resolve symbol to trading_pair_id (when market column doesn't exist). */
+async function getTradingPairId(symbol: string): Promise<string | null> {
+  const r = await db.query<{ id: string }>(
+    `SELECT id FROM trading_pairs WHERE symbol = $1 AND trading_enabled = TRUE LIMIT 1`,
+    [symbol]
+  );
+  return r.rows[0]?.id ?? null;
+}
+
 export async function getOrderbookFromDb(symbol: string, limit: number = DEFAULT_LEVELS): Promise<OrderbookSnapshot> {
-  const [bids, asks] = await Promise.all([
-    db.query<{ price: string; quantity: string }>(`
-      SELECT price::text as price, SUM(quantity - filled_quantity)::text as quantity
-      FROM spot_orders
-      WHERE market = $1 AND side = 'buy' AND status IN ('OPEN', 'PARTIALLY_FILLED') AND (quantity - filled_quantity) > 0
-      GROUP BY price
-      ORDER BY price DESC
-      LIMIT $2
-    `, [symbol, limit]),
-    db.query<{ price: string; quantity: string }>(`
-      SELECT price::text as price, SUM(quantity - filled_quantity)::text as quantity
-      FROM spot_orders
-      WHERE market = $1 AND side = 'sell' AND status IN ('OPEN', 'PARTIALLY_FILLED') AND (quantity - filled_quantity) > 0
-      GROUP BY price
-      ORDER BY price ASC
-      LIMIT $2
-    `, [symbol, limit]),
-  ]);
+  const pairId = await getTradingPairId(symbol);
+  const useMarket = !pairId; // If no trading_pairs row, try market column (migrate schema)
+
+  const bidsQuery = useMarket
+    ? db.query<{ price: string; quantity: string }>(`
+        SELECT price::text as price, SUM(quantity - COALESCE(filled_quantity,0))::text as quantity
+        FROM spot_orders
+        WHERE market = $1 AND side = 'buy' AND status IN ('OPEN', 'PARTIALLY_FILLED') AND (quantity - COALESCE(filled_quantity,0)) > 0
+        GROUP BY price
+        ORDER BY price DESC
+        LIMIT $2
+      `, [symbol, limit])
+    : db.query<{ price: string; quantity: string }>(`
+        SELECT o.price::text as price, SUM(COALESCE(o.remaining_quantity, o.quantity - COALESCE(o.filled_quantity,0)))::text as quantity
+        FROM spot_orders o
+        WHERE o.trading_pair_id = $1 AND o.side = 'buy' AND o.status IN ('new', 'partially_filled')
+          AND (COALESCE(o.remaining_quantity, o.quantity - COALESCE(o.filled_quantity,0))) > 0
+        GROUP BY o.price
+        ORDER BY o.price DESC
+        LIMIT $2
+      `, [pairId, limit]);
+
+  const asksQuery = useMarket
+    ? db.query<{ price: string; quantity: string }>(`
+        SELECT price::text as price, SUM(quantity - COALESCE(filled_quantity,0))::text as quantity
+        FROM spot_orders
+        WHERE market = $1 AND side = 'sell' AND status IN ('OPEN', 'PARTIALLY_FILLED') AND (quantity - COALESCE(filled_quantity,0)) > 0
+        GROUP BY price
+        ORDER BY price ASC
+        LIMIT $2
+      `, [symbol, limit])
+    : db.query<{ price: string; quantity: string }>(`
+        SELECT o.price::text as price, SUM(COALESCE(o.remaining_quantity, o.quantity - COALESCE(o.filled_quantity,0)))::text as quantity
+        FROM spot_orders o
+        WHERE o.trading_pair_id = $1 AND o.side = 'sell' AND o.status IN ('new', 'partially_filled')
+          AND (COALESCE(o.remaining_quantity, o.quantity - COALESCE(o.filled_quantity,0))) > 0
+        GROUP BY o.price
+        ORDER BY o.price ASC
+        LIMIT $2
+      `, [pairId, limit]);
+
+  const [bids, asks] = await Promise.all([bidsQuery, asksQuery]);
   const lastUpdateId = Date.now();
   return {
     symbol,

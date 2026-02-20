@@ -1,11 +1,13 @@
 import { Decimal } from '../lib/decimal.js';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../lib/database.js';
+import { getCurrencyIdForToken } from '../lib/currency-resolver.js';
 import { redis } from '../lib/redis.js';
 import { rabbitmq, EXCHANGES, QUEUES, P2PEscrowMessage } from '../lib/rabbitmq.js';
 import { logger, auditLog } from '../lib/logger.js';
 import { walletService } from './wallet.service.js';
 import { moveToEscrow, releaseFromEscrow, refundFromEscrow } from './p2p-escrow.service.js';
+import { processExpiredP2POrders } from './p2p-expiry.service.js';
 import {
   isTradingHalted,
   assertP2PEscrowCapInTransaction,
@@ -26,6 +28,15 @@ import {
 import { PoolClient } from 'pg';
 
 Decimal.set({ precision: 36, rounding: Decimal.ROUND_DOWN });
+
+const P2P_QUANTITY_MAX = new Decimal('1e15');
+
+function assertValidP2PQuantity(value: string): void {
+  const d = new Decimal(value);
+  if (!d.isFinite() || d.isNaN()) throw new Error('Invalid quantity');
+  if (d.lessThanOrEqualTo(0)) throw new Error('Quantity must be positive');
+  if (d.greaterThan(P2P_QUANTITY_MAX)) throw new Error('Quantity exceeds maximum');
+}
 
 interface CreateAdParams {
   userId: string;
@@ -99,15 +110,66 @@ class P2PService {
       throw new Error('Maximum order amount cannot exceed total amount');
     }
 
-    // Validate payment methods belong to user
-    const paymentMethods = await db.query<PaymentMethod>(
-      `SELECT * FROM payment_methods 
-       WHERE id = ANY($1) AND user_id = $2 AND is_active = TRUE`,
+    // Validate payment methods belong to user (seller-owned: user_p2p_payment_methods)
+    if (paymentMethodIds.length === 0) {
+      throw new Error('At least one payment method is required');
+    }
+    const paymentMethods = await db.query<{ id: string }>(
+      `SELECT id FROM user_p2p_payment_methods WHERE id = ANY($1) AND user_id = $2 AND is_active = TRUE`,
       [paymentMethodIds, userId]
     );
-
     if (paymentMethods.rows.length !== paymentMethodIds.length) {
       throw new Error('Invalid payment methods');
+    }
+
+    if (type === P2PAdType.SELL) {
+      const currencyId = await getCurrencyIdForToken(tokenId);
+      if (!currencyId) {
+        throw new Error('Cannot create sell ad: token has no mapped currency');
+      }
+      const chainRow = await db.query<{ chain_id: string | null }>(
+        `SELECT COALESCE(chain_id, '') AS chain_id FROM tokens WHERE id = $1 LIMIT 1`,
+        [tokenId]
+      );
+      const chainId = chainRow.rows[0]?.chain_id ?? '';
+      let available;
+      if (chainId) {
+        const chainBal = await db.query<{ available: string; escrow: string }>(
+          `SELECT
+            COALESCE(available_balance, 0)::text AS available,
+            COALESCE(escrow_balance, 0)::text AS escrow
+          FROM user_balances
+          WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = 'funding'
+          LIMIT 1`,
+          [userId, currencyId, chainId]
+        );
+        const globalBal = await db.query<{ available: string; escrow: string }>(
+          `SELECT
+            COALESCE(available_balance, 0)::text AS available,
+            COALESCE(escrow_balance, 0)::text AS escrow
+          FROM user_balances
+          WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = '' AND account_type = 'funding'
+          LIMIT 1`,
+          [userId, currencyId]
+        );
+        const chainSum = chainBal.rows[0]
+          ? new Decimal(chainBal.rows[0].available).plus(chainBal.rows[0].escrow)
+          : new Decimal(0);
+        const globalSum = globalBal.rows[0]
+          ? new Decimal(globalBal.rows[0].available).plus(globalBal.rows[0].escrow)
+          : new Decimal(0);
+        available = chainSum.gte(globalSum) ? chainSum : globalSum;
+      } else {
+        const bal = await db.query<{ available: string }>(
+          `SELECT COALESCE(SUM(available_balance + COALESCE(escrow_balance, 0)), 0)::text AS available
+           FROM user_balances WHERE user_id = $1 AND currency_id = $2`,
+          [userId, currencyId]
+        );
+        available = new Decimal(bal.rows[0]?.available ?? '0');
+      }
+      if (available.lessThan(totalAmount)) {
+        throw new Error('Insufficient balance for sell ad');
+      }
     }
 
     // PHASE-11: No lock at ad creation. Funds move to escrow only when an order is created (moveToEscrow).
@@ -189,6 +251,10 @@ class P2PService {
       values.push(updates.minAmount);
     }
     if (updates.maxAmount !== undefined) {
+      const avail = (ad as { availableAmount?: string }).availableAmount ?? (ad as { available_amount?: string }).available_amount ?? '0';
+      if (new Decimal(updates.maxAmount).lessThan(avail)) {
+        throw new Error('max_amount cannot be less than available_amount');
+      }
       setClauses.push(`max_amount = $${paramIndex++}`);
       values.push(updates.maxAmount);
     }
@@ -367,9 +433,10 @@ class P2PService {
       throw new Error('Unable to process order. Please try again.');
     }
 
+    assertValidP2PQuantity(quantity);
+
     try {
       return await db.transaction(async (client) => {
-        // Get ad with lock
         const adResult = await client.query<P2PAd>(
           'SELECT * FROM p2p_ads WHERE id = $1 FOR UPDATE',
           [adId]
@@ -381,9 +448,13 @@ class P2PService {
 
         const ad = adResult.rows[0]!;
 
-        // Validations
         if (ad.status !== P2PAdStatus.ACTIVE) {
           throw new Error('Ad is not active');
+        }
+
+        const avail = (ad as { availableAmount?: string }).availableAmount ?? (ad as { available_amount?: string }).available_amount ?? '0';
+        if (new Decimal(avail).lessThanOrEqualTo(0)) {
+          throw new Error('Ad has no available amount');
         }
 
         if (ad.userId === userId) {
@@ -399,19 +470,19 @@ class P2PService {
           throw new Error('Insufficient available amount');
         }
 
-        // Validate payment method
-        const paymentMethod = await client.query<PaymentMethod>(
-          'SELECT * FROM payment_methods WHERE id = $1 AND is_active = TRUE',
-          [paymentMethodId]
-        );
-
-        if (paymentMethod.rows.length === 0) {
-          throw new Error('Invalid payment method');
-        }
-
-        // Determine buyer and seller
         const buyerId = ad.type === P2PAdType.SELL ? userId : ad.userId;
         const sellerId = ad.type === P2PAdType.SELL ? ad.userId : userId;
+
+        const userPm = await client.query<{ id: string; is_active: boolean | null }>(
+          'SELECT id, is_active FROM user_p2p_payment_methods WHERE id = $1 AND user_id = $2',
+          [paymentMethodId, buyerId]
+        );
+        if (userPm.rows.length === 0) {
+          throw new Error('Invalid payment method');
+        }
+        if (userPm.rows[0]!.is_active === false) {
+          throw new Error('Payment method is not active');
+        }
 
         // PHASE-12: Trading halt (outside tx). Velocity and escrow cap INSIDE tx with locks.
         if (await isTradingHalted()) {
@@ -465,9 +536,12 @@ class P2PService {
 
         const order = orderResult.rows[0]!;
 
-        // Update ad available amount (logical cap)
-        const avail = (ad as { availableAmount?: string }).availableAmount ?? (ad as { available_amount?: string }).available_amount ?? '0';
-        const newAvailable = new Decimal(avail).minus(quantity).toDecimalPlaces(8, Decimal.ROUND_DOWN).toString();
+        // Update ad available amount (logical cap) — defensive: never allow negative
+        const newAvailableDec = new Decimal(avail).minus(quantity).toDecimalPlaces(8, Decimal.ROUND_DOWN);
+        if (newAvailableDec.lessThan(0)) {
+          throw new Error('Insufficient available amount');
+        }
+        const newAvailable = newAvailableDec.toString();
         await client.query(
           'UPDATE p2p_ads SET available_amount = $2, updated_at = NOW() WHERE id = $1',
           [adId, newAvailable]
@@ -487,6 +561,7 @@ class P2PService {
 
         logger.info('P2P order created', { orderId: order.id, adId, buyerId, sellerId });
         auditLog(AuditAction.P2P_ORDER_CREATED, userId, { orderId: order.id, adId }, undefined);
+        logger.info('P2P_SECURITY', { event: 'p2p_security', action: 'order_created', orderId: order.id, userId, adId, timestamp: new Date().toISOString() });
 
         return order;
       });
@@ -497,9 +572,9 @@ class P2PService {
   }
 
   /**
-   * Confirm payment received (buyer confirms)
+   * Confirm payment received (buyer confirms). State: pending_payment → buyer_marked_paid only. Idempotent.
    */
-  async confirmPayment(orderId: string, userId: string): Promise<P2POrder> {
+  async confirmPayment(orderId: string, userId: string, requestIp?: string): Promise<P2POrder> {
     return await db.transaction(async (client) => {
       const orderResult = await client.query<P2POrder>(
         'SELECT * FROM p2p_orders WHERE id = $1 FOR UPDATE',
@@ -512,16 +587,18 @@ class P2PService {
 
       const order = orderResult.rows[0]!;
 
-      // Only buyer can confirm they sent payment
       if (order.buyerId !== userId) {
         throw new Error('Only buyer can confirm payment');
+      }
+
+      if (order.status === P2POrderStatus.PAYMENT_CONFIRMED) {
+        return order;
       }
 
       if (order.status !== P2POrderStatus.PAYMENT_PENDING) {
         throw new Error('Invalid order status');
       }
 
-      // Update order status
       const result = await client.query<P2POrder>(
         `UPDATE p2p_orders 
          SET status = 'payment_confirmed', payment_confirmed_at = NOW(), updated_at = NOW()
@@ -537,16 +614,17 @@ class P2PService {
         timestamp: Date.now(),
       });
 
-      auditLog(AuditAction.P2P_PAYMENT_CONFIRMED, userId, { orderId }, undefined);
+      auditLog(AuditAction.P2P_PAYMENT_CONFIRMED, userId, { orderId }, requestIp);
+      logger.info('P2P_SECURITY', { event: 'p2p_security', action: 'payment_confirmed', orderId, userId, ip: requestIp, timestamp: new Date().toISOString() });
 
       return result.rows[0]!;
     });
   }
 
   /**
-   * Release crypto (seller confirms payment received)
+   * Release crypto (seller confirms). State: buyer_marked_paid → seller_released. Idempotent.
    */
-  async releaseCrypto(orderId: string, userId: string): Promise<P2POrder> {
+  async releaseCrypto(orderId: string, userId: string, requestIp?: string): Promise<P2POrder> {
     return await db.transaction(async (client) => {
       const orderResult = await client.query<P2POrder>(
         'SELECT * FROM p2p_orders WHERE id = $1 FOR UPDATE',
@@ -559,9 +637,16 @@ class P2PService {
 
       const order = orderResult.rows[0]!;
 
-      // Only seller can release
       if (order.sellerId !== userId) {
         throw new Error('Only seller can release crypto');
+      }
+
+      if (order.status === P2POrderStatus.COMPLETED) {
+        return order;
+      }
+
+      if (order.status === P2POrderStatus.CANCELLED) {
+        throw new Error('Cannot release cancelled order');
       }
 
       if (order.status !== P2POrderStatus.PAYMENT_CONFIRMED) {
@@ -571,7 +656,25 @@ class P2PService {
       const escrowId = (order as { escrowId?: string }).escrowId ?? (order as { escrow_id?: string }).escrow_id;
       if (!escrowId) throw new Error('Order missing escrow_id');
 
-      // PHASE-11: Idempotent release. Guarded by escrow status = 'locked'; debit escrow_balance only.
+      const qty = (order as { quantity?: string }).quantity ?? (order as { crypto_amount?: string }).crypto_amount;
+      const escrowRow = await client.query<{ amount: string; status?: string }>(
+        'SELECT amount::text AS amount, status FROM escrows WHERE id = $1',
+        [escrowId]
+      );
+      if (escrowRow.rows.length === 0) {
+        throw new Error('Escrow not found');
+      }
+      const row = escrowRow.rows[0]!;
+      if (row.status != null && row.status !== 'locked') {
+        throw new Error('Escrow not in locked status');
+      }
+      if (qty) {
+        const escrowAmount = new Decimal(row.amount);
+        if (escrowAmount.lessThan(qty)) {
+          throw new Error('Escrow balance insufficient for release');
+        }
+      }
+
       const releaseResult = await releaseFromEscrow(escrowId, order.buyerId, client);
       if (releaseResult.alreadyReleased) {
         await client.query(
@@ -615,16 +718,20 @@ class P2PService {
         timestamp: Date.now(),
       } as P2PEscrowMessage);
 
-      logger.info('P2P crypto released', { orderId });
+      auditLog(AuditAction.P2P_ORDER_RELEASED, userId, { orderId }, requestIp);
+      logger.info('P2P crypto released', { orderId, userId });
+      logger.info('P2P_SECURITY', { event: 'p2p_security', action: 'order_released', orderId, userId, ip: requestIp, timestamp: new Date().toISOString() });
 
       return result.rows[0]!;
     });
   }
 
   /**
-   * Cancel P2P order
+   * Cancel P2P order. Idempotent: if already cancelled, no liquidity change.
    */
-  async cancelOrder(orderId: string, userId: string, reason: string): Promise<P2POrder> {
+  async cancelOrder(orderId: string, userId: string, reason: string, requestIp?: string): Promise<P2POrder> {
+    const CANCELLABLE_STATUSES = [P2POrderStatus.PAYMENT_PENDING, P2POrderStatus.PAYMENT_CONFIRMED] as const;
+
     return await db.transaction(async (client) => {
       const orderResult = await client.query<P2POrder>(
         'SELECT * FROM p2p_orders WHERE id = $1 FOR UPDATE',
@@ -637,12 +744,18 @@ class P2PService {
 
       const order = orderResult.rows[0]!;
 
-      // Can only cancel pending orders
-      if (order.status !== P2POrderStatus.PAYMENT_PENDING) {
+      if (order.status === P2POrderStatus.CANCELLED) {
+        return order;
+      }
+
+      if (order.status === P2POrderStatus.COMPLETED) {
         throw new Error('Cannot cancel order in current status');
       }
 
-      // Only buyer or seller can cancel
+      if (!CANCELLABLE_STATUSES.includes(order.status as (typeof CANCELLABLE_STATUSES)[number])) {
+        throw new Error('Cannot cancel order in current status');
+      }
+
       if (order.buyerId !== userId && order.sellerId !== userId) {
         throw new Error('Not authorized to cancel this order');
       }
@@ -650,7 +763,6 @@ class P2PService {
       const escrowId = (order as { escrowId?: string }).escrowId ?? (order as { escrow_id?: string }).escrow_id;
       if (!escrowId) throw new Error('Order missing escrow_id');
 
-      // PHASE-11: Idempotent refund. Debit escrow_balance only; credit seller available.
       const refundResult = await refundFromEscrow(escrowId, client);
       if (refundResult.alreadyRefunded) {
         await client.query(
@@ -662,14 +774,36 @@ class P2PService {
       }
 
       const qty = (order as { quantity?: string }).quantity ?? (order as { crypto_amount?: string }).crypto_amount;
-      if (qty) {
+      const adId = (order as { adId?: string }).adId ?? (order as { ad_id?: string }).ad_id;
+      if (qty && adId) {
+        const adRow = await client.query<{ total_amount: string }>(
+          'SELECT total_amount::text AS total_amount FROM p2p_ads WHERE id = $1',
+          [adId]
+        );
+        if (adRow.rows.length === 0) {
+          throw new Error('Ad not found during liquidity restore');
+        }
+        const totalAmount = adRow.rows[0]!.total_amount;
         await client.query(
           `UPDATE p2p_ads SET available_amount = available_amount + $2, updated_at = NOW() WHERE id = $1`,
-          [order.adId, qty]
+          [adId, qty]
         );
+        const afterRow = await client.query<{ available_amount: string }>(
+          'SELECT available_amount FROM p2p_ads WHERE id = $1',
+          [adId]
+        );
+        if (afterRow.rows.length === 0) {
+          throw new Error('Ad row missing after liquidity restore');
+        }
+        const availableAmountNew = afterRow.rows[0]!.available_amount;
+        if (new Decimal(availableAmountNew).lessThan(0)) {
+          throw new Error('Liquidity clamp violation: available_amount would be negative');
+        }
+        if (new Decimal(availableAmountNew).greaterThan(totalAmount)) {
+          throw new Error('Liquidity restoration would exceed ad total');
+        }
       }
 
-      // Update order
       const result = await client.query<P2POrder>(
         `UPDATE p2p_orders 
          SET status = 'cancelled', cancelled_at = NOW(), cancel_reason = $2, updated_at = NOW()
@@ -678,7 +812,9 @@ class P2PService {
         [orderId, reason]
       );
 
-      logger.info('P2P order cancelled', { orderId, reason });
+      auditLog(AuditAction.P2P_ORDER_CANCELLED, userId, { orderId, reason }, requestIp);
+      logger.info('P2P_SECURITY', { event: 'p2p_security', action: 'order_cancelled', orderId, userId, ip: requestIp, timestamp: new Date().toISOString() });
+      logger.info('P2P order cancelled', { orderId, userId, reason });
 
       return result.rows[0]!;
     });
@@ -797,6 +933,33 @@ class P2PService {
         );
       } else {
         const refundResult = await refundFromEscrow(escrowId, client);
+        if (!refundResult.alreadyRefunded) {
+          const qty = (order as { quantity?: string }).quantity ?? (order as { crypto_amount?: string }).crypto_amount;
+          const adId = (order as { adId?: string }).adId ?? (order as { ad_id?: string }).ad_id;
+          if (qty && adId) {
+            const adRow = await client.query<{ total_amount: string }>(
+              'SELECT total_amount::text AS total_amount FROM p2p_ads WHERE id = $1',
+              [adId]
+            );
+            if (adRow.rows.length > 0) {
+              const totalAmount = adRow.rows[0]!.total_amount;
+              await client.query(
+                `UPDATE p2p_ads SET available_amount = available_amount + $2, updated_at = NOW() WHERE id = $1`,
+                [adId, qty]
+              );
+              const afterRow = await client.query<{ available_amount: string }>(
+                'SELECT available_amount FROM p2p_ads WHERE id = $1',
+                [adId]
+              );
+              if (afterRow.rows.length > 0) {
+                const availableAmountNew = afterRow.rows[0]!.available_amount;
+                if (new Decimal(availableAmountNew).greaterThan(totalAmount)) {
+                  throw new Error('Liquidity restoration would exceed ad total');
+                }
+              }
+            }
+          }
+        }
         await client.query(
           `UPDATE p2p_orders SET status = 'cancelled', cancelled_at = COALESCE(cancelled_at, NOW()), updated_at = NOW() WHERE id = $1`,
           [order.id]
@@ -864,34 +1027,15 @@ class P2PService {
   }
 
   /**
-   * Handle expired orders (called by scheduler)
+   * Handle expired orders (called by scheduler).
+   * Delegates to processExpiredP2POrders so expired orders end in status='expired'.
    */
   async handleExpiredOrders(): Promise<number> {
-    const expiredOrders = await db.query<P2POrder>(
-      `SELECT * FROM p2p_orders 
-       WHERE status = 'payment_pending' AND expires_at < NOW()
-       FOR UPDATE SKIP LOCKED`
-    );
-
-    let count = 0;
-
-    for (const order of expiredOrders.rows) {
-      try {
-        await this.cancelOrder(order.id, order.sellerId, 'Payment timeout');
-        count++;
-      } catch (error) {
-        logger.error('Failed to expire P2P order', {
-          orderId: order.id,
-          error: error instanceof Error ? error.message : 'Unknown',
-        });
-      }
+    const result = await processExpiredP2POrders();
+    if (result.processed > 0) {
+      logger.info(`Expired ${result.processed} P2P orders`);
     }
-
-    if (count > 0) {
-      logger.info(`Expired ${count} P2P orders`);
-    }
-
-    return count;
+    return result.processed;
   }
 }
 

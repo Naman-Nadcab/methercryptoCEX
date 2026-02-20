@@ -388,6 +388,9 @@ async function processEvent(client: PoolClient, row: SettlementRow): Promise<voi
        RETURNING *`,
       [toNumeric(u.available), toNumeric(u.locked), u.userId, u.currencyId, CHAIN_ID_GLOBAL, SETTLEMENT_ACCOUNT_TYPE]
     );
+    if (updResult.rowCount === 0) {
+      throw new Error('MISSING_BALANCE_ROW_FOR_LOCKED_DEBIT');
+    }
     if (updResult.rows[0]) assertBalanceInvariant(updResult.rows[0]);
   }
 
@@ -517,7 +520,11 @@ async function runOnce(): Promise<void> {
         errMsg === 'SETTLEMENT_HASH_MISMATCH' ||
         errMsg === 'LEDGER_CHAIN_VIOLATION' ||
         errMsg === 'LEDGER_IMMUTABLE_VIOLATION' ||
-        errMsg === 'LEDGER_CONSISTENCY_VIOLATION';
+        errMsg === 'LEDGER_CONSISTENCY_VIOLATION' ||
+        errMsg === 'MISSING_BALANCE_ROW_FOR_LOCKED_DEBIT' ||
+        errMsg.includes('negative balance') ||
+        errMsg.startsWith('[INVARIANT_VIOLATION]') ||
+        errMsg.startsWith('Settlement would result in negative balance');
       if (isFatalError) {
         recordSettlementEvent({
           type: 'failure_fatal',
@@ -527,9 +534,10 @@ async function runOnce(): Promise<void> {
         });
         await client.query(
           `UPDATE settlement_events SET status = 'failed', last_error = $1, processed_at = NOW() WHERE id = $2`,
-          [errMsg, row.id]
+          [errMsg.substring(0, 1000), row.id]
         );
-        logger.warn('Settlement event failed (fatal)', {
+        logger.error('Settlement event failed (fatal, non-retryable)', {
+          level: 'critical',
           id: row.id,
           engine_event_id: row.engine_event_id,
           error: errMsg,

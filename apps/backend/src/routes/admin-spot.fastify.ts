@@ -164,4 +164,105 @@ export default async function adminSpotRoutes(app: FastifyInstance) {
       return reply.status(500).send({ success: false, error: { code: 'UPDATE_FAILED', message: 'Failed to update market' } });
     }
   });
+
+  // GET /admin/spot/orders — list all spot orders (admin). Query: market, status, user_id, limit, offset.
+  app.get<{
+    Querystring: { market?: string; status?: string; user_id?: string; limit?: string; offset?: string };
+  }>('/orders', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    const market = (request.query.market || '').trim().toUpperCase().replace(/-/g, '_') || null;
+    const status = (request.query.status || '').trim().toUpperCase() || null;
+    const user_id = (request.query.user_id || '').trim() || null;
+    const limit = Math.min(100, Math.max(1, parseInt(request.query.limit || '50', 10) || 50));
+    const offset = Math.max(0, parseInt(request.query.offset || '0', 10) || 0);
+    try {
+      const conditions: string[] = ['1=1'];
+      const params: unknown[] = [];
+      let i = 1;
+      if (market) {
+        conditions.push(`o.market = $${i++}`);
+        params.push(market);
+      }
+      if (status && ['OPEN', 'PARTIALLY_FILLED', 'FILLED', 'CANCELLED', 'REJECTED'].includes(status)) {
+        conditions.push(`o.status = $${i++}`);
+        params.push(status);
+      }
+      if (user_id) {
+        conditions.push(`o.user_id = $${i++}`);
+        params.push(user_id);
+      }
+      const where = conditions.join(' AND ');
+      const countRes = await db.query<{ count: string }>(
+        `SELECT COUNT(*)::text as count FROM spot_orders o WHERE ${where}`,
+        params
+      );
+      const total = parseInt(countRes.rows[0]?.count || '0', 10);
+      params.push(limit, offset);
+      const result = await db.query(
+        `SELECT o.id, o.user_id, o.market, o.side, o.type, o.price::text, o.quantity::text, o.filled_quantity::text, o.status, o.client_order_id, o.created_at
+         FROM spot_orders o
+         WHERE ${where}
+         ORDER BY o.created_at DESC
+         LIMIT $${i} OFFSET $${i + 1}`,
+        params
+      );
+      const rows = (result.rows as Record<string, unknown>[]).map((r) => ({
+        ...r,
+        created_at: r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
+      }));
+      return reply.send({ success: true, data: { rows, total } });
+    } catch (error) {
+      logger.error('Admin spot orders list failed', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to list orders' } });
+    }
+  });
+
+  // GET /admin/spot/trades — list all spot trades (admin). Query: market, user_id, limit, offset.
+  app.get<{
+    Querystring: { market?: string; user_id?: string; limit?: string; offset?: string };
+  }>('/trades', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    const market = (request.query.market || '').trim().toUpperCase().replace(/-/g, '_') || null;
+    const user_id = (request.query.user_id || '').trim() || null;
+    const limit = Math.min(100, Math.max(1, parseInt(request.query.limit || '50', 10) || 50));
+    const offset = Math.max(0, parseInt(request.query.offset || '0', 10) || 0);
+    try {
+      const conditions: string[] = ['1=1'];
+      const params: unknown[] = [];
+      let i = 1;
+      if (market) {
+        conditions.push(`t.market = $${i++}`);
+        params.push(market);
+      }
+      if (user_id) {
+        conditions.push(`t.user_id = $${i++}`);
+        params.push(user_id);
+      }
+      const where = conditions.join(' AND ');
+      const countRes = await db.query<{ count: string }>(
+        `SELECT COUNT(*)::text as count FROM spot_trades t WHERE ${where}`,
+        params
+      );
+      const total = parseInt(countRes.rows[0]?.count || '0', 10);
+      params.push(limit, offset);
+      const result = await db.query(
+        `SELECT t.id, t.order_id, t.user_id, t.market, t.side, t.price::text, t.quantity::text, t.fee::text, t.fee_asset, t.created_at
+         FROM spot_trades t
+         WHERE ${where}
+         ORDER BY t.created_at DESC
+         LIMIT $${i} OFFSET $${i + 1}`,
+        params
+      );
+      const rows = (result.rows as Record<string, unknown>[]).map((r) => ({
+        ...r,
+        created_at: r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
+      }));
+      return reply.send({ success: true, data: { rows, total } });
+    } catch (error) {
+      logger.error('Admin spot trades list failed', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to list trades' } });
+    }
+  });
 }

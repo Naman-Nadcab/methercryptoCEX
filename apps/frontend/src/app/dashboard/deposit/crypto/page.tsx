@@ -2,11 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth';
 import { api } from '@/lib/api';
 import Link from 'next/link';
 import Image from 'next/image';
 import { QRCodeSVG } from 'qrcode.react';
+import { notifyError } from '@/lib/notifyError';
 import {
   ChevronDown,
   Copy,
@@ -96,6 +98,7 @@ const POPULAR_TOKENS = ['BTC', 'ETH', 'USDT', 'USDC', 'BNB', 'SOL', 'TRX'];
 export default function DepositCryptoPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
   const coinParam = searchParams.get('coin');
   const { accessToken, _hasHydrated } = useAuthStore();
   const [tokens, setTokens] = useState<Token[]>([]);
@@ -216,7 +219,7 @@ export default function DepositCryptoPage() {
         }
       }
     } catch (error) {
-      console.error('Failed to fetch tokens:', error);
+      notifyError('Failed to load tokens. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -230,7 +233,7 @@ export default function DepositCryptoPage() {
         setKycStatus(result.data);
       }
     } catch (error) {
-      console.error('Failed to fetch KYC status:', error);
+      notifyError('Failed to load KYC status. Please try again.');
     }
   };
 
@@ -251,7 +254,7 @@ export default function DepositCryptoPage() {
         setChainsError(result.error?.message || 'Could not load chains for this asset.');
       }
     } catch (error) {
-      console.error('Failed to fetch chains for asset:', error);
+      notifyError('Failed to load chains. Please try again.');
       setAvailableChains([]);
       setChainsError('Network error. Try again.');
     } finally {
@@ -291,7 +294,7 @@ export default function DepositCryptoPage() {
     } catch (error) {
       setDepositAddress(null);
       setAddressError('Network error. Check backend and try again.');
-      console.error('Failed to fetch deposit address:', error);
+      notifyError('Failed to load deposit address. Please try again.');
     } finally {
       setAddressLoading(false);
     }
@@ -331,11 +334,12 @@ export default function DepositCryptoPage() {
           created_at: d.createdAt || d.created_at || '',
         }));
         setRecentDeposits(mapped);
+        queryClient.invalidateQueries({ queryKey: ['balances'] });
       } else {
         setRecentDeposits([]);
       }
     } catch (error) {
-      console.error('Failed to fetch deposits:', error);
+      notifyError('Failed to load deposit history. Please try again.');
       setRecentDeposits([]);
     } finally {
       setRecentDepositsLoading(false);

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth';
 import Link from 'next/link';
 import { Loader2, AlertCircle, Info } from 'lucide-react';
@@ -24,6 +25,7 @@ function generateClientOrderId(): string {
 }
 
 export default function SpotTradePage() {
+  const queryClient = useQueryClient();
   const { accessToken } = useAuthStore();
   const [market, setMarket] = useState<string>(MARKETS_STATIC[0]?.symbol ?? '');
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
@@ -42,6 +44,7 @@ export default function SpotTradePage() {
   const [historyNextCursor, setHistoryNextCursor] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyLoadMore, setHistoryLoadMore] = useState(false);
+  const submitInFlightRef = useRef(false);
 
   const fetchOpenOrders = useCallback(async () => {
     if (!accessToken) return;
@@ -101,18 +104,29 @@ export default function SpotTradePage() {
     if (ordersTab === 'history') fetchHistoryOrders(null, false);
   }, [ordersTab, fetchHistoryOrders]);
 
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') (document.activeElement as HTMLElement)?.blur();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!accessToken || submitting) return;
+    if (!accessToken || submitting || submitInFlightRef.current) return;
+    submitInFlightRef.current = true;
     setSubmitResult(null);
     const qty = parseFloat(quantity);
     const pr = orderType === 'limit' ? parseFloat(price) : undefined;
     if (!Number.isFinite(qty) || qty <= 0) {
-      setSubmitResult({ success: false, message: 'Invalid quantity' });
+      setSubmitResult({ success: false, message: 'Enter a quantity greater than 0.' });
+      submitInFlightRef.current = false;
       return;
     }
     if (orderType === 'limit' && (pr == null || !Number.isFinite(pr) || pr <= 0)) {
-      setSubmitResult({ success: false, message: 'Limit orders require a valid price' });
+      setSubmitResult({ success: false, message: 'Enter a price for limit orders.' });
+      submitInFlightRef.current = false;
       return;
     }
     setSubmitting(true);
@@ -136,6 +150,7 @@ export default function SpotTradePage() {
         setQuantity('');
         setPrice('');
         setClientOrderId(generateClientOrderId());
+        queryClient.invalidateQueries({ queryKey: ['balances'] });
         fetchOpenOrders();
       } else {
         setSubmitResult({
@@ -144,9 +159,10 @@ export default function SpotTradePage() {
         });
       }
     } catch {
-      setSubmitResult({ success: false, message: 'Request failed' });
+      setSubmitResult({ success: false, message: 'Connection issue. Your request may not have reached the server. Safe to try again.' });
     } finally {
       setSubmitting(false);
+      submitInFlightRef.current = false;
     }
   };
 
@@ -162,13 +178,14 @@ export default function SpotTradePage() {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       const json = await res.json().catch(() => ({}));
-      if (res.ok && json.success && json.data) {
+      if (res.ok && json.success) {
         setOrders((prev) => prev.filter((o) => o.id !== orderId));
+        queryClient.invalidateQueries({ queryKey: ['balances'] });
       } else {
         setCancelError(getMessageFromApiError(json?.error) || json?.error?.message || 'Cancel failed');
       }
     } catch {
-      setCancelError('Request failed');
+      setCancelError('Connection issue. Your request may not have reached the server. Safe to try again.');
     } finally {
       setCancellingOrderId(null);
     }
@@ -181,7 +198,7 @@ export default function SpotTradePage() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Spot Order</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Place a limit order. Funds are reserved via balance lock until order is filled or cancelled.</p>
         </div>
-        <Link href="/dashboard/trade" className="text-sm text-blue-500 dark:text-blue-400 hover:underline">
+        <Link href="/dashboard/spot" className="text-sm text-blue-500 dark:text-blue-400 hover:underline">
           Back to Trade
         </Link>
       </div>
@@ -191,7 +208,7 @@ export default function SpotTradePage() {
         <span>Locked funds are reserved for open orders and shown in Spot Wallet. No matching or fills in this flow.</span>
       </div>
 
-      <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-6 space-y-4">
+      <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-6 space-y-4 transition-all duration-200 ease-out hover:bg-gray-50/80 dark:hover:bg-white/[0.07] dark:hover:border-white/20">
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Market</label>
           <select
@@ -253,7 +270,7 @@ export default function SpotTradePage() {
           Client Order ID (idempotency): {clientOrderId}
         </div>
         {submitResult && (
-          <div className={`flex items-center gap-2 p-3 rounded-lg text-sm ${submitResult.success ? 'bg-green-500/10 text-green-700 dark:text-green-300' : 'bg-red-500/10 text-red-600 dark:text-red-400'}`}>
+          <div className={`flex items-center gap-2 p-3 rounded-lg text-sm animate-fade-in ${submitResult.success ? 'bg-green-500/10 text-green-700 dark:text-green-300' : 'bg-red-500/10 text-red-600 dark:text-red-400'}`}>
             {!submitResult.success && <AlertCircle className="w-4 h-4 flex-shrink-0" />}
             {submitResult.message}
           </div>
@@ -261,14 +278,15 @@ export default function SpotTradePage() {
         <button
           type="submit"
           disabled={submitting || (orderType === 'limit' && (!price.trim() || parseFloat(price) <= 0)) || !quantity.trim()}
-          className="w-full py-2.5 rounded-lg font-medium bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          aria-busy={submitting}
+          className="w-full py-2.5 rounded-lg font-medium bg-blue-500 text-white hover:bg-blue-600 hover:brightness-110 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 min-w-[120px] transition-transform duration-75 active:scale-[0.97] active:brightness-110"
         >
           {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
           Place Order
         </button>
       </form>
 
-      <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+      <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden transition-all duration-200 ease-out dark:hover:border-white/20">
         <div className="flex border-b border-gray-200 dark:border-gray-700">
           <button
             type="button"
@@ -294,7 +312,7 @@ export default function SpotTradePage() {
               </button>
             </div>
             {cancelError && (
-              <div className="px-4 py-2 bg-red-500/10 text-red-600 dark:text-red-400 text-sm flex items-center justify-between">
+              <div className="px-4 py-2 bg-red-500/10 text-red-600 dark:text-red-400 text-sm flex items-center justify-between animate-fade-in-fast">
                 <span>{cancelError}</span>
                 <button type="button" onClick={() => setCancelError(null)} className="underline">Dismiss</button>
               </div>
@@ -308,7 +326,7 @@ export default function SpotTradePage() {
             ) : (
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+                  <tr className="text-left uppercase text-xs tracking-wider text-gray-400 border-b border-gray-200 dark:border-white/10">
                     <th className="p-3 font-medium">Market</th>
                     <th className="p-3 font-medium">Side</th>
                     <th className="p-3 font-medium">Price</th>
@@ -319,13 +337,13 @@ export default function SpotTradePage() {
                 </thead>
                 <tbody>
                   {orders.map((o) => (
-                    <tr key={o.id} className="border-b border-gray-100 dark:border-gray-800">
-                      <td className="p-3 font-medium text-gray-900 dark:text-white">{o.market}</td>
+                    <tr key={o.id} className="border-b border-gray-100 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-white/[0.06] transition-colors duration-150">
+                      <td className="p-3 font-medium text-gray-900 dark:text-white tabular-nums tracking-tight">{o.market}</td>
                       <td className="p-3">
-                        <span className={o.side === 'buy' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>{o.side}</span>
+                        <span className={`tabular-nums tracking-tight ${o.side === 'buy' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{o.side}</span>
                       </td>
-                      <td className="p-3 font-mono text-gray-700 dark:text-gray-300">{o.price ?? '—'}</td>
-                      <td className="p-3 font-mono text-gray-700 dark:text-gray-300">{o.quantity}</td>
+                      <td className="p-3 tabular-nums tracking-tight text-gray-700 dark:text-gray-300">{o.price ?? '—'}</td>
+                      <td className="p-3 tabular-nums tracking-tight text-gray-700 dark:text-gray-300">{o.quantity}</td>
                       <td className="p-3">
                         <span className="px-2 py-0.5 rounded text-xs bg-blue-500/20 text-blue-600 dark:text-blue-400">{o.status}</span>
                       </td>
@@ -335,7 +353,7 @@ export default function SpotTradePage() {
                             type="button"
                             disabled={cancellingOrderId !== null}
                             onClick={() => handleCancel(o.id)}
-                            className="text-red-500 dark:text-red-400 hover:underline disabled:opacity-50 disabled:cursor-not-allowed text-sm flex items-center gap-1"
+                            className="text-red-500 dark:text-red-400 hover:underline disabled:opacity-60 disabled:cursor-not-allowed text-sm flex items-center gap-1 transition-transform duration-75 active:scale-[0.97]"
                           >
                             {cancellingOrderId === o.id ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
                             {cancellingOrderId === o.id ? 'Cancelling…' : 'Cancel'}
@@ -364,7 +382,7 @@ export default function SpotTradePage() {
               <>
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+                    <tr className="text-left uppercase text-xs tracking-wider text-gray-400 border-b border-gray-200 dark:border-white/10">
                       <th className="p-3 font-medium">Market</th>
                       <th className="p-3 font-medium">Side</th>
                       <th className="p-3 font-medium">Price</th>
@@ -374,13 +392,13 @@ export default function SpotTradePage() {
                   </thead>
                   <tbody>
                     {historyOrders.map((o) => (
-                      <tr key={o.id} className="border-b border-gray-100 dark:border-gray-800">
-                        <td className="p-3 font-medium text-gray-900 dark:text-white">{o.market}</td>
+                      <tr key={o.id} className="border-b border-gray-100 dark:border-white/10">
+                        <td className="p-3 font-medium text-gray-900 dark:text-white tabular-nums tracking-tight">{o.market}</td>
                         <td className="p-3">
-                          <span className={o.side === 'buy' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>{o.side}</span>
+                          <span className={`tabular-nums tracking-tight ${o.side === 'buy' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{o.side}</span>
                         </td>
-                        <td className="p-3 font-mono text-gray-700 dark:text-gray-300">{o.price ?? '—'}</td>
-                        <td className="p-3 font-mono text-gray-700 dark:text-gray-300">{o.quantity}</td>
+                        <td className="p-3 tabular-nums tracking-tight text-gray-700 dark:text-gray-300">{o.price ?? '—'}</td>
+                        <td className="p-3 tabular-nums tracking-tight text-gray-700 dark:text-gray-300">{o.quantity}</td>
                         <td className="p-3">
                           <span className={`px-2 py-0.5 rounded text-xs ${o.status === 'FILLED' ? 'bg-green-500/20 text-green-600 dark:text-green-400' : 'bg-gray-500/20 text-gray-600 dark:text-gray-400'}`}>{o.status}</span>
                         </td>

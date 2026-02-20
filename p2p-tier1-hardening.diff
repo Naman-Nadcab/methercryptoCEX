@@ -1,0 +1,975 @@
+diff --git a/apps/backend/src/routes/p2p.fastify.ts b/apps/backend/src/routes/p2p.fastify.ts
+index 85ede20..8d32165 100644
+--- a/apps/backend/src/routes/p2p.fastify.ts
++++ b/apps/backend/src/routes/p2p.fastify.ts
+@@ -1,6 +1,70 @@
++import crypto from 'node:crypto';
+ import { FastifyInstance } from 'fastify';
+ import { db } from '../lib/database.js';
++import { redis } from '../lib/redis.js';
+ import { logger } from '../lib/logger.js';
++import { p2pService } from '../services/p2p.service.js';
++import { evaluateP2PRisk } from '../services/abuse-resilience.service.js';
++import { getCurrencyIdBySymbol } from '../lib/currency-resolver.js';
++import { rateLimitByUser } from '../lib/rate-limit-fastify.js';
++
++function getRequestIp(request: { ip?: string; headers: Record<string, string | string[] | undefined> }): string | undefined {
++  const ip = (request as { ip?: string }).ip ?? request.headers['x-forwarded-for'];
++  if (typeof ip === 'string') return ip.split(',')[0]?.trim();
++  if (Array.isArray(ip) && ip[0]) return String(ip[0]).split(',')[0]?.trim();
++  return undefined;
++}
++
++const IDEMPOTENCY_KEY_HEADER = 'idempotency-key';
++const P2P_ORDER_CREATE_IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60;
++const P2P_RELEASE_IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60;
++const P2P_CONFIRM_IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60;
++const P2P_CANCEL_IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60;
++const P2P_IDEMPOTENCY_LOCK_TTL_SECONDS = 30;
++const P2P_ORDER_COOLDOWN_SECONDS = 3;
++
++const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
++
++function buildP2POrderCreateRequestHash(body: { adId?: string; quantity?: string; paymentMethodId?: string }): string {
++  const normalized = {
++    adId: String(body.adId ?? '').trim(),
++    quantity: String(body.quantity ?? '').trim(),
++    paymentMethodId: String(body.paymentMethodId ?? '').trim(),
++  };
++  return crypto.createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
++}
++
++function buildP2PReleaseRequestHash(orderId: string): string {
++  return crypto.createHash('sha256').update(String(orderId).trim()).digest('hex');
++}
++
++function buildP2PConfirmRequestHash(orderId: string): string {
++  return crypto.createHash('sha256').update(String(orderId).trim()).digest('hex');
++}
++
++function buildP2PCancelRequestHash(orderId: string, reason: string): string {
++  return crypto.createHash('sha256').update(JSON.stringify({ orderId: String(orderId).trim(), reason: String(reason).trim() })).digest('hex');
++}
++
++interface P2POrderCreateIdempotencyCache {
++  requestHash: string;
++  response: { success: true; data: Record<string, unknown> };
++}
++
++interface P2PReleaseIdempotencyCache {
++  requestHash: string;
++  response: { success: true; data: Record<string, unknown> };
++}
++
++interface P2PConfirmIdempotencyCache {
++  requestHash: string;
++  response: { success: true; data: Record<string, unknown> };
++}
++
++interface P2PCancelIdempotencyCache {
++  requestHash: string;
++  response: { success: true; data: Record<string, unknown> };
++}
+ 
+ export default async function p2pRoutes(app: FastifyInstance) {
+   
+@@ -10,7 +74,14 @@ export default async function p2pRoutes(app: FastifyInstance) {
+    */
+   app.get('/ads', async (request, reply) => {
+     try {
+-      const { type, currency, fiat, limit = 20, offset = 0 } = request.query as any;
++      const q = request.query as any;
++      const type = q.type;
++      const currency = q.currency;
++      const fiat = q.fiat;
++      const limitRaw = q.limit != null ? q.limit : 20;
++      const offsetRaw = q.offset != null ? q.offset : 0;
++      const limit = Math.min(100, Math.max(1, parseInt(String(limitRaw), 10) || 20));
++      const offset = Math.max(0, parseInt(String(offsetRaw), 10) || 0);
+ 
+       let query = `
+         SELECT 
+@@ -65,7 +136,7 @@ export default async function p2pRoutes(app: FastifyInstance) {
+ 
+       query += ` ORDER BY pa.current_price ${type === 'sell' ? 'ASC' : 'DESC'}, pms.completion_rate DESC NULLS LAST`;
+       query += ` LIMIT $${paramIndex++} OFFSET $${paramIndex}`;
+-      params.push(parseInt(limit), parseInt(offset));
++      params.push(limit, offset);
+ 
+       const result = await db.query(query, params);
+ 
+@@ -140,6 +211,200 @@ export default async function p2pRoutes(app: FastifyInstance) {
+     }
+   });
+ 
++  /**
++   * POST /p2p/ads
++   * Create a P2P ad (buy or sell). No balance lock; funds move to escrow at order creation.
++   */
++  app.post<{
++    Body: {
++      type?: string;
++      currency?: string;
++      fiat?: string;
++      price?: string;
++      min_amount?: string;
++      max_amount?: string;
++      available_amount?: string;
++      payment_method_ids?: string[];
++      payment_time_limit?: number;
++    };
++  }>('/ads', {
++    preHandler: [app.authenticate],
++  }, async (request, reply) => {
++    const userId = request.user!.id;
++    const body = request.body || {};
++    const type = String(body.type ?? '').trim().toLowerCase();
++    const currency = String(body.currency ?? '').trim().toUpperCase();
++    const fiat = String(body.fiat ?? '').trim().toUpperCase();
++    const price = body.price != null ? String(body.price).trim() : '';
++    const minAmount = body.min_amount != null ? String(body.min_amount).trim() : '';
++    const maxAmount = body.max_amount != null ? String(body.max_amount).trim() : '';
++    const availableAmount = body.available_amount != null ? String(body.available_amount).trim() : '';
++    const paymentMethodIds = Array.isArray(body.payment_method_ids) ? body.payment_method_ids : [];
++    const paymentTimeLimit = typeof body.payment_time_limit === 'number' ? body.payment_time_limit : 15;
++
++    if (type !== 'buy' && type !== 'sell') {
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'VALIDATION_ERROR', message: 'type must be buy or sell' },
++      });
++    }
++    if (!currency || currency.length > 10) {
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'VALIDATION_ERROR', message: 'currency (crypto symbol) is required' },
++      });
++    }
++    if (!fiat || fiat.length > 10) {
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'VALIDATION_ERROR', message: 'fiat is required' },
++      });
++    }
++    const priceNum = parseFloat(price);
++    const minNum = parseFloat(minAmount);
++    const maxNum = parseFloat(maxAmount);
++    const availNum = parseFloat(availableAmount);
++    if (Number.isNaN(priceNum) || priceNum <= 0) {
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'VALIDATION_ERROR', message: 'price must be a positive number' },
++      });
++    }
++    if (Number.isNaN(minNum) || minNum <= 0 || Number.isNaN(maxNum) || maxNum <= 0) {
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'VALIDATION_ERROR', message: 'min_amount and max_amount must be positive numbers' },
++      });
++    }
++    if (minNum > maxNum) {
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'VALIDATION_ERROR', message: 'min_amount cannot exceed max_amount' },
++      });
++    }
++    if (Number.isNaN(availNum) || availNum < 0) {
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'VALIDATION_ERROR', message: 'available_amount must be a non-negative number' },
++      });
++    }
++    if (availNum > maxNum) {
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'VALIDATION_ERROR', message: 'available_amount cannot exceed max_amount' },
++      });
++    }
++    if (paymentMethodIds.length === 0) {
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'VALIDATION_ERROR', message: 'At least one payment_method_id is required' },
++      });
++    }
++    const validPmIds = paymentMethodIds.filter((id) => typeof id === 'string' && UUID_REGEX.test(String(id).trim()));
++    if (validPmIds.length === 0) {
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'VALIDATION_ERROR', message: 'payment_method_ids must be valid UUIDs' },
++      });
++    }
++    if (paymentTimeLimit < 5 || paymentTimeLimit > 120) {
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'VALIDATION_ERROR', message: 'payment_time_limit must be between 5 and 120 minutes' },
++      });
++    }
++
++    const cryptoCurrencyId = await getCurrencyIdBySymbol(currency);
++    if (!cryptoCurrencyId) {
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'VALIDATION_ERROR', message: `Unsupported currency: ${currency}` },
++      });
++    }
++
++    try {
++      const result = await db.query(
++        `INSERT INTO p2p_ads (
++          user_id, ad_type, crypto_currency_id, fiat_currency,
++          pricing_type, current_price, min_amount, max_amount, available_amount,
++          payment_time_limit, accepted_payment_methods, status, total_orders, completed_orders
++        ) VALUES ($1, $2, $3, $4, 'fixed', $5, $6, $7, $8, $9, $10, 'active', 0, 0)
++        RETURNING id, ad_type, crypto_currency_id, fiat_currency, current_price, min_amount, max_amount, available_amount, payment_time_limit, accepted_payment_methods, status, created_at`,
++        [
++          userId,
++          type,
++          cryptoCurrencyId,
++          fiat,
++          priceNum,
++          minNum,
++          maxNum,
++          availNum,
++          paymentTimeLimit,
++          JSON.stringify(validPmIds),
++        ]
++      );
++      const ad = result.rows[0];
++      logger.info('P2P ad created', { adId: ad?.id, userId, type });
++      return reply.status(201).send({
++        success: true,
++        data: ad,
++      });
++    } catch (error) {
++      logger.error('Failed to create P2P ad', { error });
++      return reply.status(500).send({
++        success: false,
++        error: { code: 'CREATE_FAILED', message: 'Failed to create ad' },
++      });
++    }
++  });
++
++  /**
++   * GET /p2p/orders/:orderId
++   * Get a single P2P order by id (caller must be buyer or seller).
++   */
++  app.get<{ Params: { orderId: string } }>('/orders/:orderId', {
++    preHandler: [app.authenticate],
++  }, async (request, reply) => {
++    try {
++      const { id: userId } = request.user!;
++      const orderId = request.params.orderId;
++      if (!orderId || !UUID_REGEX.test(orderId)) {
++        return reply.status(400).send({
++          success: false,
++          error: { code: 'VALIDATION_ERROR', message: 'orderId required and must be a valid UUID' },
++        });
++      }
++      const result = await db.query(`
++        SELECT 
++          po.*,
++          c.symbol as crypto_symbol,
++          buyer.username as buyer_username,
++          seller.username as seller_username
++        FROM p2p_orders po
++        JOIN currencies c ON po.crypto_currency_id = c.id
++        JOIN users buyer ON po.buyer_id = buyer.id
++        JOIN users seller ON po.seller_id = seller.id
++        WHERE po.id = $1 AND (po.buyer_id = $2 OR po.seller_id = $2)
++      `, [orderId, userId]);
++      if (result.rows.length === 0) {
++        return reply.status(404).send({
++          success: false,
++          error: { code: 'NOT_FOUND', message: 'Order not found' },
++        });
++      }
++      return reply.send({
++        success: true,
++        data: result.rows[0],
++      });
++    } catch (error) {
++      logger.error('Failed to fetch P2P order', { error });
++      return reply.status(500).send({
++        success: false,
++        error: { code: 'FETCH_FAILED', message: 'Failed to fetch order' },
++      });
++    }
++  });
++
+   /**
+    * GET /p2p/my-orders
+    * Get user's P2P orders
+@@ -246,4 +511,374 @@ export default async function p2pRoutes(app: FastifyInstance) {
+       });
+     }
+   });
++
++  // --- P2P order lifecycle (POST). Idempotency on create and release per audit. ---
++
++  /**
++   * POST /p2p/orders
++   * Create a P2P order. Requires Idempotency-Key. Balance lock happens in p2pService.createOrder.
++   */
++  app.post<{
++    Body: { adId: string; quantity: string; paymentMethodId: string };
++  }>('/orders', {
++    preHandler: [app.authenticate, rateLimitByUser('p2p:order-create', 30, 60)],
++  }, async (request, reply) => {
++    const userId = request.user!.id;
++    const body = request.body;
++
++    const idempotencyKeyRaw = (request.headers[IDEMPOTENCY_KEY_HEADER] ?? request.headers['Idempotency-Key']) as string | undefined;
++    const idempotencyKey = typeof idempotencyKeyRaw === 'string' ? idempotencyKeyRaw.trim() : '';
++    if (!idempotencyKey) {
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'IDEMPOTENCY_KEY_REQUIRED', message: 'Idempotency-Key header is required for P2P order creation.' },
++      });
++    }
++    if (idempotencyKey.length > 256) {
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'IDEMPOTENCY_KEY_INVALID', message: 'Idempotency-Key must be at most 256 characters.' },
++      });
++    }
++
++    const requestHash = buildP2POrderCreateRequestHash(body);
++    const redisKey = `p2p:order-create:idempotency:${userId}:${idempotencyKey}`;
++    const cached = await redis.getJson<P2POrderCreateIdempotencyCache>(redisKey);
++    if (cached) {
++      if (cached.requestHash !== requestHash) {
++        return reply.status(409).send({
++          success: false,
++          error: {
++            code: 'IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_BODY',
++            message: 'Idempotency-Key was already used with a different request body. Use a new key or the same request body.',
++          },
++        });
++      }
++      return reply.status(200).send(cached.response);
++    }
++
++    const lockKey = `p2p:order-create:lock:${userId}:${idempotencyKey}`;
++    const lockAcquired = await redis.setNxEx(lockKey, '1', P2P_IDEMPOTENCY_LOCK_TTL_SECONDS);
++    if (!lockAcquired) {
++      return reply.status(409).send({
++        success: false,
++        error: {
++          code: 'DUPLICATE_REQUEST',
++          message: 'A P2P order create with this Idempotency-Key is already in progress. Retry after a few seconds.',
++        },
++      });
++    }
++
++    if (!body.adId || !body.quantity || !body.paymentMethodId) {
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'VALIDATION_ERROR', message: 'adId, quantity, and paymentMethodId are required' },
++      });
++    }
++    if (!UUID_REGEX.test(body.adId) || !UUID_REGEX.test(body.paymentMethodId)) {
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'VALIDATION_ERROR', message: 'adId and paymentMethodId must be valid UUIDs' },
++      });
++    }
++
++    const ip = (request as { ip?: string }).ip ?? request.headers['x-forwarded-for'] ?? null;
++    const ipStr = Array.isArray(ip) ? ip[0] : String(ip ?? '');
++    const cfCountry = request.headers['cf-ipcountry'];
++    const countryCode = (typeof cfCountry === 'string' ? cfCountry : Array.isArray(cfCountry) ? cfCountry[0] : null) ?? null;
++    const decision = await evaluateP2PRisk({
++      userId,
++      requestId: (request as { id?: string }).id ?? (typeof request.headers['x-request-id'] === 'string' ? request.headers['x-request-id'] : null) ?? null,
++      ip: ipStr || undefined,
++      countryCode,
++      isVpnOrTor: (request as { isVpnOrTor?: boolean }).isVpnOrTor,
++    });
++    if (decision === 'block') {
++      return reply.status(403).send({
++        success: false,
++        error: { code: 'RISK_BLOCKED', message: 'Request blocked by risk policy' },
++      });
++    }
++
++    try {
++      const order = await p2pService.createOrder({
++        userId,
++        adId: body.adId,
++        quantity: body.quantity,
++        paymentMethodId: body.paymentMethodId,
++      });
++      const response = { success: true as const, data: order as unknown as Record<string, unknown> };
++      try {
++        await redis.setJson(redisKey, { requestHash, response }, P2P_ORDER_CREATE_IDEMPOTENCY_TTL_SECONDS);
++      } catch {
++        /* best effort */
++      }
++      return reply.status(201).send(response);
++    } catch (error) {
++      const msg = error instanceof Error ? error.message : 'Failed to create order';
++      const code = msg === 'TRADING_HALTED' ? 'TRADING_HALTED' : msg === 'Ad not found' ? 'NOT_FOUND' : 'ORDER_FAILED';
++      return reply.status(400).send({
++        success: false,
++        error: { code, message: msg },
++      });
++    }
++  });
++
++  /**
++   * POST /p2p/orders/:orderId/confirm-payment
++   * Buyer confirms payment sent. Requires Idempotency-Key. Cooldown per order.
++   */
++  app.post<{ Params: { orderId: string } }>('/orders/:orderId/confirm-payment', {
++    preHandler: [app.authenticate, rateLimitByUser('p2p:confirm-payment', 60, 60)],
++  }, async (request, reply) => {
++    const userId = request.user!.id;
++    const orderId = request.params.orderId;
++    if (!orderId || !UUID_REGEX.test(orderId)) {
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'MISSING_PARAM', message: 'orderId required and must be a valid UUID' },
++      });
++    }
++    const cooldownKey = `p2p:cooldown:${orderId}`;
++    if (!(await redis.setNxEx(cooldownKey, '1', P2P_ORDER_COOLDOWN_SECONDS))) {
++      return reply.status(429).send({
++        success: false,
++        error: { code: 'COOLDOWN', message: 'Please wait before retrying this order action.' },
++      });
++    }
++    const idempotencyKeyRaw = (request.headers[IDEMPOTENCY_KEY_HEADER] ?? request.headers['Idempotency-Key']) as string | undefined;
++    const idempotencyKey = typeof idempotencyKeyRaw === 'string' ? idempotencyKeyRaw.trim() : '';
++    if (!idempotencyKey) {
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'IDEMPOTENCY_KEY_REQUIRED', message: 'Idempotency-Key header is required for P2P confirm-payment.' },
++      });
++    }
++    if (idempotencyKey.length > 256) {
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'IDEMPOTENCY_KEY_INVALID', message: 'Idempotency-Key must be at most 256 characters.' },
++      });
++    }
++    const requestHash = buildP2PConfirmRequestHash(orderId);
++    const redisKey = `p2p:confirm:idempotency:${userId}:${idempotencyKey}`;
++    const cached = await redis.getJson<P2PConfirmIdempotencyCache>(redisKey);
++    if (cached) {
++      if (cached.requestHash !== requestHash) {
++        return reply.status(409).send({
++          success: false,
++          error: {
++            code: 'IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_BODY',
++            message: 'Idempotency-Key was already used for a different order. Use a new key or the same order.',
++          },
++        });
++      }
++      return reply.send(cached.response);
++    }
++    const lockKey = `p2p:confirm:lock:${userId}:${idempotencyKey}`;
++    const lockAcquired = await redis.setNxEx(lockKey, '1', P2P_IDEMPOTENCY_LOCK_TTL_SECONDS);
++    if (!lockAcquired) {
++      return reply.status(409).send({
++        success: false,
++        error: {
++          code: 'DUPLICATE_REQUEST',
++          message: 'A confirm-payment with this Idempotency-Key is already in progress. Retry after a few seconds.',
++        },
++      });
++    }
++    const requestIp = getRequestIp(request);
++    try {
++      const order = await p2pService.confirmPayment(orderId, userId, requestIp);
++      const response = { success: true as const, data: order as unknown as Record<string, unknown> };
++      try {
++        await redis.setJson(redisKey, { requestHash, response }, P2P_CONFIRM_IDEMPOTENCY_TTL_SECONDS);
++      } catch {
++        /* best effort */
++      }
++      return reply.send(response);
++    } catch (error) {
++      const msg = error instanceof Error ? error.message : 'Failed to confirm payment';
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'CONFIRM_FAILED', message: msg },
++      });
++    }
++  });
++
++  /**
++   * POST /p2p/orders/:orderId/release
++   * Seller releases crypto. Requires Idempotency-Key. Backend release is idempotent; this prevents double-submit.
++   */
++  app.post<{ Params: { orderId: string } }>('/orders/:orderId/release', {
++    preHandler: [app.authenticate, rateLimitByUser('p2p:release', 60, 60)],
++  }, async (request, reply) => {
++    const userId = request.user!.id;
++    const orderId = request.params.orderId;
++    if (!orderId || !UUID_REGEX.test(orderId)) {
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'MISSING_PARAM', message: 'orderId required and must be a valid UUID' },
++      });
++    }
++    const cooldownKey = `p2p:cooldown:${orderId}`;
++    if (!(await redis.setNxEx(cooldownKey, '1', P2P_ORDER_COOLDOWN_SECONDS))) {
++      return reply.status(429).send({
++        success: false,
++        error: { code: 'COOLDOWN', message: 'Please wait before retrying this order action.' },
++      });
++    }
++
++    const idempotencyKeyRaw = (request.headers[IDEMPOTENCY_KEY_HEADER] ?? request.headers['Idempotency-Key']) as string | undefined;
++    const idempotencyKey = typeof idempotencyKeyRaw === 'string' ? idempotencyKeyRaw.trim() : '';
++    if (!idempotencyKey) {
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'IDEMPOTENCY_KEY_REQUIRED', message: 'Idempotency-Key header is required for P2P release.' },
++      });
++    }
++    if (idempotencyKey.length > 256) {
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'IDEMPOTENCY_KEY_INVALID', message: 'Idempotency-Key must be at most 256 characters.' },
++      });
++    }
++
++    const requestHash = buildP2PReleaseRequestHash(orderId);
++    const redisKey = `p2p:release:idempotency:${userId}:${idempotencyKey}`;
++    const cached = await redis.getJson<P2PReleaseIdempotencyCache>(redisKey);
++    if (cached) {
++      if (cached.requestHash !== requestHash) {
++        return reply.status(409).send({
++          success: false,
++          error: {
++            code: 'IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_BODY',
++            message: 'Idempotency-Key was already used for a different order. Use a new key or the same order.',
++          },
++        });
++      }
++      return reply.send(cached.response);
++    }
++
++    const lockKey = `p2p:release:lock:${userId}:${idempotencyKey}`;
++    const lockAcquired = await redis.setNxEx(lockKey, '1', P2P_IDEMPOTENCY_LOCK_TTL_SECONDS);
++    if (!lockAcquired) {
++      return reply.status(409).send({
++        success: false,
++        error: {
++          code: 'DUPLICATE_REQUEST',
++          message: 'A release with this Idempotency-Key is already in progress. Retry after a few seconds.',
++        },
++      });
++    }
++
++    const requestIp = getRequestIp(request);
++    try {
++      const order = await p2pService.releaseCrypto(orderId, userId, requestIp);
++      const response = { success: true as const, data: order as unknown as Record<string, unknown> };
++      try {
++        await redis.setJson(redisKey, { requestHash, response }, P2P_RELEASE_IDEMPOTENCY_TTL_SECONDS);
++      } catch {
++        /* best effort */
++      }
++      return reply.send(response);
++    } catch (error) {
++      const msg = error instanceof Error ? error.message : 'Failed to release crypto';
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'RELEASE_FAILED', message: msg },
++      });
++    }
++  });
++
++  /**
++   * POST /p2p/orders/:orderId/cancel
++   * Cancel a P2P order (buyer or seller). Requires Idempotency-Key. Reason required. Cooldown per order.
++   */
++  app.post<{
++    Params: { orderId: string };
++    Body: { reason: string };
++  }>('/orders/:orderId/cancel', {
++    preHandler: [app.authenticate, rateLimitByUser('p2p:cancel', 60, 60)],
++  }, async (request, reply) => {
++    const userId = request.user!.id;
++    const orderId = request.params.orderId;
++    const reason = request.body?.reason;
++    if (!orderId || !UUID_REGEX.test(orderId)) {
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'MISSING_PARAM', message: 'orderId required and must be a valid UUID' },
++      });
++    }
++    if (typeof reason !== 'string' || reason.trim().length < 1 || reason.length > 500) {
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'VALIDATION_ERROR', message: 'reason is required (1-500 characters)' },
++      });
++    }
++    const cooldownKey = `p2p:cooldown:${orderId}`;
++    if (!(await redis.setNxEx(cooldownKey, '1', P2P_ORDER_COOLDOWN_SECONDS))) {
++      return reply.status(429).send({
++        success: false,
++        error: { code: 'COOLDOWN', message: 'Please wait before retrying this order action.' },
++      });
++    }
++    const idempotencyKeyRaw = (request.headers[IDEMPOTENCY_KEY_HEADER] ?? request.headers['Idempotency-Key']) as string | undefined;
++    const idempotencyKey = typeof idempotencyKeyRaw === 'string' ? idempotencyKeyRaw.trim() : '';
++    if (!idempotencyKey) {
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'IDEMPOTENCY_KEY_REQUIRED', message: 'Idempotency-Key header is required for P2P cancel.' },
++      });
++    }
++    if (idempotencyKey.length > 256) {
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'IDEMPOTENCY_KEY_INVALID', message: 'Idempotency-Key must be at most 256 characters.' },
++      });
++    }
++    const reasonTrimmed = reason.trim();
++    const requestHash = buildP2PCancelRequestHash(orderId, reasonTrimmed);
++    const redisKey = `p2p:cancel:idempotency:${userId}:${idempotencyKey}`;
++    const cached = await redis.getJson<P2PCancelIdempotencyCache>(redisKey);
++    if (cached) {
++      if (cached.requestHash !== requestHash) {
++        return reply.status(409).send({
++          success: false,
++          error: {
++            code: 'IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_BODY',
++            message: 'Idempotency-Key was already used for a different order or reason. Use a new key or the same request.',
++          },
++        });
++      }
++      return reply.send(cached.response);
++    }
++    const lockKey = `p2p:cancel:lock:${userId}:${idempotencyKey}`;
++    const lockAcquired = await redis.setNxEx(lockKey, '1', P2P_IDEMPOTENCY_LOCK_TTL_SECONDS);
++    if (!lockAcquired) {
++      return reply.status(409).send({
++        success: false,
++        error: {
++          code: 'DUPLICATE_REQUEST',
++          message: 'A cancel with this Idempotency-Key is already in progress. Retry after a few seconds.',
++        },
++      });
++    }
++    const requestIp = getRequestIp(request);
++    try {
++      const order = await p2pService.cancelOrder(orderId, userId, reasonTrimmed, requestIp);
++      const response = { success: true as const, data: order as unknown as Record<string, unknown> };
++      try {
++        await redis.setJson(redisKey, { requestHash, response }, P2P_CANCEL_IDEMPOTENCY_TTL_SECONDS);
++      } catch {
++        /* best effort */
++      }
++      return reply.send(response);
++    } catch (error) {
++      const msg = error instanceof Error ? error.message : 'Failed to cancel order';
++      return reply.status(400).send({
++        success: false,
++        error: { code: 'CANCEL_FAILED', message: msg },
++      });
++    }
++  });
+ }
+diff --git a/apps/backend/src/services/p2p.service.ts b/apps/backend/src/services/p2p.service.ts
+index e264cff..1ecd731 100644
+--- a/apps/backend/src/services/p2p.service.ts
++++ b/apps/backend/src/services/p2p.service.ts
+@@ -27,6 +27,15 @@ import { PoolClient } from 'pg';
+ 
+ Decimal.set({ precision: 36, rounding: Decimal.ROUND_DOWN });
+ 
++const P2P_QUANTITY_MAX = new Decimal('1e15');
++
++function assertValidP2PQuantity(value: string): void {
++  const d = new Decimal(value);
++  if (!d.isFinite() || d.isNaN()) throw new Error('Invalid quantity');
++  if (d.lessThanOrEqualTo(0)) throw new Error('Quantity must be positive');
++  if (d.greaterThan(P2P_QUANTITY_MAX)) throw new Error('Quantity exceeds maximum');
++}
++
+ interface CreateAdParams {
+   userId: string;
+   type: P2PAdType;
+@@ -367,9 +376,10 @@ class P2PService {
+       throw new Error('Unable to process order. Please try again.');
+     }
+ 
++    assertValidP2PQuantity(quantity);
++
+     try {
+       return await db.transaction(async (client) => {
+-        // Get ad with lock
+         const adResult = await client.query<P2PAd>(
+           'SELECT * FROM p2p_ads WHERE id = $1 FOR UPDATE',
+           [adId]
+@@ -381,11 +391,15 @@ class P2PService {
+ 
+         const ad = adResult.rows[0]!;
+ 
+-        // Validations
+         if (ad.status !== P2PAdStatus.ACTIVE) {
+           throw new Error('Ad is not active');
+         }
+ 
++        const avail = (ad as { availableAmount?: string }).availableAmount ?? (ad as { available_amount?: string }).available_amount ?? '0';
++        if (new Decimal(avail).lessThanOrEqualTo(0)) {
++          throw new Error('Ad has no available amount');
++        }
++
+         if (ad.userId === userId) {
+           throw new Error('Cannot trade with your own ad');
+         }
+@@ -399,19 +413,19 @@ class P2PService {
+           throw new Error('Insufficient available amount');
+         }
+ 
+-        // Validate payment method
+-        const paymentMethod = await client.query<PaymentMethod>(
+-          'SELECT * FROM payment_methods WHERE id = $1 AND is_active = TRUE',
+-          [paymentMethodId]
+-        );
++        const buyerId = ad.type === P2PAdType.SELL ? userId : ad.userId;
++        const sellerId = ad.type === P2PAdType.SELL ? ad.userId : userId;
+ 
+-        if (paymentMethod.rows.length === 0) {
++        const userPm = await client.query<{ id: string; is_active: boolean | null }>(
++          'SELECT id, is_active FROM user_p2p_payment_methods WHERE id = $1 AND user_id = $2',
++          [paymentMethodId, buyerId]
++        );
++        if (userPm.rows.length === 0) {
+           throw new Error('Invalid payment method');
+         }
+-
+-        // Determine buyer and seller
+-        const buyerId = ad.type === P2PAdType.SELL ? userId : ad.userId;
+-        const sellerId = ad.type === P2PAdType.SELL ? ad.userId : userId;
++        if (userPm.rows[0]!.is_active === false) {
++          throw new Error('Payment method is not active');
++        }
+ 
+         // PHASE-12: Trading halt (outside tx). Velocity and escrow cap INSIDE tx with locks.
+         if (await isTradingHalted()) {
+@@ -465,9 +479,13 @@ class P2PService {
+ 
+         const order = orderResult.rows[0]!;
+ 
+-        // Update ad available amount (logical cap)
++        // Update ad available amount (logical cap) — defensive: never allow negative
+         const avail = (ad as { availableAmount?: string }).availableAmount ?? (ad as { available_amount?: string }).available_amount ?? '0';
+-        const newAvailable = new Decimal(avail).minus(quantity).toDecimalPlaces(8, Decimal.ROUND_DOWN).toString();
++        const newAvailableDec = new Decimal(avail).minus(quantity).toDecimalPlaces(8, Decimal.ROUND_DOWN);
++        if (newAvailableDec.lessThan(0)) {
++          throw new Error('Insufficient available amount');
++        }
++        const newAvailable = newAvailableDec.toString();
+         await client.query(
+           'UPDATE p2p_ads SET available_amount = $2, updated_at = NOW() WHERE id = $1',
+           [adId, newAvailable]
+@@ -487,6 +505,7 @@ class P2PService {
+ 
+         logger.info('P2P order created', { orderId: order.id, adId, buyerId, sellerId });
+         auditLog(AuditAction.P2P_ORDER_CREATED, userId, { orderId: order.id, adId }, undefined);
++        logger.info('P2P_SECURITY', { event: 'p2p_security', action: 'order_created', orderId: order.id, userId, adId, timestamp: new Date().toISOString() });
+ 
+         return order;
+       });
+@@ -497,9 +516,9 @@ class P2PService {
+   }
+ 
+   /**
+-   * Confirm payment received (buyer confirms)
++   * Confirm payment received (buyer confirms). State: pending_payment → buyer_marked_paid only. Idempotent.
+    */
+-  async confirmPayment(orderId: string, userId: string): Promise<P2POrder> {
++  async confirmPayment(orderId: string, userId: string, requestIp?: string): Promise<P2POrder> {
+     return await db.transaction(async (client) => {
+       const orderResult = await client.query<P2POrder>(
+         'SELECT * FROM p2p_orders WHERE id = $1 FOR UPDATE',
+@@ -512,16 +531,18 @@ class P2PService {
+ 
+       const order = orderResult.rows[0]!;
+ 
+-      // Only buyer can confirm they sent payment
+       if (order.buyerId !== userId) {
+         throw new Error('Only buyer can confirm payment');
+       }
+ 
++      if (order.status === P2POrderStatus.PAYMENT_CONFIRMED) {
++        return order;
++      }
++
+       if (order.status !== P2POrderStatus.PAYMENT_PENDING) {
+         throw new Error('Invalid order status');
+       }
+ 
+-      // Update order status
+       const result = await client.query<P2POrder>(
+         `UPDATE p2p_orders 
+          SET status = 'payment_confirmed', payment_confirmed_at = NOW(), updated_at = NOW()
+@@ -537,16 +558,17 @@ class P2PService {
+         timestamp: Date.now(),
+       });
+ 
+-      auditLog(AuditAction.P2P_PAYMENT_CONFIRMED, userId, { orderId }, undefined);
++      auditLog(AuditAction.P2P_PAYMENT_CONFIRMED, userId, { orderId }, requestIp);
++      logger.info('P2P_SECURITY', { event: 'p2p_security', action: 'payment_confirmed', orderId, userId, ip: requestIp, timestamp: new Date().toISOString() });
+ 
+       return result.rows[0]!;
+     });
+   }
+ 
+   /**
+-   * Release crypto (seller confirms payment received)
++   * Release crypto (seller confirms). State: buyer_marked_paid → seller_released. Idempotent.
+    */
+-  async releaseCrypto(orderId: string, userId: string): Promise<P2POrder> {
++  async releaseCrypto(orderId: string, userId: string, requestIp?: string): Promise<P2POrder> {
+     return await db.transaction(async (client) => {
+       const orderResult = await client.query<P2POrder>(
+         'SELECT * FROM p2p_orders WHERE id = $1 FOR UPDATE',
+@@ -559,11 +581,18 @@ class P2PService {
+ 
+       const order = orderResult.rows[0]!;
+ 
+-      // Only seller can release
+       if (order.sellerId !== userId) {
+         throw new Error('Only seller can release crypto');
+       }
+ 
++      if (order.status === P2POrderStatus.COMPLETED || order.status === P2POrderStatus.RELEASING) {
++        return order;
++      }
++
++      if (order.status === P2POrderStatus.CANCELLED) {
++        throw new Error('Cannot release cancelled order');
++      }
++
+       if (order.status !== P2POrderStatus.PAYMENT_CONFIRMED) {
+         throw new Error('Payment not yet confirmed by buyer');
+       }
+@@ -571,7 +600,21 @@ class P2PService {
+       const escrowId = (order as { escrowId?: string }).escrowId ?? (order as { escrow_id?: string }).escrow_id;
+       if (!escrowId) throw new Error('Order missing escrow_id');
+ 
+-      // PHASE-11: Idempotent release. Guarded by escrow status = 'locked'; debit escrow_balance only.
++      const qty = (order as { quantity?: string }).quantity ?? (order as { crypto_amount?: string }).crypto_amount;
++      const escrowRow = await client.query<{ amount: string }>(
++        'SELECT amount::text AS amount FROM escrows WHERE id = $1',
++        [escrowId]
++      );
++      if (escrowRow.rows.length === 0) {
++        throw new Error('Escrow not found');
++      }
++      if (qty) {
++        const escrowAmount = new Decimal(escrowRow.rows[0]!.amount);
++        if (escrowAmount.lessThan(qty)) {
++          throw new Error('Escrow balance insufficient for release');
++        }
++      }
++
+       const releaseResult = await releaseFromEscrow(escrowId, order.buyerId, client);
+       if (releaseResult.alreadyReleased) {
+         await client.query(
+@@ -615,16 +658,20 @@ class P2PService {
+         timestamp: Date.now(),
+       } as P2PEscrowMessage);
+ 
+-      logger.info('P2P crypto released', { orderId });
++      auditLog(AuditAction.P2P_ORDER_RELEASED, userId, { orderId }, requestIp);
++      logger.info('P2P crypto released', { orderId, userId });
++      logger.info('P2P_SECURITY', { event: 'p2p_security', action: 'order_released', orderId, userId, ip: requestIp, timestamp: new Date().toISOString() });
+ 
+       return result.rows[0]!;
+     });
+   }
+ 
+   /**
+-   * Cancel P2P order
++   * Cancel P2P order. Idempotent: if already cancelled, no liquidity change.
+    */
+-  async cancelOrder(orderId: string, userId: string, reason: string): Promise<P2POrder> {
++  async cancelOrder(orderId: string, userId: string, reason: string, requestIp?: string): Promise<P2POrder> {
++    const CANCELLABLE_STATUSES = [P2POrderStatus.PAYMENT_PENDING, P2POrderStatus.PAYMENT_CONFIRMED] as const;
++
+     return await db.transaction(async (client) => {
+       const orderResult = await client.query<P2POrder>(
+         'SELECT * FROM p2p_orders WHERE id = $1 FOR UPDATE',
+@@ -637,12 +684,18 @@ class P2PService {
+ 
+       const order = orderResult.rows[0]!;
+ 
+-      // Can only cancel pending orders
+-      if (order.status !== P2POrderStatus.PAYMENT_PENDING) {
++      if (order.status === P2POrderStatus.CANCELLED) {
++        return order;
++      }
++
++      if (order.status === P2POrderStatus.COMPLETED || order.status === P2POrderStatus.RELEASING) {
++        throw new Error('Cannot cancel order in current status');
++      }
++
++      if (!CANCELLABLE_STATUSES.includes(order.status as (typeof CANCELLABLE_STATUSES)[number])) {
+         throw new Error('Cannot cancel order in current status');
+       }
+ 
+-      // Only buyer or seller can cancel
+       if (order.buyerId !== userId && order.sellerId !== userId) {
+         throw new Error('Not authorized to cancel this order');
+       }
+@@ -650,7 +703,6 @@ class P2PService {
+       const escrowId = (order as { escrowId?: string }).escrowId ?? (order as { escrow_id?: string }).escrow_id;
+       if (!escrowId) throw new Error('Order missing escrow_id');
+ 
+-      // PHASE-11: Idempotent refund. Debit escrow_balance only; credit seller available.
+       const refundResult = await refundFromEscrow(escrowId, client);
+       if (refundResult.alreadyRefunded) {
+         await client.query(
+@@ -662,14 +714,30 @@ class P2PService {
+       }
+ 
+       const qty = (order as { quantity?: string }).quantity ?? (order as { crypto_amount?: string }).crypto_amount;
+-      if (qty) {
++      const adId = (order as { adId?: string }).adId ?? (order as { ad_id?: string }).ad_id;
++      if (qty && adId) {
++        const adRow = await client.query<{ total_amount: string }>(
++          'SELECT total_amount::text AS total_amount FROM p2p_ads WHERE id = $1',
++          [adId]
++        );
++        const totalAmount = adRow.rows[0]?.total_amount ?? '0';
+         await client.query(
+           `UPDATE p2p_ads SET available_amount = available_amount + $2, updated_at = NOW() WHERE id = $1`,
+-          [order.adId, qty]
++          [adId, qty]
++        );
++        const afterRow = await client.query<{ available_amount: string }>(
++          'SELECT available_amount FROM p2p_ads WHERE id = $1',
++          [adId]
+         );
++        const availableAmountNew = afterRow.rows[0]?.available_amount ?? '0';
++        if (new Decimal(availableAmountNew).lessThan(0)) {
++          throw new Error('Liquidity clamp violation: available_amount would be negative');
++        }
++        if (new Decimal(availableAmountNew).greaterThan(totalAmount)) {
++          throw new Error('Liquidity restoration would exceed ad total');
++        }
+       }
+ 
+-      // Update order
+       const result = await client.query<P2POrder>(
+         `UPDATE p2p_orders 
+          SET status = 'cancelled', cancelled_at = NOW(), cancel_reason = $2, updated_at = NOW()
+@@ -678,7 +746,9 @@ class P2PService {
+         [orderId, reason]
+       );
+ 
+-      logger.info('P2P order cancelled', { orderId, reason });
++      auditLog(AuditAction.P2P_ORDER_CANCELLED, userId, { orderId, reason }, requestIp);
++      logger.info('P2P_SECURITY', { event: 'p2p_security', action: 'order_cancelled', orderId, userId, ip: requestIp, timestamp: new Date().toISOString() });
++      logger.info('P2P order cancelled', { orderId, userId, reason });
+ 
+       return result.rows[0]!;
+     });
