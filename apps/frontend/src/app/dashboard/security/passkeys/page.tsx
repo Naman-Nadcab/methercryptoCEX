@@ -16,6 +16,8 @@ import {
   KeyRound,
   Edit3,
 } from 'lucide-react';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { toast } from '@/components/ui/toaster';
 
 interface Passkey {
   id: string;
@@ -53,7 +55,7 @@ export default function PasskeysPage() {
   const [sendingDeleteEmailOtp, setSendingDeleteEmailOtp] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const apiUrl = getApiBaseUrl();
 
   // Fetch passkeys and 2FA status
   useEffect(() => {
@@ -169,11 +171,11 @@ export default function PasskeysPage() {
         setVerifyCode(['', '', '', '', '', '']);
         await createPasskey();
       } else {
-        alert(result.error?.message || 'Invalid 2FA code');
+        toast({ title: 'Error', description: result.error?.message || 'Invalid 2FA code', variant: 'destructive' });
       }
     } catch (error) {
       console.error('2FA verification failed:', error);
-      alert('Verification failed');
+      toast({ title: 'Error', description: 'Verification failed', variant: 'destructive' });
     } finally {
       setVerifying(false);
     }
@@ -280,18 +282,18 @@ export default function PasskeysPage() {
         if (passkeysResult.success) {
           setPasskeys(passkeysResult.data.passkeys || []);
         }
-        alert('Passkey added successfully!');
+        toast({ title: 'Passkey added successfully', variant: 'success' });
       } else {
         throw new Error(registerResult.error?.message || 'Failed to register passkey');
       }
     } catch (error: any) {
       console.error('Failed to create passkey:', error);
       if (error.name === 'NotAllowedError') {
-        alert('Passkey creation was cancelled or not allowed');
+        toast({ title: 'Cancelled', description: 'Passkey creation was cancelled or not allowed', variant: 'destructive' });
       } else if (error.name === 'NotSupportedError') {
-        alert('Passkeys are not supported on this device');
+        toast({ title: 'Not supported', description: 'Passkeys are not supported on this device', variant: 'destructive' });
       } else {
-        alert(error.message || 'Failed to create passkey');
+        toast({ title: 'Error', description: error.message || 'Failed to create passkey', variant: 'destructive' });
       }
     } finally {
       setCreating(false);
@@ -325,11 +327,11 @@ export default function PasskeysPage() {
         setRenamePasskeyId('');
         setRenameName('');
       } else {
-        alert(result.error?.message || 'Failed to rename passkey');
+        toast({ title: 'Error', description: result.error?.message || 'Failed to rename passkey', variant: 'destructive' });
       }
     } catch (error) {
       console.error('Failed to rename passkey:', error);
-      alert('Failed to rename passkey');
+      toast({ title: 'Error', description: 'Failed to rename passkey', variant: 'destructive' });
     } finally {
       setRenaming(false);
     }
@@ -386,7 +388,7 @@ export default function PasskeysPage() {
       const verifyEmailResult = await verifyEmailRes.json();
 
       if (!verifyEmailResult.success) {
-        alert(verifyEmailResult.error?.message || 'Invalid email verification code');
+        toast({ title: 'Error', description: verifyEmailResult.error?.message || 'Invalid email verification code', variant: 'destructive' });
         setDeleting(false);
         return;
       }
@@ -404,7 +406,7 @@ export default function PasskeysPage() {
         const verify2faResult = await verify2faRes.json();
 
         if (!verify2faResult.success) {
-          alert(verify2faResult.error?.message || 'Invalid 2FA code');
+          toast({ title: 'Error', description: verify2faResult.error?.message || 'Invalid 2FA code', variant: 'destructive' });
           setDeleting(false);
           return;
         }
@@ -425,11 +427,11 @@ export default function PasskeysPage() {
           // Already handled by the UI
         }
       } else {
-        alert(result.error?.message || 'Failed to delete passkey');
+        toast({ title: 'Error', description: result.error?.message || 'Failed to delete passkey', variant: 'destructive' });
       }
     } catch (error) {
       console.error('Failed to delete passkey:', error);
-      alert('Failed to delete passkey');
+      toast({ title: 'Error', description: 'Failed to delete passkey', variant: 'destructive' });
     } finally {
       setDeleting(false);
     }
@@ -471,7 +473,7 @@ export default function PasskeysPage() {
           <h1 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">Passkeys</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">
             Please add a passkey for faster and more secure account protection.{' '}
-            <a href="#" className="text-blue-500 hover:underline">Learn More →</a>
+            <Link href="/dashboard/help#passkeys" className="text-blue-500 hover:underline">Learn More →</Link>
           </p>
         </div>
 

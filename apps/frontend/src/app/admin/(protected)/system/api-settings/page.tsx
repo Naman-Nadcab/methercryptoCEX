@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAdminAuthStore } from '@/store/admin-auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { SectionHeader, Panel, ActionButton } from '@/components/admin/control-plane';
 import { Loader2, RefreshCw, Save, AlertTriangle, RotateCcw, Plus, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const API_URL = getApiBaseUrl();
 
 /** Key prefix for API configs stored in settings (frontend-only convention) */
 const API_CONFIG_PREFIX = 'api_config_';

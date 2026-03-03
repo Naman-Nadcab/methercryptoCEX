@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
-import { handleGoogleCallback } from '@/lib/oauth';
+import { handleGoogleCallback, consumeOAuthRedirect } from '@/lib/oauth';
 import { useAuthStore } from '@/store/auth';
 
 export default function GoogleCallbackPage() {
@@ -45,7 +45,8 @@ export default function GoogleCallbackPage() {
           };
           setUser(user);
           setTokens(result.data.accessToken, result.data.refreshToken);
-          router.push('/dashboard');
+          const redirect = consumeOAuthRedirect();
+          router.push(redirect || '/dashboard');
         } else {
           setError(result.error?.message || 'Google login failed');
           setTimeout(() => router.push('/login'), 3000);

@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAdminAuthStore } from '@/store/admin-auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { toast } from '@/components/ui/toaster';
 import { 
   Coins, Plus, Edit2, Search, Filter,
   Loader2, Save, AlertCircle, ChevronDown, Check
@@ -62,7 +64,7 @@ export default function CurrenciesPage() {
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const loadingMoreRef = useRef(false);
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const apiUrl = getApiBaseUrl();
 
   const fetchCurrencies = async (reset = true) => {
     if (!accessToken) return;
@@ -189,11 +191,11 @@ export default function CurrenciesPage() {
           c.symbol === symbol ? { ...c, [field]: !currentValue } : c
         ));
       } else {
-        alert('Failed to update: ' + (result.error?.message || 'Unknown error'));
+        toast({ title: 'Error', description: result.error?.message || 'Failed to update', variant: 'destructive' });
       }
     } catch (error) {
       console.error('Failed to toggle currency setting:', error);
-      alert('Failed to update setting.');
+      toast({ title: 'Error', description: 'Failed to update setting.', variant: 'destructive' });
     } finally {
       setToggling(null);
     }

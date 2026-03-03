@@ -5,6 +5,7 @@ import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
 import { p2pService } from '../services/p2p.service.js';
 import { evaluateP2PRisk } from '../services/abuse-resilience.service.js';
+import { recordAndEvaluate } from '../services/aml-transaction-monitor.service.js';
 import { getCurrencyIdBySymbol, getTokenIdsByCurrencyId } from '../lib/currency-resolver.js';
 import { rateLimitByUser } from '../lib/rate-limit-fastify.js';
 import { P2PAdType, P2PPriceType } from '../types/index.js';
@@ -72,22 +73,42 @@ export default async function p2pRoutes(app: FastifyInstance) {
   
   /**
    * GET /p2p/ads
-   * Get P2P advertisements
+   * Get P2P advertisements. Uses optional auth to exclude blocked advertisers when logged in.
+   * P1: limit/offset coerced and validated to avoid NaN in SQL.
    */
-  app.get('/ads', async (request, reply) => {
+  app.get<{
+    Querystring: { type?: string; currency?: string; fiat?: string; limit?: string | number; offset?: string | number };
+  }>('/ads', {
+    preHandler: [app.authenticateOptional],
+    schema: {
+      querystring: {
+        type: 'object',
+        properties: {
+          type: { type: 'string' },
+          currency: { type: 'string' },
+          fiat: { type: 'string' },
+          limit: { oneOf: [{ type: 'string' }, { type: 'number' }] },
+          offset: { oneOf: [{ type: 'string' }, { type: 'number' }] },
+        },
+      },
+    },
+  }, async (request, reply) => {
     try {
-      const q = request.query as any;
+      const q = request.query;
       const type = q.type;
       const currency = q.currency;
       const fiat = q.fiat;
       const limitRaw = q.limit != null ? q.limit : 20;
       const offsetRaw = q.offset != null ? q.offset : 0;
-      const limit = Math.min(100, Math.max(1, parseInt(String(limitRaw), 10) || 20));
-      const offset = Math.max(0, parseInt(String(offsetRaw), 10) || 0);
+      const parsedLimit = typeof limitRaw === 'number' ? (Number.isFinite(limitRaw) ? Math.floor(limitRaw) : NaN) : parseInt(String(limitRaw), 10);
+      const parsedOffset = typeof offsetRaw === 'number' ? (Number.isFinite(offsetRaw) ? Math.floor(offsetRaw) : NaN) : parseInt(String(offsetRaw), 10);
+      const limit = Number.isFinite(parsedLimit) ? Math.min(100, Math.max(1, parsedLimit)) : 20;
+      const offset = Number.isFinite(parsedOffset) ? Math.max(0, parsedOffset) : 0;
 
       let query = `
         SELECT 
           pa.id,
+          pa.user_id,
           pa.ad_type,
           pa.pricing_type,
           pa.fixed_price,
@@ -142,6 +163,14 @@ export default async function p2pRoutes(app: FastifyInstance) {
         params.push(fiat.toUpperCase());
       }
 
+      // Exclude blocked advertisers when user is authenticated (optional auth via preHandler)
+      const userId = (request as { user?: { id: string } }).user?.id;
+      if (userId) {
+        query += ` AND pa.user_id NOT IN (SELECT advertiser_id FROM p2p_blocked_advertisers WHERE user_id = $${paramIndex})`;
+        params.push(userId);
+        paramIndex++;
+      }
+
       query += ` ORDER BY pa.current_price ${type === 'sell' ? 'ASC' : 'DESC'}, pms.completion_rate DESC NULLS LAST`;
       query += ` LIMIT $${paramIndex++} OFFSET $${paramIndex}`;
       params.push(limit, offset);
@@ -158,6 +187,55 @@ export default async function p2pRoutes(app: FastifyInstance) {
         success: false,
         error: { code: 'FETCH_FAILED', message: 'Failed to fetch ads' },
       });
+    }
+  });
+
+  /**
+   * POST /p2p/blocked-advertisers — block an advertiser (hide their ads)
+   */
+  app.post<{ Body: { advertiser_id?: string } }>('/blocked-advertisers', {
+    preHandler: [app.authenticate],
+  }, async (request, reply) => {
+    const userId = request.user!.id;
+    const advertiserId = (request.body?.advertiser_id ?? '').trim();
+    if (!advertiserId || !UUID_REGEX.test(advertiserId)) {
+      return reply.status(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'advertiser_id required and must be a valid UUID' } });
+    }
+    if (advertiserId === userId) {
+      return reply.status(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Cannot block yourself' } });
+    }
+    try {
+      await db.query(
+        `INSERT INTO p2p_blocked_advertisers (user_id, advertiser_id) VALUES ($1, $2) ON CONFLICT (user_id, advertiser_id) DO NOTHING`,
+        [userId, advertiserId]
+      );
+      return reply.send({ success: true });
+    } catch (e) {
+      logger.error('Failed to block advertiser', { error: e });
+      return reply.status(500).send({ success: false, error: { code: 'BLOCK_FAILED', message: 'Failed to block advertiser' } });
+    }
+  });
+
+  /**
+   * DELETE /p2p/blocked-advertisers/:advertiserId — unblock an advertiser
+   */
+  app.delete<{ Params: { advertiserId: string } }>('/blocked-advertisers/:advertiserId', {
+    preHandler: [app.authenticate],
+  }, async (request, reply) => {
+    const userId = request.user!.id;
+    const advertiserId = request.params.advertiserId?.trim() ?? '';
+    if (!advertiserId || !UUID_REGEX.test(advertiserId)) {
+      return reply.status(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'advertiserId must be a valid UUID' } });
+    }
+    try {
+      const r = await db.query(
+        `DELETE FROM p2p_blocked_advertisers WHERE user_id = $1 AND advertiser_id = $2 RETURNING 1`,
+        [userId, advertiserId]
+      );
+      return reply.send({ success: true, removed: (r.rowCount ?? 0) > 0 });
+    } catch (e) {
+      logger.error('Failed to unblock advertiser', { error: e });
+      return reply.status(500).send({ success: false, error: { code: 'UNBLOCK_FAILED', message: 'Failed to unblock advertiser' } });
     }
   });
 
@@ -420,15 +498,183 @@ export default async function p2pRoutes(app: FastifyInstance) {
           error: { code: 'NOT_FOUND', message: 'Order not found' },
         });
       }
+      const row = result.rows[0] as Record<string, unknown>;
+      const isBuyer = row.buyer_id === userId;
+      const status = String(row.status || '');
+      if (isBuyer && status === 'payment_pending') {
+        const sellerId = row.seller_id as string;
+        const adId = row.ad_id as string | undefined;
+        if (sellerId) {
+          let pmResult: { rows: Record<string, unknown>[] } | null = null;
+          if (adId) {
+            const r = await db.query(`
+              SELECT upm.payment_details, upm.display_name, pm.name as method_name, pm.code as method_code
+              FROM p2p_ads pa
+              JOIN user_p2p_payment_methods upm ON upm.user_id = $2 AND upm.is_active = TRUE
+                AND upm.id IN (SELECT (jsonb_array_elements_text(COALESCE(pa.accepted_payment_methods, '[]'::jsonb)))::uuid)
+              JOIN p2p_payment_methods pm ON pm.id = upm.payment_method_id
+              WHERE pa.id = $1 AND pa.user_id = $2
+              LIMIT 1
+            `, [adId, sellerId]);
+            if (r.rows.length > 0) pmResult = r;
+          }
+          if (!pmResult || pmResult.rows.length === 0) {
+            const r = await db.query(`
+              SELECT upm.payment_details, upm.display_name, pm.name as method_name, pm.code as method_code
+              FROM user_p2p_payment_methods upm
+              JOIN p2p_payment_methods pm ON pm.id = upm.payment_method_id
+              WHERE upm.user_id = $1 AND upm.is_active = TRUE
+              LIMIT 1
+            `, [sellerId]);
+            if (r.rows.length > 0) pmResult = r;
+          }
+          if (pmResult && pmResult.rows.length > 0) {
+            const pm = pmResult.rows[0] as Record<string, unknown>;
+            row.seller_payment_details = pm.payment_details;
+            row.seller_payment_display_name = pm.display_name;
+            row.seller_payment_method_name = pm.method_name;
+            row.seller_payment_method_code = pm.method_code;
+          }
+        }
+      }
       return reply.send({
         success: true,
-        data: result.rows[0],
+        data: row,
       });
     } catch (error) {
       logger.error('Failed to fetch P2P order', { error });
       return reply.status(500).send({
         success: false,
         error: { code: 'FETCH_FAILED', message: 'Failed to fetch order' },
+      });
+    }
+  });
+
+  /**
+   * GET /p2p/orders/:orderId/messages
+   * List chat messages for a P2P order (caller must be buyer or seller).
+   * Query: since=ISO timestamp — return only messages after this time (for long-poll / real-time polling).
+   */
+  app.get<{ Params: { orderId: string }; Querystring: { since?: string } }>('/orders/:orderId/messages', {
+    preHandler: [app.authenticate],
+  }, async (request, reply) => {
+    try {
+      const { id: userId } = request.user!;
+      const orderId = request.params.orderId;
+      const sinceRaw = request.query?.since;
+      let sinceDate: Date | null = null;
+      if (sinceRaw && typeof sinceRaw === 'string') {
+        const t = Date.parse(sinceRaw);
+        if (!Number.isNaN(t)) sinceDate = new Date(t);
+      }
+      if (!orderId || !UUID_REGEX.test(orderId)) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'orderId required and must be a valid UUID' },
+        });
+      }
+      const orderCheck = await db.query<{ id: string }>(
+        `SELECT id FROM p2p_orders WHERE id = $1 AND (buyer_id = $2 OR seller_id = $2)`,
+        [orderId, userId]
+      );
+      if (orderCheck.rows.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Order not found' },
+        });
+      }
+      const result = sinceDate
+        ? await db.query(
+            `SELECT m.id, m.order_id, m.sender_id, m.message, m.created_at, u.username as sender_username
+             FROM p2p_order_messages m
+             JOIN users u ON u.id = m.sender_id
+             WHERE m.order_id = $1 AND m.created_at > $2
+             ORDER BY m.created_at ASC`,
+            [orderId, sinceDate]
+          )
+        : await db.query(
+            `SELECT m.id, m.order_id, m.sender_id, m.message, m.created_at, u.username as sender_username
+             FROM p2p_order_messages m
+             JOIN users u ON u.id = m.sender_id
+             WHERE m.order_id = $1
+             ORDER BY m.created_at ASC`,
+            [orderId]
+          );
+      const messages = (result.rows as Array<{ id: string; order_id: string; sender_id: string; message: string; created_at: Date; sender_username: string }>).map((r) => ({
+        id: r.id,
+        orderId: r.order_id,
+        senderId: r.sender_id,
+        message: r.message,
+        createdAt: (r.created_at as Date).toISOString(),
+        senderUsername: r.sender_username,
+      }));
+      return reply.send({ success: true, data: messages });
+    } catch (error) {
+      logger.error('Failed to fetch P2P order messages', { error });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'FETCH_FAILED', message: 'Failed to fetch messages' },
+      });
+    }
+  });
+
+  /**
+   * POST /p2p/orders/:orderId/messages
+   * Send a chat message for a P2P order (caller must be buyer or seller).
+   */
+  app.post<{ Params: { orderId: string }; Body: { message?: string } }>('/orders/:orderId/messages', {
+    preHandler: [app.authenticate, rateLimitByUser('p2p:chat', 60, 60)],
+  }, async (request, reply) => {
+    try {
+      const { id: userId } = request.user!;
+      const orderId = request.params.orderId;
+      const text = typeof request.body?.message === 'string' ? request.body.message.trim() : '';
+      if (!orderId || !UUID_REGEX.test(orderId)) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'orderId required and must be a valid UUID' },
+        });
+      }
+      if (text.length === 0 || text.length > 2000) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'Message must be 1–2000 characters' },
+        });
+      }
+      const orderCheck = await db.query<{ id: string }>(
+        `SELECT id FROM p2p_orders WHERE id = $1 AND (buyer_id = $2 OR seller_id = $2)`,
+        [orderId, userId]
+      );
+      if (orderCheck.rows.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Order not found' },
+        });
+      }
+      const ins = await db.query<{ id: string; created_at: Date }>(
+        `INSERT INTO p2p_order_messages (order_id, sender_id, message) VALUES ($1, $2, $3)
+         RETURNING id, created_at`,
+        [orderId, userId, text]
+      );
+      const row = ins.rows[0]!;
+      const userRow = await db.query<{ username: string }>(`SELECT username FROM users WHERE id = $1`, [userId]);
+      const senderUsername = userRow.rows[0]?.username ?? null;
+      return reply.status(201).send({
+        success: true,
+        data: {
+          id: row.id,
+          orderId,
+          senderId: userId,
+          senderUsername,
+          message: text,
+          createdAt: (row.created_at as Date).toISOString(),
+        },
+      });
+    } catch (error) {
+      logger.error('Failed to send P2P message', { error });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'SEND_FAILED', message: 'Failed to send message' },
       });
     }
   });
@@ -1001,6 +1247,24 @@ export default async function p2pRoutes(app: FastifyInstance) {
     const requestIp = getRequestIp(request);
     try {
       const order = await p2pService.releaseCrypto(orderId, userId, requestIp);
+      const ord = order as { buyerId?: string; sellerId?: string; tokenId?: string; token_id?: string; quantity?: string };
+      const tokenId = ord.tokenId ?? ord.token_id;
+      const amt = ord.quantity ?? '0';
+      if (tokenId && amt !== '0') {
+        const symRow = await db.query<{ symbol: string }>('SELECT symbol FROM tokens WHERE id = $1 LIMIT 1', [tokenId]);
+        const symbol = symRow.rows[0]?.symbol ?? 'CRYPTO';
+        const params = { txnType: 'p2p' as const, asset: symbol, amount: amt, fiatAmount: null, fiatCurrency: null, countryCode: null };
+        if (ord.buyerId) {
+          recordAndEvaluate({ ...params, userId: ord.buyerId }).catch((e) =>
+            logger.warn('AML P2P (buyer) failed (best-effort)', { userId: ord.buyerId, error: e instanceof Error ? e.message : String(e) })
+          );
+        }
+        if (ord.sellerId) {
+          recordAndEvaluate({ ...params, userId: ord.sellerId }).catch((e) =>
+            logger.warn('AML P2P (seller) failed (best-effort)', { userId: ord.sellerId, error: e instanceof Error ? e.message : String(e) })
+          );
+        }
+      }
       const response = { success: true as const, data: order as unknown as Record<string, unknown> };
       try {
         await redis.setJson(redisKey, { requestHash, response }, P2P_RELEASE_IDEMPOTENCY_TTL_SECONDS);
@@ -1105,6 +1369,47 @@ export default async function p2pRoutes(app: FastifyInstance) {
       return reply.status(400).send({
         success: false,
         error: { code: 'CANCEL_FAILED', message: msg },
+      });
+    }
+  });
+
+  /**
+   * POST /p2p/orders/:orderId/dispute
+   * Open a dispute (buyer or seller, only when status is payment_confirmed)
+   */
+  app.post<{
+    Params: { orderId: string };
+    Body: { reason?: string; evidence?: string[] };
+  }>('/orders/:orderId/dispute', {
+    preHandler: [app.authenticate, rateLimitByUser('p2p:dispute', 10, 60)],
+  }, async (request, reply) => {
+    const userId = request.user!.id;
+    const orderId = request.params.orderId;
+    const reason = typeof request.body?.reason === 'string' ? request.body.reason.trim() : '';
+    const evidence = Array.isArray(request.body?.evidence) ? request.body.evidence : undefined;
+    if (!orderId || !UUID_REGEX.test(orderId)) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'orderId required and must be a valid UUID' },
+      });
+    }
+    if (reason.length < 10 || reason.length > 1000) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'reason is required (10-1000 characters)' },
+      });
+    }
+    try {
+      const dispute = await p2pService.openDispute(orderId, userId, reason, evidence);
+      return reply.status(201).send({
+        success: true,
+        data: dispute,
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Failed to open dispute';
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'DISPUTE_FAILED', message: msg },
       });
     }
   });

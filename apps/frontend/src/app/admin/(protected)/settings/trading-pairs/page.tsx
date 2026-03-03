@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useAdminAuthStore } from '@/store/admin-auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { toast as toastNotify } from '@/components/ui/toaster';
 import { 
   TrendingUp, Plus, Edit2, Trash2, Search, Loader2, Save, 
   AlertCircle, Check, X, ChevronDown, Link2, Coins, ArrowRightLeft
@@ -100,7 +102,7 @@ export default function TradingPairsPage() {
   // Success Toast State
   const [toast, setToast] = useState<{ show: boolean; message: string; type: 'success' | 'error' } | null>(null);
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const apiUrl = getApiBaseUrl();
   
   // Show toast helper
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -380,7 +382,7 @@ export default function TradingPairsPage() {
           setSelectedQuote(selectedCurrency);
           onClose();
         } else {
-          alert(result.error?.message || 'Failed to add');
+          toastNotify({ title: 'Error', description: result.error?.message || 'Failed to add', variant: 'destructive' });
         }
       } catch (error) {
         console.error('Error:', error);
@@ -712,11 +714,11 @@ export default function TradingPairsPage() {
           fetchTradingPairs(selectedQuoteAsset?.symbol);
           fetchQuoteAssets();
         } else {
-          alert(result.error?.message || 'Failed to create pairs');
+          toastNotify({ title: 'Error', description: result.error?.message || 'Failed to create pairs', variant: 'destructive' });
         }
       } catch (error) {
         console.error('Error:', error);
-        alert('Error creating pairs');
+        toastNotify({ title: 'Error', description: 'Error creating pairs', variant: 'destructive' });
       } finally {
         setSaving(false);
       }

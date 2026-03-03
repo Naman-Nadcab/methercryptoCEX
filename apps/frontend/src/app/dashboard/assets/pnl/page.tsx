@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store/auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 import Link from 'next/link';
 import { notifyError } from '@/lib/notifyError';
 import {
@@ -44,7 +45,7 @@ export default function PnlAnalysisPage() {
   const [chartData, setChartData] = useState<{ date: string; value: number }[]>([]);
   const [ordersExpanded, setOrdersExpanded] = useState(false);
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const API_URL = getApiBaseUrl();
 
   const timePeriods = [
     { id: '7D', label: 'Last 7 D' },

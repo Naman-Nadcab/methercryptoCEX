@@ -8,6 +8,7 @@ export type Order = {
   side: string;
   type: string;
   price: string | null;
+  stop_price?: string | null;
   quantity: string;
   filled_quantity: string;
   status: string;
@@ -33,7 +34,7 @@ interface UseSpotBottomPanelParams {
 }
 
 export function useSpotBottomPanel({ symbol, isAuth, ordersVersion }: UseSpotBottomPanelParams) {
-  const [tab, setTab] = useState<'open' | 'orders' | 'trades'>('open');
+  const [tab, setTab] = useState<'open' | 'orders' | 'trades' | 'assets'>('open');
   const [openOrders, setOpenOrders] = useState<Order[]>([]);
   const [openLoading, setOpenLoading] = useState(false);
   const [orderHistory, setOrderHistory] = useState<Order[]>([]);

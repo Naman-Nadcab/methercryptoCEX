@@ -34,6 +34,21 @@ export function useChartAdapter(
       })
       .catch(() => {});
 
+    api
+      .get<{ data?: Array<{ created_at: string; price: string; side: string }> }>(
+        `/api/v1/spot/trade-history?market=${encodeURIComponent(symbol)}&limit=50`
+      )
+      .then((res) => {
+        if (cancelled || !adapterRef.current || !res.data?.data?.length) return;
+        const trades = res.data.data.map((r) => ({
+          time: Math.floor(new Date(r.created_at).getTime() / 1000),
+          price: Number(r.price),
+          side: (r.side === 'sell' ? 'sell' : 'buy') as 'buy' | 'sell',
+        }));
+        adapterRef.current?.setTradeMarkers?.(trades);
+      })
+      .catch(() => {});
+
     let pollId: ReturnType<typeof setInterval> | null = null;
     const startPolling = () => {
       if (pollId != null) return;

@@ -1,5 +1,4 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import multipart from '@fastify/multipart';
 import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
 import path from 'path';
@@ -36,13 +35,7 @@ async function verifyAdmin(request: FastifyRequest, reply: FastifyReply) {
 }
 
 export default async function uploadRoutes(app: FastifyInstance) {
-  // Register multipart support
-  await app.register(multipart, {
-    limits: {
-      fileSize: 5 * 1024 * 1024, // 5MB max
-      files: 1, // Only 1 file at a time
-    },
-  });
+  // Multipart is registered globally in server.ts
 
   // Frontend public folder path (relative to backend)
   const FRONTEND_PUBLIC = path.resolve(process.cwd(), '../frontend/public');

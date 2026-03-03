@@ -8,8 +8,10 @@ import { useAuthStore } from '@/store/auth';
 import { useBalancesByAccount } from '@/lib/balances';
 import { useSpotWs, type OrderbookSnapshot, type TickerMessage, type TradeMessage } from '@/hooks/useSpotWs';
 import { getMessageFromApiError } from '@/lib/errorMessages';
+import { toast } from '@/components/ui/toaster';
 import { PairHeader } from './PairHeader';
 import { ChartPanel } from './ChartPanel';
+import { SpotDepthChart } from './SpotDepthChart';
 import { SpotOrderbookPanel } from './SpotOrderbookPanel';
 import { SpotOrderEntryPanel } from './SpotOrderEntryPanel';
 import { SpotBottomPanel } from './SpotBottomPanel';
@@ -49,8 +51,11 @@ export function SpotTradingGrid() {
   const [recentTrades, setRecentTrades] = useState<TradeMessage[]>([]);
 
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
-  const [orderType, setOrderType] = useState<'limit' | 'market'>('limit');
+  const [orderType, setOrderType] = useState<'limit' | 'market' | 'stop_loss' | 'stop_limit' | 'trailing_stop_market'>('limit');
+  const [timeInForce, setTimeInForce] = useState<'gtc' | 'ioc' | 'fok'>('gtc');
   const [price, setPrice] = useState('');
+  const [stopPrice, setStopPrice] = useState('');
+  const [trailingDelta, setTrailingDelta] = useState('');
   const [quantity, setQuantity] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -80,26 +85,74 @@ export function SpotTradingGrid() {
   const lastPrice = ticker?.last_price ?? (orderbook
     ? (orderbook.asks[0]?.price ?? orderbook.bids[0]?.price ?? null)
     : null);
-  const effectivePrice = orderType === 'limit' && price ? price : lastPrice ?? '0';
+  const isStop = orderType === 'stop_loss' || orderType === 'stop_limit';
+  const effectivePrice = (orderType === 'limit' || orderType === 'stop_limit') && price ? price : lastPrice ?? '0';
   const priceNum = parseFloat(effectivePrice) || 0;
+  const stopPriceNum = parseFloat(stopPrice) || 0;
   const qtyNum = parseFloat(quantity) || 0;
   const total = (priceNum * qtyNum).toFixed(8);
+  const trailingDeltaNum = parseFloat(trailingDelta) || 0;
   const canSubmit =
     qtyNum > 0 &&
-    (orderType === 'market' || (orderType === 'limit' && priceNum > 0)) &&
     baseAsset &&
-    quoteAsset;
+    quoteAsset &&
+    (orderType === 'market' ||
+      (orderType === 'limit' && priceNum > 0) ||
+      (orderType === 'stop_loss' && stopPriceNum > 0) ||
+      (orderType === 'stop_limit' && priceNum > 0 && stopPriceNum > 0) ||
+      (orderType === 'trailing_stop_market' && trailingDeltaNum > 0 && trailingDeltaNum <= 100));
+
+  const { estimatedFillPrice, estimatedSlippagePct } = useMemo(() => {
+    if (orderType !== 'market' || !orderbook || qtyNum <= 0 || !lastPrice) return { estimatedFillPrice: null as string | null, estimatedSlippagePct: null as number | null };
+    const last = parseFloat(lastPrice);
+    if (!Number.isFinite(last) || last <= 0) return { estimatedFillPrice: null, estimatedSlippagePct: null };
+    let remaining = qtyNum;
+    let cost = 0;
+    const levels = side === 'buy' ? orderbook.asks : orderbook.bids;
+    for (const row of levels) {
+      const p = parseFloat(row.price) || 0;
+      const q = parseFloat(row.quantity) || 0;
+      if (q <= 0 || p <= 0) continue;
+      const fill = Math.min(remaining, q);
+      cost += p * fill;
+      remaining -= fill;
+      if (remaining <= 0) break;
+    }
+    if (remaining > 0) return { estimatedFillPrice: null, estimatedSlippagePct: null };
+    const avgFill = cost / qtyNum;
+    const slippagePct = side === 'buy'
+      ? ((avgFill - last) / last) * 100
+      : ((last - avgFill) / last) * 100;
+    return {
+      estimatedFillPrice: avgFill.toFixed(8),
+      estimatedSlippagePct: Number.isFinite(slippagePct) ? slippagePct : null,
+    };
+  }, [orderType, orderbook, qtyNum, side, lastPrice]);
 
   const setMaxQty = useCallback(() => {
     if (!baseAsset || !quoteAsset) return;
     if (side === 'buy') {
       const bal = parseFloat(availableBalance) || 0;
-      if (priceNum > 0) setQuantity((bal / priceNum).toFixed(8));
+      const priceForMax = orderType === 'stop_loss' && stopPriceNum > 0 ? stopPriceNum : priceNum;
+      if (priceForMax > 0) setQuantity((bal / priceForMax).toFixed(8));
       else setQuantity('');
     } else {
       setQuantity(availableBalance || '0');
     }
-  }, [side, availableBalance, priceNum, baseAsset, quoteAsset]);
+  }, [side, availableBalance, priceNum, stopPriceNum, orderType, baseAsset, quoteAsset]);
+
+  const setQtyPercent = useCallback((percent: number) => {
+    if (!baseAsset || !quoteAsset || percent <= 0 || percent > 1) return;
+    if (side === 'buy') {
+      const bal = parseFloat(availableBalance) || 0;
+      const priceForMax = orderType === 'stop_loss' && stopPriceNum > 0 ? stopPriceNum : priceNum;
+      if (priceForMax > 0) setQuantity(((bal * percent) / priceForMax).toFixed(8));
+      else setQuantity('');
+    } else {
+      const bal = parseFloat(availableBalance) || 0;
+      setQuantity((bal * percent).toFixed(8));
+    }
+  }, [side, availableBalance, priceNum, stopPriceNum, orderType, baseAsset, quoteAsset]);
 
   const { subscribe, unsubscribe, connected } = useSpotWs({
     onOrderbook: (data) => {
@@ -207,20 +260,35 @@ export function SpotTradingGrid() {
       quantity: quantity.trim(),
       client_order_id: cid,
     };
-    if (orderType === 'limit' && price.trim()) body.price = price.trim();
+    if ((orderType === 'limit' || orderType === 'stop_limit') && price.trim()) body.price = price.trim();
+    if ((orderType === 'stop_loss' || orderType === 'stop_limit') && stopPrice.trim()) body.stop_price = stopPrice.trim();
+    if (orderType === 'trailing_stop_market' && trailingDelta.trim()) body.trailing_delta = trailingDelta.trim();
+    if (orderType === 'limit' || orderType === 'stop_limit') body.time_in_force = timeInForce;
+    if (orderType === 'market' || orderType === 'trailing_stop_market') body.time_in_force = 'ioc';
 
-    const res = await api.post<{ id?: string }>('/api/v1/spot/orders', body);
+    const res = await api.post<{ id?: string }>('/api/v1/spot/order', body);
     setSubmitting(false);
     if (res.success) {
+      const qty = quantity;
+      const base = baseAsset;
+      const sd = side;
+      const ot = orderType;
       setQuantity('');
       setPrice('');
+      setStopPrice('');
+      setTrailingDelta('');
       setOrdersVersion((v) => v + 1);
       queryClient.invalidateQueries({ queryKey: ['balances'] });
       refetchBalances();
+      toast({
+        title: 'Order placed',
+        description: `${sd === 'buy' ? 'Buy' : 'Sell'} ${qty} ${base} ${ot === 'market' ? '(Market)' : '(Limit)'}`,
+        variant: 'success',
+      });
     } else {
       setSubmitError(getMessageFromApiError(res.error) ?? res.error?.message ?? 'Order failed');
     }
-  }, [isAuth, symbol, side, orderType, price, quantity, canSubmit, submitting, queryClient, refetchBalances]);
+  }, [isAuth, symbol, side, orderType, timeInForce, price, stopPrice, trailingDelta, quantity, canSubmit, submitting, queryClient, refetchBalances]);
 
   if (marketsLoading || (markets.length > 0 && !symbol)) {
     return (
@@ -250,20 +318,30 @@ export function SpotTradingGrid() {
         volume24h={ticker?.volume_24h ?? null}
         markets={markets}
         onSymbolChange={setSymbol}
+        wsConnected={connected}
       />
-      <div className="flex-1 min-h-0 grid grid-cols-[58fr_21fr_21fr] gap-[1px] bg-white/5">
-        <ChartPanel symbol={symbol} intervalSeconds={60} theme="dark" />
+      <div className="flex-1 min-h-0 grid grid-cols-[58fr_21fr_21fr] gap-px bg-white/5 p-0">
+        <div className="flex flex-col min-h-0 min-w-0">
+          <div className="flex-1 min-h-0">
+            <ChartPanel symbol={symbol} intervalSeconds={60} theme="dark" />
+          </div>
+          <SpotDepthChart bids={orderbook?.bids ?? []} asks={orderbook?.asks ?? []} height={72} />
+        </div>
         <SpotOrderbookPanel
           bids={orderbook?.bids ?? []}
           asks={orderbook?.asks ?? []}
           quoteAsset={quoteAsset}
           baseAsset={baseAsset}
           onPriceClick={handlePriceClick}
+          loading={orderbookLoading}
+          recentTrades={recentTrades}
         />
         <SpotOrderEntryPanel
           side={side}
           orderType={orderType}
           price={price}
+          stopPrice={stopPrice}
+          trailingDelta={trailingDelta}
           quantity={quantity}
           total={total}
           baseAsset={baseAsset}
@@ -271,14 +349,21 @@ export function SpotTradingGrid() {
           availableBalance={availableBalance}
           makerFeePercent={makerFee}
           takerFeePercent={takerFee}
+          timeInForce={timeInForce}
           canSubmit={!!(canSubmit && isAuth)}
           loading={submitting}
           onSideChange={setSide}
           onOrderTypeChange={setOrderType}
           onPriceChange={setPrice}
+          onStopPriceChange={setStopPrice}
+          onTrailingDeltaChange={setTrailingDelta}
           onQuantityChange={setQuantity}
           onSetMaxQty={setMaxQty}
+          onSetQtyPercent={setQtyPercent}
+          onTimeInForceChange={setTimeInForce}
           onSubmit={handleSubmit}
+          estimatedFillPrice={estimatedFillPrice}
+          estimatedSlippagePct={estimatedSlippagePct}
         />
       </div>
       {submitError && (

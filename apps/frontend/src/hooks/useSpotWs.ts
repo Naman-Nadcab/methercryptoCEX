@@ -6,9 +6,10 @@ import { useAuthStore } from '@/store/auth';
 
 const getWsUrl = (token: string | null): string => {
   let base = getApiBaseUrl();
-  // WebSocket needs a valid base URL; getApiBaseUrl() returns '' in browser for same-origin fetch
+  // WebSocket needs a valid base URL; getApiBaseUrl() returns '' in browser for same-origin
   if (!base && typeof window !== 'undefined') {
-    base = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:4000';
+    const envUrl = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL;
+    base = (envUrl && envUrl.trim()) ? envUrl.trim().replace(/\/$/, '') : 'http://localhost:4000';
   }
   if (!base) base = 'http://localhost:4000';
   base = base.replace(/\/$/, '').replace(/^http/, 'ws');

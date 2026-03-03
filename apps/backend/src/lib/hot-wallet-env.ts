@@ -27,3 +27,25 @@ export function validateHotWalletEnv(): void {
   }
   logger.info('Hot wallet critical env validated (ENCRYPTION_KEY, DATABASE_URL).');
 }
+
+/**
+ * Production-specific config checks. Logs warnings for misconfigurations.
+ * Does not block startup; operator must fix before handling real money.
+ */
+export function validateProductionConfig(): void {
+  if (process.env.NODE_ENV !== 'production') return;
+
+  const warnings: string[] = [];
+
+  const adminIps = (process.env.ADMIN_IP_WHITELIST ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (adminIps.length === 0) {
+    warnings.push('ADMIN_IP_WHITELIST is empty. No admin will be able to access. Set it before production use.');
+  }
+
+  if (warnings.length > 0) {
+    logger.warn('Production config warnings (fix before handling real money)', { warnings });
+  }
+}

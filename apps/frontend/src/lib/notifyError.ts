@@ -1,6 +1,6 @@
 /**
- * Centralized error notification.
- * Ensures no user action fails silently - always shows visible feedback.
+ * Centralized notifications.
+ * Use instead of alert() for consistent UX (toast).
  */
 
 export function notifyError(
@@ -14,5 +14,12 @@ export function notifyError(
       description: message,
       variant: opts?.variant ?? 'destructive',
     });
+  });
+}
+
+export function notifySuccess(title: string, description?: string): void {
+  if (typeof window === 'undefined') return;
+  import('@/components/ui/toaster').then(({ toast }) => {
+    toast({ title, description, variant: 'success' });
   });
 }

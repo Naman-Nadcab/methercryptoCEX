@@ -8,19 +8,25 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "turbo run dev",
-    "dev:all": "docker-compose up -d redis rabbitmq && npm run dev",
+    "dev": "ulimit -n 10240 2>/dev/null; turbo run dev",
+    "dev:fb": "ulimit -n 10240 2>/dev/null; turbo run dev --filter=@exchange/frontend --filter=@exchange/backend",
+    "dev:all": "(docker compose up -d redis rabbitmq 2>/dev/null || docker-compose up -d redis rabbitmq 2>/dev/null || true) && npm run dev",
     "build": "turbo run build",
     "start": "turbo run start",
     "lint": "turbo run lint",
     "test": "turbo run test",
+    "e2e": "playwright test",
+    "e2e:ui": "playwright test --ui",
+    "smoke:api": "node scripts/smoke-api.mjs",
+    "load": "k6 run load/k6-spot-order.js",
     "db:migrate": "npm run migrate --workspace=@exchange/backend",
     "db:seed": "npm run seed --workspace=@exchange/backend",
-    "docker:up": "docker-compose up -d",
+    "docker:up": "(docker compose up -d 2>/dev/null || docker-compose up -d)",
     "docker:down": "docker-compose down",
     "clean": "turbo run clean && rm -rf node_modules"
   },
   "devDependencies": {
+    "@playwright/test": "^1.49.0",
     "turbo": "^2.0.0",
     "typescript": "^5.3.3"
   },

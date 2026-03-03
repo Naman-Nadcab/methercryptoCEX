@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useAdminAuthStore } from '@/store/admin-auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { toast } from '@/components/ui/toaster';
 import { 
   Globe, Plus, Edit2, Trash2, ChevronDown, ChevronRight, 
   Check, X, Loader2, Save, AlertCircle, Coins,
@@ -66,7 +68,7 @@ export default function BlockchainSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const apiUrl = getApiBaseUrl();
 
   const fetchBlockchains = async () => {
     if (!accessToken) return;
@@ -96,7 +98,7 @@ export default function BlockchainSettingsPage() {
   const toggleBlockchainSetting = async (id: string, field: string) => {
     if (toggling) return; // Prevent multiple clicks
     if (!accessToken) {
-      alert('Not authenticated. Please login again.');
+      toast({ title: 'Error', description: 'Not authenticated. Please login again.', variant: 'destructive' });
       return;
     }
     
@@ -141,11 +143,11 @@ export default function BlockchainSettingsPage() {
         ));
       } else {
         console.error('Toggle failed:', result.error);
-        alert('Failed to update: ' + (result.error?.message || 'Unknown error'));
+        toast({ title: 'Error', description: result.error?.message || 'Failed to update', variant: 'destructive' });
       }
     } catch (error: any) {
       console.error('Failed to toggle setting:', error);
-      alert(`Failed to update: ${error.message || 'Network error'}`);
+      toast({ title: 'Error', description: error.message || 'Network error', variant: 'destructive' });
     } finally {
       setToggling(null);
     }
@@ -183,11 +185,11 @@ export default function BlockchainSettingsPage() {
         }));
       } else {
         console.error('Toggle failed:', result.error);
-        alert('Failed to update: ' + (result.error?.message || 'Unknown error'));
+        toast({ title: 'Error', description: result.error?.message || 'Failed to update', variant: 'destructive' });
       }
     } catch (error) {
       console.error('Failed to toggle currency setting:', error);
-      alert('Failed to update setting. Check console for details.');
+      toast({ title: 'Error', description: 'Failed to update setting. Check console for details.', variant: 'destructive' });
     } finally {
       setToggling(null);
     }
@@ -260,7 +262,7 @@ export default function BlockchainSettingsPage() {
 
       // Validate file type
       if (!['image/png', 'image/svg+xml'].includes(file.type)) {
-        alert('Only PNG and SVG files are allowed');
+        toast({ title: 'Validation', description: 'Only PNG and SVG files are allowed', variant: 'destructive' });
         return;
       }
 
@@ -292,11 +294,11 @@ export default function BlockchainSettingsPage() {
           setForm({ ...form, logo_url: result.data.logo_url });
           setLogoPreview(result.data.logo_url);
         } else {
-          alert(result.error?.message || 'Upload failed');
+          toast({ title: 'Error', description: result.error?.message || 'Upload failed', variant: 'destructive' });
         }
       } catch (error) {
         console.error('Upload error:', error);
-        alert('Failed to upload logo');
+        toast({ title: 'Error', description: 'Failed to upload logo', variant: 'destructive' });
       } finally {
         setUploading(false);
       }
@@ -591,7 +593,7 @@ export default function BlockchainSettingsPage() {
 
       // Validate file type
       if (!['image/png', 'image/svg+xml'].includes(file.type)) {
-        alert('Only PNG and SVG files are allowed');
+        toast({ title: 'Validation', description: 'Only PNG and SVG files are allowed', variant: 'destructive' });
         return;
       }
 
@@ -623,11 +625,11 @@ export default function BlockchainSettingsPage() {
           setForm({ ...form, logo_url: result.data.logo_url });
           setLogoPreview(result.data.logo_url);
         } else {
-          alert(result.error?.message || 'Upload failed');
+          toast({ title: 'Error', description: result.error?.message || 'Upload failed', variant: 'destructive' });
         }
       } catch (error) {
         console.error('Upload error:', error);
-        alert('Failed to upload logo');
+        toast({ title: 'Error', description: 'Failed to upload logo', variant: 'destructive' });
       } finally {
         setUploading(false);
       }

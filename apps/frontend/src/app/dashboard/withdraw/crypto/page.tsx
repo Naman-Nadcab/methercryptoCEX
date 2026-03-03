@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth';
 import { useBalancesByAccount, type ByAccountRow } from '@/lib/balances';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
@@ -99,11 +100,11 @@ interface Withdrawal {
 }
 
 const FAQ_LINKS = [
-  { title: 'Crypto Withdrawal FAQs', href: '#' },
-  { title: 'How to Withdraw Through Internal Transfer', href: '#' },
-  { title: 'View the Deposit/Withdrawal Status of All Coins', href: '#' },
-  { title: 'How to Change Your Withdrawal Limit', href: '#' },
-  { title: 'How to Manage Your Withdrawal Address Book', href: '#' },
+  { title: 'Crypto Withdrawal FAQs', href: '/dashboard/announcements' },
+  { title: 'How to Withdraw Through Internal Transfer', href: '/dashboard/transfer' },
+  { title: 'View the Deposit/Withdrawal Status of All Coins', href: '/dashboard/assets/history' },
+  { title: 'How to Change Your Withdrawal Limit', href: '/dashboard/security/withdrawal-limits' },
+  { title: 'How to Manage Your Withdrawal Address Book', href: '/dashboard/address-book' },
 ];
 
 const SIDEBAR_LINKS = [
@@ -134,13 +135,18 @@ export default function WithdrawCryptoPage() {
   // Form state
   const [withdrawType, setWithdrawType] = useState<'on-chain' | 'internal'>('on-chain');
   const [toAddress, setToAddress] = useState('');
+  const [withdrawMemo, setWithdrawMemo] = useState('');
   const [internalRecipient, setInternalRecipient] = useState('');
+  const [savedAddresses, setSavedAddresses] = useState<{ id: string; asset: string; network: string; address: string; memo?: string; note?: string }[]>([]);
+  const [savedAddressesLoading, setSavedAddressesLoading] = useState(false);
   const [amount, setAmount] = useState('');
   const [selectedAccounts, setSelectedAccounts] = useState({
     funding: true,
     trading: false,
   });
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [twoFactorCode, setTwoFactorCode] = useState('');
+  const [fundPassword, setFundPassword] = useState('');
 
   // UI state
   const [loading, setLoading] = useState(true);
@@ -152,8 +158,9 @@ export default function WithdrawCryptoPage() {
   const [copied, setCopied] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [showConfirmStep, setShowConfirmStep] = useState(false);
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const API_URL = getApiBaseUrl();
 
   const getTokenIcon = (symbol: string) => {
     return `/assets/upload/currency-logo/${symbol.toLowerCase()}.svg`;
@@ -335,12 +342,55 @@ export default function WithdrawCryptoPage() {
     }
   };
 
+  const fetchSavedAddresses = async () => {
+    if (!accessToken) return;
+    setSavedAddressesLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/v1/auth/withdrawal-addresses`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.data?.addresses)) {
+        setSavedAddresses(data.data.addresses);
+      } else {
+        setSavedAddresses([]);
+      }
+    } catch {
+      setSavedAddresses([]);
+    } finally {
+      setSavedAddressesLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (accessToken && withdrawType === 'on-chain') fetchSavedAddresses();
+  }, [accessToken, withdrawType]);
+
+  const matchingAddresses = useMemo(() => {
+    if (!selectedToken || !selectedChain) return [];
+    const sym = (selectedToken.symbol || '').toUpperCase();
+    const chainName = (selectedChain.name || '').toLowerCase();
+    const chainId = (selectedChain.id || '').toLowerCase();
+    return savedAddresses.filter((a) => {
+      const aAsset = (a.asset || '').toUpperCase();
+      const aNet = (a.network || '').toLowerCase();
+      if (aAsset !== sym) return false;
+      return aNet.includes(chainName) || aNet.includes(chainId) || chainName.includes(aNet);
+    });
+  }, [savedAddresses, selectedToken, selectedChain]);
+
+  const selectSavedAddress = (addr: { address: string; memo?: string }) => {
+    setToAddress(addr.address);
+    setWithdrawMemo(addr.memo || '');
+  };
+
   const selectToken = (token: Token) => {
     setSelectedToken(token);
     setShowTokenDropdown(false);
     setTokenSearch('');
     setAmount('');
     setToAddress('');
+    setWithdrawMemo('');
   };
 
   const selectChain = (chain: Chain) => {
@@ -432,7 +482,10 @@ export default function WithdrawCryptoPage() {
       } else {
         body.chainId = selectedChain!.id;
         body.toAddress = toAddress.trim();
+        if (withdrawMemo.trim()) body.memo = withdrawMemo.trim();
       }
+      if (twoFactorCode.trim()) body.twoFactorCode = twoFactorCode.trim();
+      if (fundPassword) body.fund_password = fundPassword;
       const res = await fetch(`${API_URL}/api/v1/wallet/withdrawals`, {
         method: 'POST',
         headers: {
@@ -444,9 +497,13 @@ export default function WithdrawCryptoPage() {
       });
       const data = await res.json();
       if (data.success) {
+        setShowConfirmStep(false);
         setAmount('');
         setToAddress('');
+        setWithdrawMemo('');
         setInternalRecipient('');
+        setTwoFactorCode('');
+        setFundPassword('');
         queryClient.invalidateQueries({ queryKey: ['balances'] });
         fetchWithdrawalLimits();
         fetchRecentWithdrawals();
@@ -461,7 +518,16 @@ export default function WithdrawCryptoPage() {
         }
         setTimeout(() => setSuccessMessage(null), 5000);
       } else {
-        setError(data.error?.message || 'Withdrawal could not be submitted. Check amount, address, and limits, then try again.');
+        const code = data.error?.code;
+        if (code === '2FA_REQUIRED') {
+          setError('Two-factor code is required for withdrawal. Enter your 2FA code above.');
+        } else if (code === 'FUND_PASSWORD_REQUIRED') {
+          setError('Fund password is required for withdrawal. Enter your fund password above.');
+        } else if (code === 'INVALID_2FA' || code === 'INVALID_FUND_PASSWORD') {
+          setError(data.error?.message || 'Invalid code or password. Please try again.');
+        } else {
+          setError(data.error?.message || 'Withdrawal could not be submitted. Check amount, address, and limits, then try again.');
+        }
       }
     } catch {
       setError('Connection issue. Your request may not have reached the server. Safe to try again.');
@@ -548,7 +614,7 @@ export default function WithdrawCryptoPage() {
         {/* Main Content */}
         <main className="flex-1 p-6">
           {/* Header */}
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center justify-between mb-4">
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Withdraw</h1>
             <Link
               href="/dashboard/withdraw/fiat"
@@ -557,6 +623,15 @@ export default function WithdrawCryptoPage() {
               <CreditCard className="w-4 h-4" />
               Fiat Withdrawal
             </Link>
+          </div>
+
+          {/* Withdrawal Warning */}
+          <div className="mb-6 flex items-start gap-3 p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50">
+            <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-amber-800 dark:text-amber-200">On-chain withdrawals cannot be reversed</p>
+              <p className="text-xs text-amber-700 dark:text-amber-300/90 mt-1">Verify the address and network before submitting. Wrong address or network will result in permanent loss of funds.</p>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -676,6 +751,30 @@ export default function WithdrawCryptoPage() {
 
                   {withdrawType === 'on-chain' ? (
                     <>
+                      {/* Address Book Picker */}
+                      {selectedToken && selectedChain && matchingAddresses.length > 0 && (
+                        <div className="mb-4">
+                          <label className="text-sm text-gray-500 mb-2 block">Use saved address</label>
+                          <select
+                            value=""
+                            onChange={(e) => {
+                              const idx = e.target.value;
+                              if (idx) {
+                                const addr = matchingAddresses[parseInt(idx, 10)];
+                                if (addr) selectSavedAddress(addr);
+                              }
+                            }}
+                            className="w-full px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white text-sm focus:border-blue-500 outline-none"
+                          >
+                            <option value="">Select from address book...</option>
+                            {matchingAddresses.map((addr, i) => (
+                              <option key={addr.id} value={i}>
+                                {addr.note || addr.address.slice(0, 12) + '…'}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
                       {/* Wallet Address */}
                       <div className="mb-6">
                         <label className="text-sm text-gray-500 mb-2 block">Wallet Address</label>
@@ -684,13 +783,23 @@ export default function WithdrawCryptoPage() {
                             type="text"
                             value={toAddress}
                             onChange={(e) => setToAddress(e.target.value)}
-                            placeholder="Please enter"
+                            placeholder="Please enter or select from address book"
                             className="w-full px-4 py-3.5 pr-12 bg-gray-50 dark:bg-[#2b2f36] border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white placeholder-gray-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 outline-none transition-all"
                           />
                           <button className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors">
                             <QrCode className="w-5 h-5 text-gray-400" />
                           </button>
                         </div>
+                      </div>
+                      <div className="mb-6">
+                        <label className="text-sm text-gray-500 mb-2 block">Memo (optional, for XLM/XRP etc.)</label>
+                        <input
+                          type="text"
+                          value={withdrawMemo}
+                          onChange={(e) => setWithdrawMemo(e.target.value)}
+                          placeholder="Leave empty if not required"
+                          className="w-full px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white text-sm"
+                        />
                       </div>
 
                       {/* Chain Type */}
@@ -891,8 +1000,100 @@ export default function WithdrawCryptoPage() {
                     </div>
                   )}
 
-                  {/* Submit Button */}
-                  {(() => {
+                  {/* Confirmation step: summary + Back / Confirm */}
+                  {showConfirmStep && selectedToken && (
+                    <div className="mb-6 p-4 rounded-xl bg-gray-50 dark:bg-[#0b0e11] border border-gray-200 dark:border-gray-700">
+                      <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Review withdrawal</p>
+                      <dl className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <dt className="text-gray-500 dark:text-gray-400">Coin</dt>
+                          <dd className="font-medium text-gray-900 dark:text-white">{selectedToken.symbol}</dd>
+                        </div>
+                        <div className="flex justify-between">
+                          <dt className="text-gray-500 dark:text-gray-400">Amount</dt>
+                          <dd className="font-mono text-gray-900 dark:text-white">{amount} {selectedToken.symbol}</dd>
+                        </div>
+                        {withdrawType === 'on-chain' && selectedChain && (
+                          <>
+                            <div className="flex justify-between">
+                              <dt className="text-gray-500 dark:text-gray-400">Network</dt>
+                              <dd className="font-medium text-gray-900 dark:text-white">{selectedChain.name}</dd>
+                            </div>
+                            <div className="flex justify-between">
+                              <dt className="text-gray-500 dark:text-gray-400">Fee</dt>
+                              <dd className="font-mono text-gray-900 dark:text-white">{getWithdrawFee().toFixed(8)} {selectedToken.symbol}</dd>
+                            </div>
+                            <div className="flex justify-between items-start gap-2">
+                              <dt className="text-gray-500 dark:text-gray-400 shrink-0">Address</dt>
+                              <dd className="font-mono text-xs text-gray-900 dark:text-white break-all text-right">{toAddress.trim()}</dd>
+                            </div>
+                          </>
+                        )}
+                        {withdrawType === 'internal' && (
+                          <div className="flex justify-between">
+                            <dt className="text-gray-500 dark:text-gray-400">Recipient</dt>
+                            <dd className="font-medium text-gray-900 dark:text-white">{internalRecipient.trim()}</dd>
+                          </div>
+                        )}
+                      </dl>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-3 mb-2">If you have 2FA or fund password enabled, enter them below.</p>
+                      <div className="space-y-3 mt-2">
+                        <div>
+                          <label htmlFor="withdraw-2fa" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">2FA code (if enabled)</label>
+                          <input
+                            id="withdraw-2fa"
+                            type="text"
+                            inputMode="numeric"
+                            autoComplete="one-time-code"
+                            placeholder="000000"
+                            maxLength={8}
+                            value={twoFactorCode}
+                            onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                            className="w-full px-3 py-2 bg-white dark:bg-[#2b2f36] border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                            aria-label="Two-factor authentication code for withdrawal"
+                          />
+                        </div>
+                        <div>
+                          <label htmlFor="withdraw-fund-password" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Fund password (if set)</label>
+                          <input
+                            id="withdraw-fund-password"
+                            type="password"
+                            autoComplete="current-password"
+                            placeholder="••••••••"
+                            value={fundPassword}
+                            onChange={(e) => setFundPassword(e.target.value)}
+                            className="w-full px-3 py-2 bg-white dark:bg-[#2b2f36] border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                            aria-label="Fund password for withdrawal"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex gap-3 mt-4">
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirmStep(false)}
+                          disabled={submitting}
+                          aria-label="Back to edit withdrawal details"
+                          className="flex-1 py-2.5 rounded-xl font-medium border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                        >
+                          Back
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSubmit}
+                          disabled={submitting}
+                          aria-busy={submitting}
+                          aria-label="Confirm and submit withdrawal"
+                          className="flex-1 py-2.5 rounded-xl font-semibold bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-50 flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                        >
+                          {submitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : null}
+                          Confirm withdrawal
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Submit / Review Button */}
+                  {!showConfirmStep && (() => {
                     const isInternal = withdrawType === 'internal';
                     const amountNum = parseFloat(amount || '0');
                     const amountInvalid = !amount || isNaN(amountNum) || amountNum <= 0;
@@ -906,22 +1107,19 @@ export default function WithdrawCryptoPage() {
                     const validOnChain = selectedToken && selectedChain && amount && toAddress.trim() && !amountInvalid && !balanceInsufficient && !feeExceedsAmount;
                     const isValid = isInternal ? validInternal : validOnChain;
                     return (
-                  <button
-                    onClick={handleSubmit}
-                    disabled={!isValid || submitting}
-                    aria-busy={submitting}
-                    className={`w-full py-3.5 rounded-xl font-semibold transition-all ${
-                      isValid && !submitting
-                        ? 'bg-blue-500 hover:bg-blue-600 text-white shadow-lg shadow-blue-500/25'
-                        : 'bg-gray-200 dark:bg-gray-700 text-gray-400 cursor-not-allowed'
-                    }`}
-                  >
-                    {submitting ? (
-                      <RefreshCw className="w-5 h-5 animate-spin mx-auto" />
-                    ) : (
-                      'Confirm'
-                    )}
-                  </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmStep(true)}
+                        disabled={!isValid}
+                        aria-label="Review withdrawal details before submitting"
+                        className={`w-full py-3.5 rounded-xl font-semibold transition-all ${
+                          isValid
+                            ? 'bg-blue-500 hover:bg-blue-600 text-white shadow-lg shadow-blue-500/25'
+                            : 'bg-gray-200 dark:bg-gray-700 text-gray-400 cursor-not-allowed'
+                        }`}
+                      >
+                        Review withdrawal
+                      </button>
                     );
                   })()}
                 </div>

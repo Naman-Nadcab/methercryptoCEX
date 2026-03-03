@@ -4,6 +4,7 @@ import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
 import { config } from '../config/index.js';
+import { encryption } from '../lib/encryption.js';
 
 /** Timeout for OTP delivery (SMTP/SMS). Prevents login request from hanging when provider is slow/unreachable. */
 const OTP_SEND_TIMEOUT_MS = 15_000;
@@ -220,9 +221,10 @@ class OTPService {
       const result = await db.query<{ 
         provider: string;
         api_key: string;
+        api_secret: string | null;
         additional_config: Record<string, string>;
       }>(
-        `SELECT provider, api_key, additional_config FROM api_settings 
+        `SELECT provider, api_key, api_secret, additional_config FROM api_settings 
          WHERE category = 'sms' AND is_active = TRUE 
          ORDER BY 
            CASE WHEN provider = 'fast2sms' THEN 0 ELSE 1 END,
@@ -239,6 +241,7 @@ class OTPService {
         return {
           provider: row.provider as any,
           apiKey: row.api_key || config.api_key || '',
+          apiSecret: row.api_secret ?? config.api_secret ?? undefined,
           senderId: config.sender_id || 'INRXPE',
           messageId: config.message_id || '181649',
           route: config.route || 'dlt',
@@ -363,13 +366,18 @@ class OTPService {
   }
 
   /**
-   * Create and store OTP
+   * Create and store OTP.
+   * type: 'email' | 'phone' for login; 'password_reset' for forgot-password flow.
+   * userId optional: required for password_reset so auth.service.verifyOTP can return userId.
+   * For password_reset, uses encryption.hashOtp (pbkdf2) so auth.service.verifyOTP can verify.
    */
-  async createOTP(identifier: string, type: 'email' | 'phone'): Promise<{ otp: string; expiresAt: Date }> {
+  async createOTP(identifier: string, type: 'email' | 'phone' | 'password_reset', userId?: string): Promise<{ otp: string; expiresAt: Date }> {
     try {
       const otp = this.generateOTP(6);
-      const salt = this.generateSalt();
-      const otpHash = this.hashOTP(otp, salt);
+      const salt = type === 'password_reset' ? encryption.generateSalt() : this.generateSalt();
+      const otpHash = type === 'password_reset'
+        ? encryption.hashOtp(otp, salt)
+        : this.hashOTP(otp, salt);
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
       // Delete any existing OTPs for this identifier
@@ -378,11 +386,14 @@ class OTPService {
         [identifier, type]
       );
 
-      // Store new OTP
+      // Store new OTP (include user_id for password_reset so auth.service.verifyOTP returns it)
       await db.query(
-        `INSERT INTO otp_verifications (identifier, type, otp_hash, salt, expires_at, max_attempts)
-         VALUES ($1, $2, $3, $4, $5, 3)`,
-        [identifier, type, otpHash, salt, expiresAt]
+        userId
+          ? `INSERT INTO otp_verifications (identifier, type, otp_hash, salt, expires_at, max_attempts, user_id)
+             VALUES ($1, $2, $3, $4, $5, 3, $6)`
+          : `INSERT INTO otp_verifications (identifier, type, otp_hash, salt, expires_at, max_attempts)
+             VALUES ($1, $2, $3, $4, $5, 3)`,
+        userId ? [identifier, type, otpHash, salt, expiresAt, userId] : [identifier, type, otpHash, salt, expiresAt]
       );
 
       // Also store in Redis for quick access (optional; DB is source of truth)
@@ -400,7 +411,9 @@ class OTPService {
       logger.info('OTP created', { identifier, type, expiresAt });
       return { otp, expiresAt };
     } catch (error) {
-      logger.error('Failed to create OTP', { error: error instanceof Error ? error.message : 'Unknown', identifier, type });
+      const errMsg = error instanceof Error ? error.message : 'Unknown';
+      const errStack = error instanceof Error ? error.stack : undefined;
+      logger.error('Failed to create OTP', { error: errMsg, stack: errStack, identifier, type });
       throw error;
     }
   }

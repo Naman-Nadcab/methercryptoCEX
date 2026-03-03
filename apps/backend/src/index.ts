@@ -123,9 +123,9 @@ async function bootstrap(): Promise<void> {
     await rabbitmq.connect();
     logger.info('✓ RabbitMQ connected');
 
-    // Initialize matching engine
+    // Initialize matching engine (DEPRECATED: use spot.fastify + spot-matching.service for production)
     await matchingEngine.initialize();
-    logger.info('✓ Matching engine initialized');
+    logger.warn('Express matching-engine initialized (DEPRECATED). Production uses Fastify spot.fastify + spot-matching.service.');
 
     // Initialize WebSocket
     wsManager.initialize(server);

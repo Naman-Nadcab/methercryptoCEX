@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { Shield, Mail, Lock, Loader2, Eye, EyeOff } from 'lucide-react';
 import { useAdminAuthStore } from '@/store/admin-auth';
 import ThemeProvider from '@/components/ThemeProvider';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 
 const loginSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -36,7 +37,7 @@ export default function AdminLoginPage() {
     setError('');
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      const apiUrl = getApiBaseUrl();
       const response = await fetch(`${apiUrl}/api/v1/admin/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

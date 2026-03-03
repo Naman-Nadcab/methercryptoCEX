@@ -2,8 +2,9 @@
 
 import { useAuthStore } from '@/store/auth';
 import Link from 'next/link';
-import { Wallet, RefreshCw, Loader2, AlertCircle, HelpCircle } from 'lucide-react';
+import { RefreshCw, Loader2, AlertCircle, HelpCircle, Wallet } from 'lucide-react';
 import { useBalancesSpot } from '@/lib/balances';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 export default function SpotWalletPage() {
   const { accessToken, _hasHydrated } = useAuthStore();
@@ -86,10 +87,14 @@ export default function SpotWalletPage() {
               ))
             ) : balances.length === 0 && !error ? (
               <tr>
-                <td colSpan={5} className="py-20 text-center text-gray-500 dark:text-gray-400">
-                  <Wallet className="w-12 h-12 mx-auto mb-4 opacity-40" />
-                  <p className="font-medium text-gray-700 dark:text-gray-300">No spot balances yet.</p>
-                  <p className="text-sm mt-1.5">Transfer from Funding to Spot when you are ready to trade.</p>
+                <td colSpan={5} className="p-0 align-top">
+                  <EmptyState
+                    icon={Wallet}
+                    title="No spot balances yet"
+                    description="Transfer from Funding to Spot when you're ready to trade, or deposit first."
+                    actionLabel="Assets overview"
+                    actionHref="/dashboard/assets/overview"
+                  />
                 </td>
               </tr>
             ) : (

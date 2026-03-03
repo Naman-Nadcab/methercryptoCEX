@@ -4,11 +4,12 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useAdminAuthStore } from '@/store/admin-auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { SectionHeader, Panel, ActionButton } from '@/components/admin/control-plane';
 import { ReasonCaptureModal } from '@/components/admin/ReasonCaptureModal';
 import { Loader2, ArrowLeft, AlertTriangle, FileWarning } from 'lucide-react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const API_URL = getApiBaseUrl();
 
 interface AmlAlertDetail {
   id: string;

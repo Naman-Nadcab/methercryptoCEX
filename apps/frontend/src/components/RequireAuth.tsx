@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 
 export default function RequireAuth({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const { authResolved, isAuthenticated } = useAuth();
   const redirectDone = useRef(false);
 
@@ -13,8 +14,9 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
     if (!authResolved || isAuthenticated) return;
     if (redirectDone.current) return;
     redirectDone.current = true;
-    router.replace('/login');
-  }, [authResolved, isAuthenticated, router]);
+    const redirect = pathname ? `/login?redirect=${encodeURIComponent(pathname)}` : '/login';
+    router.replace(redirect);
+  }, [authResolved, isAuthenticated, router, pathname]);
 
   if (!authResolved) {
     return (

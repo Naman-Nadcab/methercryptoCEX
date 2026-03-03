@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAdminAuthStore } from '@/store/admin-auth';
 import { Megaphone, Loader2, RefreshCw, Plus, Pencil, Trash2, X } from 'lucide-react';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { toast } from '@/components/ui/toaster';
 
 interface Announcement {
   id: string;
@@ -158,9 +159,9 @@ export default function AnnouncementsPage() {
       });
       const result = await res.json();
       if (result.success) fetchList();
-      else alert(result.error?.message || 'Delete failed');
+      else toast({ title: 'Error', description: result.error?.message || 'Delete failed', variant: 'destructive' });
     } catch (e) {
-      alert('Request failed');
+      toast({ title: 'Error', description: 'Request failed', variant: 'destructive' });
     }
   };
 

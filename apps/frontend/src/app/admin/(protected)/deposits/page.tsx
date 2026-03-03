@@ -13,8 +13,9 @@ import {
   CheckCircle2,
   Copy,
 } from 'lucide-react';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const API_URL = getApiBaseUrl();
 
 interface DepositStats {
   total: string;

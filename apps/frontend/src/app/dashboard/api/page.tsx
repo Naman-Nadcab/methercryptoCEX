@@ -1,9 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth';
 import { ChevronRight, X, Loader2, Eye, EyeOff, Copy, Check, Key, Trash2, Edit3, Shield, AlertCircle } from 'lucide-react';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { toast } from '@/components/ui/toaster';
 
 interface ApiKey {
   id: string;
@@ -23,13 +26,14 @@ interface ApiKey {
 export default function ApiPage() {
   const router = useRouter();
   const { accessToken } = useAuthStore();
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const apiUrl = getApiBaseUrl();
 
   const [loading, setLoading] = useState(true);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [showTypeModal, setShowTypeModal] = useState(false);
   const [visibleSecrets, setVisibleSecrets] = useState<Set<string>>(new Set());
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchApiKeys();
@@ -98,6 +102,29 @@ export default function ApiPage() {
     router.push(`/dashboard/api/create?type=${type}`);
   };
 
+  const handleDeleteKey = async (key: ApiKey) => {
+    if (!confirm(`Revoke API key "${key.name}"? Spot and P2P automation using this key will stop.`)) return;
+    setDeletingId(key.id);
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/auth/api-keys/${key.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const result = await response.json();
+      if (result.success) {
+        setApiKeys((prev) => prev.filter((k) => k.id !== key.id));
+        toast({ title: 'API key deleted', description: 'Access has been revoked', variant: 'success' });
+      } else {
+        toast({ title: 'Error', description: result.error?.message || 'Failed to delete API key', variant: 'destructive' });
+      }
+    } catch (error) {
+      console.error('Delete API key error:', error);
+      toast({ title: 'Error', description: 'Failed to delete API key', variant: 'destructive' });
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   return (
     <div className="p-4 lg:p-8 bg-gray-50 dark:bg-[#0b0e11] min-h-full">
       <div className="max-w-7xl mx-auto">
@@ -114,9 +141,15 @@ export default function ApiPage() {
                 <p className="text-blue-100 text-sm">Transition from legacy versions to our latest API with enhanced features</p>
               </div>
             </div>
-            <button className="px-4 py-2 bg-white/20 hover:bg-white/30 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+            <Link
+              href={process.env.NEXT_PUBLIC_API_DOCS_URL || '/dashboard/announcements'}
+              target={process.env.NEXT_PUBLIC_API_DOCS_URL ? '_blank' : undefined}
+              rel={process.env.NEXT_PUBLIC_API_DOCS_URL ? 'noopener noreferrer' : undefined}
+              className="px-4 py-2 bg-white/20 hover:bg-white/30 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+              aria-label="API Documentation"
+            >
               Documentation <ChevronRight className="w-4 h-4" />
-            </button>
+            </Link>
           </div>
         </div>
 
@@ -327,17 +360,25 @@ export default function ApiPage() {
                         <td className="px-6 py-4">
                           <div className="flex items-center justify-end gap-2">
                             <button
-                              onClick={() => router.push(`/dashboard/api/edit/${key.id}`)}
-                              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
-                              title="Edit"
+                              disabled
+                              className="p-2 rounded-lg opacity-50 cursor-not-allowed"
+                              title="Edit coming soon - create a new key to change settings"
+                              aria-label="Edit API key - coming soon"
                             >
-                              <Edit3 className="w-4 h-4 text-gray-500" />
+                              <Edit3 className="w-4 h-4 text-gray-500" aria-hidden />
                             </button>
                             <button
-                              className="p-2 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-                              title="Delete"
+                              onClick={() => handleDeleteKey(key)}
+                              disabled={!!deletingId}
+                              className="p-2 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors disabled:opacity-50"
+                              title="Delete API key"
+                              aria-label={`Delete API key ${key.name}`}
                             >
-                              <Trash2 className="w-4 h-4 text-red-500" />
+                              {deletingId === key.id ? (
+                                <Loader2 className="w-4 h-4 text-red-500 animate-spin" />
+                              ) : (
+                                <Trash2 className="w-4 h-4 text-red-500" />
+                              )}
                             </button>
                           </div>
                         </td>

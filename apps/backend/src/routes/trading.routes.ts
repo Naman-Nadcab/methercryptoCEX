@@ -1,3 +1,7 @@
+/**
+ * @deprecated Express trading routes using matching-engine (orders/trades).
+ * Production uses spot.fastify + spot-matching.service. Loaded only by index.ts (npm run dev:express).
+ */
 import { Router, Request, Response } from 'express';
 import { body, query, param, validationResult } from 'express-validator';
 import { authenticate, requireKYC } from '../middleware/auth.js';

@@ -13,9 +13,16 @@ export interface CandleData {
   close: number;
 }
 
+export interface TradeMarker {
+  time: number;
+  price: number;
+  side: 'buy' | 'sell';
+}
+
 export interface ChartAdapter {
   init(container: HTMLElement, theme: ChartTheme): void;
   setCandles(data: CandleData[]): void;
   updatePrice(tickTime: number, price: number): void;
+  setTradeMarkers?(trades: TradeMarker[]): void;
   destroy(): void;
 }

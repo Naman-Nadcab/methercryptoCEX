@@ -2,10 +2,11 @@
 
 import { useState } from 'react';
 import { useAdminAuthStore } from '@/store/admin-auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { SectionHeader, Panel, ActionButton } from '@/components/admin/control-plane';
 import { Loader2, AlertTriangle, CheckCircle2 } from 'lucide-react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const API_URL = getApiBaseUrl();
 
 export default function WalletsReconciliationPage() {
   const { accessToken } = useAdminAuthStore();

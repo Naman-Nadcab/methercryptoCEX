@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAdminAuthStore } from '@/store/admin-auth';
 import { ArrowUpFromLine, Loader2, RefreshCw, Pencil, X, Check, Search } from 'lucide-react';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { toast } from '@/components/ui/toaster';
 
 interface CurrencyRow {
   id: string;
@@ -106,11 +107,11 @@ export default function WithdrawalFeesPage() {
         );
         setEditingId(null);
       } else {
-        alert(result.error?.message || 'Failed to update');
+        toast({ title: 'Error', description: result.error?.message || 'Failed to update', variant: 'destructive' });
       }
     } catch (e) {
       console.error(e);
-      alert('Request failed');
+      toast({ title: 'Error', description: 'Request failed', variant: 'destructive' });
     } finally {
       setSaving(false);
     }

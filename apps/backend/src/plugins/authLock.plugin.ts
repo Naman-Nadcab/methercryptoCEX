@@ -1,7 +1,8 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { AuthDecision } from './authDecision.plugin.js';
+import { config } from '../config/index.js';
 
-const LOCK_SERVICE_URL = 'http://localhost:7001/lock';
+const LOCK_SERVICE_URL = config.security.lockServiceUrl;
 const LOCK_TTL_MS = 3000;
 const LOCK_TIMEOUT_MS = 2000;
 

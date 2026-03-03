@@ -4,11 +4,16 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Eye, EyeOff, Check, X, Globe, ChevronDown, Users, DollarSign, Coins, ArrowRight, ExternalLink } from 'lucide-react';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { useAuthStore, type User } from '@/store/auth';
+import { useAuth } from '@/context/AuthContext';
 
 type Step = 'email' | 'otp' | 'password';
 
 export default function SignupPage() {
   const router = useRouter();
+  const { login } = useAuthStore();
+  const { setAuthenticated } = useAuth();
   const [step, setStep] = useState<Step>('email');
   const [identifier, setIdentifier] = useState('');
   const [identifierType, setIdentifierType] = useState<'email' | 'phone'>('email');
@@ -24,7 +29,7 @@ export default function SignupPage() {
   
   const searchParams = useSearchParams();
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const API_URL = getApiBaseUrl();
 
   // Pre-fill referral code from URL ?ref=CODE
   useEffect(() => {
@@ -78,8 +83,17 @@ export default function SignupPage() {
         }),
       });
 
-      const data = await response.json();
-
+      const raw = await response.text();
+      let data: { success?: boolean; error?: { message?: string } } = {};
+      try {
+        data = JSON.parse(raw || '{}');
+      } catch {
+        data = {};
+      }
+      if (!response.ok) {
+        setError(data.error?.message || `Request failed (${response.status})`);
+        return;
+      }
       if (data.success) {
         setStep('otp');
         setCountdown(120); // 2 minutes
@@ -148,8 +162,17 @@ export default function SignupPage() {
         }),
       });
 
-      const data = await response.json();
-
+      const raw = await response.text();
+      let data: { success?: boolean; error?: { message?: string } } = {};
+      try {
+        data = JSON.parse(raw || '{}');
+      } catch {
+        data = {};
+      }
+      if (!response.ok) {
+        setError(data.error?.message || `Request failed (${response.status})`);
+        return;
+      }
       if (data.success) {
         setStep('password');
       } else {
@@ -184,18 +207,21 @@ export default function SignupPage() {
         }),
       });
 
-      const data = await response.json();
-
-      if (data.success) {
-        // Store tokens and redirect to dashboard
-        localStorage.setItem('auth-storage', JSON.stringify({
-          state: {
-            user: data.data.user,
-            accessToken: data.data.accessToken,
-            refreshToken: data.data.refreshToken,
-            isAuthenticated: true,
-          },
-        }));
+      const raw = await response.text();
+      let data: { success?: boolean; data?: { user?: User; accessToken?: string; refreshToken?: string }; error?: { message?: string } } = {};
+      try {
+        data = JSON.parse(raw || '{}');
+      } catch {
+        data = {};
+      }
+      if (!response.ok) {
+        setError(data.error?.message || `Request failed (${response.status})`);
+        return;
+      }
+      if (data.success && data.data) {
+        const user = data.data.user as User;
+        login(user, data.data.accessToken!, data.data.refreshToken!);
+        setAuthenticated(user);
         router.push('/dashboard');
       } else {
         setError(data.error?.message || 'Failed to create account');
@@ -225,8 +251,17 @@ export default function SignupPage() {
         }),
       });
 
-      const data = await response.json();
-
+      const raw = await response.text();
+      let data: { success?: boolean; error?: { message?: string } } = {};
+      try {
+        data = JSON.parse(raw || '{}');
+      } catch {
+        data = {};
+      }
+      if (!response.ok) {
+        setError(data.error?.message || `Request failed (${response.status})`);
+        return;
+      }
       if (data.success) {
         setCountdown(120);
         setOtp(['', '', '', '', '', '']);

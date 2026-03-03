@@ -26,6 +26,7 @@ interface SignupData {
   referralCode?: string;
   provider: AuthProvider;
   providerUserId?: string;
+  ip?: string;
 }
 
 interface LoginData {
@@ -112,7 +113,7 @@ class AuthService {
    * Sign up new user with email/password
    */
   async signup(data: SignupData): Promise<AuthResult> {
-    const { email, password, phone, referralCode, provider, providerUserId } = data;
+    const { email, password, phone, referralCode, provider, providerUserId, ip = '127.0.0.1' } = data;
 
     // Check if email exists
     const existingUser = await db.query(
@@ -191,7 +192,7 @@ class AuthService {
     });
 
     // Generate tokens
-    const session = await this.createSession(result.id, '127.0.0.1');
+    const session = await this.createSession(result.id, ip);
     const tokens = generateTokens(
       result.id,
       result.email,
@@ -200,7 +201,7 @@ class AuthService {
     );
 
     logger.info('User signed up', { userId: result.id, provider });
-    auditLog(AuditAction.LOGIN, result.id, { provider, method: 'signup' }, '127.0.0.1');
+    auditLog(AuditAction.LOGIN, result.id, { provider, method: 'signup' }, ip);
 
     return {
       user: {
@@ -373,6 +374,7 @@ class AuthService {
           email,
           provider,
           providerUserId,
+          ip,
         });
         return signupResult;
       }

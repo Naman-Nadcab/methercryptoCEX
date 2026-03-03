@@ -4,11 +4,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth';
 import Link from 'next/link';
-import { Loader2 } from 'lucide-react';
+import { Loader2, BarChart3 } from 'lucide-react';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { getMessageFromApiError } from '@/lib/errorMessages';
 
-type Order = { id: string; market: string; side: string; type: string; price: string | null; quantity: string; filled_quantity: string; status: string; created_at: string };
+type Order = { id: string; market: string; side: string; type: string; price: string | null; stop_price?: string | null; quantity: string; filled_quantity: string; status: string; created_at: string };
 
 export default function SpotOrdersViewPage() {
   const queryClient = useQueryClient();
@@ -147,6 +148,7 @@ export default function SpotOrdersViewPage() {
                     <th className="py-2 px-2 font-medium uppercase tracking-wide">Market</th>
                     <th className="py-2 px-2 font-medium uppercase tracking-wide">Side</th>
                     <th className="py-2 px-2 font-medium uppercase tracking-wide">Price</th>
+                    <th className="py-2 px-2 font-medium uppercase tracking-wide">Trigger</th>
                     <th className="py-2 px-2 font-medium uppercase tracking-wide">Quantity</th>
                     <th className="py-2 px-2 font-medium uppercase tracking-wide">Status</th>
                     <th className="py-2 px-2 font-medium uppercase tracking-wide">Action</th>
@@ -160,26 +162,39 @@ export default function SpotOrdersViewPage() {
                         <td className="py-2 px-2"><div className="h-3 w-8 rounded bg-gray-200 dark:bg-gray-700 animate-pulse" /></td>
                         <td className="py-2 px-2"><div className="h-3 w-16 rounded bg-gray-200 dark:bg-gray-700 animate-pulse" /></td>
                         <td className="py-2 px-2"><div className="h-3 w-12 rounded bg-gray-200 dark:bg-gray-700 animate-pulse" /></td>
+                        <td className="py-2 px-2"><div className="h-3 w-12 rounded bg-gray-200 dark:bg-gray-700 animate-pulse" /></td>
                         <td className="py-2 px-2"><div className="h-3 w-14 rounded bg-gray-200 dark:bg-gray-700 animate-pulse" /></td>
                         <td className="py-2 px-2"><div className="h-3 w-12 rounded bg-gray-200 dark:bg-gray-700 animate-pulse" /></td>
                       </tr>
                     ))
                   ) : orders.length === 0 ? (
-                    <tr><td colSpan={6} className="py-8 text-center text-gray-500 dark:text-gray-400 text-xs">No open orders.</td></tr>
+                    <tr><td colSpan={7} className="p-0 align-top">
+                      <EmptyState
+                        icon={BarChart3}
+                        title="No open orders"
+                        description="Place a limit, market, or stop order to see it here."
+                        actionLabel="Place order"
+                        actionHref="/dashboard/spot"
+                      />
+                    </td></tr>
                   ) : (
-                    orders.map((o) => (
+                    orders.map((o) => {
+                      const canCancel = ['OPEN', 'PARTIALLY_FILLED', 'PENDING_TRIGGER'].includes(o.status);
+                      const displayStatus = o.status === 'PENDING_TRIGGER' ? 'Pending Trigger' : o.status;
+                      return (
                     <tr key={o.id} className={`border-b border-gray-100 dark:border-gray-800 transition-colors duration-100 hover:bg-gray-50 dark:hover:bg-white/5 ${cancellingOrderId === o.id ? 'opacity-75 bg-gray-50 dark:bg-white/5' : ''}`}>
                       <td className="py-2 px-2 font-medium text-gray-900 dark:text-white tabular-nums">{o.market}</td>
                       <td className="py-2 px-2 tabular-nums">
                         <span className={o.side === 'buy' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>{o.side}</span>
                       </td>
                       <td className="py-2 px-2 font-mono text-gray-700 dark:text-gray-300 tabular-nums">{o.price ?? '—'}</td>
+                      <td className="py-2 px-2 font-mono text-gray-700 dark:text-gray-300 tabular-nums">{o.stop_price ?? '—'}</td>
                       <td className="py-2 px-2 font-mono text-gray-700 dark:text-gray-300 tabular-nums">{o.quantity}</td>
                       <td className="py-2 px-2">
-                        <span className="px-2 py-0.5 rounded text-xs bg-blue-500/20 text-blue-600 dark:text-blue-400">{o.status}</span>
+                        <span className="px-2 py-0.5 rounded text-xs bg-blue-500/20 text-blue-600 dark:text-blue-400">{displayStatus}</span>
                       </td>
                       <td className="py-2 px-2">
-                        {(o.status === 'OPEN' || o.status === 'PARTIALLY_FILLED') && (
+                        {canCancel && (
                           <button
                             type="button"
                             disabled={cancellingOrderId !== null}
@@ -192,7 +207,7 @@ export default function SpotOrdersViewPage() {
                         )}
                       </td>
                     </tr>
-                    ))
+                    ); })
                   )}
                 </tbody>
               </table>
@@ -225,7 +240,15 @@ export default function SpotOrdersViewPage() {
                     </tr>
                   ))
                 ) : historyOrders.length === 0 ? (
-                  <tr><td colSpan={5} className="py-8 text-center text-gray-500 dark:text-gray-400 text-xs">No order history.</td></tr>
+                  <tr><td colSpan={5} className="p-0 align-top">
+                    <EmptyState
+                      icon={BarChart3}
+                      title="No order history"
+                      description="Filled and cancelled orders will appear here."
+                      actionLabel="Place order"
+                      actionHref="/dashboard/spot"
+                    />
+                  </td></tr>
                 ) : (
                   historyOrders.map((o) => (
                       <tr key={o.id} className="border-b border-gray-100 dark:border-gray-800 transition-colors duration-100 hover:bg-gray-50 dark:hover:bg-white/5">

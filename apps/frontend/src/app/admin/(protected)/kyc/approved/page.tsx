@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAdminAuthStore } from '@/store/admin-auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 import {
   SectionHeader,
   Panel,
@@ -14,7 +15,7 @@ import {
 } from '@/components/admin/control-plane';
 import { Loader2, AlertTriangle } from 'lucide-react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const API_URL = getApiBaseUrl();
 
 interface KycApplication {
   id: string;

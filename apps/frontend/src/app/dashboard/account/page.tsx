@@ -26,6 +26,7 @@ import {
   CheckCircle,
   Clock,
 } from 'lucide-react';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 
 interface UserProfile {
   id: string;
@@ -52,7 +53,7 @@ export default function AccountInfoPage() {
   const [profileData, setProfileData] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const apiUrl = getApiBaseUrl();
 
   // Fetch comprehensive profile data
   useEffect(() => {

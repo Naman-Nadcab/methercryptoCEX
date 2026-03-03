@@ -5,8 +5,9 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const API_URL = getApiBaseUrl();
 
 function authHeaders(accessToken: string | null): HeadersInit {
   const headers: HeadersInit = { 'Content-Type': 'application/json' };

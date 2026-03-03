@@ -3,6 +3,7 @@
 import { useState, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/store/auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
@@ -44,7 +45,7 @@ function DocumentUploadContent() {
   const backInputRef = useRef<HTMLInputElement>(null);
   const selfieInputRef = useRef<HTMLInputElement>(null);
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const API_URL = getApiBaseUrl();
 
   const needsBackImage = ['aadhaar', 'national_id', 'driving_license', 'voter_id'].includes(documentType);
 
@@ -116,14 +117,13 @@ function DocumentUploadContent() {
 
       const data = await response.json();
 
-      if (data.success) {
+      if (response.ok && data.success) {
         router.push('/dashboard/identity/success');
       } else {
-        setError(data.error?.message || 'Upload failed. Please try again.');
+        setError(data.error?.message || data.error?.code || 'Upload failed. Please try again.');
       }
     } catch (err) {
-      // For demo, simulate success
-      router.push('/dashboard/identity/success');
+      setError(err instanceof Error ? err.message : 'Upload failed. Please try again.');
     } finally {
       setLoading(false);
     }

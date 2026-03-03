@@ -54,6 +54,7 @@ router.post(
         phone,
         referralCode,
         provider: AuthProvider.EMAIL,
+        ip: req.ip || req.socket?.remoteAddress || '127.0.0.1',
       });
 
       res.status(201).json({

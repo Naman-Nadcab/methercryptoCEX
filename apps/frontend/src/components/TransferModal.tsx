@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { X, ArrowLeftRight, ChevronDown, AlertCircle, CheckCircle2, Loader2, Search, Wallet, ArrowRight } from 'lucide-react';
 import Image from 'next/image';
 import { useAuthStore } from '@/store/auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 
 interface Token {
   tokenId: string;
@@ -51,7 +52,7 @@ export default function TransferModal({
   const [showCoinDropdown, setShowCoinDropdown] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const API_URL = getApiBaseUrl();
 
   useEffect(() => {
     if (isOpen && accessToken) {
@@ -103,6 +104,7 @@ export default function TransferModal({
   };
 
   const handleTransfer = async () => {
+    if (submitting) return;
     if (!selectedToken) {
       setError('Please select a coin');
       return;

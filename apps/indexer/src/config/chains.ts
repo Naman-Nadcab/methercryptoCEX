@@ -10,13 +10,26 @@ export interface ChainConfig {
   explorerUrl: string;
 }
 
+/**
+ * RPC/WebSocket endpoints – Ankr with API key from env.
+ * Set ANKR_API_KEY in .env (get from https://www.ankr.com/rpc/)
+ * Override per-chain via: ETH_RPC_URL, ETH_WS_URL, BSC_RPC_URL, BSC_WS_URL, etc.
+ */
+const env = (key: string, fallback: string) => process.env[key] || fallback;
+const ankrKey = process.env.ANKR_API_KEY || '';
+
+const ankrRpc = (chain: string) =>
+  ankrKey ? `https://rpc.ankr.com/${chain}/${ankrKey}` : `https://rpc.ankr.com/${chain}`;
+const ankrWss = (chain: string) =>
+  ankrKey ? `wss://rpc.ankr.com/${chain}/ws/${ankrKey}` : `wss://rpc.ankr.com/${chain}/ws`;
+
 export const CHAIN_CONFIGS: Record<string, ChainConfig> = {
   ethereum: {
     id: 1,
     name: 'Ethereum',
     symbol: 'ETH',
-    rpcUrl: 'https://rpc.ankr.com/eth/d3f6ef0c0e41a88132c95e71c5dbbb0527827d73d26e52628851ae2c620303d4',
-    wssUrl: 'wss://rpc.ankr.com/eth/ws/d3f6ef0c0e41a88132c95e71c5dbbb0527827d73d26e52628851ae2c620303d4',
+    rpcUrl: env('ETH_RPC_URL', ankrRpc('eth')),
+    wssUrl: env('ETH_WS_URL', ankrWss('eth')),
     blockTime: 12,
     confirmations: 25,
     nativeDecimals: 18,
@@ -26,8 +39,8 @@ export const CHAIN_CONFIGS: Record<string, ChainConfig> = {
     id: 56,
     name: 'BNB Smart Chain',
     symbol: 'BNB',
-    rpcUrl: 'https://rpc.ankr.com/bsc/d3f6ef0c0e41a88132c95e71c5dbbb0527827d73d26e52628851ae2c620303d4',
-    wssUrl: 'wss://rpc.ankr.com/bsc/ws/d3f6ef0c0e41a88132c95e71c5dbbb0527827d73d26e52628851ae2c620303d4',
+    rpcUrl: env('BSC_RPC_URL', ankrRpc('bsc')),
+    wssUrl: env('BSC_WS_URL', ankrWss('bsc')),
     blockTime: 3,
     confirmations: 25,
     nativeDecimals: 18,
@@ -37,8 +50,8 @@ export const CHAIN_CONFIGS: Record<string, ChainConfig> = {
     id: 137,
     name: 'Polygon',
     symbol: 'MATIC',
-    rpcUrl: 'https://rpc.ankr.com/polygon/d3f6ef0c0e41a88132c95e71c5dbbb0527827d73d26e52628851ae2c620303d4',
-    wssUrl: 'wss://rpc.ankr.com/polygon/ws/d3f6ef0c0e41a88132c95e71c5dbbb0527827d73d26e52628851ae2c620303d4',
+    rpcUrl: env('POLYGON_RPC_URL', ankrRpc('polygon')),
+    wssUrl: env('POLYGON_WS_URL', ankrWss('polygon')),
     blockTime: 2,
     confirmations: 25,
     nativeDecimals: 18,
@@ -48,8 +61,8 @@ export const CHAIN_CONFIGS: Record<string, ChainConfig> = {
     id: 8453,
     name: 'Base',
     symbol: 'ETH',
-    rpcUrl: 'https://rpc.ankr.com/base/d3f6ef0c0e41a88132c95e71c5dbbb0527827d73d26e52628851ae2c620303d4',
-    wssUrl: 'wss://rpc.ankr.com/base/ws/d3f6ef0c0e41a88132c95e71c5dbbb0527827d73d26e52628851ae2c620303d4',
+    rpcUrl: env('BASE_RPC_URL', ankrRpc('base')),
+    wssUrl: env('BASE_WS_URL', ankrWss('base')),
     blockTime: 2,
     confirmations: 25,
     nativeDecimals: 18,
@@ -59,8 +72,8 @@ export const CHAIN_CONFIGS: Record<string, ChainConfig> = {
     id: 42161,
     name: 'Arbitrum One',
     symbol: 'ETH',
-    rpcUrl: 'https://rpc.ankr.com/arbitrum/d3f6ef0c0e41a88132c95e71c5dbbb0527827d73d26e52628851ae2c620303d4',
-    wssUrl: 'wss://rpc.ankr.com/arbitrum/ws/d3f6ef0c0e41a88132c95e71c5dbbb0527827d73d26e52628851ae2c620303d4',
+    rpcUrl: env('ARBITRUM_RPC_URL', ankrRpc('arbitrum')),
+    wssUrl: env('ARBITRUM_WS_URL', ankrWss('arbitrum')),
     blockTime: 0.25,
     confirmations: 25,
     nativeDecimals: 18,
@@ -76,7 +89,7 @@ export const TOKEN_ADDRESSES: Record<string, Record<string, string>> = {
   ethereum: {
     USDT: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
     USDC: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-    DAI: '0x6B175474E89094C44Da98b954EescdeCB5BC4e8F',
+    DAI: '0x6B175474E89094C44Da98b954EedeAC495271d0F',
     WETH: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
   },
   bsc: {

@@ -6,6 +6,7 @@ import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
 import { config } from '../config/index.js';
+import { getClientIp } from '../lib/client-ip.js';
 
 interface GoogleTokenResponse {
   access_token: string;
@@ -210,10 +211,11 @@ async function findOrCreateOAuthUser(
   const sessionToken = uuidv4();
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
+  const clientIp = getClientIp(request);
   await db.query(
     `INSERT INTO user_sessions (id, user_id, session_token, device_type, ip_address, user_agent, expires_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [sessionId, userId, sessionToken, 'web', request.ip, request.headers['user-agent'], expiresAt]
+     VALUES ($1, $2, $3, $4, $5::inet, $6, $7)`,
+    [sessionId, userId, sessionToken, 'web', clientIp, request.headers['user-agent'], expiresAt]
   );
 
   // Store session in Redis
@@ -237,7 +239,7 @@ async function findOrCreateOAuthUser(
   await db.query(
     `INSERT INTO user_activity_logs (user_id, session_id, activity_type, ip_address, user_agent, details)
      VALUES ($1, $2, $3, $4, $5, $6)`,
-    [userId, sessionId, 'oauth_login', request.ip, request.headers['user-agent'], JSON.stringify({ provider })]
+    [userId, sessionId, 'oauth_login', clientIp, request.headers['user-agent'], JSON.stringify({ provider })]
   );
 
   logger.info('OAuth login successful', { userId, provider, isNewUser });

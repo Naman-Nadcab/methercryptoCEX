@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAdminAuthStore } from '@/store/admin-auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { Gift, Loader2 } from 'lucide-react';
 
 interface ReferralCode {
@@ -33,7 +34,7 @@ export default function ReferralsPage() {
 
   const fetchReferrals = async () => {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      const apiUrl = getApiBaseUrl();
       const response = await fetch(`${apiUrl}/api/v1/admin/referrals`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });

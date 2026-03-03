@@ -376,7 +376,7 @@ export function SpotTradingDesign() {
                     {side === 'buy' ? 'Buy' : 'Sell'} BTC
                   </button>
                   <div className="flex justify-center gap-3 text-xs">
-                    <Link href="#" className="text-gray-500 hover:text-gray-400">Fee Rate ⓘ</Link>
+                    <Link href="/dashboard/help#fee-rate" className="text-gray-500 hover:text-gray-400">Fee Rate ⓘ</Link>
                   </div>
                   <div className="flex gap-2 pt-2 border-t border-white/[0.06]">
                     <Link href="/dashboard/deposit/crypto" className="flex-1 py-2 text-center text-xs font-medium bg-white/5 hover:bg-white/10 rounded text-gray-300 transition-colors">
@@ -435,7 +435,7 @@ export function SpotTradingDesign() {
                   >
                     Log In
                   </Link>
-                  <Link href="#" className="block text-center text-xs text-gray-500 hover:text-gray-400">
+                  <Link href="/dashboard/demo-trading" className="block text-center text-xs text-gray-500 hover:text-gray-400">
                     Demo Trading
                   </Link>
                 </>
@@ -536,8 +536,8 @@ export function SpotTradingDesign() {
         <div className="flex items-center justify-between px-4 py-2 border-t border-white/[0.06] text-xs text-gray-500">
           <span>BTC/USDT <span className="text-buy font-medium">+1.04%</span></span>
           <div className="flex gap-4">
-            <Link href="#" className="hover:text-gray-400">Rewards Hub</Link>
-            <Link href="#" className="hover:text-gray-400">Customer Service</Link>
+            <Link href="/dashboard/help" className="hover:text-gray-400">Rewards Hub</Link>
+            <Link href="/dashboard/help" className="hover:text-gray-400">Customer Service</Link>
           </div>
         </div>
       </div>

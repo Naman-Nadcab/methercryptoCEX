@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAdminAuthStore } from '@/store/admin-auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 import {
   SectionHeader,
   MetricWidget,
@@ -90,7 +91,7 @@ export default function WithdrawalsCommandCenter() {
   const fetchWithdrawals = useCallback(async () => {
     setLoading(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      const apiUrl = getApiBaseUrl();
       const params = new URLSearchParams({ limit: '20', page: String(page) });
       if (statusFilter !== 'all') params.set('status', statusFilter);
       const res = await fetch(`${apiUrl}/api/v1/admin/withdrawals?${params}`, {
@@ -124,7 +125,7 @@ export default function WithdrawalsCommandCenter() {
     }
   }, [statusFilter, page, searchParams]);
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const apiUrl = getApiBaseUrl();
 
   const handleApprove = async (id: string) => {
     if (!accessToken) return;

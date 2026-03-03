@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useAdminAuthStore } from '@/store/admin-auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { toast } from '@/components/ui/toaster';
 import { 
   Users, Plus, Edit2, Trash2, Search, Loader2, Save, 
   Check, X, Coins, ArrowLeftRight, AlertCircle
@@ -46,8 +48,8 @@ export default function P2PAssetsPage() {
   const [deleteModal, setDeleteModal] = useState<{ id: string; name: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   
-  // Toast State
-  const [toast, setToast] = useState<{ show: boolean; message: string; type: 'success' | 'error' } | null>(null);
+  // Toast State (inline notifications; use imported toast() for API feedback)
+  const [toastState, setToastState] = useState<{ show: boolean; message: string; type: 'success' | 'error' } | null>(null);
   
   // Success Modal State for Add
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -61,12 +63,12 @@ export default function P2PAssetsPage() {
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const loadingMoreRef = useRef(false);
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const apiUrl = getApiBaseUrl();
   
   // Show toast helper
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
-    setToast({ show: true, message, type });
-    setTimeout(() => setToast(null), 3000);
+    setToastState({ show: true, message, type });
+    setTimeout(() => setToastState(null), 3000);
   };
 
   const fetchP2PAssets = async (reset = true) => {
@@ -291,7 +293,7 @@ export default function P2PAssetsPage() {
           fetchP2PAssets();
           fetchAvailableCurrencies();
         } else {
-          alert(result.error?.message || 'Failed to add');
+          toast({ title: 'Error', description: result.error?.message || 'Failed to add', variant: 'destructive' });
         }
       } catch (error) {
         console.error('Error:', error);
@@ -871,21 +873,21 @@ export default function P2PAssetsPage() {
       )}
       
       {/* Toast Notification */}
-      {toast && (
+      {toastState && (
         <div className="fixed bottom-4 right-4 z-50 animate-in slide-in-from-bottom-4 fade-in duration-300">
           <div className={`flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg ${
-            toast.type === 'success' 
+            toastState.type === 'success' 
               ? 'bg-green-600 text-white' 
               : 'bg-red-600 text-white'
           }`}>
-            {toast.type === 'success' ? (
+            {toastState.type === 'success' ? (
               <Check className="w-5 h-5" />
             ) : (
               <AlertCircle className="w-5 h-5" />
             )}
-            <span className="font-medium">{toast.message}</span>
+            <span className="font-medium">{toastState.message}</span>
             <button 
-              onClick={() => setToast(null)}
+              onClick={() => setToastState(null)}
               className="ml-2 hover:opacity-70"
             >
               <X className="w-4 h-4" />

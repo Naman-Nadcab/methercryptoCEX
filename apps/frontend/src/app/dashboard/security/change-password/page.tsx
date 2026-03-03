@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 import Link from 'next/link';
 import { ChevronRight, AlertCircle, Eye, EyeOff, Check, X, Loader2 } from 'lucide-react';
 
@@ -25,7 +26,7 @@ export default function ChangePasswordPage() {
   const [success, setSuccess] = useState('');
   const [passwordHistory, setPasswordHistory] = useState<string | null>(null);
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const apiUrl = getApiBaseUrl();
 
   // Password validation rules
   const validations = {

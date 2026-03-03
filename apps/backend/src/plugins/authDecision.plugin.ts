@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { config } from '../config/index.js';
 
 export interface AuthDecision {
   session_id: string | null;
@@ -8,7 +9,7 @@ export interface AuthDecision {
   expires_at: string | null;
 }
 
-const SESSION_CORE_URL = 'http://localhost:7001/validate';
+const SESSION_CORE_URL = config.security.sessionCoreUrl;
 const SESSION_CORE_TIMEOUT_MS = 5000;
 
 /** Fallback when session-core is unavailable; allows request to proceed with JWT auth. */

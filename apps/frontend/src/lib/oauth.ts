@@ -1,6 +1,7 @@
 // OAuth utility functions
+import { getApiBaseUrl } from './getApiUrl';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const API_URL = getApiBaseUrl();
 
 export interface OAuthResult {
   success: boolean;
@@ -25,11 +26,17 @@ export interface OAuthResult {
   };
 }
 
+const OAUTH_REDIRECT_KEY = 'oauth_redirect';
+
 /**
  * Initiate Google OAuth login
+ * @param redirect - Optional post-login redirect path (e.g. from ?redirect=)
  */
-export async function initiateGoogleLogin(): Promise<void> {
+export async function initiateGoogleLogin(redirect?: string): Promise<void> {
   try {
+    if (redirect && redirect.startsWith('/')) {
+      typeof sessionStorage !== 'undefined' && sessionStorage.setItem(OAUTH_REDIRECT_KEY, redirect);
+    }
     const redirectUri = `${window.location.origin}/auth/callback/google`;
     const response = await fetch(
       `${API_URL}/api/v1/auth/oauth/google/url?redirect_uri=${encodeURIComponent(redirectUri)}`
@@ -65,9 +72,13 @@ export async function handleGoogleCallback(code: string, state: string): Promise
 
 /**
  * Initiate Apple OAuth login
+ * @param redirect - Optional post-login redirect path (e.g. from ?redirect=)
  */
-export async function initiateAppleLogin(): Promise<void> {
+export async function initiateAppleLogin(redirect?: string): Promise<void> {
   try {
+    if (redirect && redirect.startsWith('/')) {
+      typeof sessionStorage !== 'undefined' && sessionStorage.setItem(OAUTH_REDIRECT_KEY, redirect);
+    }
     const redirectUri = `${window.location.origin}/auth/callback/apple`;
     const response = await fetch(
       `${API_URL}/api/v1/auth/oauth/apple/url?redirect_uri=${encodeURIComponent(redirectUri)}`
@@ -84,6 +95,17 @@ export async function initiateAppleLogin(): Promise<void> {
     console.error('Apple OAuth error:', error);
     throw error;
   }
+}
+
+/** Get and clear stored OAuth redirect. Returns path if valid (starts with /dashboard or /). */
+export function consumeOAuthRedirect(): string | null {
+  if (typeof sessionStorage === 'undefined') return null;
+  const stored = sessionStorage.getItem(OAUTH_REDIRECT_KEY);
+  sessionStorage.removeItem(OAUTH_REDIRECT_KEY);
+  if (stored && (stored.startsWith('/dashboard') || stored === '/' || (stored.startsWith('/') && !stored.includes('//')))) {
+    return stored;
+  }
+  return null;
 }
 
 /**

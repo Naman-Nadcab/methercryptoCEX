@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { toast } from '@/components/ui/toaster';
 import Link from 'next/link';
 import {
   Lock,
@@ -387,7 +389,7 @@ export default function SecurityPage() {
   const [loadingAntiPhishing, setLoadingAntiPhishing] = useState(true);
   const [isChangingAntiPhishing, setIsChangingAntiPhishing] = useState(false);
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const apiUrl = getApiBaseUrl();
   
   // Refs for OTP inputs
   const emailOtpRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -553,7 +555,7 @@ export default function SecurityPage() {
   // SMS Auth Toggle
   const toggleSmsAuth = async (enabled: boolean) => {
     if (!userPhone) {
-      alert('Please add a phone number first');
+      toast({ title: 'Validation', description: 'Please add a phone number first', variant: 'destructive' });
       return;
     }
     setTogglingSmsAuth(true);
@@ -570,11 +572,11 @@ export default function SecurityPage() {
       if (result.success) {
         setSmsAuthEnabled(enabled);
       } else {
-        alert(result.error?.message || 'Failed to update SMS authentication');
+        toast({ title: 'Error', description: result.error?.message || 'Failed to update SMS authentication', variant: 'destructive' });
       }
     } catch (error) {
       console.error('Failed to toggle SMS auth:', error);
-      alert('Failed to update SMS authentication');
+      toast({ title: 'Error', description: 'Failed to update SMS authentication', variant: 'destructive' });
     } finally {
       setTogglingSmsAuth(false);
     }
@@ -602,11 +604,11 @@ export default function SecurityPage() {
       if (result.success) {
         setEmailOtpTimer(60);
       } else {
-        alert(result.error?.message || 'Failed to send OTP');
+        toast({ title: 'Error', description: result.error?.message || 'Failed to send OTP', variant: 'destructive' });
       }
     } catch (error) {
       console.error('Failed to send email OTP:', error);
-      alert('Failed to send OTP');
+      toast({ title: 'Error', description: 'Failed to send OTP', variant: 'destructive' });
     } finally {
       setSendingEmailOtp(false);
     }
@@ -632,11 +634,11 @@ export default function SecurityPage() {
         setShowPhoneInputModal(true);
         setEmailOtp(['', '', '', '', '', '']);
       } else {
-        alert(result.error?.message || 'Invalid OTP');
+        toast({ title: 'Error', description: result.error?.message || 'Invalid OTP', variant: 'destructive' });
       }
     } catch (error) {
       console.error('Failed to verify email OTP:', error);
-      alert('Failed to verify OTP');
+      toast({ title: 'Error', description: 'Failed to verify OTP', variant: 'destructive' });
     } finally {
       setVerifyingEmailOtp(false);
     }
@@ -644,7 +646,7 @@ export default function SecurityPage() {
 
   const handlePhoneSubmit = () => {
     if (phoneNumber.length < 10) {
-      alert('Please enter a valid phone number');
+      toast({ title: 'Validation', description: 'Please enter a valid phone number', variant: 'destructive' });
       return;
     }
     setShowPhoneInputModal(false);
@@ -675,7 +677,7 @@ export default function SecurityPage() {
       }, 500);
     } else {
       setCaptchaPosition(0);
-      alert('Please complete the puzzle correctly');
+      toast({ title: 'Validation', description: 'Please complete the puzzle correctly', variant: 'destructive' });
     }
   };
 
@@ -696,11 +698,11 @@ export default function SecurityPage() {
       if (result.success) {
         setPhoneOtpTimer(60);
       } else {
-        alert(result.error?.message || 'Failed to send OTP');
+        toast({ title: 'Error', description: result.error?.message || 'Failed to send OTP', variant: 'destructive' });
       }
     } catch (error) {
       console.error('Failed to send phone OTP:', error);
-      alert('Failed to send OTP');
+      toast({ title: 'Error', description: 'Failed to send OTP', variant: 'destructive' });
     } finally {
       setSendingPhoneOtp(false);
     }
@@ -727,13 +729,13 @@ export default function SecurityPage() {
         setShowPhoneOtpModal(false);
         setPhoneOtp(['', '', '', '', '', '']);
         setPhoneNumber('');
-        alert('Phone number verified successfully!');
+        toast({ title: 'Success', description: 'Phone number verified successfully', variant: 'success' });
       } else {
-        alert(result.error?.message || 'Invalid OTP');
+        toast({ title: 'Error', description: result.error?.message || 'Invalid OTP', variant: 'destructive' });
       }
     } catch (error) {
       console.error('Failed to verify phone OTP:', error);
-      alert('Failed to verify OTP');
+      toast({ title: 'Error', description: 'Failed to verify OTP', variant: 'destructive' });
     } finally {
       setVerifyingPhoneOtp(false);
     }
@@ -761,11 +763,11 @@ export default function SecurityPage() {
       if (result.success) {
         setGoogle2faEmailOtpTimer(60);
       } else {
-        alert(result.error?.message || 'Failed to send OTP');
+        toast({ title: 'Error', description: result.error?.message || 'Failed to send OTP', variant: 'destructive' });
       }
     } catch (error) {
       console.error('Failed to send email OTP:', error);
-      alert('Failed to send OTP');
+      toast({ title: 'Error', description: 'Failed to send OTP', variant: 'destructive' });
     } finally {
       setSendingGoogle2faEmailOtp(false);
     }
@@ -788,7 +790,7 @@ export default function SecurityPage() {
       const verifyResult = await verifyResponse.json();
       
       if (!verifyResult.success) {
-        alert(verifyResult.error?.message || 'Invalid OTP');
+        toast({ title: 'Error', description: verifyResult.error?.message || 'Invalid OTP', variant: 'destructive' });
         return;
       }
 
@@ -809,11 +811,11 @@ export default function SecurityPage() {
         setShowGoogle2faSetupModal(true);
         setGoogle2faEmailOtp(['', '', '', '', '', '']);
       } else {
-        alert(setupResult.error?.message || 'Failed to setup 2FA');
+        toast({ title: 'Error', description: setupResult.error?.message || 'Failed to setup 2FA', variant: 'destructive' });
       }
     } catch (error) {
       console.error('Failed to verify email OTP:', error);
-      alert('Failed to verify OTP');
+      toast({ title: 'Error', description: 'Failed to verify OTP', variant: 'destructive' });
     } finally {
       setVerifyingGoogle2faEmailOtp(false);
     }
@@ -821,7 +823,7 @@ export default function SecurityPage() {
 
   const enableGoogle2fa = async () => {
     if (!google2faCode || google2faCode.length !== 6) {
-      alert('Please enter a valid 6-digit code');
+      toast({ title: 'Validation', description: 'Please enter a valid 6-digit code', variant: 'destructive' });
       return;
     }
 
@@ -843,13 +845,13 @@ export default function SecurityPage() {
         setGoogle2faCode('');
         setGoogle2faSecret('');
         setGoogle2faQrCode('');
-        alert('Google 2FA enabled successfully!');
+        toast({ title: 'Success', description: 'Google 2FA enabled successfully', variant: 'success' });
       } else {
-        alert(result.error?.message || 'Invalid code. Please try again.');
+        toast({ title: 'Error', description: result.error?.message || 'Invalid code. Please try again.', variant: 'destructive' });
       }
     } catch (error) {
       console.error('Failed to enable 2FA:', error);
-      alert('Failed to enable 2FA');
+      toast({ title: 'Error', description: 'Failed to enable 2FA', variant: 'destructive' });
     } finally {
       setEnablingGoogle2fa(false);
     }
@@ -866,7 +868,7 @@ export default function SecurityPage() {
 
   const disableGoogle2fa = async () => {
     if (!disable2faPassword || !disable2faCode) {
-      alert('Please enter both password and 2FA code');
+      toast({ title: 'Validation', description: 'Please enter both password and 2FA code', variant: 'destructive' });
       return;
     }
 
@@ -887,13 +889,13 @@ export default function SecurityPage() {
         setShowDisable2faVerifyModal(false);
         setDisable2faPassword('');
         setDisable2faCode('');
-        alert('Google 2FA disabled successfully');
+        toast({ title: 'Success', description: 'Google 2FA disabled successfully', variant: 'success' });
       } else {
-        alert(result.error?.message || 'Failed to disable 2FA');
+        toast({ title: 'Error', description: result.error?.message || 'Failed to disable 2FA', variant: 'destructive' });
       }
     } catch (error) {
       console.error('Failed to disable 2FA:', error);
-      alert('Failed to disable 2FA');
+      toast({ title: 'Error', description: 'Failed to disable 2FA', variant: 'destructive' });
     } finally {
       setDisabling2fa(false);
     }
@@ -924,7 +926,7 @@ export default function SecurityPage() {
     try {
       // Check WebAuthn support
       if (!isWebAuthnSupported()) {
-        alert('WebAuthn is not supported in this browser. Please use Chrome or Safari.');
+        toast({ title: 'Not supported', description: 'WebAuthn is not supported in this browser. Please use Chrome or Safari.', variant: 'destructive' });
         setRegisteringPasskey(false);
         return;
       }
@@ -932,7 +934,7 @@ export default function SecurityPage() {
       // Check platform authenticator availability
       const platformAvailable = await isPlatformAuthenticatorAvailable();
       if (!platformAvailable) {
-        alert('Touch ID / Face ID is not available on this device. Please enable biometric authentication in System Settings.');
+        toast({ title: 'Not available', description: 'Touch ID / Face ID is not available on this device. Please enable biometric authentication in System Settings.', variant: 'destructive' });
         setRegisteringPasskey(false);
         return;
       }
@@ -951,7 +953,7 @@ export default function SecurityPage() {
       });
       
       if (optionsResponse.status === 401) {
-        alert('Session expired. Please log out and log in again.');
+        toast({ title: 'Session expired', description: 'Please log out and log in again.', variant: 'destructive' });
         setRegisteringPasskey(false);
         return;
       }
@@ -959,7 +961,7 @@ export default function SecurityPage() {
       const optionsData = await optionsResponse.json();
 
       if (!optionsData.success) {
-        alert(optionsData.error?.message || 'Failed to start passkey registration');
+        toast({ title: 'Error', description: optionsData.error?.message || 'Failed to start passkey registration', variant: 'destructive' });
         setRegisteringPasskey(false);
         return;
       }
@@ -971,7 +973,7 @@ export default function SecurityPage() {
       const result = await createPasskey(optionsData.data);
 
       if (!result.success) {
-        alert(result.error?.message || 'Failed to create passkey');
+        toast({ title: 'Error', description: result.error?.message || 'Failed to create passkey', variant: 'destructive' });
         setRegisteringPasskey(false);
         return;
       }
@@ -994,15 +996,15 @@ export default function SecurityPage() {
       const verifyData = await verifyResponse.json();
 
       if (verifyData.success) {
-        alert('Passkey registered successfully! You can now login with Touch ID / Face ID.');
+        toast({ title: 'Success', description: 'Passkey registered. You can now login with Touch ID / Face ID.', variant: 'success' });
         await fetchPasskeys();
         setShowPasskeyModal(false);
       } else {
-        alert(verifyData.error?.message || 'Failed to register passkey');
+        toast({ title: 'Error', description: verifyData.error?.message || 'Failed to register passkey', variant: 'destructive' });
       }
     } catch (err: unknown) {
       console.error('[Passkey] Unexpected registration error:', err);
-      alert('An unexpected error occurred. Please try again.');
+      toast({ title: 'Error', description: 'An unexpected error occurred. Please try again.', variant: 'destructive' });
     } finally {
       setRegisteringPasskey(false);
     }
@@ -1023,13 +1025,13 @@ export default function SecurityPage() {
 
       if (result.success) {
         await fetchPasskeys();
-        alert('Passkey deleted successfully');
+        toast({ title: 'Success', description: 'Passkey deleted successfully', variant: 'success' });
       } else {
-        alert(result.error?.message || 'Failed to delete passkey');
+        toast({ title: 'Error', description: result.error?.message || 'Failed to delete passkey', variant: 'destructive' });
       }
     } catch (error) {
       console.error('Failed to delete passkey:', error);
-      alert('Failed to delete passkey');
+      toast({ title: 'Error', description: 'Failed to delete passkey', variant: 'destructive' });
     } finally {
       setDeletingPasskeyId(null);
     }
@@ -1044,11 +1046,11 @@ export default function SecurityPage() {
 
   const validateFundPassword = () => {
     if (fundPassword.length < 6) {
-      alert('Fund password must be at least 6 characters');
+      toast({ title: 'Validation', description: 'Fund password must be at least 6 characters', variant: 'destructive' });
       return false;
     }
     if (fundPassword !== confirmFundPassword) {
-      alert('Passwords do not match');
+      toast({ title: 'Validation', description: 'Passwords do not match', variant: 'destructive' });
       return false;
     }
     return true;
@@ -1089,13 +1091,13 @@ export default function SecurityPage() {
         setFundPassword('');
         setConfirmFundPassword('');
         setFundPassword2faCode(['', '', '', '', '', '']);
-        alert('Fund password set successfully!');
+        toast({ title: 'Success', description: 'Fund password set successfully', variant: 'success' });
       } else {
-        alert(result.error?.message || 'Failed to set fund password');
+        toast({ title: 'Error', description: result.error?.message || 'Failed to set fund password', variant: 'destructive' });
       }
     } catch (error) {
       console.error('Failed to set fund password:', error);
-      alert('Failed to set fund password');
+      toast({ title: 'Error', description: 'Failed to set fund password', variant: 'destructive' });
     } finally {
       setSettingFundPassword(false);
       setVerifyingFundPassword2fa(false);
@@ -1105,7 +1107,7 @@ export default function SecurityPage() {
   const verifyFundPassword2fa = () => {
     const code = fundPassword2faCode.join('');
     if (code.length !== 6) {
-      alert('Please enter a valid 6-digit code');
+      toast({ title: 'Validation', description: 'Please enter a valid 6-digit code', variant: 'destructive' });
       return;
     }
     setVerifyingFundPassword2fa(true);
@@ -1126,11 +1128,11 @@ export default function SecurityPage() {
 
   const saveAntiPhishing = async () => {
     if (antiPhishingCodeInput.length < 4 || antiPhishingCodeInput.length > 20) {
-      alert('Anti-phishing code must be 4-20 characters');
+      toast({ title: 'Validation', description: 'Anti-phishing code must be 4-20 characters', variant: 'destructive' });
       return;
     }
     if (isChangingAntiPhishing && oldAntiPhishingCodeInput !== antiPhishingCode) {
-      alert('Old anti-phishing code is incorrect');
+      toast({ title: 'Validation', description: 'Old anti-phishing code is incorrect', variant: 'destructive' });
       return;
     }
 
@@ -1151,13 +1153,13 @@ export default function SecurityPage() {
         setShowAntiPhishingModal(false);
         setAntiPhishingCodeInput('');
         setOldAntiPhishingCodeInput('');
-        alert('Anti-phishing code saved successfully!');
+        toast({ title: 'Success', description: 'Anti-phishing code saved successfully', variant: 'success' });
       } else {
-        alert(result.error?.message || 'Failed to save anti-phishing code');
+        toast({ title: 'Error', description: result.error?.message || 'Failed to save anti-phishing code', variant: 'destructive' });
       }
     } catch (error) {
       console.error('Failed to save anti-phishing code:', error);
-      alert('Failed to save anti-phishing code');
+      toast({ title: 'Error', description: 'Failed to save anti-phishing code', variant: 'destructive' });
     } finally {
       setSavingAntiPhishing(false);
     }
@@ -1173,7 +1175,7 @@ export default function SecurityPage() {
 
   const sendEmailChangeOtp = async () => {
     if (!newEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
-      alert('Please enter a valid email address');
+      toast({ title: 'Validation', description: 'Please enter a valid email address', variant: 'destructive' });
       return;
     }
     setSendingEmailChangeOtp(true);
@@ -1191,11 +1193,11 @@ export default function SecurityPage() {
         setEmailChangeStep('verify');
         setEmailChangeOtpTimer(60);
       } else {
-        alert(result.error?.message || 'Failed to send OTP');
+        toast({ title: 'Error', description: result.error?.message || 'Failed to send OTP', variant: 'destructive' });
       }
     } catch (error) {
       console.error('Failed to send email OTP:', error);
-      alert('Failed to send OTP');
+      toast({ title: 'Error', description: 'Failed to send OTP', variant: 'destructive' });
     } finally {
       setSendingEmailChangeOtp(false);
     }
@@ -1204,7 +1206,7 @@ export default function SecurityPage() {
   const verifyEmailChange = async () => {
     const otp = emailChangeOtp.join('');
     if (otp.length !== 6) {
-      alert('Please enter a valid 6-digit code');
+      toast({ title: 'Validation', description: 'Please enter a valid 6-digit code', variant: 'destructive' });
       return;
     }
     setVerifyingEmailChange(true);
@@ -1220,14 +1222,14 @@ export default function SecurityPage() {
       const result = await response.json();
       if (result.success) {
         setShowEmailChangeModal(false);
-        alert('Email changed successfully! Please re-login.');
+        toast({ title: 'Success', description: 'Email changed. Please re-login.', variant: 'success' });
         router.push('/login');
       } else {
-        alert(result.error?.message || 'Failed to change email');
+        toast({ title: 'Error', description: result.error?.message || 'Failed to change email', variant: 'destructive' });
       }
     } catch (error) {
       console.error('Failed to change email:', error);
-      alert('Failed to change email');
+      toast({ title: 'Error', description: 'Failed to change email', variant: 'destructive' });
     } finally {
       setVerifyingEmailChange(false);
     }
@@ -1258,11 +1260,11 @@ export default function SecurityPage() {
       if (result.success) {
         setSmsChangeOtpTimer(60);
       } else {
-        alert(result.error?.message || 'Failed to send OTP');
+        toast({ title: 'Error', description: result.error?.message || 'Failed to send OTP', variant: 'destructive' });
       }
     } catch (error) {
       console.error('Failed to send phone OTP:', error);
-      alert('Failed to send OTP');
+      toast({ title: 'Error', description: 'Failed to send OTP', variant: 'destructive' });
     } finally {
       setSendingSmsChangeOtp(false);
     }
@@ -1271,7 +1273,7 @@ export default function SecurityPage() {
   const verifyCurrentPhoneAndContinue = async () => {
     const otp = currentPhoneOtp.join('');
     if (otp.length !== 6) {
-      alert('Please enter a valid 6-digit code');
+      toast({ title: 'Validation', description: 'Please enter a valid 6-digit code', variant: 'destructive' });
       return;
     }
     setVerifyingSmsChange(true);
@@ -1288,11 +1290,11 @@ export default function SecurityPage() {
       if (result.success) {
         setSmsChangeStep('input_new');
       } else {
-        alert(result.error?.message || 'Invalid OTP');
+        toast({ title: 'Error', description: result.error?.message || 'Invalid OTP', variant: 'destructive' });
       }
     } catch (error) {
       console.error('Failed to verify OTP:', error);
-      alert('Failed to verify OTP');
+      toast({ title: 'Error', description: 'Failed to verify OTP', variant: 'destructive' });
     } finally {
       setVerifyingSmsChange(false);
     }
@@ -1300,7 +1302,7 @@ export default function SecurityPage() {
 
   const sendNewPhoneOtp = async () => {
     if (!newPhoneNumber || newPhoneNumber.length < 10) {
-      alert('Please enter a valid phone number');
+      toast({ title: 'Validation', description: 'Please enter a valid phone number', variant: 'destructive' });
       return;
     }
     const fullPhone = selectedCountry?.code + newPhoneNumber;
@@ -1319,11 +1321,11 @@ export default function SecurityPage() {
         setSmsChangeStep('verify_new');
         setSmsChangeOtpTimer(60);
       } else {
-        alert(result.error?.message || 'Failed to send OTP');
+        toast({ title: 'Error', description: result.error?.message || 'Failed to send OTP', variant: 'destructive' });
       }
     } catch (error) {
       console.error('Failed to send phone OTP:', error);
-      alert('Failed to send OTP');
+      toast({ title: 'Error', description: 'Failed to send OTP', variant: 'destructive' });
     } finally {
       setSendingSmsChangeOtp(false);
     }
@@ -1332,7 +1334,7 @@ export default function SecurityPage() {
   const verifyNewPhoneAndSave = async () => {
     const otp = newPhoneOtp.join('');
     if (otp.length !== 6) {
-      alert('Please enter a valid 6-digit code');
+      toast({ title: 'Validation', description: 'Please enter a valid 6-digit code', variant: 'destructive' });
       return;
     }
     const fullPhone = selectedCountry?.code + newPhoneNumber;
@@ -1350,13 +1352,13 @@ export default function SecurityPage() {
       if (result.success) {
         setUserPhone(fullPhone);
         setShowSmsChangeModal(false);
-        alert('Phone number changed successfully!');
+        toast({ title: 'Success', description: 'Phone number changed successfully', variant: 'success' });
       } else {
-        alert(result.error?.message || 'Failed to change phone');
+        toast({ title: 'Error', description: result.error?.message || 'Failed to change phone', variant: 'destructive' });
       }
     } catch (error) {
       console.error('Failed to change phone:', error);
-      alert('Failed to change phone');
+      toast({ title: 'Error', description: 'Failed to change phone', variant: 'destructive' });
     } finally {
       setVerifyingSmsChange(false);
     }
@@ -1372,15 +1374,15 @@ export default function SecurityPage() {
 
   const changePassword = async () => {
     if (!currentPassword) {
-      alert('Please enter your current password');
+      toast({ title: 'Validation', description: 'Please enter your current password', variant: 'destructive' });
       return;
     }
     if (newPassword.length < 8) {
-      alert('New password must be at least 8 characters');
+      toast({ title: 'Validation', description: 'New password must be at least 8 characters', variant: 'destructive' });
       return;
     }
     if (newPassword !== confirmNewPassword) {
-      alert('Passwords do not match');
+      toast({ title: 'Validation', description: 'Passwords do not match', variant: 'destructive' });
       return;
     }
     setChangingPassword(true);
@@ -1396,13 +1398,13 @@ export default function SecurityPage() {
       const result = await response.json();
       if (result.success) {
         setShowPasswordChangeModal(false);
-        alert('Password changed successfully!');
+        toast({ title: 'Success', description: 'Password changed successfully', variant: 'success' });
       } else {
-        alert(result.error?.message || 'Failed to change password');
+        toast({ title: 'Error', description: result.error?.message || 'Failed to change password', variant: 'destructive' });
       }
     } catch (error) {
       console.error('Failed to change password:', error);
-      alert('Failed to change password');
+      toast({ title: 'Error', description: 'Failed to change password', variant: 'destructive' });
     } finally {
       setChangingPassword(false);
     }
@@ -1443,11 +1445,11 @@ export default function SecurityPage() {
 
   const verifyWhitelistAndEnable = async () => {
     if (!whitelistEmailOtp || whitelistEmailOtp.length !== 6) {
-      alert('Please enter a valid OTP');
+      toast({ title: 'Validation', description: 'Please enter a valid OTP', variant: 'destructive' });
       return;
     }
     if (user2faEnabled && (!whitelistGoogle2faCode || whitelistGoogle2faCode.length !== 6)) {
-      alert('Please enter a valid 2FA code');
+      toast({ title: 'Validation', description: 'Please enter a valid 2FA code', variant: 'destructive' });
       return;
     }
 
@@ -1464,7 +1466,7 @@ export default function SecurityPage() {
       const verifyResult = await verifyResponse.json();
       
       if (!verifyResult.success) {
-        alert('Invalid OTP');
+        toast({ title: 'Error', description: 'Invalid OTP', variant: 'destructive' });
         return;
       }
 
@@ -1480,7 +1482,7 @@ export default function SecurityPage() {
         const twoFaResult = await twoFaResponse.json();
         
         if (!twoFaResult.success) {
-          alert('Invalid 2FA code');
+          toast({ title: 'Error', description: 'Invalid 2FA code', variant: 'destructive' });
           return;
         }
       }
@@ -1491,7 +1493,7 @@ export default function SecurityPage() {
       setWhitelistGoogle2faCode('');
     } catch (error) {
       console.error('Failed to verify:', error);
-      alert('Verification failed');
+      toast({ title: 'Error', description: 'Verification failed', variant: 'destructive' });
     } finally {
       setVerifyingWhitelist(false);
     }

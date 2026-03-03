@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useAdminAuthStore } from '@/store/admin-auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 import {
   SectionHeader,
   MetricWidget,
@@ -50,7 +51,7 @@ function truncateAddress(addr: string, len = 6): string {
   return `${addr.slice(0, len)}…${addr.slice(-len)}`;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const API_URL = getApiBaseUrl();
 
 export default function FundsWalletControlPlane() {
   const { accessToken } = useAdminAuthStore();

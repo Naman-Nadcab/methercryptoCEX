@@ -55,6 +55,7 @@ export default function P2PPaymentMethodsPage() {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (addLoading) return;
     if (!selectedPlatformId || !displayName.trim()) return;
     setAddError(null);
     setAddLoading(true);

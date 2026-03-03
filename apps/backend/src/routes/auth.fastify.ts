@@ -6,6 +6,7 @@ import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
 import { otpService } from '../services/otp.service.js';
+import { authService } from '../services/auth.service.js';
 import {
   createSession,
   revokeSession,
@@ -19,6 +20,7 @@ import {
   getDeviceIdFromRequest,
 } from '../services/activity-monitor.service.js';
 import { rateLimitByIp } from '../lib/rate-limit-fastify.js';
+import { getClientIp } from '../lib/client-ip.js';
 import { config } from '../config/index.js';
 import {
   generateRegistrationOptions,
@@ -178,10 +180,15 @@ export default async function authRoutes(app: FastifyInstance) {
         otp = result.otp;
         expiresAt = result.expiresAt;
       } catch (error) {
-        logger.error('Failed to create OTP', { error: error instanceof Error ? error.message : 'Unknown' });
+        const errMsg = error instanceof Error ? error.message : 'Unknown';
+        const errStack = error instanceof Error ? error.stack : undefined;
+        logger.error('Failed to create OTP', { error: errMsg, stack: errStack });
         return reply.status(500).send({
           success: false,
-          error: { code: 'OTP_CREATE_FAILED', message: 'Failed to create OTP. Please try again.' },
+          error: {
+            code: 'OTP_CREATE_FAILED',
+            message: config.env === 'development' ? `Failed to create OTP: ${errMsg}` : 'Failed to create OTP. Please try again.',
+          },
         });
       }
       
@@ -198,9 +205,9 @@ export default async function authRoutes(app: FastifyInstance) {
       }
 
       if (!sent) {
-        return reply.status(500).send({
+        return reply.status(503).send({
           success: false,
-          error: { code: 'OTP_SEND_FAILED', message: 'Failed to send OTP. Please try again.' },
+          error: { code: 'OTP_DELIVERY_UNAVAILABLE', message: 'OTP delivery is temporarily unavailable. Please try again later.' },
         });
       }
 
@@ -310,7 +317,7 @@ export default async function authRoutes(app: FastifyInstance) {
           await logUserActivity({
             userId: failedUserId,
             action: 'login_failed',
-            ipAddress: request.ip,
+            ipAddress: getClientIp(request),
             userAgent: request.headers['user-agent'],
             deviceId: getDeviceIdFromRequest(request.headers as Record<string, string | undefined>),
             metadata: { reason: 'invalid_otp' },
@@ -324,9 +331,13 @@ export default async function authRoutes(app: FastifyInstance) {
 
       // For signup purpose, just verify and set flag - don't create user yet
       if (purpose === 'signup') {
-        // Set a flag in Redis that OTP was verified for this identifier
-        await redis.set(`otp:verified:${cleanIdentifier}`, 'true', 600); // 10 minutes validity
-        
+        // Set a flag in Redis (fallback: DB has verified_at from verifyOTP above)
+        try {
+          await redis.set(`otp:verified:${cleanIdentifier}`, 'true', 600); // 10 minutes validity
+        } catch {
+          // Redis down: signup will fall back to DB check (verified_at in otp_verifications)
+        }
+
         // Check if user exists
         const existingUser = await db.query(
           `SELECT id FROM users WHERE ${type} = $1 AND deleted_at IS NULL`,
@@ -460,7 +471,7 @@ export default async function authRoutes(app: FastifyInstance) {
           await logUserActivity({
             userId: user.id,
             action: 'login_failed',
-            ipAddress: request.ip,
+            ipAddress: getClientIp(request),
             userAgent: request.headers['user-agent'],
             deviceId: getDeviceIdFromRequest(request.headers as Record<string, string | undefined>),
             metadata: { reason: 'account_locked', lockedUntil: lockedUntil.toISOString() },
@@ -480,7 +491,7 @@ export default async function authRoutes(app: FastifyInstance) {
         userId: user.id,
         deviceId,
         deviceType: 'web',
-        ipAddress: request.ip,
+        ipAddress: getClientIp(request),
         userAgent: request.headers['user-agent'],
         ttlSeconds: 7 * 24 * 60 * 60,
       });
@@ -499,7 +510,7 @@ export default async function authRoutes(app: FastifyInstance) {
         userId: user.id,
         action: 'login_success',
         sessionId,
-        ipAddress: request.ip,
+        ipAddress: getClientIp(request),
         userAgent: request.headers['user-agent'],
         deviceId,
       });
@@ -597,7 +608,7 @@ export default async function authRoutes(app: FastifyInstance) {
       // Rotate refresh token: create new session, revoke old one, issue tokens for new session (prevents replay).
       const newSession = await createSession({
         userId: user.id,
-        ipAddress: request.ip ?? undefined,
+        ipAddress: getClientIp(request) || undefined,
         userAgent: request.headers['user-agent'] ?? undefined,
         deviceType: 'web',
       });
@@ -639,7 +650,7 @@ export default async function authRoutes(app: FastifyInstance) {
         userId,
         action: 'logout',
         sessionId,
-        ipAddress: request.ip,
+        ipAddress: getClientIp(request),
         userAgent: request.headers['user-agent'],
         deviceId: getDeviceIdFromRequest(request.headers as Record<string, string | undefined>),
       });
@@ -671,7 +682,7 @@ export default async function authRoutes(app: FastifyInstance) {
         userId,
         action: 'sessions_revoked_all',
         sessionId,
-        ipAddress: request.ip,
+        ipAddress: getClientIp(request),
         userAgent: request.headers['user-agent'],
         deviceId: getDeviceIdFromRequest(request.headers as Record<string, string | undefined>),
         metadata: { revokedCount: revoked },
@@ -872,6 +883,7 @@ export default async function authRoutes(app: FastifyInstance) {
       referralCode?: string;
     };
   }>('/signup', {
+    preHandler: [rateLimitByIp('auth:signup', 10, 3600)],
     schema: {
       body: {
         type: 'object',
@@ -920,8 +932,23 @@ export default async function authRoutes(app: FastifyInstance) {
         cleanIdentifier = normalizePhoneNumber(phone!);
       }
 
-      // Check if OTP was recently verified for this identifier
-      const otpVerified = await redis.get(`otp:verified:${cleanIdentifier}`);
+      // Check if OTP was recently verified (Redis or DB fallback when Redis down)
+      let otpVerified = false;
+      try {
+        const cached = await redis.get(`otp:verified:${cleanIdentifier}`);
+        otpVerified = cached === 'true';
+      } catch {
+        // Redis down, fall back to DB
+      }
+      if (!otpVerified) {
+        const dbCheck = await db.query(
+          `SELECT 1 FROM otp_verifications 
+           WHERE identifier = $1 AND type = $2 AND verified_at IS NOT NULL 
+           AND verified_at > NOW() - INTERVAL '10 minutes' LIMIT 1`,
+          [cleanIdentifier, type]
+        );
+        otpVerified = dbCheck.rows.length > 0;
+      }
       if (!otpVerified) {
         return reply.status(400).send({
           success: false,
@@ -1022,7 +1049,7 @@ export default async function authRoutes(app: FastifyInstance) {
       await db.query(
         `INSERT INTO user_sessions (id, user_id, session_token, device_type, ip_address, user_agent, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [sessionId, user.id, sessionToken, 'web', request.ip, request.headers['user-agent'], expiresAt]
+        [sessionId, user.id, sessionToken, 'web', getClientIp(request), request.headers['user-agent'], expiresAt]
       );
 
       // Store session in Redis
@@ -1050,11 +1077,13 @@ export default async function authRoutes(app: FastifyInstance) {
       await db.query(
         `INSERT INTO user_activity_logs (user_id, session_id, activity_type, ip_address, user_agent)
          VALUES ($1, $2, $3, $4, $5)`,
-        [user.id, sessionId, 'signup', request.ip, request.headers['user-agent']]
+        [user.id, sessionId, 'signup', getClientIp(request), request.headers['user-agent']]
       );
 
-      // Clear the verified OTP flag
-      await redis.del(`otp:verified:${cleanIdentifier}`);
+      // Clear the verified OTP flag (best effort)
+      try {
+        await redis.del(`otp:verified:${cleanIdentifier}`);
+      } catch { /* Redis down */ }
 
       logger.info('New user signed up', { userId: user.id, type });
 
@@ -1093,7 +1122,7 @@ export default async function authRoutes(app: FastifyInstance) {
    * Multi-step login with security verification
    * Step 1: Verify initial OTP (email/phone)
    * Step 2+: Additional verification based on user settings (SMS, 2FA)
-   * FIX #4: Rate limit 10/hour per IP via preHandler.
+   * P0: Rate limit 5/min per IP.
    */
   app.post<{
     Body: {
@@ -1102,7 +1131,7 @@ export default async function authRoutes(app: FastifyInstance) {
       otp: string;
     };
   }>('/login', {
-    preHandler: [rateLimitByIp('auth:login', 10, 3600)],
+    preHandler: [rateLimitByIp('auth:login', 5, 60)],
     schema: {
       body: {
         type: 'object',
@@ -1231,7 +1260,7 @@ export default async function authRoutes(app: FastifyInstance) {
         await db.query(
           `INSERT INTO login_verification_tokens (id, user_id, token, login_method, steps_required, ip_address, user_agent, expires_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [uuidv4(), user.id, verificationToken, loginMethod, JSON.stringify(stepsRequired), request.ip, request.headers['user-agent'], tokenExpiry]
+          [uuidv4(), user.id, verificationToken, loginMethod, JSON.stringify(stepsRequired), getClientIp(request), request.headers['user-agent'], tokenExpiry]
         );
 
         // Send OTP for first required step
@@ -1268,7 +1297,7 @@ export default async function authRoutes(app: FastifyInstance) {
       await db.query(
         `INSERT INTO user_sessions (id, user_id, session_token, device_type, ip_address, user_agent, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [sessionId, user.id, sessionToken, 'web', request.ip ?? null, request.headers['user-agent'] ?? null, expiresAt]
+        [sessionId, user.id, sessionToken, 'web', getClientIp(request) ?? null, request.headers['user-agent'] ?? null, expiresAt]
       );
 
       try {
@@ -1298,7 +1327,7 @@ export default async function authRoutes(app: FastifyInstance) {
       await db.query(
         `INSERT INTO user_activity_logs (user_id, session_id, activity_type, ip_address, user_agent)
          VALUES ($1, $2, $3, $4, $5)`,
-        [user.id, sessionId, 'login', request.ip, request.headers['user-agent']]
+        [user.id, sessionId, 'login', getClientIp(request), request.headers['user-agent']]
       );
 
       logger.info('User logged in (no additional verification)', { userId: user.id });
@@ -1342,6 +1371,7 @@ export default async function authRoutes(app: FastifyInstance) {
   /**
    * POST /auth/login/verify-step
    * Verify a step in multi-step login
+   * P0: Rate limit 10/min per IP.
    */
   app.post<{
     Body: {
@@ -1350,6 +1380,7 @@ export default async function authRoutes(app: FastifyInstance) {
       code: string;
     };
   }>('/login/verify-step', {
+    preHandler: [rateLimitByIp('auth:login-verify-step', 10, 60)],
     schema: {
       body: {
         type: 'object',
@@ -1432,10 +1463,15 @@ export default async function authRoutes(app: FastifyInstance) {
         const verification = await otpService.verifyOTP(user.email, 'email', code);
         isValid = verification.valid;
       } else if (step === '2fa' && user.totp_secret) {
-        // Decrypt and verify TOTP
+        // Decrypt and verify TOTP (TOTP_ENCRYPTION_KEY required; no JWT fallback)
         try {
           const crypto = await import('crypto');
-          const encryptionKey = process.env.TOTP_ENCRYPTION_KEY || process.env.JWT_SECRET || 'default-encryption-key';
+          const { config } = await import('../config/index.js');
+          const encryptionKey = config.security.totpEncryptionKey;
+          if (!encryptionKey || encryptionKey.length < 32) {
+            isValid = false;
+            throw new Error('TOTP_ENCRYPTION_KEY required (min 32 chars). Do not use JWT_SECRET.');
+          }
           const [ivHex, encryptedSecret] = user.totp_secret.split(':');
           if (!ivHex || !encryptedSecret) throw new Error('Invalid TOTP secret format');
           const iv = Buffer.from(ivHex, 'hex');
@@ -1517,7 +1553,7 @@ export default async function authRoutes(app: FastifyInstance) {
       await db.query(
         `INSERT INTO user_sessions (id, user_id, session_token, device_type, ip_address, user_agent, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [sessionId, user.id, sessionToken, 'web', request.ip, request.headers['user-agent'], expiresAt]
+        [sessionId, user.id, sessionToken, 'web', getClientIp(request), request.headers['user-agent'], expiresAt]
       );
 
       await redis.setJson(`session:${sessionId}`, {
@@ -1543,7 +1579,7 @@ export default async function authRoutes(app: FastifyInstance) {
       await db.query(
         `INSERT INTO user_activity_logs (user_id, session_id, activity_type, ip_address, user_agent)
          VALUES ($1, $2, $3, $4, $5)`,
-        [user.id, sessionId, 'login', request.ip, request.headers['user-agent']]
+        [user.id, sessionId, 'login', getClientIp(request), request.headers['user-agent']]
       );
 
       logger.info('Multi-step login completed', { userId: user.id });
@@ -1582,6 +1618,7 @@ export default async function authRoutes(app: FastifyInstance) {
   /**
    * POST /auth/login/resend-otp
    * Resend OTP for current verification step
+   * P0: Rate limit 5/min per IP.
    */
   app.post<{
     Body: {
@@ -1589,6 +1626,7 @@ export default async function authRoutes(app: FastifyInstance) {
       step: 'sms' | 'email';
     };
   }>('/login/resend-otp', {
+    preHandler: [rateLimitByIp('auth:login-resend-otp', 5, 60)],
     schema: {
       body: {
         type: 'object',
@@ -1685,6 +1723,7 @@ export default async function authRoutes(app: FastifyInstance) {
       phone?: string;
     };
   }>('/login/check-passkeys', {
+    preHandler: [rateLimitByIp('auth:check-passkeys', 10, 60)],
     schema: {
       body: {
         type: 'object',
@@ -1768,7 +1807,7 @@ export default async function authRoutes(app: FastifyInstance) {
   // PASSKEY REGISTRATION - Generate Options
   // ===============================
   app.post('/passkey/register/options', {
-    preHandler: [rateLimitByIp('auth:passkey', 10, 3600)],
+    preHandler: [rateLimitByIp('auth:passkey', 10, 60)],
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
@@ -1861,7 +1900,7 @@ export default async function authRoutes(app: FastifyInstance) {
   // PASSKEY REGISTRATION - Verify
   // ===============================
   app.post('/passkey/register/verify', {
-    preHandler: [rateLimitByIp('auth:passkey', 10, 3600)],
+    preHandler: [rateLimitByIp('auth:passkey', 10, 60)],
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
@@ -1984,7 +2023,7 @@ export default async function authRoutes(app: FastifyInstance) {
         await db.query(
           `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
            VALUES ($1, $2, $3, $4, $5)`,
-          [userId, 'settings_change', request.ip, request.headers['user-agent'], 
+          [userId, 'settings_change', getClientIp(request), request.headers['user-agent'], 
            JSON.stringify({ type: 'passkey_registered', deviceName: deviceName || 'Unknown Device' })]
         );
       } catch (logError) {
@@ -2015,7 +2054,7 @@ export default async function authRoutes(app: FastifyInstance) {
   // PASSKEY AUTHENTICATION - Generate Options
   // ===============================
   app.post('/passkey/authenticate/options', {
-    preHandler: [rateLimitByIp('auth:passkey', 10, 3600)],
+    preHandler: [rateLimitByIp('auth:passkey', 10, 60)],
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { email, phone } = request.body as { email?: string; phone?: string };
@@ -2120,7 +2159,7 @@ export default async function authRoutes(app: FastifyInstance) {
   // PASSKEY AUTHENTICATION - Verify
   // ===============================
   app.post('/passkey/authenticate/verify', {
-    preHandler: [rateLimitByIp('auth:passkey', 10, 3600)],
+    preHandler: [rateLimitByIp('auth:passkey', 10, 60)],
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { credential, challenge } = request.body as { credential: AuthenticationResponseJSON; challenge: string };
@@ -2286,7 +2325,7 @@ export default async function authRoutes(app: FastifyInstance) {
         );
         await db.query(
           `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details) VALUES ($1, $2, $3, $4, $5)`,
-          [user.id, 'passkey_login', request.ip, request.headers['user-agent'], JSON.stringify({ method: 'passkey' })]
+          [user.id, 'passkey_login', getClientIp(request), request.headers['user-agent'], JSON.stringify({ method: 'passkey' })]
         );
       } catch (logError) {
         logger.warn('Failed to log passkey login', { error: logError });
@@ -2414,7 +2453,7 @@ export default async function authRoutes(app: FastifyInstance) {
         await db.query(
           `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
            VALUES ($1, $2, $3, $4, $5)`,
-          [userId, 'settings_change', request.ip, request.headers['user-agent'], JSON.stringify({ type: 'passkey_deleted', passkeyId })]
+          [userId, 'settings_change', getClientIp(request), request.headers['user-agent'], JSON.stringify({ type: 'passkey_deleted', passkeyId })]
         );
       } catch (logError) {
         logger.warn('Failed to log passkey deletion', { error: logError });
@@ -2596,7 +2635,7 @@ export default async function authRoutes(app: FastifyInstance) {
       await db.query(
         `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
          VALUES ($1, $2, $3, $4, $5)`,
-        [userId, 'password_change', request.ip, request.headers['user-agent'], JSON.stringify({ method: 'change' })]
+        [userId, 'password_change', getClientIp(request), request.headers['user-agent'], JSON.stringify({ method: 'change' })]
       );
 
       logger.info('Password changed', { userId });
@@ -2611,6 +2650,99 @@ export default async function authRoutes(app: FastifyInstance) {
       return reply.status(500).send({
         success: false,
         error: { code: 'INTERNAL_ERROR', message: 'Failed to change password' },
+      });
+    }
+  });
+
+  // ===============================
+  // PASSWORD RESET (Forgot password)
+  // ===============================
+  app.post<{ Body: { identifier: string } }>('/password/reset/request', {
+    preHandler: [rateLimitByIp('auth:password-reset-request', 3, 60)],
+    schema: {
+      body: {
+        type: 'object',
+        required: ['identifier'],
+        properties: { identifier: { type: 'string', minLength: 5 } },
+      },
+    },
+  }, async (request, reply) => {
+    try {
+      const { identifier } = request.body;
+      let type: 'email' | 'phone';
+      try {
+        type = getIdentifierType(identifier.trim());
+      } catch {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_IDENTIFIER', message: 'Please enter a valid email or phone number' },
+        });
+      }
+      const cleanIdentifier = type === 'email' ? identifier.trim().toLowerCase() : normalizePhoneNumber(identifier.trim());
+      const userResult = await db.query<{ id: string }>(`SELECT id FROM users WHERE ${type} = $1 AND deleted_at IS NULL`, [cleanIdentifier]);
+      if (userResult.rows.length === 0) {
+        return reply.send({ success: true, data: { message: 'If an account exists, you will receive an OTP shortly.' } });
+      }
+      const userId = userResult.rows[0]!.id;
+      const { otp, expiresAt } = await otpService.createOTP(cleanIdentifier, 'password_reset', userId);
+      const sent = type === 'email'
+        ? await otpService.sendEmailOTP(cleanIdentifier, otp)
+        : await otpService.sendSMSOTP(cleanIdentifier, otp);
+      if (!sent) {
+        return reply.status(500).send({
+          success: false,
+          error: { code: 'OTP_SEND_FAILED', message: 'Failed to send OTP. Please try again.' },
+        });
+      }
+      return reply.send({ success: true, data: { message: 'OTP sent', expiresAt: expiresAt.toISOString() } });
+    } catch (error) {
+      logger.error('Password reset request error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Request failed. Please try again.' },
+      });
+    }
+  });
+
+  app.post<{ Body: { identifier: string; otp: string; newPassword: string } }>('/password/reset', {
+    preHandler: [rateLimitByIp('auth:password-reset', 5, 60)],
+    schema: {
+      body: {
+        type: 'object',
+        required: ['identifier', 'otp', 'newPassword'],
+        properties: {
+          identifier: { type: 'string', minLength: 5 },
+          otp: { type: 'string', minLength: 6, maxLength: 6 },
+          newPassword: { type: 'string', minLength: 8 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    try {
+      const { identifier, otp, newPassword } = request.body;
+      if (newPassword.length < 8 || !/[A-Z]/.test(newPassword) || !/[a-z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'WEAK_PASSWORD', message: 'Password must be at least 8 characters with uppercase, lowercase, and number' },
+        });
+      }
+      let normId: string;
+      try {
+        const type = getIdentifierType(identifier.trim());
+        normId = type === 'email' ? identifier.trim().toLowerCase() : normalizePhoneNumber(identifier.trim());
+      } catch {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_IDENTIFIER', message: 'Please enter a valid email or phone number' },
+        });
+      }
+      await authService.resetPassword(normId, otp, newPassword);
+      return reply.send({ success: true, data: { message: 'Password reset successfully' } });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown';
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'PASSWORD_RESET_FAILED', message: msg },
       });
     }
   });
@@ -2672,7 +2804,7 @@ export default async function authRoutes(app: FastifyInstance) {
       await db.query(
         `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
          VALUES ($1, $2, $3, $4, $5)`,
-        [userId, 'email_change', request.ip, request.headers['user-agent'], JSON.stringify({ newEmail })]
+        [userId, 'email_change', getClientIp(request), request.headers['user-agent'], JSON.stringify({ newEmail })]
       );
 
       logger.info('Email changed', { userId, newEmail });
@@ -2742,7 +2874,7 @@ export default async function authRoutes(app: FastifyInstance) {
       await db.query(
         `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
          VALUES ($1, $2, $3, $4, $5)`,
-        [userId, 'phone_change', request.ip, request.headers['user-agent'], JSON.stringify({ newPhone: cleanPhone })]
+        [userId, 'phone_change', getClientIp(request), request.headers['user-agent'], JSON.stringify({ newPhone: cleanPhone })]
       );
 
       logger.info('Phone changed', { userId, newPhone: cleanPhone });
@@ -2965,7 +3097,7 @@ export default async function authRoutes(app: FastifyInstance) {
       await db.query(
         `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
          VALUES ($1, $2, $3, $4, $5)`,
-        [userId, 'phone_setup', request.ip, request.headers['user-agent'], JSON.stringify({ phone: cleanPhone })]
+        [userId, 'phone_setup', getClientIp(request), request.headers['user-agent'], JSON.stringify({ phone: cleanPhone })]
       );
 
       logger.info('Phone setup completed', { userId, phone: cleanPhone });
@@ -3111,6 +3243,28 @@ export default async function authRoutes(app: FastifyInstance) {
   });
 
   // ===============================
+  // 2FA STATUS (for address-book and other UIs that need only enabled flag)
+  // ===============================
+  app.get('/2fa/status', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+      const userId = (request.user?.userId ?? request.user?.id)!;
+      const row = await db.query<{ totp_enabled: boolean }>(
+        `SELECT COALESCE(totp_enabled, FALSE) as totp_enabled FROM users WHERE id = $1 AND deleted_at IS NULL`,
+        [userId]
+      );
+      const enabled = row.rows[0]?.totp_enabled ?? false;
+      return reply.send({ success: true, data: { enabled } });
+    } catch (error) {
+      logger.error('2FA status error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to get 2FA status' },
+      });
+    }
+  });
+
+  // ===============================
   // GOOGLE 2FA SETUP - Generate Secret
   // ===============================
   app.post('/2fa/setup', async (request: FastifyRequest, reply: FastifyReply) => {
@@ -3229,9 +3383,16 @@ export default async function authRoutes(app: FastifyInstance) {
         });
       }
 
-      // Encrypt and store the secret
+      // Encrypt and store the secret (TOTP_ENCRYPTION_KEY required; no JWT fallback)
       const crypto = await import('crypto');
-      const encryptionKey = process.env.TOTP_ENCRYPTION_KEY || process.env.JWT_SECRET || 'default-encryption-key';
+      const { config } = await import('../config/index.js');
+      const encryptionKey = config.security.totpEncryptionKey;
+      if (!encryptionKey || encryptionKey.length < 32) {
+        return reply.status(503).send({
+          success: false,
+          error: { code: '2FA_CONFIG_ERROR', message: '2FA is not configured. Set TOTP_ENCRYPTION_KEY in .env (min 32 chars).' },
+        });
+      }
       const iv = crypto.randomBytes(16);
       const cipher = crypto.createCipheriv('aes-256-cbc', crypto.scryptSync(encryptionKey, 'salt', 32), iv);
       let encryptedSecret = cipher.update(secret, 'utf8', 'hex');
@@ -3251,7 +3412,7 @@ export default async function authRoutes(app: FastifyInstance) {
       await db.query(
         `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
          VALUES ($1, $2, $3, $4, $5)`,
-        [userId, '2fa_enable', request.ip, request.headers['user-agent'], JSON.stringify({ method: 'google_authenticator' })]
+        [userId, '2fa_enable', getClientIp(request), request.headers['user-agent'], JSON.stringify({ method: 'google_authenticator' })]
       );
 
       logger.info('2FA enabled', { userId });
@@ -3308,9 +3469,16 @@ export default async function authRoutes(app: FastifyInstance) {
         });
       }
 
-      // Decrypt secret
+      // Decrypt secret (TOTP_ENCRYPTION_KEY required; no JWT fallback)
       const crypto = await import('crypto');
-      const encryptionKey = process.env.TOTP_ENCRYPTION_KEY || process.env.JWT_SECRET || 'default-encryption-key';
+      const { config } = await import('../config/index.js');
+      const encryptionKey = config.security.totpEncryptionKey;
+      if (!encryptionKey || encryptionKey.length < 32) {
+        return reply.status(503).send({
+          success: false,
+          error: { code: '2FA_CONFIG_ERROR', message: '2FA is not configured. Set TOTP_ENCRYPTION_KEY in .env (min 32 chars).' },
+        });
+      }
           const [ivHex, encryptedSecret] = user.totp_secret.split(':');
           if (!ivHex || !encryptedSecret) throw new Error('Invalid TOTP secret format');
           const iv = Buffer.from(ivHex, 'hex');
@@ -3408,9 +3576,16 @@ export default async function authRoutes(app: FastifyInstance) {
         }
       }
 
-      // Decrypt TOTP secret
+      // Decrypt TOTP secret (TOTP_ENCRYPTION_KEY required; no JWT fallback)
       const crypto = await import('crypto');
-      const encryptionKey = process.env.TOTP_ENCRYPTION_KEY || process.env.JWT_SECRET || 'default-encryption-key';
+      const { config } = await import('../config/index.js');
+      const encryptionKey = config.security.totpEncryptionKey;
+      if (!encryptionKey || encryptionKey.length < 32) {
+        return reply.status(503).send({
+          success: false,
+          error: { code: '2FA_CONFIG_ERROR', message: '2FA is not configured. Set TOTP_ENCRYPTION_KEY in .env (min 32 chars).' },
+        });
+      }
       const [ivHex, encryptedSecret] = user.totp_secret.split(':');
       if (!ivHex || !encryptedSecret) throw new Error('Invalid TOTP secret format');
       const iv = Buffer.from(ivHex, 'hex');
@@ -3448,7 +3623,7 @@ export default async function authRoutes(app: FastifyInstance) {
       await db.query(
         `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
          VALUES ($1, $2, $3, $4, $5)`,
-        [userId, '2fa_disable', request.ip, request.headers['user-agent'], JSON.stringify({ method: 'google_authenticator' })]
+        [userId, '2fa_disable', getClientIp(request), request.headers['user-agent'], JSON.stringify({ method: 'google_authenticator' })]
       );
 
       logger.info('2FA disabled', { userId });
@@ -3625,7 +3800,7 @@ export default async function authRoutes(app: FastifyInstance) {
       await db.query(
         `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
          VALUES ($1, $2, $3, $4, $5)`,
-        [userId, 'fund_password_set', request.ip, request.headers['user-agent'], JSON.stringify({})]
+        [userId, 'fund_password_set', getClientIp(request), request.headers['user-agent'], JSON.stringify({})]
       );
 
       logger.info('Fund password set', { userId });
@@ -3750,7 +3925,7 @@ export default async function authRoutes(app: FastifyInstance) {
       await db.query(
         `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
          VALUES ($1, $2, $3, $4, $5)`,
-        [userId, 'anti_phishing_set', request.ip, request.headers['user-agent'], JSON.stringify({ code })]
+        [userId, 'anti_phishing_set', getClientIp(request), request.headers['user-agent'], JSON.stringify({ code })]
       );
 
       logger.info('Anti-phishing code set', { userId });
@@ -3879,7 +4054,7 @@ export default async function authRoutes(app: FastifyInstance) {
       await db.query(
         `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
          VALUES ($1, $2, $3, $4, $5)`,
-        [userId, 'api_key_created', request.ip, request.headers['user-agent'], 
+        [userId, 'api_key_created', getClientIp(request), request.headers['user-agent'], 
          JSON.stringify({ name, keyType })]
       );
 
@@ -4117,7 +4292,7 @@ export default async function authRoutes(app: FastifyInstance) {
       await db.query(
         `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
          VALUES ($1, $2, $3, $4, $5)`,
-        [userId, 'withdrawal_limit_change', request.ip, request.headers['user-agent'], 
+        [userId, 'withdrawal_limit_change', getClientIp(request), request.headers['user-agent'], 
          JSON.stringify({ dailyLimit, monthlyLimit })]
       );
 
@@ -4424,7 +4599,7 @@ export default async function authRoutes(app: FastifyInstance) {
         await db.query(
           `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
            VALUES ($1, $2, $3, $4, $5)`,
-          [userId, 'settings_change', request.ip, request.headers['user-agent'], JSON.stringify({ type: 'sms_auth', enabled })]
+          [userId, 'settings_change', getClientIp(request), request.headers['user-agent'], JSON.stringify({ type: 'sms_auth', enabled })]
         );
       } catch (logError) {
         logger.warn('Failed to log SMS auth toggle activity', { error: logError instanceof Error ? logError.message : 'Unknown' });
@@ -4569,7 +4744,7 @@ export default async function authRoutes(app: FastifyInstance) {
       await db.query(
         `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
          VALUES ($1, $2, $3, $4, $5)`,
-        [userId, 'address_book_toggle', request.ip, request.headers['user-agent'], JSON.stringify({ enabled })]
+        [userId, 'address_book_toggle', getClientIp(request), request.headers['user-agent'], JSON.stringify({ enabled })]
       );
 
       logger.info('Address book toggled', { userId, enabled });
@@ -4649,7 +4824,7 @@ export default async function authRoutes(app: FastifyInstance) {
       await db.query(
         `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
          VALUES ($1, $2, $3, $4, $5)`,
-        [userId, 'whitelist_toggle', request.ip, request.headers['user-agent'], JSON.stringify({ enabled })]
+        [userId, 'whitelist_toggle', getClientIp(request), request.headers['user-agent'], JSON.stringify({ enabled })]
       );
 
       logger.info('Withdrawal whitelist toggled', { userId, enabled });
@@ -4806,7 +4981,7 @@ export default async function authRoutes(app: FastifyInstance) {
       await db.query(
         `INSERT INTO user_activity_logs (user_id, activity_type, ip_address, user_agent, details)
          VALUES ($1, $2, $3, $4, $5)`,
-        [userId, 'mnt_discount_toggle', request.ip, request.headers['user-agent'], JSON.stringify({ enabled })]
+        [userId, 'mnt_discount_toggle', getClientIp(request), request.headers['user-agent'], JSON.stringify({ enabled })]
       );
 
       logger.info('MNT discount toggled', { userId, enabled });

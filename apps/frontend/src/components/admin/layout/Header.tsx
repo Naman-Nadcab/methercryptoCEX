@@ -17,8 +17,9 @@ import {
 import { useAdminAuthStore } from '@/store/admin-auth';
 import ThemeToggle from '@/components/ThemeToggle';
 import { StatusBadge } from '@/components/admin/control-plane';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const API_URL = getApiBaseUrl();
 
 interface HeaderProps {
   onMenuClick: () => void;

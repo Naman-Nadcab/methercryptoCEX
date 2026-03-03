@@ -1,6 +1,7 @@
 import { Decimal } from '../lib/decimal.js';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../lib/database.js';
+import { config } from '../config/index.js';
 import { getCurrencyIdForToken } from '../lib/currency-resolver.js';
 import { redis } from '../lib/redis.js';
 import { rabbitmq, EXCHANGES, QUEUES, P2PEscrowMessage } from '../lib/rabbitmq.js';
@@ -498,6 +499,36 @@ class P2PService {
 
         // Calculate fiat amount (Decimal, string)
         const fiatAmount = qtyDec.times(ad.price).toDecimalPlaces(8, Decimal.ROUND_DOWN).toString();
+        const fiatAmountDec = new Decimal(fiatAmount);
+        const adFiatCur = (ad as { fiatCurrency?: string }).fiatCurrency ?? (ad as { fiat_currency?: string }).fiat_currency ?? 'USD';
+
+        // P2P limits (FIU India compliance)
+        const maxFiatInr = config.p2p.maxFiatPerOrderInr;
+        const fiatInrApprox = adFiatCur === 'INR' ? fiatAmountDec : fiatAmountDec.times(83);
+        if (fiatInrApprox.greaterThan(maxFiatInr)) {
+          throw new Error(`Order amount exceeds maximum allowed (₹${maxFiatInr.toLocaleString()} INR equivalent). Please split into smaller orders.`);
+        }
+        const maxCryptoUsdt = config.p2p.maxCryptoPerOrderUsdt;
+        const cryptoUsdtApprox = adFiatCur === 'USD' || adFiatCur === 'USDT' ? fiatAmountDec : fiatAmountDec.div(83);
+        if (cryptoUsdtApprox.greaterThan(maxCryptoUsdt)) {
+          throw new Error(`Order amount exceeds maximum allowed ($${maxCryptoUsdt.toLocaleString()} USDT equivalent). Please split into smaller orders.`);
+        }
+        const maxDailyFiatInr = config.p2p.maxFiatPerUserDailyInr;
+        if (adFiatCur === 'INR') {
+          const dailyResult = await client.query<{ total: string }>(
+            `SELECT COALESCE(SUM(po.fiat_amount::numeric), 0)::text as total
+             FROM p2p_orders po
+             WHERE (po.buyer_id = $1 OR po.seller_id = $1)
+               AND po.fiat_currency = 'INR'
+               AND po.status NOT IN ('cancelled', 'expired')
+               AND po.created_at > NOW() - INTERVAL '24 hours'`,
+            [userId]
+          );
+          const dailyInr = new Decimal(dailyResult.rows[0]?.total ?? '0').plus(fiatAmountDec);
+          if (dailyInr.greaterThan(maxDailyFiatInr)) {
+            throw new Error(`Daily P2P limit exceeded. Maximum ₹${maxDailyFiatInr.toLocaleString()} INR per 24 hours.`);
+          }
+        }
 
         // PHASE-11: Dedicated escrow. Move seller's available -> escrow_balance (not locked_balance).
         const tokenId = (ad as { tokenId?: string }).tokenId ?? (ad as { crypto_currency_id?: string }).crypto_currency_id;

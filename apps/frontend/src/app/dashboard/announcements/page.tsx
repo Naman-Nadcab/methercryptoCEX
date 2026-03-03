@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Bell, ChevronRight, Loader2 } from 'lucide-react';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 interface Announcement {
   id: string;
@@ -46,9 +47,12 @@ export default function AnnouncementsListPage() {
           <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
         </div>
       ) : list.length === 0 ? (
-        <div className="bg-white dark:bg-[#181a20] rounded-2xl border border-gray-100 dark:border-gray-800 p-12 text-center text-gray-500 dark:text-gray-400">
-          No announcements at the moment.
-        </div>
+        <EmptyState
+          icon={Bell}
+          title="No announcements"
+          description="There are no announcements at the moment. Check back later for updates."
+          className="bg-white dark:bg-[#181a20] rounded-2xl border border-gray-100 dark:border-gray-800"
+        />
       ) : (
         <div className="space-y-2">
           {list.map((a) => {

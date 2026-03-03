@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAdminAuthStore } from '@/store/admin-auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { Loader2, Save, AlertCircle } from 'lucide-react';
 
 interface TokenRow {
@@ -22,7 +23,7 @@ export default function WithdrawalSettingsPage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [edits, setEdits] = useState<Record<string, { min: string; max: string }>>({});
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const apiUrl = getApiBaseUrl();
 
   useEffect(() => {
     if (!accessToken) return;

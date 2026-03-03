@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth';
 import { useConvertBalances } from '@/lib/balances';
 import { notifyError } from '@/lib/notifyError';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 import Image from 'next/image';
 import Link from 'next/link';
 import { 
@@ -114,7 +115,7 @@ const FAQ_ITEMS = [
 export default function ConvertPage() {
   const queryClient = useQueryClient();
   const { accessToken, _hasHydrated } = useAuthStore();
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const API_URL = getApiBaseUrl();
 
   // Tab state
   const [activeTab, setActiveTab] = useState<'instant' | 'limit'>('instant');
@@ -515,11 +516,25 @@ export default function ConvertPage() {
                     ))}
                   </div>
 
-                  <div className="h-64 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/10 dark:to-indigo-900/10 rounded-lg flex items-center justify-center">
-                    <div className="text-center text-gray-500">
-                      <TrendingUp className="w-12 h-12 mx-auto mb-2 opacity-30" />
-                      <p className="text-sm">Price chart coming soon</p>
-                    </div>
+                  <div className="h-64 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/10 dark:to-indigo-900/10 rounded-lg flex items-center justify-center p-4">
+                    {fromCurrency && toCurrency && conversionRate != null && conversionRate > 0 ? (
+                      <div className="text-center w-full">
+                        <p className="text-2xl font-bold text-gray-900 dark:text-white mb-1">
+                          1 {fromCurrency.symbol} = {conversionRate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} {toCurrency.symbol}
+                        </p>
+                        {marketPrices.find(m => m.base_symbol === fromCurrency.symbol && m.quote_symbol === toCurrency.symbol) && (
+                          <p className={`text-sm ${parseFloat(marketPrices.find(m => m.base_symbol === fromCurrency.symbol && m.quote_symbol === toCurrency.symbol)?.change_24h_percent || '0') >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                            24h: {parseFloat(marketPrices.find(m => m.base_symbol === fromCurrency.symbol && m.quote_symbol === toCurrency.symbol)?.change_24h_percent || '0').toFixed(2)}%
+                          </p>
+                        )}
+                        <p className="text-xs text-gray-500 mt-2">Live rate from spot market</p>
+                      </div>
+                    ) : (
+                      <div className="text-center text-gray-500">
+                        <TrendingUp className="w-12 h-12 mx-auto mb-2 opacity-30" />
+                        <p className="text-sm">Select currencies to see live rate</p>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

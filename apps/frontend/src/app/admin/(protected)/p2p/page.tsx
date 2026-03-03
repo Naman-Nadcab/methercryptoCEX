@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAdminAuthStore } from '@/store/admin-auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { Repeat, Loader2, AlertTriangle, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 
@@ -43,7 +44,7 @@ export default function P2PPage() {
   const fetchP2P = async () => {
     setFetchError(null);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      const apiUrl = getApiBaseUrl();
       const response = await fetch(`${apiUrl}/api/v1/admin/p2p`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });

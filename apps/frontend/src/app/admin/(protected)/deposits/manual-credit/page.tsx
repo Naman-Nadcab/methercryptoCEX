@@ -3,8 +3,9 @@
 import { useState } from 'react';
 import { useAdminAuthStore } from '@/store/admin-auth';
 import { ArrowDownToLine, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const API_URL = getApiBaseUrl();
 
 function generateIdempotencyKey(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();

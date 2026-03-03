@@ -1,7 +1,7 @@
 'use client';
 
 import { createChart, type IChartApi, type ISeriesApi } from 'lightweight-charts';
-import type { ChartAdapter, ChartTheme, CandleData } from './ChartAdapter';
+import type { ChartAdapter, ChartTheme, CandleData, TradeMarker } from './ChartAdapter';
 
 export class LightweightChartsAdapter implements ChartAdapter {
   private chart: IChartApi | null = null;
@@ -106,6 +106,19 @@ export class LightweightChartsAdapter implements ChartAdapter {
       low: this.lastBar.low,
       close: this.lastBar.close,
     });
+  }
+
+  setTradeMarkers(trades: TradeMarker[]): void {
+    if (!this.series) return;
+    const toUTCTimestamp = (t: number) => t as import('lightweight-charts').UTCTimestamp;
+    const markers = trades.map((t) => ({
+      time: toUTCTimestamp(t.time),
+      position: (t.side === 'buy' ? 'belowBar' : 'aboveBar') as 'belowBar' | 'aboveBar',
+      color: t.side === 'buy' ? '#22c55e' : '#ef4444',
+      shape: 'circle' as const,
+      text: '',
+    }));
+    this.series.setMarkers(markers);
   }
 
   destroy(): void {

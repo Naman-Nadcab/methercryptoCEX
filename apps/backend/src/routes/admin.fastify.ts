@@ -19,6 +19,8 @@ import { isIpInWhitelist } from '../lib/admin-ip-whitelist.js';
 import { enforceAdminRateLimit } from '../lib/rate-limit-fastify.js';
 const ADMIN_CREDIT_IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60;
 const ADMIN_CREDIT_IDEMPOTENCY_LOCK_TTL_SECONDS = 30;
+const WITHDRAW_APPROVE_IDEMPOTENCY_TTL = 24 * 60 * 60;
+const WITHDRAW_APPROVE_LOCK_TTL = 30;
 const IDEMPOTENCY_KEY_HEADER = 'idempotency-key';
 
 function buildAdminManualCreditRequestHash(body: Record<string, unknown>): string {
@@ -153,30 +155,66 @@ export async function getAdminFromRequest(
   return { adminId: session.adminId, role };
 }
 
-/** Admin who can approve/reject withdrawals: role withdrawal_approver or super_admin, or permission withdrawals:approve / all. */
-export async function getAdminForWithdrawalApproval(
+/** Permission matrix: route scope -> required permission. super_admin and role names (e.g. withdrawal_approver) bypass. */
+export const ADMIN_PERMISSION_MATRIX: Record<string, string[]> = {
+  'withdrawals:approve': ['withdrawals:approve', 'all'],
+  'kyc:review': ['kyc:review', 'all'],
+  'deposits:credit': ['deposits:credit', 'manual_credit', 'all'],
+  'users:edit': ['users:edit', 'all'],
+  'p2p:disputes': ['p2p:disputes', 'all'],
+  'aml:view': ['aml:view', 'all'],
+  'aml:escalate': ['aml:escalate', 'aml:view', 'all'],
+  'monitoring:view': ['monitoring:view', 'all'],
+  'settings:edit': ['settings:edit', 'all'],
+};
+
+/** Roles that imply all permissions (no permission array check). */
+const SUPER_ROLES = ['super_admin', 'super admin', 'Super Admin'];
+
+/** Role names that grant specific permission without needing permissions[] entry. */
+const ROLE_TO_PERMISSION: Record<string, string> = {
+  withdrawal_approver: 'withdrawals:approve',
+  kyc_reviewer: 'kyc:review',
+  aml_reviewer: 'aml:view',
+  risk_manager: 'monitoring:view',
+};
+
+/** Get admin and enforce permission. Use for RBAC on sensitive routes. requiredPermission must be a key of ADMIN_PERMISSION_MATRIX. */
+export async function getAdminWithPermission(
   app: FastifyInstance,
   request: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
+  requiredPermission: keyof typeof ADMIN_PERMISSION_MATRIX
 ): Promise<{ adminId: string; role: string } | null> {
   const admin = await getAdminFromRequest(app, request, reply, false);
   if (!admin) return null;
   const role = (admin.role || '').toLowerCase().replace(/\s+/g, '_');
-  if (role === 'super_admin' || role === 'withdrawal_approver') return admin;
+  if (SUPER_ROLES.some((r) => r.toLowerCase().replace(/\s+/g, '_') === role)) return admin;
+  if (ROLE_TO_PERMISSION[role] === requiredPermission) return admin;
+  const allowedPerms = ADMIN_PERMISSION_MATRIX[requiredPermission];
+  if (!allowedPerms) return admin;
   const permRow = await db.query<{ permissions: string[] }>(
     `SELECT permissions FROM admin_users WHERE id = $1`,
     [admin.adminId]
   );
   const permissions = permRow.rows[0]?.permissions ?? [];
   const hasPermission =
-    Array.isArray(permissions) &&
-    (permissions.includes('withdrawals:approve') || permissions.includes('all'));
+    Array.isArray(permissions) && allowedPerms.some((p) => permissions.includes(p));
   if (hasPermission) return admin;
   reply.status(403).send({
     success: false,
-    error: { code: 'FORBIDDEN', message: 'Withdrawal approval requires role withdrawal_approver or super_admin, or permission withdrawals:approve.' },
+    error: { code: 'FORBIDDEN', message: `This action requires permission: ${requiredPermission} (or role super_admin).` },
   });
   return null;
+}
+
+/** Admin who can approve/reject withdrawals: role withdrawal_approver or super_admin, or permission withdrawals:approve / all. */
+export async function getAdminForWithdrawalApproval(
+  app: FastifyInstance,
+  request: FastifyRequest,
+  reply: FastifyReply
+): Promise<{ adminId: string; role: string } | null> {
+  return getAdminWithPermission(app, request, reply, 'withdrawals:approve');
 }
 
 export default async function adminRoutes(app: FastifyInstance) {
@@ -678,8 +716,63 @@ export default async function adminRoutes(app: FastifyInstance) {
     }
   });
 
+  /**
+   * GET /admin/monitoring/mm-risk
+   * Market Making risk monitoring: API keys, top traders, daily PnL, inventory imbalance, emergency-stopped users.
+   */
+  app.get('/monitoring/mm-risk', async (request, reply) => {
+    const admin = await getAdminWithPermission(app, request, reply, 'monitoring:view');
+    if (!admin) return;
+    try {
+      const { getMmRiskData } = await import('../services/mm-risk.service.js');
+      const data = await getMmRiskData();
+      return reply.send({ success: true, data });
+    } catch (e) {
+      logger.error('Admin MM risk fetch failed', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to fetch MM risk data' } });
+    }
+  });
+
+  /** POST /admin/mm/emergency-stop/:userId — halt trading for a user (market maker emergency stop). */
+  app.post<{ Params: { userId: string } }>('/mm/emergency-stop/:userId', async (request, reply) => {
+    const admin = await getAdminWithPermission(app, request, reply, 'monitoring:view');
+    if (!admin) return;
+    const userId = request.params.userId?.trim();
+    if (!userId) {
+      return reply.status(400).send({ success: false, error: { code: 'INVALID_INPUT', message: 'userId required' } });
+    }
+    try {
+      const { setMmEmergencyStopped } = await import('../services/mm-risk.service.js');
+      await setMmEmergencyStopped(userId, true);
+      logger.info('MM emergency stop triggered', { userId, adminId: admin.adminId });
+      return reply.send({ success: true, data: { userId, stopped: true } });
+    } catch (e) {
+      logger.error('MM emergency stop failed', { userId, error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'EMERGENCY_STOP_FAILED', message: 'Failed to emergency stop' } });
+    }
+  });
+
+  /** DELETE /admin/mm/emergency-stop/:userId — resume trading for a user. */
+  app.delete<{ Params: { userId: string } }>('/mm/emergency-stop/:userId', async (request, reply) => {
+    const admin = await getAdminWithPermission(app, request, reply, 'monitoring:view');
+    if (!admin) return;
+    const userId = request.params.userId?.trim();
+    if (!userId) {
+      return reply.status(400).send({ success: false, error: { code: 'INVALID_INPUT', message: 'userId required' } });
+    }
+    try {
+      const { setMmEmergencyStopped } = await import('../services/mm-risk.service.js');
+      await setMmEmergencyStopped(userId, false);
+      logger.info('MM emergency stop cleared', { userId, adminId: admin.adminId });
+      return reply.send({ success: true, data: { userId, stopped: false } });
+    } catch (e) {
+      logger.error('MM emergency stop clear failed', { userId, error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'EMERGENCY_STOP_CLEAR_FAILED', message: 'Failed to clear emergency stop' } });
+    }
+  });
+
   app.get('/settlement/ledger-discrepancy', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
+    const admin = await getAdminWithPermission(app, request, reply, 'monitoring:view');
     if (!admin) return;
     try {
       const { runLedgerDiscrepancyReport } = await import('../services/operator-controls.service.js');
@@ -698,7 +791,7 @@ export default async function adminRoutes(app: FastifyInstance) {
   app.get<{
     Querystring: { page?: string; limit?: string; user_id?: string; currency_id?: string; reference_type?: string; date_from?: string; date_to?: string };
   }>('/ledger/balance', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
+    const admin = await getAdminWithPermission(app, request, reply, 'monitoring:view');
     if (!admin) return;
     try {
       const { page = 1, limit = 50, user_id, currency_id, reference_type, date_from, date_to } = request.query;
@@ -1159,9 +1252,10 @@ export default async function adminRoutes(app: FastifyInstance) {
       const prevRow = await db.query<{ status: string }>('SELECT status FROM users WHERE id = $1', [id]);
       const previousStatus = prevRow.rows[0]?.status ?? null;
 
+      const reasonTrimmed = typeof reason === 'string' ? reason.trim() || null : null;
       const result = await db.query(
-        'UPDATE users SET status = $1, updated_at = NOW() WHERE id = $2',
-        [status, id]
+        'UPDATE users SET status = $1, status_reason = $2, updated_at = NOW() WHERE id = $3',
+        [status, reasonTrimmed, id]
       );
 
       if (result.rowCount === 0) {
@@ -1240,10 +1334,10 @@ export default async function adminRoutes(app: FastifyInstance) {
 
   /**
    * PATCH /admin/kyc/:id/review
-   * Approve or reject KYC
+   * Approve or reject KYC (requires kyc:review permission or kyc_reviewer role).
    */
   app.patch('/kyc/:id/review', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
+    const admin = await getAdminWithPermission(app, request, reply, 'kyc:review');
     if (!admin) return;
     try {
       const { id } = request.params as { id: string };
@@ -1251,11 +1345,29 @@ export default async function adminRoutes(app: FastifyInstance) {
 
       const status = action === 'approve' ? 'approved' : 'rejected';
 
+      const prevRow = await db.query<{ status: string; user_id: string }>('SELECT status, user_id FROM kyc_applications WHERE id = $1', [id]);
+      const prevStatus = prevRow.rows[0]?.status ?? null;
+      const userId = prevRow.rows[0]?.user_id ?? null;
+
       await db.query(`
         UPDATE kyc_applications 
         SET status = $1, reviewed_at = NOW(), rejection_reason = $2
         WHERE id = $3
       `, [status, action === 'reject' ? reason : null, id]);
+
+      try {
+        await logAuditFromRequest(request, {
+          actorType: 'admin',
+          actorId: admin.adminId,
+          action: action === 'approve' ? 'kyc_approve' : 'kyc_reject',
+          resourceType: 'kyc_application',
+          resourceId: id,
+          oldValue: prevStatus,
+          newValue: { status, reason: action === 'reject' ? reason ?? null : undefined, user_id: userId },
+        });
+      } catch {
+        /* best-effort */
+      }
 
       // If approved, update user tier
       if (action === 'approve') {
@@ -1325,7 +1437,7 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Resolve dispute (admin only). Delegates to p2pService for escrow release/refund.
    */
   app.patch('/p2p/disputes/:id/resolve', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
+    const admin = await getAdminWithPermission(app, request, reply, 'p2p:disputes');
     if (!admin) return;
     try {
       const { id } = request.params as { id: string };
@@ -1727,7 +1839,7 @@ export default async function adminRoutes(app: FastifyInstance) {
   app.post<{
     Body: { user: string; currency: string; amount: string; reason?: string };
   }>('/deposits/manual-credit', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, true);
+    const admin = await getAdminWithPermission(app, request, reply, 'deposits:credit');
     if (!admin) return;
     try {
       const idempotencyKeyRaw = (request.headers[IDEMPOTENCY_KEY_HEADER] ?? request.headers['Idempotency-Key']) as string | undefined;
@@ -2363,6 +2475,7 @@ export default async function adminRoutes(app: FastifyInstance) {
   /**
    * POST /admin/withdrawals/:id/approve
    * Approve a withdrawal (pending_approval → pending, then enqueue for signing).
+   * Optional Idempotency-Key header for retry safety.
    */
   app.post<{ Params: { id: string } }>('/withdrawals/:id/approve', async (request, reply) => {
     const admin = await getAdminForWithdrawalApproval(app, request, reply);
@@ -2373,6 +2486,72 @@ export default async function adminRoutes(app: FastifyInstance) {
         success: false,
         error: { code: 'INVALID_INPUT', message: 'Withdrawal id is required' },
       });
+    }
+    const idempotencyKeyRaw = (request.headers[IDEMPOTENCY_KEY_HEADER] ?? request.headers['Idempotency-Key']) as string | undefined;
+    const idempotencyKey = typeof idempotencyKeyRaw === 'string' ? idempotencyKeyRaw.trim() : '';
+    if (idempotencyKey && idempotencyKey.length <= 256) {
+      const cacheKey = `admin:withdraw:approve:${idempotencyKey}`;
+      const requestHash = crypto.createHash('sha256').update(JSON.stringify({ withdrawalId })).digest('hex');
+      const cached = await redis.getJson<{ requestHash: string; response: object }>(cacheKey);
+      if (cached) {
+        if (cached.requestHash === requestHash) {
+          return reply.send(cached.response);
+        }
+        return reply.status(409).send({
+          success: false,
+          error: { code: 'IDEMPOTENCY_KEY_REUSED', message: 'Idempotency-Key was used for a different withdrawal. Use a new key.' },
+        });
+      }
+      const lockKey = `admin:withdraw:approve:lock:${idempotencyKey}`;
+      const lockAcquired = await redis.setNxEx(lockKey, '1', WITHDRAW_APPROVE_LOCK_TTL);
+      if (!lockAcquired) {
+        return reply.status(409).send({
+          success: false,
+          error: { code: 'IDEMPOTENCY_KEY_IN_PROGRESS', message: 'Approve in progress. Retry after a few seconds.' },
+        });
+      }
+      try {
+        const { approveWithdrawal } = await import('../services/withdrawal-approval.service.js');
+        await approveWithdrawal(withdrawalId, admin.adminId, {
+          ip: request.ip ?? undefined,
+          userAgent: request.headers['user-agent'] ?? undefined,
+        });
+        await logAuditFromRequest(request, {
+          actorType: 'admin',
+          actorId: admin.adminId,
+          action: 'admin_withdrawal_approve',
+          resourceType: 'withdrawal',
+          resourceId: withdrawalId,
+          oldValue: { status: 'pending_approval' },
+          newValue: { status: 'pending' },
+        });
+        await logAdminActivity({
+          adminId: admin.adminId,
+          action: 'withdrawal_approved',
+          ipAddress: request.ip,
+          userAgent: request.headers['user-agent'],
+          deviceId: getDeviceIdFromRequest(request.headers as Record<string, string | undefined>),
+          metadata: { withdrawalId },
+        });
+        const response = { success: true, data: { approved: true, withdrawalId } };
+        await redis.setJson(cacheKey, { requestHash, response }, WITHDRAW_APPROVE_IDEMPOTENCY_TTL);
+        return reply.send(response);
+      } catch (error: unknown) {
+        const err = error as { code?: string; message?: string };
+        if (err?.code === 'WITHDRAWAL_NOT_FOUND') {
+          return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: err.message || 'Withdrawal not found' } });
+        }
+        if (err?.code === 'NOT_PENDING_APPROVAL') {
+          return reply.status(400).send({ success: false, error: { code: 'INVALID_STATE', message: err.message || 'Withdrawal is not pending approval' } });
+        }
+        if (err?.code === 'HOT_WALLET_CAP_EXCEEDED') {
+          return reply.status(400).send({ success: false, error: { code: 'HOT_WALLET_CAP_EXCEEDED', message: err.message || 'Hot wallet limit exceeded' } });
+        }
+        logger.error('Approve withdrawal error', { withdrawalId, error: err?.message ?? error });
+        return reply.status(500).send({ success: false, error: { code: 'APPROVE_FAILED', message: 'Failed to approve withdrawal' } });
+      } finally {
+        await redis.del(lockKey).catch(() => {});
+      }
     }
     try {
       const { approveWithdrawal } = await import('../services/withdrawal-approval.service.js');
@@ -2429,6 +2608,7 @@ export default async function adminRoutes(app: FastifyInstance) {
   /**
    * POST /admin/withdrawals/:id/reject
    * Reject a withdrawal: mark failed and release locked balance. Body: { reason?: string }
+   * Optional Idempotency-Key header for retry safety.
    */
   app.post<{ Params: { id: string }; Body: { reason?: string } }>('/withdrawals/:id/reject', async (request, reply) => {
     const admin = await getAdminForWithdrawalApproval(app, request, reply);
@@ -2441,6 +2621,72 @@ export default async function adminRoutes(app: FastifyInstance) {
       });
     }
     const reason = (request.body?.reason ?? 'Rejected by admin').trim() || 'Rejected by admin';
+    const idempotencyKeyRaw = (request.headers[IDEMPOTENCY_KEY_HEADER] ?? request.headers['Idempotency-Key']) as string | undefined;
+    const idempotencyKey = typeof idempotencyKeyRaw === 'string' ? idempotencyKeyRaw.trim() : '';
+    if (idempotencyKey && idempotencyKey.length <= 256) {
+      const cacheKey = `admin:withdraw:reject:${idempotencyKey}`;
+      const requestHash = crypto.createHash('sha256').update(JSON.stringify({ withdrawalId, reason })).digest('hex');
+      const cached = await redis.getJson<{ requestHash: string; response: object }>(cacheKey);
+      if (cached) {
+        if (cached.requestHash === requestHash) {
+          return reply.send(cached.response);
+        }
+        return reply.status(409).send({
+          success: false,
+          error: { code: 'IDEMPOTENCY_KEY_REUSED', message: 'Idempotency-Key was used for a different reject. Use a new key.' },
+        });
+      }
+      const lockKey = `admin:withdraw:reject:lock:${idempotencyKey}`;
+      const lockAcquired = await redis.setNxEx(lockKey, '1', WITHDRAW_APPROVE_LOCK_TTL);
+      if (!lockAcquired) {
+        return reply.status(409).send({
+          success: false,
+          error: { code: 'IDEMPOTENCY_KEY_IN_PROGRESS', message: 'Reject in progress. Retry after a few seconds.' },
+        });
+      }
+      try {
+        const { rejectWithdrawal } = await import('../services/withdrawal-approval.service.js');
+        await rejectWithdrawal(withdrawalId, admin.adminId, reason, {
+          ip: request.ip ?? undefined,
+          userAgent: request.headers['user-agent'] ?? undefined,
+        });
+        await logAuditFromRequest(request, {
+          actorType: 'admin',
+          actorId: admin.adminId,
+          action: 'admin_withdrawal_reject',
+          resourceType: 'withdrawal',
+          resourceId: withdrawalId,
+          oldValue: { status: 'pending_approval' },
+          newValue: { status: 'rejected', reason },
+        });
+        await logAdminActivity({
+          adminId: admin.adminId,
+          action: 'withdrawal_rejected',
+          ipAddress: request.ip,
+          userAgent: request.headers['user-agent'],
+          deviceId: getDeviceIdFromRequest(request.headers as Record<string, string | undefined>),
+          metadata: { withdrawalId, reason },
+        });
+        const response = { success: true, data: { rejected: true, withdrawalId } };
+        await redis.setJson(cacheKey, { requestHash, response }, WITHDRAW_APPROVE_IDEMPOTENCY_TTL);
+        return reply.send(response);
+      } catch (error: unknown) {
+        const err = error as { code?: string; message?: string };
+        if (err?.code === 'WITHDRAWAL_NOT_FOUND') {
+          return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: err.message || 'Withdrawal not found' } });
+        }
+        if (err?.code === 'NOT_PENDING_APPROVAL') {
+          return reply.status(400).send({ success: false, error: { code: 'INVALID_STATE', message: err.message || 'Withdrawal is not pending approval' } });
+        }
+        if (err?.code === 'RELEASE_BALANCE_FAILED') {
+          return reply.status(500).send({ success: false, error: { code: 'RELEASE_FAILED', message: err.message || 'Could not release locked balance' } });
+        }
+        logger.error('Reject withdrawal error', { withdrawalId, error: err?.message ?? error });
+        return reply.status(500).send({ success: false, error: { code: 'REJECT_FAILED', message: 'Failed to reject withdrawal' } });
+      } finally {
+        await redis.del(lockKey).catch(() => {});
+      }
+    }
     try {
       const { rejectWithdrawal } = await import('../services/withdrawal-approval.service.js');
       await rejectWithdrawal(withdrawalId, admin.adminId, reason, {

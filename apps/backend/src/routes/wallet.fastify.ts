@@ -1611,6 +1611,7 @@ export default async function walletRoutes(app: FastifyInstance) {
       accountType?: string;
       memo?: string;
       twoFactorCode?: string;
+      fund_password?: string;
       withdrawalAddressId?: string;
       type?: 'onchain' | 'internal';
       internal_user_identifier?: string;
@@ -1619,9 +1620,15 @@ export default async function walletRoutes(app: FastifyInstance) {
     preHandler: [app.authenticate, rateLimitByUser('wallet:withdrawal', 5, 3600)],
   }, async (request, reply) => {
     try {
+      if (request.user?.allowWithdraw === false) {
+        return reply.status(403).send({
+          success: false,
+          error: { code: 'API_KEY_NO_WITHDRAW', message: 'This API key does not have withdrawal permission. Use a key with withdraw scope or log in with your account.' },
+        });
+      }
       const userId = request.user!.id;
       const withdrawType = (request.body.type ?? 'onchain') as 'onchain' | 'internal';
-      let { symbol, chainId, amount, toAddress, accountType = 'funding', memo, twoFactorCode, withdrawalAddressId, internal_user_identifier } = request.body;
+      let { symbol, chainId, amount, toAddress, accountType = 'funding', memo, twoFactorCode, fund_password, withdrawalAddressId, internal_user_identifier } = request.body;
       const allowedWithdrawalAccounts = ['funding', 'spot', 'trading'];
       if (!allowedWithdrawalAccounts.includes(accountType)) {
         accountType = 'funding';
@@ -1779,6 +1786,42 @@ export default async function walletRoutes(app: FastifyInstance) {
             error: { code: 'INVALID_INTERNAL_USER', message: 'Cannot transfer to yourself' }
           });
         }
+        // Internal transfer: enforce 2FA and/or fund password when user has them enabled
+        const { verifyUser2FA: verify2FA, userHas2FA: userHas2FACheck, userHasFundPassword, verifyFundPassword } = await import('../lib/totp-verify.js');
+        const has2FAInternal = await userHas2FACheck(userId);
+        const hasFundPwdInternal = await userHasFundPassword(userId);
+        let internalTwoFaVerified = false;
+        if (has2FAInternal) {
+          if (!twoFactorCode || typeof twoFactorCode !== 'string') {
+            return reply.status(400).send({
+              success: false,
+              error: { code: '2FA_REQUIRED', message: 'Two-factor code is required for withdrawal' }
+            });
+          }
+          const valid2FA = await verify2FA(userId, twoFactorCode.trim());
+          if (!valid2FA) {
+            return reply.status(400).send({
+              success: false,
+              error: { code: 'INVALID_2FA', message: 'Invalid two-factor code' }
+            });
+          }
+          internalTwoFaVerified = true;
+        }
+        if (hasFundPwdInternal) {
+          if (!fund_password || typeof fund_password !== 'string') {
+            return reply.status(400).send({
+              success: false,
+              error: { code: 'FUND_PASSWORD_REQUIRED', message: 'Fund password is required for withdrawal' }
+            });
+          }
+          const validFundPwd = await verifyFundPassword(userId, fund_password);
+          if (!validFundPwd) {
+            return reply.status(400).send({
+              success: false,
+              error: { code: 'INVALID_FUND_PASSWORD', message: 'Invalid fund password' }
+            });
+          }
+        }
         const feeDec = new Decimal(0);
         const minWithdrawal = new Decimal(token.min_withdrawal ?? '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
         const maxWithdrawalRaw = token.max_withdrawal != null ? new Decimal(String(token.max_withdrawal)).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN) : null;
@@ -1837,9 +1880,9 @@ export default async function walletRoutes(app: FastifyInstance) {
             INSERT INTO withdrawals (
               user_id, token_id, chain_id, amount, fee, net_amount, to_address, status, account_type,
               type, internal_user_id, email_verified, two_fa_verified
-            ) VALUES ($1, $2, $3, $4, $5, $6, NULL, 'completed', 'funding', 'internal', $7, FALSE, FALSE)
+            ) VALUES ($1, $2, $3, $4, $5, $6, NULL, 'completed', 'funding', 'internal', $7, FALSE, $8)
             RETURNING id, created_at
-          `, [userId, token.token_id, token.chain_id, withdrawAmountDec.toString(), feeDec.toString(), withdrawAmountDec.toString(), recipientId]);
+          `, [userId, token.token_id, token.chain_id, withdrawAmountDec.toString(), feeDec.toString(), withdrawAmountDec.toString(), recipientId, internalTwoFaVerified]);
           const w = ins.rows[0]!;
           const amtStr = withdrawAmountDec.toString();
           const refId = w.id;
@@ -1879,21 +1922,21 @@ export default async function walletRoutes(app: FastifyInstance) {
             balanceType: 'available',
           });
 
-          const receiverLock = await client.query<{ available_balance: string }>(
-            `SELECT available_balance::text FROM user_balances
+          const receiverLock = await client.query<{ id: string; available_balance: string }>(
+            `SELECT id, available_balance::text FROM user_balances
              WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND COALESCE(account_type::text, 'funding') = 'funding'
+             LIMIT 1
              FOR UPDATE`,
             [recipientId, currencyId, CHAIN_ID_GLOBAL]
           );
           if (receiverLock.rows.length === 0) {
             throw new Error('RECIPIENT_BALANCE_ROW_NOT_FOUND');
           }
-          const receiverAvBefore = new Decimal(receiverLock.rows[0]!.available_balance);
+          const receiverRow = receiverLock.rows[0]!;
+          const receiverAvBefore = new Decimal(receiverRow.available_balance);
           const receiverUpd = await client.query(
-            `UPDATE user_balances SET available_balance = available_balance + $1::numeric, updated_at = NOW()
-             WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND COALESCE(account_type::text, 'funding') = 'funding'
-             RETURNING *`,
-            [amtStr, recipientId, currencyId, CHAIN_ID_GLOBAL]
+            `UPDATE user_balances SET available_balance = available_balance + $1::numeric, updated_at = NOW() WHERE id = $2 RETURNING *`,
+            [amtStr, receiverRow.id]
           );
           assertUserBalanceUpdated('internal_transfer_credit', receiverUpd, recipientId, currencyId, 'funding', CHAIN_ID_GLOBAL);
           assertBalanceInvariant(receiverUpd.rows[0]);
@@ -2282,8 +2325,8 @@ export default async function walletRoutes(app: FastifyInstance) {
         });
       }
 
-      // 5. Withdrawal security: 2FA (user must satisfy when enabled)
-      const { verifyUser2FA, userHas2FA } = await import('../lib/totp-verify.js');
+      // 5. Withdrawal security: 2FA and fund password (user must satisfy when enabled)
+      const { verifyUser2FA, userHas2FA, userHasFundPassword, verifyFundPassword } = await import('../lib/totp-verify.js');
       const has2FA = await userHas2FA(userId);
       if (has2FA) {
         if (!twoFactorCode || typeof twoFactorCode !== 'string') {
@@ -2299,6 +2342,24 @@ export default async function walletRoutes(app: FastifyInstance) {
           return reply.status(400).send({
             success: false,
             error: { code: 'INVALID_2FA', message: 'Invalid two-factor code' }
+          });
+        }
+      }
+      const hasFundPwd = await userHasFundPassword(userId);
+      if (hasFundPwd) {
+        if (!fund_password || typeof fund_password !== 'string') {
+          logger.warn('Withdrawal creation failed: FUND_PASSWORD_REQUIRED', withdrawalLogContext);
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'FUND_PASSWORD_REQUIRED', message: 'Fund password is required for withdrawal' }
+          });
+        }
+        const validFundPwd = await verifyFundPassword(userId, fund_password);
+        if (!validFundPwd) {
+          logger.warn('Withdrawal creation failed: INVALID_FUND_PASSWORD', withdrawalLogContext);
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'INVALID_FUND_PASSWORD', message: 'Invalid fund password' }
           });
         }
       }

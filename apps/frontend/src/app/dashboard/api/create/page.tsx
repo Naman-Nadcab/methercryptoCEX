@@ -3,6 +3,8 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/store/auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { toast } from '@/components/ui/toaster';
 import { ChevronRight, Loader2, Info, Key, Shield, Check, AlertTriangle, Copy } from 'lucide-react';
 
 function CreateApiKeyContent() {
@@ -11,7 +13,7 @@ function CreateApiKeyContent() {
   const keyType = searchParams.get('type') as 'system' | 'self' || 'system';
   
   const { accessToken } = useAuthStore();
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const apiUrl = getApiBaseUrl();
 
   const [submitting, setSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
@@ -63,12 +65,12 @@ function CreateApiKeyContent() {
 
   const handleSubmit = async () => {
     if (!name.trim()) {
-      alert('Please enter a name for the API key');
+      toast({ title: 'Validation', description: 'Please enter a name for the API key', variant: 'destructive' });
       return;
     }
 
     if (keyType === 'self' && !publicKey.trim()) {
-      alert('Please enter your public key');
+      toast({ title: 'Validation', description: 'Please enter your public key', variant: 'destructive' });
       return;
     }
 
@@ -101,11 +103,11 @@ function CreateApiKeyContent() {
         });
         setShowSuccess(true);
       } else {
-        alert(result.error?.message || 'Failed to create API key');
+        toast({ title: 'Error', description: result.error?.message || 'Failed to create API key', variant: 'destructive' });
       }
     } catch (error) {
       console.error('Failed to create API key:', error);
-      alert('Failed to create API key');
+      toast({ title: 'Error', description: 'Failed to create API key', variant: 'destructive' });
     } finally {
       setSubmitting(false);
     }

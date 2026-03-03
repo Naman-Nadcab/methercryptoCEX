@@ -9,6 +9,7 @@ const P2P_PREFIX = '/api/v1/p2p';
 
 export interface P2PAdRow {
   id: string;
+  user_id?: string;
   ad_type: string;
   current_price: string;
   min_amount: string;
@@ -47,6 +48,10 @@ export interface P2POrderRow {
   seller_username?: string;
   fiat_currency?: string;
   created_at?: string;
+  seller_payment_details?: Record<string, unknown>;
+  seller_payment_display_name?: string | null;
+  seller_payment_method_name?: string | null;
+  seller_payment_method_code?: string | null;
 }
 
 export interface P2PPaymentMethodRow {
@@ -152,8 +157,13 @@ export async function createOrder(params: {
   );
 }
 
-export async function confirmPayment(orderId: string): Promise<ApiResponse<P2POrderRow>> {
-  return api.post<P2POrderRow>(`${P2P_PREFIX}/orders/${encodeURIComponent(orderId)}/confirm-payment`, {});
+export async function confirmPayment(orderId: string, idempotencyKey?: string): Promise<ApiResponse<P2POrderRow>> {
+  const key = idempotencyKey ?? crypto.randomUUID();
+  return api.post<P2POrderRow>(
+    `${P2P_PREFIX}/orders/${encodeURIComponent(orderId)}/confirm-payment`,
+    {},
+    { headers: { 'Idempotency-Key': key } }
+  );
 }
 
 export async function releaseOrder(orderId: string, idempotencyKey?: string): Promise<ApiResponse<P2POrderRow>> {
@@ -165,10 +175,56 @@ export async function releaseOrder(orderId: string, idempotencyKey?: string): Pr
   );
 }
 
-export async function cancelOrder(orderId: string, reason: string): Promise<ApiResponse<P2POrderRow>> {
+export async function cancelOrder(orderId: string, reason: string, idempotencyKey?: string): Promise<ApiResponse<P2POrderRow>> {
+  const key = idempotencyKey ?? crypto.randomUUID();
   return api.post<P2POrderRow>(
     `${P2P_PREFIX}/orders/${encodeURIComponent(orderId)}/cancel`,
-    { reason }
+    { reason },
+    { headers: { 'Idempotency-Key': key } }
+  );
+}
+
+export async function openDispute(orderId: string, reason: string, evidence?: string[]): Promise<ApiResponse<{ id: string }>> {
+  return api.post<{ id: string }>(
+    `${P2P_PREFIX}/orders/${encodeURIComponent(orderId)}/dispute`,
+    { reason, evidence }
+  );
+}
+
+export async function blockAdvertiser(advertiserId: string): Promise<ApiResponse<unknown>> {
+  return api.post<unknown>(`${P2P_PREFIX}/blocked-advertisers`, { advertiser_id: advertiserId });
+}
+
+export async function unblockAdvertiser(advertiserId: string): Promise<ApiResponse<unknown>> {
+  return api.delete<unknown>(`${P2P_PREFIX}/blocked-advertisers/${encodeURIComponent(advertiserId)}`);
+}
+
+export interface P2POrderMessage {
+  id: string;
+  orderId: string;
+  senderId: string;
+  senderUsername?: string | null;
+  message: string;
+  createdAt: string;
+}
+
+export const P2P_ORDER_MESSAGES_QUERY_KEY = ['p2p', 'order-messages'] as const;
+
+/** Fetch messages. If since (ISO timestamp) is provided, returns only messages created after that time (for polling). */
+export async function fetchP2POrderMessages(orderId: string, since?: string): Promise<P2POrderMessage[]> {
+  let url = `${P2P_PREFIX}/orders/${encodeURIComponent(orderId)}/messages`;
+  if (since && since.trim()) {
+    url += `?since=${encodeURIComponent(since.trim())}`;
+  }
+  const res = await api.get<{ success: boolean; data?: P2POrderMessage[] }>(url);
+  if (!res.success || !Array.isArray(res.data)) return [];
+  return res.data;
+}
+
+export async function sendP2POrderMessage(orderId: string, message: string): Promise<ApiResponse<P2POrderMessage>> {
+  return api.post<P2POrderMessage>(
+    `${P2P_PREFIX}/orders/${encodeURIComponent(orderId)}/messages`,
+    { message }
   );
 }
 

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store/auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 import Link from 'next/link';
 import { notifyError } from '@/lib/notifyError';
 import {
@@ -44,6 +45,15 @@ interface UserFeeData {
   avgEquity30d: number;
 }
 
+interface VolumeFeeTier {
+  tierLevel: number;
+  maker: string;
+  taker: string;
+  volume30d: string;
+  nextTierMinVolume: string | null;
+  tierName?: string;
+}
+
 export default function FeeRatesPage() {
   const { accessToken } = useAuthStore();
   const [activeTab, setActiveTab] = useState<TabType>('trading');
@@ -58,8 +68,9 @@ export default function FeeRatesPage() {
     totalEquity: 0,
     avgEquity30d: 0,
   });
+  const [volumeTier, setVolumeTier] = useState<VolumeFeeTier | null>(null);
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const apiUrl = getApiBaseUrl();
 
   // Fetch fee rates from backend
   useEffect(() => {
@@ -86,6 +97,23 @@ export default function FeeRatesPage() {
 
     fetchFeeRates();
   }, [accessToken]);
+
+  // Volume-based fee tier (GET /user/fee-tier) for spot tier and progress to next
+  useEffect(() => {
+    const fetchVolumeTier = async () => {
+      if (!accessToken) return;
+      try {
+        const res = await fetch(`${apiUrl}/api/v1/user/fee-tier`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const result = await res.json();
+        if (result.success && result.data) setVolumeTier(result.data);
+      } catch {
+        // Optional; do not block page
+      }
+    };
+    fetchVolumeTier();
+  }, [accessToken, apiUrl]);
 
   // Toggle MNT discount
   const toggleMntDiscount = async () => {
@@ -196,13 +224,39 @@ export default function FeeRatesPage() {
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">My Fee Rates</h1>
         </div>
 
+        {/* Volume-based spot tier (from fee_tiers table) */}
+        {volumeTier && (
+          <div className="mb-6 p-4 rounded-xl bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700" aria-label="Spot volume fee tier">
+            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Spot volume tier</h3>
+            <p className="text-lg font-semibold text-gray-900 dark:text-white">{volumeTier.tierName ?? `Tier ${volumeTier.tierLevel}`}</p>
+            <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
+              Maker: {(Number(volumeTier.maker) * 100).toFixed(2)}% · Taker: {(Number(volumeTier.taker) * 100).toFixed(2)}%
+            </p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              30d volume: {formatNumber(Number(volumeTier.volume30d))} USD
+            </p>
+            {volumeTier.nextTierMinVolume && (
+              <div className="mt-2">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Progress to next tier</p>
+                <ProgressBar
+                  current={Number(volumeTier.volume30d)}
+                  required={Number(volumeTier.nextTierMinVolume)}
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Next tier at {formatNumber(Number(volumeTier.nextTierMinVolume))} USD
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* VIP Level Card */}
         <div className="bg-gradient-to-br from-blue-600 to-blue-700 dark:from-[#1e2329] dark:to-[#181a20] rounded-2xl overflow-hidden mb-8 shadow-lg shadow-blue-500/20 dark:shadow-none">
           <div className="p-6 lg:p-8">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
               {/* Left: VIP Info */}
               <div className="flex items-center gap-4">
-                <div className="w-14 h-14 bg-white/20 dark:bg-blue-500/20 rounded-full flex items-center justify-center">
+                <div className="w-14 h-14 bg-white/20 dark:bg-blue-500/20 rounded-full flex items-center justify-center" aria-hidden="true">
                   <Award className="w-8 h-8 text-white dark:text-blue-400" />
                 </div>
                 <div>
@@ -309,19 +363,19 @@ export default function FeeRatesPage() {
               <div className="mt-6 space-y-3 text-sm text-gray-600 dark:text-gray-400">
                 <p>
                   Your VIP Level and fees will be updated at 7AM UTC if you meet the respective requirements.
-                  <Link href="/vip-requirements" className="text-blue-600 dark:text-blue-400 hover:underline ml-1">
+                  <Link href="/dashboard/help#vip-requirements" className="text-blue-600 dark:text-blue-400 hover:underline ml-1">
                     Check out the requirements.
                   </Link>
                 </p>
                 <p>
                   View Fiat Trading Fees
-                  <Link href="/fiat-fees" className="text-blue-600 dark:text-blue-400 hover:underline ml-1">
+                  <Link href="/dashboard/help#fiat-fees" className="text-blue-600 dark:text-blue-400 hover:underline ml-1">
                     Find out the details.
                   </Link>
                 </p>
                 <p>
                   The MNT discount is only applicable to Spot (incl. fiat pairs) trading.
-                  <Link href="/mnt-discount" className="text-blue-600 dark:text-blue-400 hover:underline ml-1">
+                  <Link href="/dashboard/help#mnt-discount" className="text-blue-600 dark:text-blue-400 hover:underline ml-1">
                     Find out the details.
                   </Link>
                 </p>
@@ -430,16 +484,16 @@ export default function FeeRatesPage() {
         {/* Footer */}
         <div className="border-t border-gray-200 dark:border-gray-800 pt-8">
           <div className="flex flex-wrap items-center justify-center gap-6 text-sm text-gray-500 dark:text-gray-400">
-            <Link href="/markets" className="hover:text-gray-900 dark:hover:text-white">
+            <Link href="/dashboard/markets" className="hover:text-gray-900 dark:hover:text-white">
               Market Overview
             </Link>
-            <Link href="/trading-fee" className="hover:text-gray-900 dark:hover:text-white">
+            <Link href="/dashboard/fee-rates" className="hover:text-gray-900 dark:hover:text-white">
               Trading Fee
             </Link>
-            <Link href="/api" className="hover:text-gray-900 dark:hover:text-white">
+            <Link href="/dashboard/api" className="hover:text-gray-900 dark:hover:text-white">
               API
             </Link>
-            <Link href="/help" className="hover:text-gray-900 dark:hover:text-white">
+            <Link href="/dashboard/help" className="hover:text-gray-900 dark:hover:text-white">
               Help Center
             </Link>
             <span>© 2024 Methereum</span>

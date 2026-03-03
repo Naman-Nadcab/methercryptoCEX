@@ -119,7 +119,28 @@ export default function TermsOfServicePage() {
 
             <section className="mb-8">
               <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-                7. Risk Disclosure
+                6A. Regulatory Compliance (PMLA / FIU-IND)
+              </h2>
+              <p className="text-gray-600 dark:text-gray-400 leading-relaxed mb-4">
+                In compliance with the Prevention of Money Laundering Act (PMLA), 2002 and FIU-IND guidelines, we implement KYC, transaction monitoring, and reporting procedures. You agree to cooperate with identity verification, provide accurate information, and not use the Platform for money laundering, terrorist financing, or other illicit purposes. P2P and other transactions are subject to per-order and daily limits. We may suspend accounts or report suspicious activity as required by law.
+              </p>
+            </section>
+
+            <section className="mb-8">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+                7. Compliance & PMLA
+              </h2>
+              <p className="text-gray-600 dark:text-gray-400 leading-relaxed mb-4">
+                We comply with applicable anti‑money laundering (AML) and counter‑terrorist financing (CTF) laws, including the Prevention of Money Laundering Act (PMLA), 2002, as amended. We are registered with FIU‑IND as a reporting entity where required. You agree to provide accurate information for KYC and to cooperate with any regulatory or compliance requests. Large or suspicious transactions may be monitored and reported as per law.
+              </p>
+              <p className="text-gray-600 dark:text-gray-400 leading-relaxed">
+                P2P and other services are subject to transaction limits for compliance. Violation of AML/CTF obligations may result in account suspension and reporting to authorities.
+              </p>
+            </section>
+
+            <section className="mb-8">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+                8. Risk Disclosure
               </h2>
               <p className="text-gray-600 dark:text-gray-400 leading-relaxed">
                 Cryptocurrency trading involves substantial risk of loss and is not suitable for every investor. The value of cryptocurrencies can be extremely volatile. You should carefully consider whether trading is appropriate for you in light of your financial condition. Past performance is not indicative of future results. You acknowledge that you trade at your own risk.
@@ -128,7 +149,7 @@ export default function TermsOfServicePage() {
 
             <section className="mb-8">
               <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-                8. Limitation of Liability
+                9. Limitation of Liability
               </h2>
               <p className="text-gray-600 dark:text-gray-400 leading-relaxed">
                 To the maximum extent permitted by law, Exchange shall not be liable for any indirect, incidental, special, consequential, or punitive damages, including but not limited to loss of profits, data, or other intangible losses, resulting from your use of or inability to use the Platform.
@@ -137,7 +158,7 @@ export default function TermsOfServicePage() {
 
             <section className="mb-8">
               <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-                9. Intellectual Property
+                10. Intellectual Property
               </h2>
               <p className="text-gray-600 dark:text-gray-400 leading-relaxed">
                 All content on the Platform, including but not limited to text, graphics, logos, images, and software, is the property of Exchange or its licensors and is protected by intellectual property laws. You may not reproduce, distribute, or create derivative works without our prior written consent.
@@ -146,7 +167,7 @@ export default function TermsOfServicePage() {
 
             <section className="mb-8">
               <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-                10. Termination
+                11. Termination
               </h2>
               <p className="text-gray-600 dark:text-gray-400 leading-relaxed">
                 We reserve the right to suspend or terminate your account at any time for any reason, including violation of these Terms. Upon termination, you must cease all use of the Platform and may be required to withdraw your remaining funds within a specified period.
@@ -155,7 +176,7 @@ export default function TermsOfServicePage() {
 
             <section className="mb-8">
               <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-                11. Governing Law
+                12. Governing Law
               </h2>
               <p className="text-gray-600 dark:text-gray-400 leading-relaxed">
                 These Terms shall be governed by and construed in accordance with the laws of the jurisdiction in which Exchange is incorporated, without regard to its conflict of law provisions.
@@ -164,7 +185,7 @@ export default function TermsOfServicePage() {
 
             <section className="mb-8">
               <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-                12. Changes to Terms
+                13. Changes to Terms
               </h2>
               <p className="text-gray-600 dark:text-gray-400 leading-relaxed">
                 We may update these Terms from time to time. We will notify you of any material changes by posting the new Terms on the Platform and updating the "Last updated" date. Your continued use of the Platform after such changes constitutes acceptance of the new Terms.
@@ -173,7 +194,7 @@ export default function TermsOfServicePage() {
 
             <section>
               <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-                13. Contact Us
+                14. Contact Us
               </h2>
               <p className="text-gray-600 dark:text-gray-400 leading-relaxed">
                 If you have any questions about these Terms, please contact us at:

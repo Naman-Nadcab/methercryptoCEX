@@ -1,6 +1,25 @@
 version: '3.8'
 
 services:
+  # PostgreSQL - Primary database
+  postgres:
+    image: postgres:16-alpine
+    container_name: exchange-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-exchange}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-exchange_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-exchange}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-exchange} -d ${POSTGRES_DB:-exchange}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   # Redis - In-memory cache, orderbook, rate limiting
   redis:
     image: redis:7-alpine
@@ -47,10 +66,12 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=4000
-      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://exchange:exchange_secret@postgres:5432/exchange}
       - REDIS_URL=redis://redis:6379
       - RABBITMQ_URL=amqp://exchange:exchange_secret@rabbitmq:5672
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
       rabbitmq:
@@ -93,6 +114,7 @@ services:
       - production
 
 volumes:
+  postgres_data:
   redis_data:
   rabbitmq_data:
 

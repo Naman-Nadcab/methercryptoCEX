@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 
 export default function GuestOnly({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { authResolved, isAuthenticated } = useAuth();
   const redirectDone = useRef(false);
 
@@ -13,8 +14,11 @@ export default function GuestOnly({ children }: { children: React.ReactNode }) {
     if (!authResolved || !isAuthenticated) return;
     if (redirectDone.current) return;
     redirectDone.current = true;
-    router.replace('/dashboard');
-  }, [authResolved, isAuthenticated, router]);
+    const redirect = searchParams.get('redirect');
+    // Only allow dashboard routes (spot, p2p, markets, etc.)
+    const target = redirect && redirect.startsWith('/dashboard') ? redirect : '/dashboard';
+    router.replace(target);
+  }, [authResolved, isAuthenticated, router, searchParams]);
 
   if (!authResolved) {
     return (

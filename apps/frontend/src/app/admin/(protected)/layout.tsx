@@ -8,6 +8,7 @@ import { useAdminAuthStore } from '@/store/admin-auth';
 import { Loader2 } from 'lucide-react';
 import AdminSessionManager from '@/components/admin/AdminSessionManager';
 import ThemeProvider from '@/components/ThemeProvider';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 
 export default function AdminProtectedLayout({
   children,
@@ -32,7 +33,7 @@ export default function AdminProtectedLayout({
 
     // Verify session in background — don't block first paint
     let cancelled = false;
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+    const apiUrl = getApiBaseUrl();
     fetch(`${apiUrl}/api/v1/admin/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
       .then((response) => {
         if (cancelled) return;

@@ -7,7 +7,7 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "dev:express": "tsx watch src/index.ts",
+    "dev:express": "echo 'DEPRECATED: Use dev (Fastify). Express path is legacy.' && tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/server.js",
     "lint": "eslint src --ext .ts",

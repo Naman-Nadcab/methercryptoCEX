@@ -27,6 +27,8 @@ import {
   Zap,
   Loader2,
 } from 'lucide-react';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { toast } from '@/components/ui/toaster';
 
 type ActiveCard = 'earnings' | 'commissions';
 
@@ -52,7 +54,7 @@ export default function ReferralProgramPage() {
   const [stats, setStats] = useState<ReferralStats | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
   
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const apiUrl = getApiBaseUrl();
   const appOrigin = typeof window !== 'undefined' ? window.location.origin : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
 
   // Fetch referral data from user referrals API (same data admin can monitor)
@@ -247,7 +249,7 @@ export default function ReferralProgramPage() {
       }
     } else {
       navigator.clipboard.writeText(shareText);
-      alert('Link copied to clipboard!');
+      toast({ title: 'Link copied to clipboard', variant: 'success' });
     }
   };
 

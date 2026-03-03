@@ -1,6 +1,25 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import path from 'path';
+import fs from 'fs';
+import * as nodeCrypto from 'crypto';
+import { pipeline } from 'stream/promises';
 import { db } from '../lib/database.js';
 import { logger } from '../lib/logger.js';
+import { config } from '../config/index.js';
+
+const KYC_UPLOAD_DIR = process.env.KYC_UPLOAD_DIR || path.join(process.cwd(), 'uploads', 'kyc');
+const ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp'];
+
+function mapFieldToDocType(field: string, documentType: string): string | null {
+  if (field === 'selfie') return 'selfie';
+  if (field === 'frontImage') {
+    if (documentType === 'aadhaar') return 'aadhaar_front';
+    if (documentType === 'pan') return 'pan';
+    return 'address_proof';
+  }
+  if (field === 'backImage' && documentType === 'aadhaar') return 'aadhaar_back';
+  return null;
+}
 
 interface InitiateKycBody {
   country: string;
@@ -95,8 +114,8 @@ export default async function kycRoutes(app: FastifyInstance) {
         }
       }
 
-      // For DigiLocker (India), auto-approve for demo purposes
-      if (provider === 'digilocker' && country === 'IN') {
+      // For DigiLocker (India), auto-approve ONLY when explicitly enabled (dev/demo). Default false for production.
+      if (provider === 'digilocker' && country === 'IN' && config.kyc.digilockerDemoAutoApprove) {
         // Create approved KYC record
         const result = await db.query(`
           INSERT INTO kyc_applications (
@@ -148,19 +167,74 @@ export default async function kycRoutes(app: FastifyInstance) {
     }
   });
 
-  // Upload KYC documents
+  // Upload KYC documents — persists to storage and kyc_documents table
   app.post('/upload-document', {
     preHandler: [app.authenticate]
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const userId = request.user!.id;
+      let documentType = 'passport';
 
-      // This would handle file upload in production
-      // For now, return success
+      const recs = await db.query<{ id: string }>(
+        `SELECT id FROM kyc_records WHERE user_id = $1 LIMIT 1`,
+        [userId]
+      );
+      if (recs.rows.length === 0) {
+        const ins = await db.query<{ id: string }>(
+          `INSERT INTO kyc_records (user_id, status, level) VALUES ($1, 'pending', 1) RETURNING id`,
+          [userId]
+        );
+        recs.rows = ins.rows;
+      }
+      const kycRecordId = recs.rows[0]?.id;
+      if (!kycRecordId) {
+        return reply.status(500).send({
+          success: false,
+          error: { code: 'INTERNAL_ERROR', message: 'Failed to get KYC record' }
+        });
+      }
+
+      const userDir = path.join(KYC_UPLOAD_DIR, userId);
+      fs.mkdirSync(userDir, { recursive: true });
+
+      const saved: { field: string; path: string }[] = [];
+      let part = await request.file();
+
+      while (part) {
+        if (part.fieldname === 'documentType') {
+          const chunks: Buffer[] = [];
+          for await (const c of part.file) chunks.push(typeof c === 'string' ? Buffer.from(c) : c);
+          documentType = Buffer.concat(chunks).toString('utf8').trim() || documentType;
+          part = await request.file();
+          continue;
+        }
+        const field = part.fieldname;
+        const docType = mapFieldToDocType(field, documentType);
+        if (docType && part.mimetype && ALLOWED_MIMES.includes(part.mimetype)) {
+          const ext = part.mimetype === 'image/png' ? '.png' : part.mimetype === 'image/webp' ? '.webp' : '.jpg';
+          const docId = nodeCrypto.randomUUID();
+          const fileName = `${docId}${ext}`;
+          const filePath = path.join(userDir, fileName);
+          await pipeline(part.file, fs.createWriteStream(filePath));
+          const buf = fs.readFileSync(filePath);
+          const fileHash = nodeCrypto.createHash('sha256').update(buf).digest('hex');
+
+          await db.query(
+            `INSERT INTO kyc_documents (kyc_record_id, type, file_url, file_hash, verified)
+             SELECT $1, $2, $3, $4, FALSE
+             WHERE EXISTS (SELECT 1 FROM kyc_records WHERE id = $1)`,
+            [kycRecordId, docType, filePath, fileHash]
+          );
+          saved.push({ field, path: filePath });
+        }
+        part = await request.file();
+      }
+
       return {
         success: true,
         data: {
-          message: 'Document uploaded successfully'
+          message: 'Document uploaded successfully',
+          saved: saved.length,
         }
       };
     } catch (error) {

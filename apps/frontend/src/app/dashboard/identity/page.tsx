@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
@@ -77,7 +78,7 @@ export default function IdentityVerificationPage() {
   const [kycLevel, setKycLevel] = useState<number>(0);
   const [checkingKyc, setCheckingKyc] = useState(true);
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const API_URL = getApiBaseUrl();
 
   // Check KYC status on mount
   useEffect(() => {
@@ -146,8 +147,7 @@ export default function IdentityVerificationPage() {
         setError(data.error?.message || 'Verification failed');
       }
     } catch (err) {
-      // For demo purposes, simulate success
-      router.push('/dashboard/identity/success');
+      setError(err instanceof Error ? err.message : 'Verification failed');
     } finally {
       setLoading(false);
     }
@@ -288,7 +288,7 @@ export default function IdentityVerificationPage() {
         </div>
         <div className="flex items-center gap-4">
           <Link
-            href="/dashboard/identity/business"
+            href="/dashboard/help#business"
             className="flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
           >
             <Building2 className="w-4 h-4" />
@@ -441,7 +441,7 @@ export default function IdentityVerificationPage() {
           <div className="mt-8 text-center">
             <p className="text-gray-500 dark:text-gray-400">
               You can also continue on{' '}
-              <Link href="#" className="text-gray-900 dark:text-white font-medium hover:underline inline-flex items-center gap-1">
+              <Link href="/dashboard/help" className="text-gray-900 dark:text-white font-medium hover:underline inline-flex items-center gap-1">
                 📱 Methereum App
                 <ChevronRight className="w-4 h-4" />
               </Link>

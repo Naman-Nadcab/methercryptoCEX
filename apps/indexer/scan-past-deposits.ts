@@ -1,5 +1,10 @@
+import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { ethers, JsonRpcProvider } from 'ethers';
 import { Pool } from 'pg';
+
+dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.env') });
 
 const USDC_POLYGON = '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359'; // Native USDC on Polygon
 const USDC_BRIDGED_POLYGON = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174'; // Bridged USDC.e
@@ -7,10 +12,12 @@ const USDC_BRIDGED_POLYGON = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174'; // Br
 const USER_ADDRESS = '0x5628Ff33ff1EcEE4B5FeC0f59e4f358DdD33e6fa'.toLowerCase();
 
 const pool = new Pool({
-  connectionString: 'postgresql://postgres:Aman%40961648@db.vhlfnekcmczlqaninefq.supabase.co:5432/postgres'
+  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:password@localhost:5432/postgres'
 });
 
-const provider = new JsonRpcProvider('https://rpc.ankr.com/polygon/d3f6ef0c0e41a88132c95e71c5dbbb0527827d73d26e52628851ae2c620303d4');
+const ankrKey = process.env.ANKR_API_KEY || '';
+const polygonRpc = process.env.POLYGON_RPC_URL || (ankrKey ? `https://rpc.ankr.com/polygon/${ankrKey}` : 'https://polygon-rpc.com');
+const provider = new JsonRpcProvider(polygonRpc);
 
 const ERC20_TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAdminAuthStore } from '@/store/admin-auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { Shield, Clock, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 
 interface KycStats {
@@ -36,7 +37,7 @@ export default function KYCPage() {
   const fetchKYC = async () => {
     setLoading(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      const apiUrl = getApiBaseUrl();
       const params = new URLSearchParams({ limit: '50' });
       if (statusFilter !== 'all') params.set('status', statusFilter);
 

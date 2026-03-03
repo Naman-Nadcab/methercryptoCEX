@@ -1,3 +1,8 @@
+/**
+ * @deprecated LEGACY: In-memory matching engine using orders/trades tables.
+ * Production spot flow uses spot.fastify + spot-matching.service (spot_orders, spot_trades).
+ * Loaded only by Express index.ts (npm run dev:express). Do not use for new code.
+ */
 import { Decimal } from '../lib/decimal.js';
 import type { PoolClient } from 'pg';
 import { db } from '../lib/database.js';
@@ -831,4 +836,5 @@ class MatchingEngine {
   }
 }
 
+/** @deprecated Use spot-matching.service via spot.fastify. See file header. */
 export const matchingEngine = new MatchingEngine();

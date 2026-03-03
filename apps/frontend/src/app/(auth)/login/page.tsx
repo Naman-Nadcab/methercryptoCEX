@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Eye, EyeOff, Globe, ChevronDown, Users, DollarSign, Coins, ExternalLink, Shield, Smartphone, Mail, Key, Fingerprint, Loader2 } from 'lucide-react';
 import { useAuthStore, type User } from '@/store/auth';
 import { useAuth } from '@/context/AuthContext';
@@ -25,6 +26,9 @@ interface VerificationState {
 }
 
 export default function LoginPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const resetSuccess = searchParams.get('reset') === 'success';
   const { login } = useAuthStore();
   const { setAuthenticated } = useAuth();
   const [step, setStep] = useState<Step>('identifier');
@@ -51,6 +55,14 @@ export default function LoginPage() {
     const msg = err instanceof Error ? err.message : String(err);
     return msg || 'Network error. Please try again.';
   };
+
+  // Store redirect for OAuth callback (so OAuth can redirect after login)
+  useEffect(() => {
+    const redirect = searchParams.get('redirect');
+    if (redirect && redirect.startsWith('/') && typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem('oauth_redirect', redirect);
+    }
+  }, [searchParams]);
 
   // Countdown timer for OTP resend
   useEffect(() => {
@@ -174,6 +186,7 @@ export default function LoginPage() {
         const user = verifyData.data.user as User;
         login(user, verifyData.data.accessToken, verifyData.data.refreshToken);
         setAuthenticated(user);
+        router.push('/dashboard');
       } else {
         setError(verifyData.error?.message || 'Passkey verification failed');
       }
@@ -325,6 +338,7 @@ export default function LoginPage() {
           const user = data.data.user as User;
           login(user, data.data.accessToken, data.data.refreshToken);
           setAuthenticated(user);
+          router.push('/dashboard');
         } else {
           setError('Invalid login response. Please try again.');
         }
@@ -383,6 +397,7 @@ export default function LoginPage() {
           const user = data.data.user as User;
           login(user, data.data.accessToken, data.data.refreshToken);
           setAuthenticated(user);
+          router.push('/dashboard');
         } else {
           // Move to next step
           setVerificationState(prev => prev ? {
@@ -564,6 +579,11 @@ export default function LoginPage() {
             {/* Step 1: Email/Phone Input */}
             {step === 'identifier' && (
               <form onSubmit={handleIdentifierSubmit} className="space-y-6">
+                {resetSuccess && (
+                  <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-green-800 dark:text-green-200 text-sm">
+                    Password reset successful. You can now log in with your new password.
+                  </div>
+                )}
                 <div>
                   <h1 className="text-2xl font-bold text-gray-900 mb-2">Log in to Methereum</h1>
                   <p className="text-gray-500">Enter your email or phone number</p>
@@ -597,7 +617,11 @@ export default function LoginPage() {
 
                 {/* Input Field */}
                 <div>
+                  <label htmlFor="login-identifier" className="sr-only">
+                    {identifierType === 'email' ? 'Email address' : 'Mobile number'}
+                  </label>
                   <input
+                    id="login-identifier"
                     type={identifierType === 'email' ? 'email' : 'tel'}
                     inputMode={identifierType === 'phone' ? 'numeric' : undefined}
                     pattern={identifierType === 'phone' ? '[0-9]*' : undefined}
@@ -610,6 +634,7 @@ export default function LoginPage() {
                       }
                     }}
                     placeholder={identifierType === 'email' ? 'Email address' : 'Mobile number'}
+                    aria-label={identifierType === 'email' ? 'Email address' : 'Mobile number'}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-gray-900"
                     required
                   />
@@ -669,10 +694,17 @@ export default function LoginPage() {
                 <button
                   type="submit"
                   disabled={loading || passkeyLoading || !identifier}
+                  aria-label={loading ? 'Sending verification code' : 'Continue with OTP'}
                   className="w-full py-3 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-900 dark:text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {loading ? 'Sending...' : 'Continue with OTP'}
                 </button>
+
+                <p className="text-center text-sm text-gray-500">
+                  <Link href="/forgot-password" className="text-blue-500 hover:underline font-medium">
+                    Forgot password?
+                  </Link>
+                </p>
 
                 <p className="text-center text-sm text-gray-500">
                   Don't have an account?{' '}
@@ -708,7 +740,7 @@ export default function LoginPage() {
                 </div>
 
                 {/* OTP Input Boxes */}
-                <div className="flex gap-3 justify-center">
+                <div className="flex gap-3 justify-center" role="group" aria-label="Verification code (6 digits)">
                   {otp.map((digit, index) => (
                     <input
                       key={index}
@@ -719,6 +751,7 @@ export default function LoginPage() {
                       value={digit}
                       onChange={(e) => handleOtpChange(index, e.target.value, otpRefs, setOtp)}
                       onKeyDown={(e) => handleOtpKeyDown(index, e, otpRefs, otp)}
+                      aria-label={`Digit ${index + 1} of 6`}
                       className="w-12 h-14 text-center text-xl font-bold border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-gray-900"
                     />
                   ))}
@@ -749,6 +782,7 @@ export default function LoginPage() {
                 <button
                   type="submit"
                   disabled={loading || otp.join('').length !== 6}
+                  aria-label={loading ? 'Verifying code' : 'Submit verification code'}
                   className="w-full py-3 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {loading ? 'Verifying...' : 'Continue'}
@@ -796,7 +830,7 @@ export default function LoginPage() {
                       </div>
 
                       {/* Verification Code Input */}
-                      <div className="flex gap-3 justify-center">
+                      <div className="flex gap-3 justify-center" role="group" aria-label="Verification code (6 digits)">
                         {verificationCode.map((digit, index) => (
                           <input
                             key={index}
@@ -807,6 +841,7 @@ export default function LoginPage() {
                             value={digit}
                             onChange={(e) => handleOtpChange(index, e.target.value, verificationRefs, setVerificationCode)}
                             onKeyDown={(e) => handleOtpKeyDown(index, e, verificationRefs, verificationCode)}
+                            aria-label={`Digit ${index + 1} of 6`}
                             className="w-12 h-14 text-center text-xl font-bold border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-gray-900"
                           />
                         ))}

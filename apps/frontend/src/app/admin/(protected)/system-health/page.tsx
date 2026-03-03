@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAdminAuthStore } from '@/store/admin-auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 import {
   SectionHeader,
   MetricWidget,
@@ -21,7 +22,7 @@ interface DashboardStatsData {
   p2p?: { openDisputes?: number };
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const API_URL = getApiBaseUrl();
 
 export default function SystemHealthRiskMonitor() {
   const { accessToken } = useAdminAuthStore();

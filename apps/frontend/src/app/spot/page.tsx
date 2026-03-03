@@ -23,7 +23,7 @@ export default function SpotPublicPage() {
           </Link>
         ) : (
           <Link
-            href="/login"
+            href="/login?redirect=/dashboard/spot"
             className="px-5 py-2.5 rounded-lg font-medium bg-blue-500 hover:bg-blue-600 text-white text-center transition-colors"
           >
             Login to Trade

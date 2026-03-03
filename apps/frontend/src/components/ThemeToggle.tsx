@@ -125,6 +125,7 @@ export default function ThemeToggle({
       onClick={toggleTheme}
       className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-gray-600 dark:text-gray-300"
       title={`Switch to ${resolvedTheme === 'dark' ? 'light' : 'dark'} mode`}
+      aria-label={`Switch to ${resolvedTheme === 'dark' ? 'light' : 'dark'} mode`}
     >
       {resolvedTheme === 'dark' ? (
         <Sun className={iconSize} />

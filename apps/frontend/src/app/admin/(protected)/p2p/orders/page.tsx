@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAdminAuthStore } from '@/store/admin-auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 import {
   SectionHeader,
   Panel,
@@ -19,7 +20,7 @@ import { useP2POrders, type P2POrderRow } from '@/lib/admin-wallets-api';
 import { formatAmountAdmin } from '@/lib/utils';
 import { Loader2, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const API_URL = getApiBaseUrl();
 
 const statusOptions = [
   { value: 'all', label: 'All' },

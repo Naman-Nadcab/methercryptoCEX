@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import Link from 'next/link';
 import { AlertCircle, RefreshCw } from 'lucide-react';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 
 export default function AdminError({
   error,
@@ -42,7 +43,7 @@ export default function AdminError({
         </div>
         <div className="mt-6 text-left text-xs text-gray-500 bg-gray-900/50 rounded-lg p-3 space-y-1">
           <p>1. Start the backend: <code className="bg-gray-800 px-1 rounded">cd apps/backend &amp;&amp; npm run dev</code></p>
-          <p>2. It should listen at <code className="bg-gray-800 px-1 rounded">{typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_API_URL ? process.env.NEXT_PUBLIC_API_URL : 'http://localhost:4000'}</code></p>
+          <p>2. It should listen at <code className="bg-gray-800 px-1 rounded">{getApiBaseUrl()}</code></p>
           <p>3. Click Try again or go to login and sign in again.</p>
         </div>
       </div>

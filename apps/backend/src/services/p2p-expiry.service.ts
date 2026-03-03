@@ -1,19 +1,27 @@
 /**
  * PHASE-11: P2P order timeout/expiry. Safe unlock: refund escrow only; no illegal balance mutation.
  * Idempotent: expired orders are skipped if already refunded/completed.
+ * Uses Redis lock to prevent duplicate execution across multiple instances.
  */
 
 import { db } from '../lib/database.js';
+import { redis } from '../lib/redis.js';
 import { refundFromEscrow } from './p2p-escrow.service.js';
 import { logger } from '../lib/logger.js';
 
 const P2P_ORDER_STATUS_PAYMENT_PENDING = 'payment_pending';
+const P2P_EXPIRY_LOCK_KEY = 'p2p_expiry:run';
+const P2P_EXPIRY_LOCK_TTL_MS = 120_000; // 2 minutes
 
 /**
  * Process expired P2P orders: status = payment_pending and expires_at < NOW().
  * Refunds escrow to seller and marks order expired. Safe under replay (refundFromEscrow is idempotent).
+ * Distributed lock prevents duplicate processing across multiple server instances.
  */
 export async function processExpiredP2POrders(): Promise<{ processed: number; errors: number }> {
+  const lockValue = await redis.acquireLock(P2P_EXPIRY_LOCK_KEY, P2P_EXPIRY_LOCK_TTL_MS, 1, 0);
+  if (!lockValue) return { processed: 0, errors: 0 };
+
   let processed = 0;
   let errors = 0;
 
@@ -62,5 +70,6 @@ export async function processExpiredP2POrders(): Promise<{ processed: number; er
     }
   }
 
+  await redis.releaseLock(P2P_EXPIRY_LOCK_KEY, lockValue).catch(() => {});
   return { processed, errors };
 }

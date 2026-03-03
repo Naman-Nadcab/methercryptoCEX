@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAdminAuthStore } from '@/store/admin-auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { Wallet, Loader2 } from 'lucide-react';
 
 interface Blockchain {
@@ -41,7 +42,7 @@ export default function WalletsPage() {
 
   const fetchWallets = async () => {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      const apiUrl = getApiBaseUrl();
       const response = await fetch(`${apiUrl}/api/v1/admin/wallets`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });

@@ -136,13 +136,17 @@ npm run db:migrate
 
 4. **Start development servers**
 ```bash
-# Start all services
-docker-compose up -d redis rabbitmq
+# Start Redis (required for backend – sessions, cache, rate limiting, OTP)
+# Without Redis, backend will log errors; login OTP and rate limiting may fail.
+# Use either: docker compose (v2) or docker-compose (v1)
+docker compose up -d redis rabbitmq
+# OR: docker-compose up -d redis rabbitmq
 
-# Start backend
+# Or use dev:all to start Redis + RabbitMQ and then all apps:
+npm run dev:all
+
+# Or start individually:
 npm run dev --workspace=@exchange/backend
-
-# Start frontend (in another terminal)
 npm run dev --workspace=@exchange/frontend
 ```
 

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useAdminAuthStore } from '@/store/admin-auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { Receipt, Loader2, TrendingUp, ArrowUpFromLine, Layers, Megaphone } from 'lucide-react';
 
 interface FeeTier {
@@ -23,7 +24,7 @@ export default function FeesPage() {
 
   const fetchFees = async () => {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      const apiUrl = getApiBaseUrl();
       const response = await fetch(`${apiUrl}/api/v1/admin/fees`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });

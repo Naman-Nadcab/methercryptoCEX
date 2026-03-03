@@ -19,6 +19,7 @@ const envSchema = z.object({
   REDIS_URL: z.string().default('redis://localhost:6379'),
   REDIS_PASSWORD: z.string().optional(),
   REDIS_TLS_ENABLED: z.coerce.boolean().default(false),
+  REDIS_WS_PUBSUB_ENABLED: z.string().transform(v => v === 'true').default('false'),
 
   // RabbitMQ
   RABBITMQ_URL: z.string().default('amqp://localhost:5672'),
@@ -73,6 +74,8 @@ const envSchema = z.object({
   HYPERVERGE_APP_ID: z.string().optional(),
   HYPERVERGE_APP_KEY: z.string().optional(),
   HYPERVERGE_BASE_URL: z.string().optional(),
+  // DigiLocker demo auto-approve: ONLY for dev/demo. Set false in production.
+  KYC_DIGILOCKER_DEMO_AUTO_APPROVE: z.string().transform(v => v === 'true').default('false'),
 
   // Blockchain RPCs
   ETH_RPC_URL: z.string().default('https://eth-mainnet.g.alchemy.com/v2/demo'),
@@ -105,6 +108,10 @@ const envSchema = z.object({
   ADMIN_IP_WHITELIST: z.string().default('127.0.0.1,::1'),
   SESSION_SECRET: z.string().min(32),
   CSRF_SECRET: z.string().min(32),
+  // Auth services (optional; fallback to localhost when not set)
+  SESSION_CORE_URL: z.string().url().optional().default('http://localhost:7001/validate'),
+  LOCK_SERVICE_URL: z.string().url().optional().default('http://localhost:7001/lock'),
+  TOTP_ENCRYPTION_KEY: z.string().min(32).optional(), // Prefer over ENCRYPTION_KEY for TOTP; fallback to ENCRYPTION_KEY
 
   // Monitoring
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
@@ -113,6 +120,7 @@ const envSchema = z.object({
   PROMETHEUS_PORT: z.coerce.number().default(9090),
 
   // Feature Flags
+  ENABLE_SPOT_ORDERS_RESERVE_ONLY: z.string().transform(v => v === 'true').default('false'), // POST /spot/orders reserve-only path; default OFF for safety
   FEATURE_P2P_ENABLED: z.string().transform(v => v === 'true').default('true'),
   FEATURE_SPOT_TRADING_ENABLED: z.string().transform(v => v === 'true').default('true'),
   FEATURE_MARGIN_TRADING_ENABLED: z.string().transform(v => v === 'true').default('false'),
@@ -128,6 +136,12 @@ const envSchema = z.object({
   // Deposit consolidation: sweep user deposit addresses to hot wallet
   DEPOSIT_SWEEP_ENABLED: z.string().transform(v => v === 'true').default('true'),
   DEPOSIT_SWEEP_MIN_WEI: z.string().default('1000000000000000'),
+
+  // P2P limits (FIU India compliance)
+  P2P_MAX_FIAT_PER_ORDER_INR: z.coerce.number().default(500_000),
+  P2P_MAX_CRYPTO_PER_ORDER_USDT: z.coerce.number().default(50_000),
+  P2P_MAX_FIAT_PER_USER_DAILY_INR: z.coerce.number().default(1_000_000),
+  P2P_MAX_CRYPTO_PER_USER_DAILY_USDT: z.coerce.number().default(100_000),
 
   // AML transaction monitoring (Step 6C)
   AML_LARGE_FIAT_INR_THRESHOLD: z.coerce.number().default(1_000_000),
@@ -163,6 +177,7 @@ export const config = {
     url: parsed.data.REDIS_URL,
     password: parsed.data.REDIS_PASSWORD,
     tlsEnabled: parsed.data.REDIS_TLS_ENABLED,
+    wsPubSubEnabled: parsed.data.REDIS_WS_PUBSUB_ENABLED,
   },
 
   rabbitmq: {
@@ -235,6 +250,7 @@ export const config = {
 
   kyc: {
     provider: parsed.data.KYC_PROVIDER,
+    digilockerDemoAutoApprove: parsed.data.KYC_DIGILOCKER_DEMO_AUTO_APPROVE,
     hyperverge: {
       appId: parsed.data.HYPERVERGE_APP_ID,
       appKey: parsed.data.HYPERVERGE_APP_KEY,
@@ -276,6 +292,9 @@ export const config = {
       .filter(Boolean),
     sessionSecret: parsed.data.SESSION_SECRET,
     csrfSecret: parsed.data.CSRF_SECRET,
+    sessionCoreUrl: parsed.data.SESSION_CORE_URL,
+    lockServiceUrl: parsed.data.LOCK_SERVICE_URL,
+    totpEncryptionKey: parsed.data.TOTP_ENCRYPTION_KEY,
   },
 
   logging: {
@@ -289,6 +308,7 @@ export const config = {
   },
 
   features: {
+    enableSpotOrdersReserveOnly: parsed.data.ENABLE_SPOT_ORDERS_RESERVE_ONLY,
     p2pEnabled: parsed.data.FEATURE_P2P_ENABLED,
     spotTradingEnabled: parsed.data.FEATURE_SPOT_TRADING_ENABLED,
     marginTradingEnabled: parsed.data.FEATURE_MARGIN_TRADING_ENABLED,
@@ -302,6 +322,13 @@ export const config = {
   depositSweep: {
     enabled: parsed.data.DEPOSIT_SWEEP_ENABLED,
     minWei: parsed.data.DEPOSIT_SWEEP_MIN_WEI,
+  },
+
+  p2p: {
+    maxFiatPerOrderInr: parsed.data.P2P_MAX_FIAT_PER_ORDER_INR,
+    maxCryptoPerOrderUsdt: parsed.data.P2P_MAX_CRYPTO_PER_ORDER_USDT,
+    maxFiatPerUserDailyInr: parsed.data.P2P_MAX_FIAT_PER_USER_DAILY_INR,
+    maxCryptoPerUserDailyUsdt: parsed.data.P2P_MAX_CRYPTO_PER_USER_DAILY_USDT,
   },
 
   aml: {

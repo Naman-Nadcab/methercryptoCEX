@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { toast } from '@/components/ui/toaster';
 import Image from 'next/image';
 import { 
   ChevronRight, 
@@ -45,7 +47,7 @@ interface Chain {
 export default function AddBatchesPage() {
   const router = useRouter();
   const { accessToken } = useAuthStore();
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const apiUrl = getApiBaseUrl();
 
   // Tab state
   const [activeTab, setActiveTab] = useState<'onchain' | 'internal'>('onchain');
@@ -188,7 +190,7 @@ export default function AddBatchesPage() {
         : internalAddresses.filter(a => a.recipient);
 
       if (addressesToSubmit.length === 0) {
-        alert('Please add at least one valid address');
+        toast({ title: 'Validation', description: 'Please add at least one valid address', variant: 'destructive' });
         setSubmitting(false);
         return;
       }
@@ -231,14 +233,14 @@ export default function AddBatchesPage() {
       const allSuccessful = results.every(r => r.ok);
 
       if (allSuccessful) {
-        alert('All addresses added successfully!');
+        toast({ title: 'Success', description: 'All addresses added successfully', variant: 'success' });
         router.push('/dashboard/address-book');
       } else {
-        alert('Some addresses failed to add. Please try again.');
+        toast({ title: 'Partial success', description: 'Some addresses failed to add. Please try again.', variant: 'destructive' });
       }
     } catch (error) {
       console.error('Failed to submit addresses:', error);
-      alert('Failed to add addresses');
+      toast({ title: 'Error', description: 'Failed to add addresses', variant: 'destructive' });
     } finally {
       setSubmitting(false);
     }

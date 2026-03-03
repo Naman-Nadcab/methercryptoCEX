@@ -14,6 +14,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { useAdminAuthStore } from '@/store/admin-auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 import {
   SectionHeader,
   MetricWidget,
@@ -39,7 +40,7 @@ export default function AdminDashboard() {
   const fetchStats = async () => {
     if (!accessToken) return;
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+      const apiUrl = getApiBaseUrl();
       const [statsRes, haltRes] = await Promise.all([
         fetch(`${apiUrl}/api/v1/admin/dashboard/stats`, {
           headers: { Authorization: `Bearer ${accessToken}` },

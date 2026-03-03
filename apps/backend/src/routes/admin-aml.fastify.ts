@@ -8,7 +8,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db } from '../lib/database.js';
 import { config } from '../config/index.js';
 import { logger } from '../lib/logger.js';
-import { getAdminFromRequest } from './admin.fastify.js';
+import { getAdminFromRequest, getAdminWithPermission } from './admin.fastify.js';
 import {
   listAlerts,
   updateAlertStatus,
@@ -22,11 +22,31 @@ import {
 
 export default async function adminAmlRoutes(app: FastifyInstance): Promise<void> {
   /**
+   * GET /admin/aml/config
+   * Returns current AML rule thresholds (read-only; values come from env/config).
+   */
+  app.get('/aml/config', async (request: FastifyRequest, reply: FastifyReply) => {
+    const admin = await getAdminWithPermission(app, request, reply, 'aml:view');
+    if (!admin) return;
+    const cfg = config.aml;
+    return reply.send({
+      success: true,
+      data: {
+        largeFiatInrThreshold: cfg.largeFiatInrThreshold,
+        largeCryptoWithdrawalThreshold: cfg.largeCryptoWithdrawalThreshold,
+        velocityWithdrawalCount: cfg.velocityWithdrawalCount,
+        velocityWindowHours: cfg.velocityWindowHours,
+        highRiskCountries: cfg.highRiskCountries,
+      },
+    });
+  });
+
+  /**
    * GET /admin/aml/dashboard
    * Returns aggregated counts and totals for the AML dashboard.
    */
   app.get('/aml/dashboard', async (request: FastifyRequest, reply: FastifyReply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
+    const admin = await getAdminWithPermission(app, request, reply, 'aml:view');
     if (!admin) return;
 
     try {
@@ -112,7 +132,7 @@ export default async function adminAmlRoutes(app: FastifyInstance): Promise<void
   app.get<{
     Querystring: { status?: string; severity?: string; userId?: string; limit?: string; offset?: string };
   }>('/aml/alerts', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
+    const admin = await getAdminWithPermission(app, request, reply, 'aml:view');
     if (!admin) return;
 
     try {
@@ -145,7 +165,7 @@ export default async function adminAmlRoutes(app: FastifyInstance): Promise<void
   // GET /admin/aml/alerts/:id — full alert details (Step 7B)
   // -------------------------------------------------------------------------
   app.get<{ Params: { id: string } }>('/aml/alerts/:id', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
+    const admin = await getAdminWithPermission(app, request, reply, 'aml:view');
     if (!admin) return;
 
     try {
@@ -188,7 +208,7 @@ export default async function adminAmlRoutes(app: FastifyInstance): Promise<void
     Params: { id: string };
     Body: { status: string; note?: string };
   }>('/aml/alerts/:id/status', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
+    const admin = await getAdminWithPermission(app, request, reply, 'aml:view');
     if (!admin) return;
 
     const status = request.body?.status;
@@ -233,7 +253,7 @@ export default async function adminAmlRoutes(app: FastifyInstance): Promise<void
   // POST /admin/aml/alerts/:id/escalate — escalate alert to STR (Step 7B)
   // -------------------------------------------------------------------------
   app.post<{ Params: { id: string } }>('/aml/alerts/:id/escalate', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
+    const admin = await getAdminWithPermission(app, request, reply, 'aml:escalate');
     if (!admin) return;
 
     try {
@@ -269,7 +289,7 @@ export default async function adminAmlRoutes(app: FastifyInstance): Promise<void
   app.get<{
     Querystring: { reportType?: string; status?: string; limit?: string; offset?: string };
   }>('/aml/reports', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
+    const admin = await getAdminWithPermission(app, request, reply, 'aml:view');
     if (!admin) return;
 
     try {
@@ -335,7 +355,7 @@ export default async function adminAmlRoutes(app: FastifyInstance): Promise<void
   // GET /admin/aml/reports/:id — full report details including payload (Step 7C)
   // -------------------------------------------------------------------------
   app.get<{ Params: { id: string } }>('/aml/reports/:id', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
+    const admin = await getAdminWithPermission(app, request, reply, 'aml:view');
     if (!admin) return;
 
     try {
@@ -377,7 +397,7 @@ export default async function adminAmlRoutes(app: FastifyInstance): Promise<void
   // POST /admin/aml/reports/:id/submit — mark as submitted (Step 7C). Allowed only if status = 'pending'.
   // -------------------------------------------------------------------------
   app.post<{ Params: { id: string } }>('/aml/reports/:id/submit', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
+    const admin = await getAdminWithPermission(app, request, reply, 'aml:view');
     if (!admin) return;
 
     try {
@@ -418,7 +438,7 @@ export default async function adminAmlRoutes(app: FastifyInstance): Promise<void
   // POST /admin/aml/reports/:id/acknowledge — mark as acknowledged (Step 7C). Allowed only if status = 'submitted'.
   // -------------------------------------------------------------------------
   app.post<{ Params: { id: string } }>('/aml/reports/:id/acknowledge', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
+    const admin = await getAdminWithPermission(app, request, reply, 'aml:view');
     if (!admin) return;
 
     try {

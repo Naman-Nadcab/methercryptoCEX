@@ -4,8 +4,39 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { useReferencePrice } from '@/hooks/useReferencePrice';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { BarChart3 } from 'lucide-react';
 
 type Market = { id: string; symbol: string; base_asset: string; quote_asset: string };
+
+function MarketsTableSkeleton() {
+  return (
+    <table className="w-full text-sm">
+      <thead>
+        <tr className="border-b border-white/10 text-left text-xs text-gray-500 uppercase tracking-wider">
+          <th className="py-3 px-3 font-medium">Pair</th>
+          <th className="py-3 px-3 font-medium text-right">Last Price</th>
+          <th className="py-3 px-3 font-medium text-right">24h Change</th>
+          <th className="py-3 px-3 font-medium text-right">24h High</th>
+          <th className="py-3 px-3 font-medium text-right">24h Low</th>
+          <th className="py-3 px-3 font-medium text-right">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {Array.from({ length: 8 }).map((_, i) => (
+          <tr key={i} className="border-b border-white/5">
+            <td className="py-2.5 px-3"><span className="h-4 w-20 bg-white/10 rounded block animate-pulse" /></td>
+            <td className="py-2.5 px-3 text-right"><span className="h-4 w-16 bg-white/10 rounded block animate-pulse ml-auto" /></td>
+            <td className="py-2.5 px-3 text-right"><span className="h-4 w-12 bg-white/10 rounded block animate-pulse ml-auto" /></td>
+            <td className="py-2.5 px-3 text-right"><span className="h-4 w-16 bg-white/10 rounded block animate-pulse ml-auto" /></td>
+            <td className="py-2.5 px-3 text-right"><span className="h-4 w-16 bg-white/10 rounded block animate-pulse ml-auto" /></td>
+            <td className="py-2.5 px-3 text-right"><span className="h-4 w-12 bg-white/10 rounded block animate-pulse ml-auto" /></td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
 
 export default function MarketsPage() {
   const [markets, setMarkets] = useState<Market[]>([]);
@@ -42,11 +73,21 @@ export default function MarketsPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="h-9 px-3 w-48 bg-white/5 border border-white/10 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-white/20"
+            aria-label="Search trading pairs"
           />
         </div>
         <div className="border border-white/10 rounded overflow-hidden">
           {loading ? (
-            <div className="py-12 text-center text-gray-500 text-sm">Loading…</div>
+            <MarketsTableSkeleton />
+          ) : filtered.length === 0 ? (
+            <div className="py-12">
+              <EmptyState
+                icon={BarChart3}
+                title="No markets found"
+                description={search.trim() ? 'Try a different search term.' : 'No trading markets are available yet.'}
+                action={search.trim() ? undefined : { label: 'Go to Spot', href: '/dashboard/spot' }}
+              />
+            </div>
           ) : (
             <table className="w-full text-sm">
               <thead>
@@ -63,11 +104,6 @@ export default function MarketsPage() {
                 {filtered.map((m) => (
                   <MarketsRow key={m.id} market={m} />
                 ))}
-                {filtered.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="py-8 text-center text-gray-500">No markets</td>
-                  </tr>
-                )}
               </tbody>
             </table>
           )}
@@ -97,6 +133,7 @@ function MarketsRow({ market }: { market: Market }) {
         <Link
           href={`/dashboard/spot?symbol=${encodeURIComponent(market.symbol)}`}
           className="text-blue-400 hover:text-blue-300 text-xs font-medium"
+          aria-label={`Trade ${market.symbol.replace('_', '/')}`}
         >
           Trade
         </Link>

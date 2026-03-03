@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAdminAuthStore } from '@/store/admin-auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { SectionHeader, Panel, ActionButton } from '@/components/admin/control-plane';
 import { Loader2, RefreshCw, Save, AlertTriangle, RotateCcw, Settings } from 'lucide-react';
 import Link from 'next/link';
@@ -15,7 +16,7 @@ import {
   type VipFeeRow,
 } from './settings-meta';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const API_URL = getApiBaseUrl();
 
 function Toggle({
   checked,

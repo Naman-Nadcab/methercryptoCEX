@@ -4,8 +4,10 @@ import jwt from 'jsonwebtoken';
 import { URL } from 'url';
 import { config } from '../config/index.js';
 import { redis } from '../lib/redis.js';
+import { isSessionValid } from '../services/session.service.js';
 import { logger, securityLog } from '../lib/logger.js';
 import { UserRole } from '../types/index.js';
+/** @deprecated matching-engine.service is legacy; Fastify uses spot-ws.service */
 import { matchingEngine } from '../services/matching-engine.service.js';
 
 interface WSClient extends WebSocket {
@@ -119,13 +121,9 @@ class WebSocketManager {
 
       const payload = jwt.verify(token, config.jwt.secret) as TokenPayload;
 
-      // Verify session
-      const sessionKey = `session:${payload.sessionId}`;
-      const sessionData = await redis.getJson<{ userId: string; isActive: boolean }>(sessionKey);
-      
-      if (!sessionData || !sessionData.isActive) {
-        return false;
-      }
+      // Verify session (Redis + DB fallback; rejects revoked sessions)
+      const valid = await isSessionValid(payload.sessionId);
+      if (!valid) return false;
 
       client.userId = payload.userId;
 

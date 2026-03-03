@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/store/auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { ChevronDown, ChevronUp, Loader2, Info, Settings, Bell, Mail, Globe, DollarSign, TrendingUp, Wallet, MessageCircle, Check } from 'lucide-react';
 import { notifyError } from '@/lib/notifyError';
 
@@ -82,7 +83,7 @@ const priceChangeOptions = [
 
 export default function PreferencesPage() {
   const { accessToken } = useAuthStore();
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const apiUrl = getApiBaseUrl();
 
   const [activeTab, setActiveTab] = useState<'general' | 'notification' | 'email'>('general');
   const [loading, setLoading] = useState(true);

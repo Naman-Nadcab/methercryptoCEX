@@ -9,12 +9,7 @@ import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { getMessageFromApiError } from '@/lib/errorMessages';
 
 type Market = { symbol: string; base_asset: string; quote_asset: string };
-type Order = { id: string; market: string; side: string; type: string; price: string | null; quantity: string; filled_quantity: string; status: string; created_at: string };
-
-const MARKETS_STATIC: Market[] = [
-  { symbol: 'BTC_USDT', base_asset: 'BTC', quote_asset: 'USDT' },
-  { symbol: 'ETH_USDT', base_asset: 'ETH', quote_asset: 'USDT' },
-];
+type Order = { id: string; market: string; side: string; type: string; price: string | null; stop_price?: string | null; quantity: string; filled_quantity: string; status: string; created_at: string };
 
 function generateClientOrderId(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -27,10 +22,13 @@ function generateClientOrderId(): string {
 export default function SpotTradePage() {
   const queryClient = useQueryClient();
   const { accessToken } = useAuthStore();
-  const [market, setMarket] = useState<string>(MARKETS_STATIC[0]?.symbol ?? '');
+  const [markets, setMarkets] = useState<Market[]>([]);
+  const [marketsLoading, setMarketsLoading] = useState(true);
+  const [market, setMarket] = useState<string>('');
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
-  const [orderType, setOrderType] = useState<'limit' | 'market'>('limit');
+  const [orderType, setOrderType] = useState<'limit' | 'market' | 'stop_loss' | 'stop_limit'>('limit');
   const [price, setPrice] = useState('');
+  const [stopPrice, setStopPrice] = useState('');
   const [quantity, setQuantity] = useState('');
   const [clientOrderId, setClientOrderId] = useState(() => generateClientOrderId());
   const [submitting, setSubmitting] = useState(false);
@@ -101,6 +99,21 @@ export default function SpotTradePage() {
   }, [fetchOpenOrders]);
 
   useEffect(() => {
+    const url = getApiBaseUrl();
+    if (!url) return;
+    fetch(`${url}/api/v1/spot/markets`)
+      .then((r) => r.json())
+      .then((json: { success?: boolean; data?: Market[] }) => {
+        if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+          setMarkets(json.data);
+          setMarket((m) => (m && json.data!.some((x) => x.symbol === m) ? m : json.data![0].symbol));
+        }
+      })
+      .catch(() => {})
+      .finally(() => setMarketsLoading(false));
+  }, []);
+
+  useEffect(() => {
     if (ordersTab === 'history') fetchHistoryOrders(null, false);
   }, [ordersTab, fetchHistoryOrders]);
 
@@ -118,7 +131,8 @@ export default function SpotTradePage() {
     submitInFlightRef.current = true;
     setSubmitResult(null);
     const qty = parseFloat(quantity);
-    const pr = orderType === 'limit' ? parseFloat(price) : undefined;
+    const pr = (orderType === 'limit' || orderType === 'stop_limit') ? parseFloat(price) : undefined;
+    const stopPr = (orderType === 'stop_loss' || orderType === 'stop_limit') ? parseFloat(stopPrice) : undefined;
     if (!Number.isFinite(qty) || qty <= 0) {
       setSubmitResult({ success: false, message: 'Enter a quantity greater than 0.' });
       submitInFlightRef.current = false;
@@ -126,6 +140,16 @@ export default function SpotTradePage() {
     }
     if (orderType === 'limit' && (pr == null || !Number.isFinite(pr) || pr <= 0)) {
       setSubmitResult({ success: false, message: 'Enter a price for limit orders.' });
+      submitInFlightRef.current = false;
+      return;
+    }
+    if ((orderType === 'stop_loss' || orderType === 'stop_limit') && (stopPr == null || !Number.isFinite(stopPr) || stopPr <= 0)) {
+      setSubmitResult({ success: false, message: 'Enter a trigger price for stop orders.' });
+      submitInFlightRef.current = false;
+      return;
+    }
+    if (orderType === 'stop_limit' && (pr == null || !Number.isFinite(pr) || pr <= 0)) {
+      setSubmitResult({ success: false, message: 'Enter a limit price for stop-limit orders.' });
       submitInFlightRef.current = false;
       return;
     }
@@ -138,17 +162,20 @@ export default function SpotTradePage() {
         quantity: quantity.trim(),
         client_order_id: clientOrderId,
       };
-      if (orderType === 'limit' && price.trim()) body.price = price.trim();
-      const res = await fetch(`${getApiBaseUrl()}/api/v1/spot/orders`, {
+      if ((orderType === 'limit' || orderType === 'stop_limit') && price.trim()) body.price = price.trim();
+      if ((orderType === 'stop_loss' || orderType === 'stop_limit') && stopPrice.trim()) body.stop_price = stopPrice.trim();
+      const res = await fetch(`${getApiBaseUrl()}/api/v1/spot/order`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify(body),
       });
       const json = await res.json().catch(() => ({}));
       if (res.ok && json.success) {
-        setSubmitResult({ success: true, message: 'Order placed (OPEN). Funds are locked.' });
+        const isStop = orderType === 'stop_loss' || orderType === 'stop_limit';
+        setSubmitResult({ success: true, message: isStop ? 'Order placed (Pending Trigger). Funds are locked.' : 'Order placed (OPEN). Funds are locked.' });
         setQuantity('');
         setPrice('');
+        setStopPrice('');
         setClientOrderId(generateClientOrderId());
         queryClient.invalidateQueries({ queryKey: ['balances'] });
         fetchOpenOrders();
@@ -166,7 +193,9 @@ export default function SpotTradePage() {
     }
   };
 
-  const selectedMarket = MARKETS_STATIC.find((m) => m.symbol === market);
+  const selectedMarket = markets.find((m) => m.symbol === market);
+  const showPrice = orderType === 'limit' || orderType === 'stop_limit';
+  const showStopPrice = orderType === 'stop_loss' || orderType === 'stop_limit';
 
   const handleCancel = async (orderId: string) => {
     if (!accessToken || cancellingOrderId) return;
@@ -203,9 +232,9 @@ export default function SpotTradePage() {
         </Link>
       </div>
 
-      <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-sm">
+      <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-500/10 border border-blue-500/30 text-blue-700 dark:text-blue-300 text-sm">
         <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
-        <span>Locked funds are reserved for open orders and shown in Spot Wallet. No matching or fills in this flow.</span>
+        <span>Limit orders match when price is reached. Stop orders trigger when market hits trigger price. Funds are locked until filled or cancelled.</span>
       </div>
 
       <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-6 space-y-4 transition-all duration-200 ease-out hover:bg-gray-50/80 dark:hover:bg-white/[0.07] dark:hover:border-white/20">
@@ -214,9 +243,11 @@ export default function SpotTradePage() {
           <select
             value={market}
             onChange={(e) => setMarket(e.target.value)}
-            className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white"
+            disabled={marketsLoading}
+            className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white disabled:opacity-50"
           >
-            {MARKETS_STATIC.map((m) => (
+            {markets.length === 0 && <option value="">{marketsLoading ? 'Loading…' : 'No markets'}</option>}
+            {markets.map((m) => (
               <option key={m.symbol} value={m.symbol}>{m.symbol}</option>
             ))}
           </select>
@@ -231,7 +262,7 @@ export default function SpotTradePage() {
             <span className={side === 'sell' ? 'text-red-600 dark:text-red-400 font-medium' : 'text-gray-600 dark:text-gray-400'}>Sell</span>
           </label>
         </div>
-        <div className="flex gap-4">
+        <div className="flex flex-wrap gap-4">
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="radio" name="type" checked={orderType === 'limit'} onChange={() => setOrderType('limit')} className="rounded-full" />
             <span className="text-gray-700 dark:text-gray-300">Limit</span>
@@ -240,20 +271,43 @@ export default function SpotTradePage() {
             <input type="radio" name="type" checked={orderType === 'market'} onChange={() => setOrderType('market')} className="rounded-full" />
             <span className="text-gray-700 dark:text-gray-300">Market</span>
           </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="type" checked={orderType === 'stop_loss'} onChange={() => setOrderType('stop_loss')} className="rounded-full" />
+            <span className="text-gray-700 dark:text-gray-300">Stop</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="radio" name="type" checked={orderType === 'stop_limit'} onChange={() => setOrderType('stop_limit')} className="rounded-full" />
+            <span className="text-gray-700 dark:text-gray-300">Stop Limit</span>
+          </label>
         </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Price ({selectedMarket?.quote_asset ?? ''})</label>
-          <input
-            type="number"
-            step="any"
-            min="0"
-            value={price}
-            onChange={(e) => setPrice(e.target.value)}
-            disabled={orderType === 'market'}
-            placeholder={orderType === 'market' ? 'Market price' : '0'}
-            className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed"
-          />
-        </div>
+        {showStopPrice && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Trigger price ({selectedMarket?.quote_asset ?? ''})</label>
+            <input
+              type="number"
+              step="any"
+              min="0"
+              value={stopPrice}
+              onChange={(e) => setStopPrice(e.target.value)}
+              placeholder="0"
+              className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white"
+            />
+          </div>
+        )}
+        {showPrice && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Price ({selectedMarket?.quote_asset ?? ''})</label>
+            <input
+              type="number"
+              step="any"
+              min="0"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              placeholder={orderType === 'stop_limit' ? 'Limit price' : '0'}
+              className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white"
+            />
+          </div>
+        )}
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Quantity ({selectedMarket?.base_asset ?? ''})</label>
           <input
@@ -277,7 +331,14 @@ export default function SpotTradePage() {
         )}
         <button
           type="submit"
-          disabled={submitting || (orderType === 'limit' && (!price.trim() || parseFloat(price) <= 0)) || !quantity.trim()}
+          disabled={
+            submitting ||
+            !market ||
+            !quantity.trim() ||
+            (orderType === 'limit' && (!price.trim() || parseFloat(price) <= 0)) ||
+            (orderType === 'stop_loss' && (!stopPrice.trim() || parseFloat(stopPrice) <= 0)) ||
+            (orderType === 'stop_limit' && ((!stopPrice.trim() || parseFloat(stopPrice) <= 0) || (!price.trim() || parseFloat(price) <= 0)))
+          }
           aria-busy={submitting}
           className="w-full py-2.5 rounded-lg font-medium bg-blue-500 text-white hover:bg-blue-600 hover:brightness-110 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 min-w-[120px] transition-transform duration-75 active:scale-[0.97] active:brightness-110"
         >
@@ -330,38 +391,44 @@ export default function SpotTradePage() {
                     <th className="p-3 font-medium">Market</th>
                     <th className="p-3 font-medium">Side</th>
                     <th className="p-3 font-medium">Price</th>
+                    <th className="p-3 font-medium">Trigger</th>
                     <th className="p-3 font-medium">Quantity</th>
                     <th className="p-3 font-medium">Status</th>
                     <th className="p-3 font-medium">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {orders.map((o) => (
-                    <tr key={o.id} className="border-b border-gray-100 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-white/[0.06] transition-colors duration-150">
-                      <td className="p-3 font-medium text-gray-900 dark:text-white tabular-nums tracking-tight">{o.market}</td>
-                      <td className="p-3">
-                        <span className={`tabular-nums tracking-tight ${o.side === 'buy' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{o.side}</span>
-                      </td>
-                      <td className="p-3 tabular-nums tracking-tight text-gray-700 dark:text-gray-300">{o.price ?? '—'}</td>
-                      <td className="p-3 tabular-nums tracking-tight text-gray-700 dark:text-gray-300">{o.quantity}</td>
-                      <td className="p-3">
-                        <span className="px-2 py-0.5 rounded text-xs bg-blue-500/20 text-blue-600 dark:text-blue-400">{o.status}</span>
-                      </td>
-                      <td className="p-3">
-                        {o.status === 'OPEN' && (
-                          <button
-                            type="button"
-                            disabled={cancellingOrderId !== null}
-                            onClick={() => handleCancel(o.id)}
-                            className="text-red-500 dark:text-red-400 hover:underline disabled:opacity-60 disabled:cursor-not-allowed text-sm flex items-center gap-1 transition-transform duration-75 active:scale-[0.97]"
-                          >
-                            {cancellingOrderId === o.id ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-                            {cancellingOrderId === o.id ? 'Cancelling…' : 'Cancel'}
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                  {orders.map((o) => {
+                    const canCancel = ['OPEN', 'PARTIALLY_FILLED', 'PENDING_TRIGGER'].includes(o.status);
+                    const displayStatus = o.status === 'PENDING_TRIGGER' ? 'Pending Trigger' : o.status;
+                    return (
+                      <tr key={o.id} className="border-b border-gray-100 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-white/[0.06] transition-colors duration-150">
+                        <td className="p-3 font-medium text-gray-900 dark:text-white tabular-nums tracking-tight">{o.market}</td>
+                        <td className="p-3">
+                          <span className={`tabular-nums tracking-tight ${o.side === 'buy' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{o.side}</span>
+                        </td>
+                        <td className="p-3 tabular-nums tracking-tight text-gray-700 dark:text-gray-300">{o.price ?? '—'}</td>
+                        <td className="p-3 tabular-nums tracking-tight text-gray-700 dark:text-gray-300">{o.stop_price ?? '—'}</td>
+                        <td className="p-3 tabular-nums tracking-tight text-gray-700 dark:text-gray-300">{o.quantity}</td>
+                        <td className="p-3">
+                          <span className="px-2 py-0.5 rounded text-xs bg-blue-500/20 text-blue-600 dark:text-blue-400">{displayStatus}</span>
+                        </td>
+                        <td className="p-3">
+                          {canCancel && (
+                            <button
+                              type="button"
+                              disabled={cancellingOrderId !== null}
+                              onClick={() => handleCancel(o.id)}
+                              className="text-red-500 dark:text-red-400 hover:underline disabled:opacity-60 disabled:cursor-not-allowed text-sm flex items-center gap-1 transition-transform duration-75 active:scale-[0.97]"
+                            >
+                              {cancellingOrderId === o.id ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                              {cancellingOrderId === o.id ? 'Cancelling…' : 'Cancel'}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}

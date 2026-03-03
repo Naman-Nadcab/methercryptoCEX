@@ -3,6 +3,7 @@ import { FastifyInstance } from 'fastify';
 import { db } from '../lib/database.js';
 import { logger } from '../lib/logger.js';
 import { getAllActiveCooldowns } from '../services/security-cooldown.service.js';
+import { getFeeTierDisplay } from '../services/volume-fee-tier.service.js';
 
 export default async function userRoutes(app: FastifyInstance) {
   
@@ -360,6 +361,26 @@ export default async function userRoutes(app: FastifyInstance) {
       return reply.status(500).send({
         success: false,
         error: { code: 'UPDATE_FAILED', message: 'Failed to mark all as read' },
+      });
+    }
+  });
+
+  /**
+   * GET /user/fee-tier
+   * Current spot fee tier, 30d volume, and next tier threshold for UI (progress to next tier).
+   */
+  app.get('/fee-tier', {
+    preHandler: [app.authenticate],
+  }, async (request, reply) => {
+    try {
+      const { id: userId } = request.user!;
+      const data = await getFeeTierDisplay(userId);
+      return reply.send({ success: true, data });
+    } catch (error) {
+      logger.error('Fee tier fetch error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'FETCH_FAILED', message: 'Failed to fetch fee tier' },
       });
     }
   });

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useAdminAuthStore } from '@/store/admin-auth';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 import {
   SectionHeader,
   Panel,
@@ -17,7 +18,7 @@ import {
 import { ReasonCaptureModal } from '@/components/admin/ReasonCaptureModal';
 import { Loader2, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const API_URL = getApiBaseUrl();
 
 interface KycApplication {
   id: string;

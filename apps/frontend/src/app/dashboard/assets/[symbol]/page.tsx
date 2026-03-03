@@ -6,7 +6,8 @@ import Link from 'next/link';
 import { useAuthStore } from '@/store/auth';
 import { useBalancesFunding } from '@/lib/balances';
 import { api } from '@/lib/api';
-import { ArrowLeft, Download, Upload, FileText } from 'lucide-react';
+import { ArrowLeft, Download, Upload, FileText, HelpCircle } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/Tooltip';
 
 /** Tolerant symbol resolver: backend may use symbol / asset / currency / coin / token_symbol */
 function resolveRowSymbol(row: Record<string, unknown>): string {
@@ -192,12 +193,26 @@ export default function AssetSymbolPage() {
             <p className="text-xs text-gray-400 dark:text-white/40">{normalizedSymbol}</p>
           </div>
           <div className="flex-1 py-2 sm:py-0 sm:px-4">
-            <p className="text-xs text-gray-500 dark:text-white/50 uppercase tracking-wide">Available balance</p>
+            <p className="text-xs text-gray-500 dark:text-white/50 uppercase tracking-wide inline-flex items-center gap-1">Available balance
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild><HelpCircle className="w-3.5 h-3.5 text-gray-400 cursor-help" /></TooltipTrigger>
+                  <TooltipContent>Amount you can use for trading, transfers, and withdrawals.</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </p>
             <p className="mt-1 text-xl font-semibold text-gray-900 dark:text-white"><span className="tabular-nums tracking-tight transition-all duration-300">{available}</span></p>
             <p className="text-xs text-gray-400 dark:text-white/40">{normalizedSymbol}</p>
           </div>
           <div className="flex-1 py-2 sm:py-0 sm:px-4">
-            <p className="text-xs text-gray-500 dark:text-white/50 uppercase tracking-wide">Locked</p>
+            <p className="text-xs text-gray-500 dark:text-white/50 uppercase tracking-wide inline-flex items-center gap-1">Locked
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild><HelpCircle className="w-3.5 h-3.5 text-gray-400 cursor-help" /></TooltipTrigger>
+                  <TooltipContent>Locked balance is reserved for open orders. Released when orders fill or are cancelled.</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </p>
             <p className="mt-1 text-xl font-semibold text-gray-900 dark:text-white"><span className="tabular-nums tracking-tight transition-all duration-300">{locked}</span></p>
             <p className="text-xs text-gray-400 dark:text-white/40">{normalizedSymbol}</p>
           </div>

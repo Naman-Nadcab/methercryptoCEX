@@ -14,8 +14,9 @@ import {
   StatusBadge,
 } from '@/components/admin/control-plane';
 import { Loader2 } from 'lucide-react';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+const API_URL = getApiBaseUrl();
 
 interface AdminRow {
   id: string;

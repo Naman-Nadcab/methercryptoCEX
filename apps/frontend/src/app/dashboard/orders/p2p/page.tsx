@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { fetchMyOrders, type P2POrderRow } from '@/lib/p2pApi';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ShoppingCart } from 'lucide-react';
+import { EmptyState } from '@/components/ui/EmptyState';
 
 export default function P2POrdersViewPage() {
   const [orders, setOrders] = useState<P2POrderRow[]>([]);
@@ -37,7 +38,12 @@ export default function P2POrdersViewPage() {
             <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
           </div>
         ) : orders.length === 0 ? (
-          <div className="py-12 text-center text-gray-500 dark:text-gray-400 text-sm">No P2P orders.</div>
+          <EmptyState
+            icon={ShoppingCart}
+            title="No P2P orders yet"
+            description="Buy or sell crypto with other users. Start a trade to see your orders here."
+            action={{ label: 'Start P2P trade', href: '/dashboard/p2p' }}
+          />
         ) : (
           <table className="w-full text-sm">
             <thead>

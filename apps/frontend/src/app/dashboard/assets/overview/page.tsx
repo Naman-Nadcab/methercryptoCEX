@@ -23,7 +23,9 @@ import {
   ArrowRight,
   FileText,
   ChevronDown,
+  HelpCircle,
 } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/Tooltip';
 interface AccountBalance {
   type: string;
   totalUsd: number;
@@ -326,6 +328,7 @@ export default function AssetsOverviewPage() {
             {/* Account-centric: Funding Account + Spot / Trading Account rows only */}
             <div>
               <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">Where are my funds stored?</h3>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">Funding holds deposits and P2P payouts. Trading holds spot order collateral.</p>
               <div className="space-y-4">
                 <div className="bg-white dark:bg-[#1e2329] rounded-lg p-5 border border-gray-200 dark:border-gray-700 transition-colors">
                   <div className="flex items-center justify-between">
@@ -367,7 +370,10 @@ export default function AssetsOverviewPage() {
                       <div className="w-10 h-10 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
                         <Wallet className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                       </div>
-                      <span className="font-semibold text-gray-900 dark:text-white">Spot / Trading Account</span>
+                      <div>
+                        <span className="font-semibold text-gray-900 dark:text-white">Spot / Trading Account</span>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Used for spot trading orders</p>
+                      </div>
                     </div>
                     <div className="flex items-center gap-4">
                       <div className="text-right">
@@ -482,8 +488,26 @@ export default function AssetsOverviewPage() {
                       <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
                         <th className="py-3 px-4 font-medium uppercase tracking-wide">Coin</th>
                         <th className="py-3 px-4 font-medium uppercase tracking-wide">Total</th>
-                        <th className="py-3 px-4 font-medium uppercase tracking-wide">Available</th>
-                        <th className="py-3 px-4 font-medium uppercase tracking-wide">Locked</th>
+                        <th className="py-3 px-4 font-medium uppercase tracking-wide">
+                          <span className="inline-flex items-center gap-1">Available
+                            <TooltipProvider delayDuration={200}>
+                              <Tooltip>
+                                <TooltipTrigger asChild><HelpCircle className="w-3.5 h-3.5 text-gray-400 cursor-help" /></TooltipTrigger>
+                                <TooltipContent>Amount you can use for trading, transfers, and withdrawals.</TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </span>
+                        </th>
+                        <th className="py-3 px-4 font-medium uppercase tracking-wide">
+                          <span className="inline-flex items-center gap-1">Locked
+                            <TooltipProvider delayDuration={200}>
+                              <Tooltip>
+                                <TooltipTrigger asChild><HelpCircle className="w-3.5 h-3.5 text-gray-400 cursor-help" /></TooltipTrigger>
+                                <TooltipContent>Reserved for open orders. Released when orders fill or are cancelled.</TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </span>
+                        </th>
                         <th className="py-3 px-4 font-medium uppercase tracking-wide">Value</th>
                       </tr>
                     </thead>

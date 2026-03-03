@@ -12,6 +12,7 @@ interface PairHeaderProps {
   volume24h?: string | null;
   markets?: Market[];
   onSymbolChange?: (symbol: string) => void;
+  wsConnected?: boolean;
 }
 
 export function PairHeader({
@@ -24,6 +25,7 @@ export function PairHeader({
   volume24h,
   markets,
   onSymbolChange,
+  wsConnected,
 }: PairHeaderProps) {
   const sym = symbol ?? 'BTC_USDT';
   const base = baseAsset ?? 'BTC';
@@ -51,6 +53,12 @@ export function PairHeader({
           <span className="text-lg font-semibold text-white">{pairLabel}</span>
         )}
         <span className="text-xs text-gray-500">Spot</span>
+        {wsConnected !== undefined && (
+          <span className="flex items-center gap-1.5 text-[10px] text-gray-500" title={wsConnected ? 'Live data' : 'Disconnected'}>
+            <span className={`w-1.5 h-1.5 rounded-full ${wsConnected ? 'bg-green-500' : 'bg-amber-500'}`} aria-hidden />
+            {wsConnected ? 'Live' : 'Disconnected'}
+          </span>
+        )}
       </div>
       <div className="flex items-center gap-4 text-sm text-gray-400">
         <span>Price {lastPrice ?? '—'}</span>

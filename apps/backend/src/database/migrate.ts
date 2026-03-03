@@ -50,6 +50,7 @@ const migrations = [
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by UUID REFERENCES users(id);`,
   `CREATE INDEX IF NOT EXISTS idx_users_referred_by ON users(referred_by);`,
   `CREATE INDEX IF NOT EXISTS idx_users_status ON users(status) WHERE deleted_at IS NULL;`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS status_reason TEXT;`,
 
   `DROP TRIGGER IF EXISTS update_users_updated_at ON users;
    CREATE TRIGGER update_users_updated_at
@@ -683,6 +684,40 @@ const migrations = [
   // Phase-4: maker/taker fee per market
   `ALTER TABLE spot_markets ADD COLUMN IF NOT EXISTS maker_fee DECIMAL(10,6) NOT NULL DEFAULT 0.001;`,
   `ALTER TABLE spot_markets ADD COLUMN IF NOT EXISTS taker_fee DECIMAL(10,6) NOT NULL DEFAULT 0.001;`,
+
+  // Currencies table + seed for spot (BTC, ETH, USDT) so spot_markets INSERT works
+  `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'currency_type') THEN CREATE TYPE currency_type AS ENUM ('crypto', 'fiat', 'stablecoin'); END IF; END $$;`,
+  `DO $$
+  BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'currencies') THEN
+      CREATE TABLE currencies (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        symbol VARCHAR(20) NOT NULL,
+        name VARCHAR(100),
+        currency_type currency_type DEFAULT 'crypto'::currency_type,
+        blockchain_id UUID,
+        contract_address VARCHAR(100),
+        decimals INT DEFAULT 18,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    END IF;
+  END $$;`,
+  `CREATE INDEX IF NOT EXISTS idx_currencies_symbol ON currencies(symbol);`,
+  `CREATE INDEX IF NOT EXISTS idx_currencies_symbol ON currencies(symbol);`,
+  `DO $$
+  BEGIN
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'BTC' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('BTC', 'Bitcoin', 'crypto'::currency_type, 8);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'ETH' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('ETH', 'Ethereum', 'crypto'::currency_type, 18);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'USDT' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('USDT', 'Tether USD', 'crypto'::currency_type, 6);
+    END IF;
+  EXCEPTION WHEN OTHERS THEN NULL;
+  END $$;`,
 
   `DO $$
   BEGIN
@@ -1328,6 +1363,10 @@ const migrations = [
    BEFORE UPDATE ON api_settings
    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();`,
 
+  // Seed api_settings for SMS OTP (admin fills api_key/api_secret and sets is_active = true)
+  `INSERT INTO api_settings (category, provider, name, is_active, is_default) VALUES ('sms', 'fast2sms', 'Fast2SMS', FALSE, TRUE) ON CONFLICT (category, provider) DO NOTHING;`,
+  `INSERT INTO api_settings (category, provider, name, is_active, is_default) VALUES ('sms', 'twilio', 'Twilio SMS', FALSE, FALSE) ON CONFLICT (category, provider) DO NOTHING;`,
+
   // ============================================
   // FEATURE TOGGLES TABLE
   // ============================================
@@ -1375,6 +1414,8 @@ const migrations = [
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS anti_phishing_code VARCHAR(50);`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS withdrawal_whitelist_enabled BOOLEAN DEFAULT FALSE;`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS address_book_enabled BOOLEAN DEFAULT FALSE;`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(255);`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN DEFAULT FALSE;`,
 
   // ============================================
   // USER PASSKEYS TABLE
@@ -2182,6 +2223,71 @@ const migrations = [
     margin_ratio NUMERIC NOT NULL,
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
   );`,
+
+  // Stop loss / stop limit: spot_orders stop_price + PENDING_TRIGGER status (only when column is varchar, not enum)
+  `ALTER TABLE spot_orders ADD COLUMN IF NOT EXISTS stop_price DECIMAL(36,18);`,
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'spot_orders' AND column_name = 'type' AND udt_name = 'varchar') THEN
+      ALTER TABLE spot_orders DROP CONSTRAINT IF EXISTS spot_orders_type_check;
+      ALTER TABLE spot_orders ADD CONSTRAINT spot_orders_type_check CHECK (type IN ('market', 'limit', 'stop_loss', 'stop_limit'));
+    END IF;
+  EXCEPTION WHEN OTHERS THEN NULL;
+  END $$;`,
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'spot_orders' AND column_name = 'status' AND udt_name = 'varchar') THEN
+      ALTER TABLE spot_orders DROP CONSTRAINT IF EXISTS spot_orders_status_check;
+      ALTER TABLE spot_orders ADD CONSTRAINT spot_orders_status_check CHECK (status IN ('OPEN', 'PARTIALLY_FILLED', 'FILLED', 'CANCELLED', 'REJECTED', 'PENDING_TRIGGER'));
+    END IF;
+  EXCEPTION WHEN OTHERS THEN NULL;
+  END $$;`,
+
+  // Spot: time_in_force (GTC/IOC/FOK) for limit orders
+  `ALTER TABLE spot_orders ADD COLUMN IF NOT EXISTS time_in_force VARCHAR(3) NOT NULL DEFAULT 'gtc' CHECK (time_in_force IN ('gtc', 'ioc', 'fok'));`,
+
+  // P2P: block advertiser (user_id blocks advertiser_id)
+  `CREATE TABLE IF NOT EXISTS p2p_blocked_advertisers (
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    advertiser_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, advertiser_id),
+    CHECK (user_id != advertiser_id)
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_p2p_blocked_advertisers_user ON p2p_blocked_advertisers(user_id);`,
+
+  // P2P order chat (Binance-style in-order messages)
+  `CREATE TABLE IF NOT EXISTS p2p_order_messages (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    order_id UUID NOT NULL REFERENCES p2p_orders(id) ON DELETE CASCADE,
+    sender_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    message TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_p2p_order_messages_order_id ON p2p_order_messages(order_id);`,
+
+  // P4: trailing_stop_market, trailing_delta, trailing_best_price, oco_group_id
+  `ALTER TABLE spot_orders ADD COLUMN IF NOT EXISTS trailing_delta DECIMAL(36,18);`,
+  `ALTER TABLE spot_orders ADD COLUMN IF NOT EXISTS trailing_best_price DECIMAL(36,18);`,
+  `ALTER TABLE spot_orders ADD COLUMN IF NOT EXISTS oco_group_id UUID;`,
+  `CREATE INDEX IF NOT EXISTS idx_spot_orders_oco_group ON spot_orders(oco_group_id) WHERE oco_group_id IS NOT NULL;`,
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'spot_orders' AND column_name = 'type' AND udt_name = 'varchar') THEN
+      ALTER TABLE spot_orders DROP CONSTRAINT IF EXISTS spot_orders_type_check;
+      ALTER TABLE spot_orders ADD CONSTRAINT spot_orders_type_check CHECK (type IN ('market', 'limit', 'stop_loss', 'stop_limit', 'trailing_stop_market'));
+    END IF;
+  EXCEPTION WHEN OTHERS THEN NULL;
+  END $$;`,
+
+  // API key scopes: optional permissions (e.g. no_withdraw) for withdrawal enforcement
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_api_keys') THEN
+      ALTER TABLE user_api_keys ADD COLUMN IF NOT EXISTS permissions JSONB DEFAULT '{}';
+    END IF;
+  EXCEPTION WHEN OTHERS THEN NULL;
+  END $$;`,
 ];
 
 /** True if this migration SQL touches the legacy "balances" table (not user_balances). Run such steps via raw pool so runtime guard does not block. */

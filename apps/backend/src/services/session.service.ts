@@ -92,6 +92,34 @@ export async function createSession(params: CreateSessionParams): Promise<{
 }
 
 /**
+ * Validate that a session is active. Uses Redis first; falls back to DB when Redis
+ * returns null (e.g. after logout when key was deleted, or Redis restart).
+ * Rejects revoked sessions to prevent token replay after logout.
+ */
+export async function isSessionValid(sessionId: string): Promise<boolean> {
+  try {
+    const cached = await redis.getJson<{ isActive: boolean; expiresAt?: number }>(`session:${sessionId}`);
+    if (cached) {
+      if (!cached.isActive) return false;
+      if (cached.expiresAt != null && cached.expiresAt < Date.now()) return false;
+      return true;
+    }
+  } catch {
+    // Redis error: fall through to DB
+  }
+  // Redis miss (logout deleted key, or Redis restart): check DB as source of truth
+  const r = await db.query<{ is_active: boolean; expires_at: string }>(
+    `SELECT is_active, expires_at::text AS expires_at FROM user_sessions WHERE id = $1`,
+    [sessionId]
+  );
+  if (r.rows.length === 0) return false;
+  const row = r.rows[0]!;
+  if (!row.is_active) return false;
+  if (new Date(row.expires_at) < new Date()) return false;
+  return true;
+}
+
+/**
  * Revoke a single session by id (logout). Best-effort on Redis.
  */
 export async function revokeSession(sessionId: string): Promise<void> {

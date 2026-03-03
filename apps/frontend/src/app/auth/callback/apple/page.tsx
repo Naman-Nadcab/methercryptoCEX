@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
-import { handleAppleCallback } from '@/lib/oauth';
+import { handleAppleCallback, consumeOAuthRedirect } from '@/lib/oauth';
 import { useAuthStore } from '@/store/auth';
 
 export default function AppleCallbackPage() {
@@ -47,7 +47,8 @@ export default function AppleCallbackPage() {
           };
           setUser(userData);
           setTokens(result.data.accessToken, result.data.refreshToken);
-          router.push('/dashboard');
+          const redirect = consumeOAuthRedirect();
+          router.push(redirect || '/dashboard');
         } else {
           setError(result.error?.message || 'Apple login failed');
           setTimeout(() => router.push('/login'), 3000);

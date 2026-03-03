@@ -26,6 +26,7 @@ import {
   Banknote,
 } from 'lucide-react';
 import { StatusBadge } from '@/components/admin/control-plane';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 
 interface MenuItem {
   id: string;
@@ -93,6 +94,7 @@ const menuItems: MenuItem[] = [
       { label: 'Market Pairs', href: '/admin/trading/spot-markets' },
       { label: 'Order Monitoring', href: '/admin/trading/orders' },
       { label: 'Trade History', href: '/admin/trading/trade-history' },
+      { label: 'MM Risk Monitor', href: '/admin/monitoring/mm-risk' },
       { label: 'Circuit Breakers', href: '/admin/trading/circuit-breakers' },
       { label: 'Fee Controls', href: '/admin/trading/fees' },
       { label: 'Market Halt Controls', href: '/admin/trading/market-control' },
@@ -197,7 +199,7 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   // Defer non-critical badge fetches so admin shell paints immediately
   useEffect(() => {
     if (!accessToken) return;
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+    const apiUrl = getApiBaseUrl();
     const t = setTimeout(() => {
       fetch(`${apiUrl}/api/v1/admin/trading-halt`, { headers: { Authorization: `Bearer ${accessToken}` } })
         .then((r) => r.json())
@@ -209,7 +211,7 @@ export default function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
 
   useEffect(() => {
     if (!accessToken) return;
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+    const apiUrl = getApiBaseUrl();
     const t = setTimeout(() => {
       fetch(`${apiUrl}/api/v1/admin/withdrawals?limit=1`, {
         headers: { Authorization: `Bearer ${accessToken}` },

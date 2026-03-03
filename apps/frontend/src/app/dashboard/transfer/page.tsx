@@ -23,6 +23,7 @@ import {
   ArrowRight,
   RefreshCw,
 } from 'lucide-react';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 
 interface TransferHistory {
   id: string;
@@ -60,7 +61,7 @@ export default function TransferPage() {
   const [showCoinDropdown, setShowCoinDropdown] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const API_URL = getApiBaseUrl();
 
   const { data: tokensData = [], isLoading: loading } = useTransferBalances(fromAccount, !!_hasHydrated && !!accessToken);
   const tokens = tokensData;

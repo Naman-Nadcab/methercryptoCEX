@@ -40,15 +40,15 @@ const FOOTER_PRODUCTS = (spotHref: string) => [
 ];
 
 const FOOTER_SUPPORT = [
-  { label: 'Help Center', href: '#' },
-  { label: 'Fees', href: '#' },
+  { label: 'Help Center', href: '/dashboard/help' },
+  { label: 'Fees', href: '/dashboard/fee-rates' },
   { label: 'API', href: '/dashboard/api' },
 ];
 
 const FOOTER_LEGAL = [
   { label: 'Terms of Use', href: '/terms' },
   { label: 'Privacy Policy', href: '/privacy' },
-  { label: 'Risk Warning', href: '#' },
+  { label: 'Risk Warning', href: '/terms' },
 ];
 
 interface MarketPrice {
@@ -398,7 +398,7 @@ export default function HomePage() {
                 <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Legal</h4>
                 <ul className="space-y-2">
                   {FOOTER_LEGAL.map((link) => (
-                    <li key={link.href}>
+                    <li key={link.label}>
                       <Link href={link.href} className="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
                         {link.label}
                       </Link>

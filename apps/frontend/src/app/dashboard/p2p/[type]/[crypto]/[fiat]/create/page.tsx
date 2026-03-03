@@ -46,6 +46,7 @@ export default function P2PCreateAdPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitLoading) return;
     setError(null);
     const p = parseFloat(price);
     const q = parseFloat(quantity);

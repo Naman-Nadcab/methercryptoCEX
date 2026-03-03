@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useParams, usePathname } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   RefreshCw,
@@ -27,6 +27,7 @@ import {
   fetchMyPaymentMethods,
   createOrder,
   createAd,
+  blockAdvertiser,
   P2P_ADS_QUERY_KEY,
   P2P_ORDER_QUERY_KEY,
   P2P_PAYMENT_METHODS_QUERY_KEY,
@@ -59,7 +60,7 @@ const FAQ_ITEMS: Record<string, { q: string; a: string }[]> = {
     { q: 'How do I participate in P2P trading?', a: 'Complete identity verification, add a payment method, then choose an ad and place your order. Follow the instructions to complete the trade.' },
     { q: 'Are there any fees for P2P trading?', a: 'Methereum P2P has zero trading fees. You only pay the price set by the advertiser.' },
     { q: 'How long does P2P trading take?', a: 'Most orders complete within 15–30 minutes once payment is confirmed.' },
-    { q: 'Why is my order still pending?', a: 'The seller may be waiting for your payment, or you need to confirm payment in the order chat.' },
+    { q: 'Why is my order still pending?', a: 'The seller may be waiting for your payment, or you need to confirm payment in the order details page.' },
     { q: 'What is an escrow service?', a: 'We hold the crypto in escrow until you confirm payment. The seller then releases it to you.' },
     { q: 'How to appeal an order?', a: 'If you have a dispute, open a ticket from the order page. Our support team will review and resolve it.' },
   ],
@@ -83,6 +84,7 @@ const HELP_ITEMS = [
 // UI row shape for table (mapped from API)
 interface AdRow {
   id: string;
+  advertiserId?: string;
   advertiser: string;
   initial: string;
   completion: string;
@@ -108,6 +110,7 @@ function mapApiAdToRow(ad: P2PAdRow): AdRow {
     : typeof ad.accepted_payment_methods === 'string' ? ad.accepted_payment_methods : '';
   return {
     id: ad.id,
+    advertiserId: ad.user_id,
     advertiser: ad.username ?? '—',
     initial: (ad.username ?? '?').charAt(0).toUpperCase(),
     completion: `${completionNum.toFixed(2)}%`,
@@ -164,6 +167,8 @@ const DEFAULT_FILTERS: FilterState = {
 function P2PContent() {
   const router = useRouter();
   const params = useParams();
+  const pathname = usePathname();
+  const loginRedirect = pathname ? `/login?redirect=${encodeURIComponent(pathname)}` : '/login';
   const queryClient = useQueryClient();
   const { accessToken, _hasHydrated } = useAuthStore();
   const { data: balancesData } = useBalancesByAccount(!!_hasHydrated && !!accessToken);
@@ -194,6 +199,7 @@ function P2PContent() {
   const [createPaymentMethodId, setCreatePaymentMethodId] = useState('');
   const [createOrderLoading, setCreateOrderLoading] = useState(false);
   const [createOrderError, setCreateOrderError] = useState<string | null>(null);
+  const [blockingAdvertiserId, setBlockingAdvertiserId] = useState<string | null>(null);
   const createOrderIdempotencyKeyRef = useRef<string | null>(null);
 
   const [adPrice, setAdPrice] = useState('');
@@ -266,6 +272,20 @@ function P2PContent() {
     if (!selectedAd) createOrderIdempotencyKeyRef.current = null;
   }, [selectedAd]);
 
+  const handleBlockAdvertiser = async (e: React.MouseEvent, advertiserId: string | undefined) => {
+    e.stopPropagation();
+    if (!advertiserId || blockingAdvertiserId) return;
+    setBlockingAdvertiserId(advertiserId);
+    try {
+      const res = await blockAdvertiser(advertiserId);
+      if (res.success) {
+        queryClient.invalidateQueries({ queryKey: P2P_ADS_QUERY_KEY });
+      }
+    } finally {
+      setBlockingAdvertiserId(null);
+    }
+  };
+
   const closeP2PModal = () => {
     if (createOrderLoading || createAdLoading) return;
     setModalMode('closed');
@@ -290,6 +310,7 @@ function P2PContent() {
 
   const handleCreateAd = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (createAdLoading) return;
     setCreateAdError(null);
     const p = parseFloat(adPrice);
     const q = parseFloat(adQuantity);
@@ -458,7 +479,12 @@ function P2PContent() {
                   </button>
                 </div>
                 <div className="p-6 pt-4">
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Advertiser: {selectedAd.advertiser} · Limit {selectedAd.limitMin}–{selectedAd.limitMax} {selectedAd.limitFiat}</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Advertiser: {selectedAd.advertiser}</p>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-400">{selectedAd.completion} completion</span>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400">{selectedAd.trades} trades</span>
+                    <span className="text-xs text-gray-500">Limit {selectedAd.limitMin}–{selectedAd.limitMax} {selectedAd.limitFiat}</span>
+                  </div>
                   {availableBalanceForCrypto != null && (
                     <p className="text-xs text-gray-500 dark:text-gray-500 mb-2 tabular-nums">Your available balance: {availableBalanceForCrypto} {cryptoSafe}</p>
                   )}
@@ -629,15 +655,54 @@ function P2PContent() {
         </div>
       )}
 
-      <main className="bg-gray-50 dark:bg-[#0b0e11]">
-        {/* P2P Trading — one row Buy/Sell + Crypto, next row filters */}
-        <section className="border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#0b0e11]">
-          <div className="py-6 md:py-8">
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">P2P Trading</h1>
-            <p className="text-gray-600 dark:text-gray-400 mt-1">Buy & Sell Crypto with your preferred fiat currency.</p>
+      <main className="bg-gray-50 dark:bg-[#0b0e11] min-h-[calc(100vh-48px)]">
+        {/* P2P Trading — 3-column: Filters | Ads | Safety */}
+        <section className="flex flex-col lg:grid lg:grid-cols-[240px_1fr_260px] gap-0 min-h-[calc(100vh-48px)]">
+          {/* Left: Filters sidebar */}
+          <div className="hidden lg:flex flex-col border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-[#181a20] p-4 overflow-y-auto">
+            <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Filters</h3>
+            <div className="space-y-3 mb-4">
+              <label className="flex items-center gap-3 cursor-pointer text-sm text-gray-700 dark:text-gray-300">
+                <input type="checkbox" checked={filterDraft.verifiedOnly} onChange={(e) => setFilterDraft((d) => ({ ...d, verifiedOnly: e.target.checked }))} className="rounded border-gray-400 dark:border-gray-600 bg-white dark:bg-[#181a20] text-blue-500" />
+                Verified only
+              </label>
+              <label className="flex items-center gap-3 cursor-pointer text-sm text-gray-700 dark:text-gray-300">
+                <input type="checkbox" checked={filterDraft.eligibleAdsOnly} onChange={(e) => setFilterDraft((d) => ({ ...d, eligibleAdsOnly: e.target.checked }))} className="rounded border-gray-400 dark:border-gray-600 bg-white dark:bg-[#181a20] text-blue-500" />
+                Eligible ads
+              </label>
+              <label className="flex items-center gap-3 cursor-pointer text-sm text-gray-700 dark:text-gray-300">
+                <input type="checkbox" checked={filterDraft.noVerificationRequired} onChange={(e) => setFilterDraft((d) => ({ ...d, noVerificationRequired: e.target.checked }))} className="rounded border-gray-400 dark:border-gray-600 bg-white dark:bg-[#181a20] text-blue-500" />
+                No verification
+              </label>
+            </div>
+            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-2">Sort</p>
+            <div className="space-y-1 mb-4">
+              {SORT_OPTIONS.map((opt) => (
+                <button key={opt.id} type="button" onClick={() => setFilterDraft((d) => ({ ...d, sortBy: opt.id }))}
+                  className={`block w-full text-left px-3 py-2 rounded-lg text-sm ${filterDraft.sortBy === opt.id ? 'bg-blue-500/20 text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5'}`}>{opt.label}</button>
+              ))}
+            </div>
+            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-2">Payment time</p>
+            <div className="space-y-1 mb-4">
+              {PAYMENT_TIME_OPTIONS.map((opt) => (
+                <button key={opt.id} type="button" onClick={() => setFilterDraft((d) => ({ ...d, paymentTimeLimit: opt.id }))}
+                  className={`block w-full text-left px-3 py-2 rounded-lg text-sm ${filterDraft.paymentTimeLimit === opt.id ? 'bg-blue-500/20 text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5'}`}>{opt.label === 'All' ? opt.label : `${opt.label} min`}</button>
+              ))}
+            </div>
+            <div className="flex gap-2 mt-auto pt-4">
+              <button type="button" onClick={handleFilterConfirm} className="flex-1 py-2 rounded-lg text-xs font-semibold bg-blue-500 text-white hover:bg-blue-600">Apply</button>
+              <button type="button" onClick={handleFilterReset} className="flex-1 py-2 rounded-lg text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">Reset</button>
+            </div>
+          </div>
 
-            {/* Card container */}
-            <div className="mt-5 md:mt-6 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#181a20] p-4 md:p-5 shadow-sm dark:shadow-none">
+          {/* Center: Ads list */}
+          <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+            <div className="p-4 lg:p-4 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-[#181a20] flex-shrink-0">
+            <h1 className="text-xl font-bold text-gray-900 dark:text-white">P2P Trading</h1>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Buy & Sell {cryptoSafe} with {fiatSafe}</p>
+
+            {/* Header controls */}
+            <div className="mt-4">
               {/* Row 1: Buy/Sell toggle (left) + Crypto list (right) — same row */}
               <div className="flex flex-wrap items-center gap-4">
                 {/* Buy / Sell segmented control */}
@@ -872,8 +937,8 @@ function P2PContent() {
               </div>
             </div>
 
-            {/* Table — Bybit-style: Advertiser, Price, Limit/Available, Payment, Action */}
-            <div className="mt-6 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden bg-white dark:bg-[#181a20] shadow-sm dark:shadow-none">
+            {/* Ads table */}
+            <div className="mt-4 rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden bg-white dark:bg-[#181a20] flex-1 min-h-0 flex flex-col">
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
@@ -920,7 +985,7 @@ function P2PContent() {
                             )}
                             {(!_hasHydrated || !accessToken) && (
                               <Link
-                                href="/login"
+                                href={loginRedirect}
                                 className="mt-4 inline-flex items-center px-5 py-2.5 rounded-lg font-medium bg-blue-500 hover:bg-blue-600 text-white text-sm transition-colors"
                               >
                                 Log in to post an ad
@@ -949,9 +1014,24 @@ function P2PContent() {
                                     </span>
                                   )}
                                 </div>
-                                <p className="text-xs text-gray-500 dark:text-gray-500 mt-0.5">
-                                  {ad.completion} completion · {ad.trades} trades
-                                </p>
+                                <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-500/30">
+                                    {ad.completion} completion
+                                  </span>
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-500/30">
+                                    {ad.trades} trades
+                                  </span>
+                                </div>
+                                {_hasHydrated && accessToken && ad.advertiserId && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleBlockAdvertiser(e, ad.advertiserId)}
+                                    disabled={!!blockingAdvertiserId}
+                                    className="mt-1 text-[10px] text-gray-500 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-50"
+                                  >
+                                    {blockingAdvertiserId === ad.advertiserId ? 'Blocking…' : 'Block'}
+                                  </button>
+                                )}
                               </div>
                             </div>
                           </td>
@@ -985,7 +1065,7 @@ function P2PContent() {
                               </button>
                             ) : (
                               <Link
-                                href="/login"
+                                href={loginRedirect}
                                 className="inline-flex h-9 items-center px-4 rounded-lg font-medium bg-blue-500 hover:bg-blue-600 text-white text-sm transition-all duration-200 active:scale-[0.98] shadow-sm"
                               >
                                 {typeSafe === 'buy' ? `Buy ${cryptoSafe}` : `Sell ${cryptoSafe}`}
@@ -1036,11 +1116,36 @@ function P2PContent() {
               </div>
             </div>
           </div>
+          </div>
+
+          {/* Right: Safety / Escrow info */}
+          <div className="hidden lg:flex flex-col border-l border-gray-200 dark:border-gray-800 bg-white dark:bg-[#181a20] p-4 overflow-y-auto">
+            <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Safety & Escrow</h3>
+            <div className="space-y-3">
+              <div className="p-3 rounded-lg bg-green-500/10 dark:bg-green-500/10 border border-green-500/20">
+                <p className="text-sm font-medium text-green-700 dark:text-green-400">Escrow protection</p>
+                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">Crypto is held in escrow until you confirm payment. Funds release only after seller verification.</p>
+              </div>
+              <div className="p-3 rounded-lg bg-blue-500/10 dark:bg-blue-500/10 border border-blue-500/20">
+                <p className="text-sm font-medium text-blue-700 dark:text-blue-400">Trade safely</p>
+                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">Never pay outside the platform. Complete all steps in-app. Open a dispute from the order page if needed.</p>
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Steps</p>
+                <ol className="text-xs text-gray-500 dark:text-gray-400 space-y-1.5 list-decimal list-inside">
+                  <li>Complete Identity Verification</li>
+                  <li>Add Payment Methods</li>
+                  <li>Place order & follow instructions</li>
+                  <li>Confirm payment after transfer</li>
+                </ol>
+              </div>
+            </div>
+          </div>
         </section>
 
-        {/* Trader Guide Panel */}
-        <section className="border-b border-gray-200 dark:border-gray-800 py-6 bg-white dark:bg-[#181a20]">
-          <div className="rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden">
+        {/* Mobile: Trader Guide (shown when right sidebar hidden) */}
+        <section className="lg:hidden border-t border-gray-200 dark:border-gray-800 py-4 px-4 bg-white dark:bg-[#181a20]">
+          <div className="rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden max-w-2xl">
             <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-[#1e2026]">
               <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Trader Guide</h2>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Identity Verification → Payment Methods → Place Orders Safely</p>
@@ -1070,7 +1175,7 @@ function P2PContent() {
                 </div>
                 <div className="min-w-0">
                   <p className="text-xs font-medium text-gray-900 dark:text-white">Step 3: Place Orders Safely</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">Select an ad, complete payment, receive crypto.</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">Select an ad, complete payment, receive crypto. P2P limits apply per PMLA/FIU-IND.</p>
                 </div>
               </div>
             </div>
@@ -1097,6 +1202,11 @@ function P2PContent() {
                 <CircleDot className="w-4 h-4 text-blue-500 dark:text-blue-400 flex-shrink-0" />
                 <span className="text-xs text-gray-700 dark:text-gray-300">Trade only in-app — never pay external links</span>
               </div>
+            </div>
+            <div className="px-4 py-2 border-t border-gray-100 dark:border-gray-800">
+              <p className="text-[11px] text-gray-500 dark:text-gray-500">
+                P2P is subject to transaction limits per PMLA/FIU-IND. See <Link href="/terms" className="text-blue-500 hover:underline">Terms</Link> for compliance details.
+              </p>
             </div>
           </div>
         </section>

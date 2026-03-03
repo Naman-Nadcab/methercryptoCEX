@@ -27,10 +27,8 @@ import {
   Copy,
   ChevronRight,
   ChevronLeft,
-  Sparkles,
   TrendingUp,
   CreditCard,
-  PiggyBank,
   LineChart,
   ShoppingCart,
   Percent,
@@ -40,6 +38,7 @@ import {
 } from 'lucide-react';
 import SessionManager from '@/components/SessionManager';
 import ThemeToggle from '@/components/ThemeToggle';
+import { toast } from '@/components/ui/toaster';
 import ThemeProvider from '@/components/ThemeProvider';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { useBalancesSummary, useBalancesByAccount } from '@/lib/balances';
@@ -53,18 +52,8 @@ interface MenuItem {
 }
 
 const menuItems: MenuItem[] = [
-  {
-    id: 'overview',
-    label: 'Overview',
-    icon: <LayoutDashboard className="w-5 h-5" />,
-    href: '/dashboard',
-  },
-  {
-    id: 'spot',
-    label: 'Spot',
-    icon: <TrendingUp className="w-5 h-5" />,
-    href: '/dashboard/spot',
-  },
+  { id: 'overview', label: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" />, href: '/dashboard' },
+  { id: 'spot', label: 'Spot', icon: <TrendingUp className="w-5 h-5" />, href: '/dashboard/spot' },
   {
     id: 'p2p',
     label: 'P2P',
@@ -74,12 +63,7 @@ const menuItems: MenuItem[] = [
       { id: 'p2p-payment-methods', label: 'Payment Methods', href: '/dashboard/p2p/payment-methods' },
     ],
   },
-  {
-    id: 'orders',
-    label: 'Orders',
-    icon: <ClipboardList className="w-5 h-5" />,
-    href: '/orders',
-  },
+  { id: 'orders', label: 'Orders', icon: <ClipboardList className="w-5 h-5" />, href: '/dashboard/orders' },
   {
     id: 'assets',
     label: 'Assets',
@@ -94,12 +78,6 @@ const menuItems: MenuItem[] = [
     ],
   },
   {
-    id: 'history',
-    label: 'History',
-    icon: <FileText className="w-5 h-5" />,
-    href: '/history',
-  },
-  {
     id: 'account',
     label: 'Account',
     icon: <User className="w-5 h-5" />,
@@ -108,46 +86,22 @@ const menuItems: MenuItem[] = [
       { id: 'identity', label: 'Identity Verification', href: '/dashboard/identity' },
       { id: 'security', label: 'Security', href: '/dashboard/security' },
       { id: 'data-export', label: 'Data Export', href: '/dashboard/data-export' },
+      { id: 'preferences', label: 'Preferences', href: '/dashboard/preferences' },
+      { id: 'progress', label: 'Progress Tracker', href: '/dashboard/progress' },
     ],
   },
-  {
-    id: 'referral',
-    label: 'Referral Program',
-    icon: <Gift className="w-5 h-5" />,
-    href: '/dashboard/referral',
-  },
-  {
-    id: 'preferences',
-    label: 'Preference Settings',
-    icon: <Settings className="w-5 h-5" />,
-    href: '/dashboard/preferences',
-  },
-  {
-    id: 'api',
-    label: 'API',
-    icon: <Key className="w-5 h-5" />,
-    href: '/dashboard/api',
-  },
-  {
-    id: 'fee-rates',
-    label: 'My Fee Rates',
-    icon: <Receipt className="w-5 h-5" />,
-    href: '/dashboard/fee-rates',
-  },
-  {
-    id: 'spot-wallet',
-    label: 'Spot Wallet',
-    icon: <CreditCard className="w-5 h-5" />,
-    href: '/dashboard/wallet/spot',
-  },
+  { id: 'referral', label: 'Referral', icon: <Gift className="w-5 h-5" />, href: '/dashboard/referral' },
+  { id: 'api', label: 'API', icon: <Key className="w-5 h-5" />, href: '/dashboard/api' },
+  { id: 'fee-rates', label: 'Fee Tier', icon: <Receipt className="w-5 h-5" />, href: '/dashboard/fee-rates' },
+  { id: 'help', label: 'Help', icon: <FileText className="w-5 h-5" />, href: '/dashboard/help' },
 ];
 
 const navItems = [
   { label: 'Spot', href: '/dashboard/spot' },
   { label: 'P2P', href: '/dashboard/p2p' },
-  { label: 'Orders', href: '/orders' },
-  { label: 'Assets', href: '/assets' },
-  { label: 'History', href: '/history' },
+  { label: 'Orders', href: '/dashboard/orders' },
+  { label: 'Assets', href: '/dashboard/assets/overview' },
+  { label: 'History', href: '/dashboard/assets/history' },
 ];
 
 export default function DashboardLayout({
@@ -253,10 +207,12 @@ export default function DashboardLayout({
     if (user?.id) {
       navigator.clipboard.writeText(user.id);
       setUidCopied(true);
+      toast({ title: 'Copied', description: 'User ID copied to clipboard', variant: 'default' });
       setTimeout(() => setUidCopied(false), 2000);
     }
   };
 
+  const isTradingPage = pathname?.startsWith('/dashboard/spot') || pathname?.startsWith('/dashboard/p2p');
   const isAutoCollapsePage =
     pathname?.startsWith('/dashboard/spot') ||
     pathname?.startsWith('/dashboard/p2p') ||
@@ -291,6 +247,13 @@ export default function DashboardLayout({
       <ThemeProvider>
         <SessionManager redirectPath="/login" />
         <div className="min-h-screen bg-gray-50 dark:bg-[#0b0e11]">
+      {/* Skip to main content - visible on focus for accessibility */}
+      <a
+        href="#main-content"
+        className="fixed left-4 top-4 z-[200] px-4 py-2 bg-blue-500 text-white text-sm font-medium rounded-lg -translate-y-16 focus:translate-y-0 outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-gray-50 dark:focus:ring-offset-[#0b0e11] transition-transform duration-200"
+      >
+        Skip to main content
+      </a>
       {/* Top Header */}
       <header className="bg-white dark:bg-[#181a20] border-b border-gray-200 dark:border-gray-800 sticky top-0 z-50">
         {/* Main Nav */}
@@ -301,6 +264,7 @@ export default function DashboardLayout({
             <button
               className="lg:hidden p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
             >
               {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
@@ -378,6 +342,7 @@ export default function DashboardLayout({
 
             {/* Notification */}
             <button
+              aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
               onClick={() => {
                 setNotificationMenuOpen(!notificationMenuOpen);
                 setDepositMenuOpen(false);
@@ -401,6 +366,7 @@ export default function DashboardLayout({
 
             {/* User Menu Button */}
             <button
+              aria-label="Open user menu"
               onClick={() => {
                 setUserMenuOpen(!userMenuOpen);
                 setDepositMenuOpen(false);
@@ -492,7 +458,7 @@ export default function DashboardLayout({
                 </Link>
                 <p className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider mt-2">Don&apos;t have crypto</p>
                 <Link 
-                  href="/dashboard/buy-crypto" 
+                  href="/dashboard/assets/convert" 
                   className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
                   onClick={() => setDepositMenuOpen(false)}
                 >
@@ -557,26 +523,11 @@ export default function DashboardLayout({
                 <p className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">Account</p>
                 <Link href="/dashboard/assets/unified" onClick={() => setAssetsMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg">
                   <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center"><Wallet className="w-4 h-4 text-blue-500" /></div>
-                  <span className="font-medium">Unified Trading Account</span>
+                  <div><span className="font-medium">Unified Trading Account</span><p className="text-[11px] text-gray-500">Spot collateral & open orders</p></div>
                 </Link>
                 <Link href="/dashboard/assets/funding" onClick={() => setAssetsMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg">
                   <div className="w-8 h-8 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center"><CreditCard className="w-4 h-4 text-green-500" /></div>
-                  <span className="font-medium">Funding Account</span>
-                </Link>
-                <Link href="/dashboard/wallet/spot" onClick={() => setAssetsMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg">
-                  <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center"><TrendingUp className="w-4 h-4 text-amber-600 dark:text-amber-400" /></div>
-                  <span className="font-medium">Spot Wallet</span>
-                </Link>
-              </div>
-              <div className="p-2 bg-gray-50 dark:bg-[#181a20] border-t border-gray-100 dark:border-gray-800">
-                <p className="px-3 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">Invested Products</p>
-                <Link href="/dashboard/earn" onClick={() => setAssetsMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg">
-                  <div className="w-8 h-8 rounded-lg bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center"><PiggyBank className="w-4 h-4 text-yellow-600" /></div>
-                  <span className="font-medium">Earn</span>
-                </Link>
-                <Link href="/dashboard/copy-trading" onClick={() => setAssetsMenuOpen(false)} className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg">
-                  <div className="w-8 h-8 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center"><TrendingUp className="w-4 h-4 text-purple-500" /></div>
-                  <span className="font-medium">Copy Trading</span>
+                  <div><span className="font-medium">Funding Account</span><p className="text-[11px] text-gray-500">Deposits & P2P payouts</p></div>
                 </Link>
               </div>
             </div>
@@ -624,26 +575,34 @@ export default function DashboardLayout({
                     </div>
                     <div className="flex items-center gap-1 text-xs text-gray-500">
                       <span>UID: {user?.id?.slice(0, 8) || '******'}</span>
-                      <button onClick={copyUID} className="p-0.5 hover:text-blue-500">
+                      <button onClick={copyUID} className="p-0.5 hover:text-blue-500" aria-label={uidCopied ? 'Copied' : 'Copy user ID'}>
                         {uidCopied ? <span className="text-green-500">✓</span> : <Copy className="w-3 h-3" />}
                       </button>
                     </div>
                   </div>
                 </div>
-                <Link 
-                  href="/dashboard/identity"
-                  onClick={() => setUserMenuOpen(false)}
-                  className="flex items-center justify-between mt-3 px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white text-sm rounded-lg transition-colors"
-                >
-                  <span>Complete Identity Verification Now</span>
-                  <ChevronRight className="w-4 h-4" />
-                </Link>
+                {!kycVerified && (
+                  <Link 
+                    href="/dashboard/identity"
+                    onClick={() => setUserMenuOpen(false)}
+                    className="flex items-center justify-between mt-3 px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white text-sm rounded-lg transition-colors"
+                  >
+                    <span>Complete Identity Verification Now</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </Link>
+                )}
               </div>
-              {/* Switch/Create Account */}
+              {/* Switch/Create Account - Coming soon for spot/P2P */}
               <div className="p-2 border-b border-gray-200 dark:border-gray-700">
-                <button className="w-full flex items-center justify-between px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg">
+                <button
+                  type="button"
+                  onClick={() => toast({ title: 'Coming soon', description: 'Switch or create sub-account will be available in a future update', variant: 'default' })}
+                  className="w-full flex items-center justify-between px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+                  title="Coming soon"
+                  aria-label="Switch or create account (coming soon)"
+                >
                   <span>Switch/Create Account</span>
-                  <ChevronRight className="w-4 h-4" />
+                  <span className="text-[10px] px-2 py-0.5 bg-gray-200 dark:bg-gray-700 rounded">Soon</span>
                 </button>
               </div>
               {/* Menu Items */}
@@ -656,17 +615,9 @@ export default function DashboardLayout({
                   <User className="w-4 h-4" />
                   Account
                 </Link>
-                <Link href="/dashboard/events" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg">
-                  <Sparkles className="w-4 h-4" />
-                  My Events
-                </Link>
                 <Link href="/dashboard/referral" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg">
                   <Users className="w-4 h-4" />
                   Referral Program
-                </Link>
-                <Link href="/dashboard/preferences" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg">
-                  <Settings className="w-4 h-4" />
-                  Preference Settings
                 </Link>
                 <Link href="/dashboard/api" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg">
                   <Key className="w-4 h-4" />
@@ -674,12 +625,7 @@ export default function DashboardLayout({
                 </Link>
                 <Link href="/dashboard/fee-rates" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg">
                   <Receipt className="w-4 h-4" />
-                  My Fee Rates
-                </Link>
-                <Link href="/dashboard/demo-trading" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg">
-                  <LineChart className="w-4 h-4" />
-                  Demo Trading
-                  <Sparkles className="w-3 h-3 text-yellow-500" />
+                  Fee Tier
                 </Link>
               </div>
               {/* Logout */}
@@ -707,9 +653,10 @@ export default function DashboardLayout({
                 Verify Now
               </Link>
             </div>
-            <button 
+            <button
               onClick={() => setShowKycBanner(false)}
               className="text-gray-400 hover:text-gray-600"
+              aria-label="Dismiss verification banner"
             >
               <X className="w-4 h-4" />
             </button>
@@ -718,10 +665,12 @@ export default function DashboardLayout({
       </header>
 
       <div className="flex">
-        {/* Fixed Sidebar - Hidden only on deposit/withdraw/transfer pages */}
+        {/* Fixed Sidebar - Hidden on deposit/withdraw/transfer and trading (spot/p2p) pages */}
         {!pathname?.startsWith('/dashboard/deposit') && 
          !pathname?.startsWith('/dashboard/withdraw') && 
-         !pathname?.startsWith('/dashboard/transfer') && (
+         !pathname?.startsWith('/dashboard/transfer') &&
+         !pathname?.startsWith('/dashboard/spot') &&
+         !pathname?.startsWith('/dashboard/p2p') && (
         <aside
           onMouseEnter={() => { if (isAutoCollapsePage) setSidebarOpen(true); }}
           onMouseLeave={() => { if (isAutoCollapsePage) setSidebarOpen(false); }}
@@ -800,10 +749,12 @@ export default function DashboardLayout({
         </aside>
         )}
 
-        {/* Mobile Sidebar Overlay - Hidden only on deposit/withdraw/transfer pages */}
+        {/* Mobile Sidebar Overlay - Hidden on deposit/withdraw/transfer and trading pages */}
         {!pathname?.startsWith('/dashboard/deposit') && 
          !pathname?.startsWith('/dashboard/withdraw') && 
-         !pathname?.startsWith('/dashboard/transfer') && 
+         !pathname?.startsWith('/dashboard/transfer') &&
+         !pathname?.startsWith('/dashboard/spot') &&
+         !pathname?.startsWith('/dashboard/p2p') && 
          mobileMenuOpen && (
           <div className="fixed inset-0 z-40 lg:hidden">
             <div
@@ -816,6 +767,7 @@ export default function DashboardLayout({
                 <button
                   onClick={() => setMobileMenuOpen(false)}
                   className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
+                  aria-label="Close menu"
                 >
                   <Menu className="w-5 h-5 text-gray-600 dark:text-gray-300" />
                 </button>
@@ -892,12 +844,14 @@ export default function DashboardLayout({
         )}
 
         {/* Main Content - with left margin for fixed sidebar (except on deposit/withdraw/transfer pages) */}
-        <main className={`flex-1 min-h-[calc(100vh-48px)] overflow-x-hidden transition-all duration-300 ${
+        <main id="main-content" tabIndex={-1} className={`flex-1 min-h-[calc(100vh-48px)] overflow-x-hidden transition-all duration-300 ${
           (pathname?.startsWith('/dashboard/deposit') || 
            pathname?.startsWith('/dashboard/withdraw') || 
-           pathname?.startsWith('/dashboard/transfer')) ? '' : (sidebarOpen ? 'lg:ml-48' : 'lg:ml-14')
+           pathname?.startsWith('/dashboard/transfer') ||
+           pathname?.startsWith('/dashboard/spot') ||
+           pathname?.startsWith('/dashboard/p2p')) ? '' : (sidebarOpen ? 'lg:ml-48' : 'lg:ml-14')
         }`}>
-          {pathname === '/dashboard/spot' ? (
+          {(pathname === '/dashboard/spot' || pathname?.startsWith('/dashboard/p2p/')) ? (
             <div className="w-full h-[calc(100vh-48px)] min-h-0">
               {children}
             </div>
@@ -911,26 +865,27 @@ export default function DashboardLayout({
         </main>
       </div>
 
-      {/* Footer - with left margin for fixed sidebar (except on deposit/withdraw/transfer/spot pages) */}
+      {/* Footer - with left margin for fixed sidebar (hidden on deposit/withdraw/transfer/spot/p2p) */}
       {!pathname?.startsWith('/dashboard/deposit') && 
        !pathname?.startsWith('/dashboard/withdraw') && 
        !pathname?.startsWith('/dashboard/transfer') && 
-       pathname !== '/dashboard/spot' && (
+       !pathname?.startsWith('/dashboard/spot') &&
+       !pathname?.startsWith('/dashboard/p2p') && (
       <footer className={`bg-white dark:bg-[#181a20] border-t border-gray-200 dark:border-gray-800 py-4 transition-all duration-300 ${
         sidebarOpen ? 'lg:ml-48' : 'lg:ml-14'
       }`}>
         <div className="container mx-auto px-4">
           <div className="flex flex-wrap items-center justify-center gap-6 text-sm text-gray-500 dark:text-gray-400">
-            <Link href="#" className="hover:text-gray-900 dark:hover:text-white">
+            <Link href="/dashboard/markets" className="hover:text-gray-900 dark:hover:text-white">
               Market Overview
             </Link>
-            <Link href="#" className="hover:text-gray-900 dark:hover:text-white">
+            <Link href="/dashboard/fee-rates" className="hover:text-gray-900 dark:hover:text-white">
               Trading Fee
             </Link>
-            <Link href="#" className="hover:text-gray-900 dark:hover:text-white">
+            <Link href="/dashboard/api" className="hover:text-gray-900 dark:hover:text-white">
               API
             </Link>
-            <Link href="#" className="hover:text-gray-900 dark:hover:text-white">
+            <Link href="/dashboard/announcements" className="hover:text-gray-900 dark:hover:text-white">
               Help Center
             </Link>
             <span>© 2024 Methereum</span>
