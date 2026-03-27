@@ -2,6 +2,14 @@
 
 import { ReactNode } from 'react';
 
+const ACCENT_BORDERS: Record<string, string> = {
+  primary: 'border-l-4 border-l-[var(--admin-primary)]',
+  success: 'border-l-4 border-l-[var(--admin-success)]',
+  warning: 'border-l-4 border-l-[var(--admin-warning)]',
+  danger: 'border-l-4 border-l-[var(--admin-danger)]',
+  neutral: '',
+};
+
 export interface PanelProps {
   title?: string;
   subtitle?: string;
@@ -9,6 +17,8 @@ export interface PanelProps {
   className?: string;
   headerAction?: ReactNode;
   noPadding?: boolean;
+  /** CRM accent: colored left border */
+  accent?: keyof typeof ACCENT_BORDERS;
 }
 
 export function Panel({
@@ -18,23 +28,18 @@ export function Panel({
   className = '',
   headerAction,
   noPadding = false,
+  accent,
 }: PanelProps) {
   return (
-    <div
-      className={`rounded-[4px] border border-border bg-card overflow-hidden ${className}`}
-    >
+    <div className={`admin-card overflow-hidden rounded-xl border border-[var(--admin-card-border)] shadow-sm ${ACCENT_BORDERS[accent ?? 'neutral'] ?? ''} ${className}`}>
       {(title != null || subtitle != null || headerAction != null) && (
-        <div className="px-3 py-2 border-b border-border bg-muted/40 flex items-center justify-between gap-2">
+        <div className="px-5 py-4 border-b border-[var(--admin-card-border)] flex items-center justify-between gap-3 bg-[var(--admin-card-bg)]">
           <div className="min-w-0">
             {title != null && (
-              <h2 className="text-[13px] font-semibold text-foreground">
-                {title}
-              </h2>
+              <h2 className="text-[15px] font-semibold text-[var(--admin-text)]">{title}</h2>
             )}
             {subtitle != null && (
-              <p className="text-[11px] text-muted-foreground mt-0.5">
-                {subtitle}
-              </p>
+              <p className="text-[12px] text-[var(--admin-text-muted)] mt-0.5">{subtitle}</p>
             )}
           </div>
           {headerAction != null && (
@@ -42,7 +47,7 @@ export function Panel({
           )}
         </div>
       )}
-      <div className={noPadding ? '' : 'p-3'}>{children}</div>
+      <div className={noPadding ? '' : 'p-5 bg-[var(--admin-card-bg)]'}>{children}</div>
     </div>
   );
 }

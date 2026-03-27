@@ -2,13 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Sidebar from '@/components/admin/layout/Sidebar';
-import Header from '@/components/admin/layout/Header';
+import AdminV2Sidebar from '@/components/admin/v2/Sidebar';
+import AdminV2Header from '@/components/admin/v2/Header';
 import { useAdminAuthStore } from '@/store/admin-auth';
 import { Loader2 } from 'lucide-react';
 import AdminSessionManager from '@/components/admin/AdminSessionManager';
 import ThemeProvider from '@/components/ThemeProvider';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { useAdminRealtime } from '@/hooks/admin/useAdminRealtime';
 
 export default function AdminProtectedLayout({
   children,
@@ -17,6 +18,7 @@ export default function AdminProtectedLayout({
 }) {
   const router = useRouter();
   const { isAuthenticated, accessToken, setLoading } = useAdminAuthStore();
+  useAdminRealtime();
   const hasHydrated = useAdminAuthStore((state) => state._hasHydrated);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [checking, setChecking] = useState(true);
@@ -31,16 +33,31 @@ export default function AdminProtectedLayout({
       return;
     }
 
-    // Verify session in background — don't block first paint
+    // Verify session and refresh admin (role + permissions) from GET /admin/auth/me
     let cancelled = false;
     const apiUrl = getApiBaseUrl();
     fetch(`${apiUrl}/api/v1/admin/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
-      .then((response) => {
+      .then(async (response) => {
         if (cancelled) return;
         if (!response.ok) {
           useAdminAuthStore.getState().logout();
           router.push('/admin/login');
           return;
+        }
+        try {
+          const result = await response.json();
+          if (result?.success && result?.data) {
+            const admin = result.data;
+            useAdminAuthStore.getState().setAdmin({
+              id: admin.id,
+              email: admin.email ?? '',
+              name: admin.name ?? '',
+              role: admin.role ?? '',
+              permissions: Array.isArray(admin.permissions) ? admin.permissions : [],
+            });
+          }
+        } catch {
+          // Keep existing store admin if parse fails
         }
         setChecking(false);
       })
@@ -78,13 +95,11 @@ export default function AdminProtectedLayout({
   return (
     <ThemeProvider>
       <AdminSessionManager idleTimeout={30 * 60 * 1000} />
-      <div className="admin-panel min-h-screen bg-background transition-colors duration-200">
-        <Sidebar isOpen={sidebarOpen} setIsOpen={setSidebarOpen} />
-        <div className="lg:ml-[220px] min-h-screen flex flex-col transition-[margin] duration-200">
-          <div className="sticky top-0 z-40 animate-admin-slide-up">
-            <Header onMenuClick={() => setSidebarOpen(true)} />
-          </div>
-          <main className="flex-1 p-3 lg:p-4 animate-admin-fade-in">
+      <div className="admin-panel min-h-screen bg-[var(--admin-bg)]" data-theme="admin-light">
+        <AdminV2Sidebar isOpen={sidebarOpen} setIsOpen={setSidebarOpen} />
+        <div className="lg:ml-[260px] min-h-screen flex flex-col transition-[margin] duration-200">
+          <AdminV2Header onMenuClick={() => setSidebarOpen(true)} />
+          <main className="flex-1 p-5 lg:p-6">
             {children}
           </main>
         </div>

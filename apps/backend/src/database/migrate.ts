@@ -51,6 +51,11 @@ const migrations = [
   `CREATE INDEX IF NOT EXISTS idx_users_referred_by ON users(referred_by);`,
   `CREATE INDEX IF NOT EXISTS idx_users_status ON users(status) WHERE deleted_at IS NULL;`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS status_reason TEXT;`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS salt VARCHAR(64);`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(50);`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS tier_level INT DEFAULT 0;`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER NOT NULL DEFAULT 0;`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMP WITH TIME ZONE;`,
 
   `DROP TRIGGER IF EXISTS update_users_updated_at ON users;
    CREATE TRIGGER update_users_updated_at
@@ -681,6 +686,57 @@ const migrations = [
   END $$;`,
   `CREATE INDEX IF NOT EXISTS idx_spot_trades_created_at ON spot_trades(created_at DESC);`,
 
+  // OHLCV candles for chart (GET /trading/candles/:symbol)
+  `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'candle_interval') THEN CREATE TYPE candle_interval AS ENUM ('1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w', '1M'); END IF; END $$;`,
+  `CREATE TABLE IF NOT EXISTS ohlcv_candles (
+    id BIGSERIAL PRIMARY KEY,
+    trading_pair_id UUID NOT NULL REFERENCES trading_pairs(id),
+    interval_type candle_interval NOT NULL,
+    open_time TIMESTAMP WITH TIME ZONE NOT NULL,
+    close_time TIMESTAMP WITH TIME ZONE NOT NULL,
+    open_price DECIMAL(30,8) NOT NULL,
+    high_price DECIMAL(30,8) NOT NULL,
+    low_price DECIMAL(30,8) NOT NULL,
+    close_price DECIMAL(30,8) NOT NULL,
+    volume DECIMAL(30,8) NOT NULL,
+    quote_volume DECIMAL(30,8) NOT NULL DEFAULT 0,
+    trade_count INT NOT NULL DEFAULT 0,
+    UNIQUE(trading_pair_id, interval_type, open_time)
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_candles_query ON ohlcv_candles(trading_pair_id, interval_type, open_time);`,
+
+  // trading_pairs.trading_enabled for candles API (GET /trading/candles/:symbol)
+  `ALTER TABLE trading_pairs ADD COLUMN IF NOT EXISTS trading_enabled BOOLEAN DEFAULT TRUE;`,
+  `UPDATE trading_pairs SET trading_enabled = COALESCE(is_active, TRUE) WHERE trading_enabled IS NULL;`,
+
+  // Sync trading_pairs from spot_markets so GET /trading/candles/:symbol works for every spot symbol
+  `DO $$
+  DECLARE
+    r RECORD;
+    bid UUID;
+    qid UUID;
+  BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'trading_pairs')
+       OR NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'spot_markets')
+       OR NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'tokens') THEN
+      RETURN;
+    END IF;
+    FOR r IN SELECT symbol, base_asset, quote_asset FROM spot_markets WHERE status IN ('active', 'maintenance')
+    LOOP
+      IF NOT EXISTS (SELECT 1 FROM trading_pairs WHERE trading_pairs.symbol = r.symbol) THEN
+        SELECT id INTO bid FROM tokens WHERE symbol = r.base_asset AND is_active = TRUE ORDER BY is_native DESC NULLS LAST LIMIT 1;
+        SELECT id INTO qid FROM tokens WHERE symbol = r.quote_asset AND is_active = TRUE ORDER BY is_native DESC NULLS LAST LIMIT 1;
+        IF bid IS NOT NULL AND qid IS NOT NULL THEN
+          INSERT INTO trading_pairs (symbol, base_token_id, quote_token_id, min_order_size, max_order_size, tick_size, step_size, maker_fee, taker_fee, is_active, trading_enabled)
+          VALUES (r.symbol, bid, qid, 0.0001, 1000000000, 0.01, 0.0001, 0.001, 0.001, TRUE, TRUE)
+          ON CONFLICT (symbol) DO NOTHING;
+        END IF;
+      END IF;
+    END LOOP;
+  EXCEPTION WHEN OTHERS THEN
+    NULL;
+  END $$;`,
+
   // Phase-4: maker/taker fee per market
   `ALTER TABLE spot_markets ADD COLUMN IF NOT EXISTS maker_fee DECIMAL(10,6) NOT NULL DEFAULT 0.001;`,
   `ALTER TABLE spot_markets ADD COLUMN IF NOT EXISTS taker_fee DECIMAL(10,6) NOT NULL DEFAULT 0.001;`,
@@ -918,6 +974,29 @@ const migrations = [
     resolved_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+
+  // P2P merchant stats (used by auth verify-otp when creating new users)
+  `CREATE TABLE IF NOT EXISTS p2p_merchant_stats (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    total_orders INT DEFAULT 0,
+    completed_orders INT DEFAULT 0,
+    cancelled_orders INT DEFAULT 0,
+    disputed_orders INT DEFAULT 0,
+    completion_rate DECIMAL(5,2) DEFAULT 0,
+    total_buy_volume DECIMAL(30,8) DEFAULT 0,
+    total_sell_volume DECIMAL(30,8) DEFAULT 0,
+    total_ratings INT DEFAULT 0,
+    positive_ratings INT DEFAULT 0,
+    negative_ratings INT DEFAULT 0,
+    average_rating DECIMAL(3,2) DEFAULT 0,
+    avg_release_time INT DEFAULT 0,
+    avg_payment_time INT DEFAULT 0,
+    is_merchant BOOLEAN DEFAULT FALSE,
+    merchant_since TIMESTAMP WITH TIME ZONE,
+    first_trade_at TIMESTAMP WITH TIME ZONE,
+    last_active_at TIMESTAMP WITH TIME ZONE,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
   );`,
 
   `DO $$
@@ -1863,6 +1942,10 @@ const migrations = [
   // Track when a completed deposit has been applied to user_balances (avoids double-credit on repair).
   `ALTER TABLE deposits ADD COLUMN IF NOT EXISTS balance_applied_at TIMESTAMP WITH TIME ZONE;`,
 
+  // Tier-1 compliance: sanctions screening — flagged deposits are not credited.
+  `ALTER TABLE deposits ADD COLUMN IF NOT EXISTS is_flagged BOOLEAN DEFAULT FALSE;`,
+  `ALTER TABLE deposits ADD COLUMN IF NOT EXISTS flagged_reason TEXT;`,
+
   // FIX #2: Prevent double deposit credit — UNIQUE(chain_id|blockchain_id, tx_hash, to_address). Idempotent; no data dropped.
   `DO $$
   BEGIN
@@ -2266,6 +2349,9 @@ const migrations = [
   );`,
   `CREATE INDEX IF NOT EXISTS idx_p2p_order_messages_order_id ON p2p_order_messages(order_id);`,
 
+  // P2P payment proof upload (buyer uploads receipt when confirming payment)
+  `ALTER TABLE p2p_orders ADD COLUMN IF NOT EXISTS payment_proof_url TEXT;`,
+
   // P4: trailing_stop_market, trailing_delta, trailing_best_price, oco_group_id
   `ALTER TABLE spot_orders ADD COLUMN IF NOT EXISTS trailing_delta DECIMAL(36,18);`,
   `ALTER TABLE spot_orders ADD COLUMN IF NOT EXISTS trailing_best_price DECIMAL(36,18);`,
@@ -2287,6 +2373,49 @@ const migrations = [
       ALTER TABLE user_api_keys ADD COLUMN IF NOT EXISTS permissions JSONB DEFAULT '{}';
     END IF;
   EXCEPTION WHEN OTHERS THEN NULL;
+  END $$;`,
+
+  // P2: Iceberg orders — display_quantity (visible in book); remainder revealed as filled
+  `ALTER TABLE spot_orders ADD COLUMN IF NOT EXISTS display_quantity DECIMAL(36,18);`,
+
+  // Phase 2–4: Circuit breaker history (who opened/reset, when)
+  `CREATE TABLE IF NOT EXISTS circuit_breaker_history (
+    id BIGSERIAL PRIMARY KEY,
+    event_type VARCHAR(20) NOT NULL,
+    reason TEXT,
+    actor_type VARCHAR(20) NOT NULL DEFAULT 'system',
+    actor_id VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_circuit_breaker_history_created ON circuit_breaker_history(created_at DESC);`,
+
+  // Phase 2: Cold wallet movement log (cold address change per chain)
+  `CREATE TABLE IF NOT EXISTS cold_wallet_movements (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    chain_id VARCHAR(50) NOT NULL,
+    previous_address VARCHAR(255),
+    new_address VARCHAR(255),
+    actor_type VARCHAR(20) NOT NULL DEFAULT 'admin',
+    actor_id VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_cold_wallet_movements_chain ON cold_wallet_movements(chain_id, created_at DESC);`,
+
+  // Phase 3: feature_toggles rollout (percentage 0-100)
+  `ALTER TABLE feature_toggles ADD COLUMN IF NOT EXISTS rollout_percentage INTEGER DEFAULT 100 CHECK (rollout_percentage >= 0 AND rollout_percentage <= 100);`,
+
+  // P2P: auto_release on payment confirm (seller pre-agrees to auto-release when buyer confirms)
+  `ALTER TABLE p2p_ads ADD COLUMN IF NOT EXISTS auto_release BOOLEAN DEFAULT FALSE;`,
+
+  // Performance: composite indexes for balance reads and ticker aggregation
+  `CREATE INDEX IF NOT EXISTS idx_user_balances_user_account ON user_balances(user_id, account_type);`,
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'spot_trades' AND column_name = 'market') THEN
+      CREATE INDEX IF NOT EXISTS idx_spot_trades_market_created ON spot_trades(market, created_at DESC);
+    ELSIF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'spot_trades' AND column_name = 'trading_pair_id') THEN
+      CREATE INDEX IF NOT EXISTS idx_spot_trades_pair_created ON spot_trades(trading_pair_id, created_at DESC);
+    END IF;
   END $$;`,
 ];
 
@@ -2341,6 +2470,7 @@ async function migrate(direction: 'up' | 'down' = 'up'): Promise<void> {
           transactions,
           p2p_disputes,
           p2p_orders,
+          p2p_merchant_stats,
           escrows,
           p2p_ads,
           payment_methods,

@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
 import { useAdminAuthStore } from '@/store/admin-auth';
 import {
   useAdminUsersList,
@@ -9,18 +10,29 @@ import {
   type ListFilters,
 } from '@/lib/admin-users-api';
 import {
+  getUserGrowth,
+  getRevenue,
+  getDepositsBuckets,
+  getWithdrawalsBuckets,
+} from '@/lib/admin/analytics';
+import {
   SectionHeader,
-  DataTableContainer,
-  DataTableHead,
-  DataTableTh,
-  DataTableBody,
-  DataTableRow,
-  DataTableCell,
-  StatusBadge,
-  ActionButton,
   Panel,
+  StatusBadge,
 } from '@/components/admin/control-plane';
-import { Loader2, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
+import { ChartCard } from '@/components/admin/v2/dashboard';
+import { UserGrowthChart, RevenueChart, DepositWithdrawChart } from '@/components/admin/charts';
+import { DataTable } from '@/components/admin/v2/tables';
+import type { ColumnDef } from '@tanstack/react-table';
+import { Eye } from 'lucide-react';
+
+function formatBucketDay(bucket: string): string {
+  try {
+    return new Date(bucket).toLocaleDateString('en-US', { weekday: 'short' });
+  } catch {
+    return bucket?.slice(0, 10) ?? '—';
+  }
+}
 
 const ACCOUNT_STATUS_OPTIONS = [
   { value: 'all', label: 'All statuses' },
@@ -53,52 +65,202 @@ function UserStatusBadge({ status }: { status: string }) {
   );
 }
 
-function KycStatusCell({ kyc_status, kyc_level }: { kyc_status?: string | null; kyc_level?: number | null }) {
-  const display = kyc_status ?? (kyc_level != null ? `Tier ${kyc_level}` : null);
-  return (
-    <DataTableCell>
-      {display ? (
-        <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
-          {display}
-        </span>
-      ) : (
-        '—'
-      )}
-    </DataTableCell>
-  );
-}
-
 export default function AdminUsersPage() {
   const { accessToken } = useAdminAuthStore();
   const [search, setSearch] = useState('');
   const [accountStatus, setAccountStatus] = useState('all');
   const [kycStatus, setKycStatus] = useState('all');
   const [page, setPage] = useState(1);
-  const limit = 20;
+  const [pageSize, setPageSize] = useState(20);
 
   const filters: ListFilters = {
     page,
-    limit,
+    limit: pageSize,
     search: search.trim() || undefined,
     status: accountStatus === 'all' ? undefined : accountStatus,
     kycLevel: kycStatus === 'all' ? undefined : kycStatus,
   };
 
-  const { data, isLoading, isError, error, isFetching } = useAdminUsersList(accessToken, filters);
+  const { data, isLoading, isError, error } = useAdminUsersList(accessToken, filters);
+
+  const { data: userGrowthRes } = useQuery({
+    queryKey: ['admin', 'analytics', 'user-growth', accessToken],
+    queryFn: () => getUserGrowth(accessToken, '7d'),
+    enabled: !!accessToken,
+  });
+  const { data: revenueRes } = useQuery({
+    queryKey: ['admin', 'analytics', 'revenue', accessToken],
+    queryFn: () => getRevenue(accessToken, '7d'),
+    enabled: !!accessToken,
+  });
+  const { data: depositsRes } = useQuery({
+    queryKey: ['admin', 'analytics', 'deposits', accessToken],
+    queryFn: () => getDepositsBuckets(accessToken, '7d'),
+    enabled: !!accessToken,
+  });
+  const { data: withdrawalsRes } = useQuery({
+    queryKey: ['admin', 'analytics', 'withdrawals', accessToken],
+    queryFn: () => getWithdrawalsBuckets(accessToken, '7d'),
+    enabled: !!accessToken,
+  });
+
+  const userGrowthChartData = useMemo(() => {
+    const buckets = (userGrowthRes?.data as { buckets?: Array<{ bucket?: string; count?: number }> })?.buckets ?? [];
+    let cumulative = 0;
+    return buckets.map((b) => {
+      const count = Number(b.count ?? 0);
+      cumulative += count;
+      return { date: formatBucketDay(b.bucket ?? ''), users: cumulative, new: count };
+    });
+  }, [userGrowthRes?.data]);
+
+  const revenueChartData = useMemo(() => {
+    const buckets = (revenueRes?.data as { buckets?: Array<{ bucket?: string; revenue?: number }> })?.buckets ?? [];
+    return buckets.map((b) => ({ day: formatBucketDay(b.bucket ?? ''), revenue: Number(b.revenue ?? 0) }));
+  }, [revenueRes?.data]);
+
+  const depositWithdrawChartData = useMemo(() => {
+    const depBuckets = (depositsRes?.data as { buckets?: Array<{ bucket?: string; volume?: number }> })?.buckets ?? [];
+    const witBuckets = (withdrawalsRes?.data as { buckets?: Array<{ bucket?: string; volume?: number }> })?.buckets ?? [];
+    const byDate: Record<string, { day: string; deposit: number; withdraw: number }> = {};
+    depBuckets.forEach((b) => {
+      const key = (b.bucket ?? '').slice(0, 10);
+      const day = formatBucketDay(b.bucket ?? '');
+      if (!byDate[key]) byDate[key] = { day, deposit: 0, withdraw: 0 };
+      byDate[key].deposit = Number(b.volume ?? 0) / 1000;
+    });
+    witBuckets.forEach((b) => {
+      const key = (b.bucket ?? '').slice(0, 10);
+      const day = formatBucketDay(b.bucket ?? '');
+      if (!byDate[key]) byDate[key] = { day, deposit: 0, withdraw: 0 };
+      byDate[key].withdraw = Number(b.volume ?? 0) / 1000;
+    });
+    return Object.entries(byDate)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([, v]) => v);
+  }, [depositsRes?.data, withdrawalsRes?.data]);
 
   const users: AdminUserListItem[] = data?.data?.users ?? [];
   const pagination = data?.data?.pagination ?? { page: 1, limit: 20, total: 0 };
-  const totalPages = Math.ceil(pagination.total / pagination.limit) || 1;
   const total = pagination.total;
+
+  const columns = useMemo<ColumnDef<AdminUserListItem>[]>(
+    () => [
+      {
+        id: 'id',
+        header: 'User ID',
+        accessorKey: 'id',
+        cell: ({ getValue }) => {
+          const id = getValue() as string;
+          return (
+            <span className="max-w-[120px] truncate block font-mono text-[var(--admin-text)]" title={id}>
+              {id?.slice(0, 8)}…
+            </span>
+          );
+        },
+        enableSorting: true,
+      },
+      {
+        id: 'email',
+        header: 'Email / Identifier',
+        accessorKey: 'email',
+        cell: ({ row }) => {
+          const u = row.original;
+          return (
+            <div className="max-w-[200px]">
+              <span className="truncate block text-[var(--admin-text)]" title={u.email}>
+                {u.email || '—'}
+              </span>
+              {u.username && (
+                <span className="text-xs text-[var(--admin-text-muted)] truncate block">@{u.username}</span>
+              )}
+            </div>
+          );
+        },
+        enableSorting: true,
+      },
+      {
+        id: 'kyc',
+        header: 'KYC Status',
+        cell: ({ row }) => {
+          const u = row.original;
+          const display = u.kyc_status ?? (u.kyc_level != null ? `Tier ${u.kyc_level}` : null);
+          return display ? (
+            <span className="inline-flex rounded-full px-2 py-0.5 text-xs font-medium bg-[var(--admin-input-bg)] text-[var(--admin-text)]">
+              {display}
+            </span>
+          ) : (
+            '—'
+          );
+        },
+      },
+      {
+        id: 'status',
+        header: 'Account Status',
+        accessorKey: 'status',
+        cell: ({ getValue }) => <UserStatusBadge status={String(getValue() ?? '')} />,
+        enableSorting: true,
+      },
+      {
+        id: 'created_at',
+        header: 'Created At',
+        accessorKey: 'created_at',
+        cell: ({ getValue }) => (
+          <span className="text-xs text-[var(--admin-text-muted)]">
+            {getValue() ? new Date(String(getValue())).toLocaleString() : '—'}
+          </span>
+        ),
+        enableSorting: true,
+      },
+      {
+        id: 'actions',
+        header: 'Actions',
+        cell: ({ row }) => (
+          <Link
+            href={`/admin/users/${row.original.id}`}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-[var(--admin-primary)] hover:bg-[var(--admin-active-bg)] rounded-lg border border-transparent"
+          >
+            <Eye className="w-3.5 h-3.5" />
+            View Details
+          </Link>
+        ),
+        enableSorting: false,
+      },
+    ],
+    []
+  );
 
   return (
     <div className="space-y-5">
       <SectionHeader
-        title="Users"
-        subtitle="Explore and manage user accounts (read-only except status controls)"
+        title="User Management"
+        subtitle="Explore and manage user accounts — analytics and controls"
       />
 
-      <Panel title="Filters" subtitle="Search by email, phone, or username. Filter by account and KYC.">
+      <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+        <ChartCard title="User growth" subtitle="Cumulative — 7d" accent="primary">
+          <div className="h-[220px]">
+            <UserGrowthChart data={userGrowthChartData.length > 0 ? userGrowthChartData : undefined} />
+          </div>
+        </ChartCard>
+        <ChartCard title="Revenue trend" subtitle="7d" accent="success">
+          <div className="h-[220px]">
+            <RevenueChart data={revenueChartData.length > 0 ? revenueChartData : undefined} />
+          </div>
+        </ChartCard>
+        <ChartCard title="Deposit trends" subtitle="7d (k USDT)" accent="success">
+          <div className="h-[220px]">
+            <DepositWithdrawChart data={depositWithdrawChartData.length > 0 ? depositWithdrawChartData : undefined} />
+          </div>
+        </ChartCard>
+        <ChartCard title="Withdraw trends" subtitle="7d (k USDT)" accent="warning">
+          <div className="h-[220px]">
+            <DepositWithdrawChart data={depositWithdrawChartData.length > 0 ? depositWithdrawChartData : undefined} />
+          </div>
+        </ChartCard>
+      </section>
+
+      <Panel title="Filters" subtitle="Search by email, phone, or username. Filter by account and KYC." accent="primary">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           <input
             type="text"
@@ -142,89 +304,29 @@ export default function AdminUsersPage() {
         </div>
       </Panel>
 
-      <DataTableContainer
+      <DataTable<AdminUserListItem>
+        data={users}
+        columns={columns}
+        rowCount={total}
+        manualPagination
+        manualSorting={false}
+        pageSize={pageSize}
+        pagination={{ pageIndex: page - 1, pageSize }}
+        onPaginationChange={(updater) => {
+          const next = updater({ pageIndex: page - 1, pageSize });
+          setPage(next.pageIndex + 1);
+          setPageSize(next.pageSize);
+        }}
+        searchValue={search}
+        onSearchChange={(v) => { setSearch(v); setPage(1); }}
+        showSearch
+        showExport
+        exportFilename="admin-users"
         title="User explorer"
-        subtitle={`${total} total · page ${pagination.page} of ${totalPages}`}
-        headerAction={
-          totalPages > 1 ? (
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                disabled={page <= 1 || isFetching}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                className="p-1.5 rounded border border-gray-200 dark:border-gray-700 disabled:opacity-50 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <span className="text-xs text-gray-500 dark:text-gray-400 px-2">
-                {pagination.page} / {totalPages}
-              </span>
-              <button
-                type="button"
-                disabled={page >= totalPages || isFetching}
-                onClick={() => setPage((p) => p + 1)}
-                className="p-1.5 rounded border border-gray-200 dark:border-gray-700 disabled:opacity-50 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          ) : null
-        }
+        subtitle={`${total} total`}
         emptyMessage={isError ? (error instanceof Error ? error.message : 'Failed to load users') : 'No users found'}
-        isEmpty={!isLoading && !isError && users.length === 0}
-      >
-        <DataTableHead>
-          <DataTableTh>User ID</DataTableTh>
-          <DataTableTh>Email / Identifier</DataTableTh>
-          <DataTableTh>KYC Status</DataTableTh>
-          <DataTableTh>Account Status</DataTableTh>
-          <DataTableTh>Created At</DataTableTh>
-          <DataTableTh align="right">Actions</DataTableTh>
-        </DataTableHead>
-        <DataTableBody>
-          {users.map((u) => (
-            <DataTableRow key={u.id}>
-              <DataTableCell mono className="max-w-[120px] truncate" title={u.id}>
-                {u.id.slice(0, 8)}…
-              </DataTableCell>
-              <DataTableCell>
-                <div className="max-w-[200px]">
-                  <span className="truncate block text-gray-900 dark:text-white" title={u.email}>
-                    {u.email || '—'}
-                  </span>
-                  {u.username && (
-                    <span className="text-xs text-gray-500 dark:text-gray-400 truncate block">
-                      @{u.username}
-                    </span>
-                  )}
-                </div>
-              </DataTableCell>
-              <KycStatusCell kyc_status={u.kyc_status} kyc_level={u.kyc_level} />
-              <DataTableCell>
-                <UserStatusBadge status={u.status} />
-              </DataTableCell>
-              <DataTableCell className="text-xs text-gray-500 dark:text-gray-400">
-                {u.created_at ? new Date(u.created_at).toLocaleString() : '—'}
-              </DataTableCell>
-              <DataTableCell align="right">
-                <Link
-                  href={`/admin/users/${u.id}`}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg border border-transparent hover:border-blue-200 dark:hover:border-blue-800"
-                >
-                  <Eye className="w-3.5 h-3.5" />
-                  View Details
-                </Link>
-              </DataTableCell>
-            </DataTableRow>
-          ))}
-        </DataTableBody>
-      </DataTableContainer>
-
-      {isLoading && (
-        <div className="flex justify-center py-8">
-          <Loader2 className="w-8 h-8 text-gray-400 animate-spin" />
-        </div>
-      )}
+        isLoading={isLoading}
+      />
     </div>
   );
 }

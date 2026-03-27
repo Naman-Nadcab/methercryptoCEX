@@ -5,19 +5,9 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useAdminAuthStore } from '@/store/admin-auth';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
-import {
-  SectionHeader,
-  Panel,
-  DataTableContainer,
-  DataTableHead,
-  DataTableTh,
-  DataTableBody,
-  DataTableRow,
-  DataTableCell,
-  StatusBadge,
-  ActionButton,
-} from '@/components/admin/control-plane';
-import { Loader2, AlertTriangle, ChevronRight } from 'lucide-react';
+import { Card, Table, Tag, Select, Button, Space, Row, Col } from 'antd';
+import { AdminChartCard, RevenueChart, TradeDistributionChart } from '@/components/admin/charts';
+import { Loader2, AlertTriangle, ChevronRight, FileDown } from 'lucide-react';
 
 const API_URL = getApiBaseUrl();
 
@@ -76,108 +66,127 @@ export default function ComplianceAlertsPage() {
     fetchAlerts();
   }, [fetchAlerts]);
 
-  const severityVariant = (s: string): 'LIVE' | 'DEGRADED' | 'RISK' | 'NEUTRAL' =>
-    s === 'high' ? 'RISK' : s === 'medium' ? 'DEGRADED' : 'NEUTRAL';
+  const severityColor = (s: string) => (s === 'high' ? 'red' : s === 'medium' ? 'orange' : 'default');
+  const statusColor = (s: string) => (s === 'closed' ? 'default' : s === 'reviewing' ? 'processing' : 'error');
+
+  const columns = [
+    { title: 'Alert ID', dataIndex: 'id', key: 'id', render: (v: string) => <span className="font-mono text-xs">{v.slice(0, 8)}…</span> },
+    { title: 'User', dataIndex: 'user_id', key: 'user_id', render: (v: string) => <span className="font-mono text-xs">{v.slice(0, 8)}…</span> },
+    { title: 'Type', dataIndex: 'alert_type', key: 'alert_type' },
+    {
+      title: 'Severity',
+      dataIndex: 'severity',
+      key: 'severity',
+      render: (v: string) => <Tag color={severityColor(v)}>{v}</Tag>,
+    },
+    {
+      title: 'Status',
+      dataIndex: 'status',
+      key: 'status',
+      render: (v: string) => <Tag color={statusColor(v)}>{v}</Tag>,
+    },
+    {
+      title: 'Created',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      render: (v: string) => <span className="text-xs admin-metric-label">{new Date(v).toLocaleString()}</span>,
+    },
+    {
+      title: '',
+      key: 'action',
+      render: (_: unknown, r: AmlAlert) => (
+        <Link href={`/admin/compliance/alerts/${r.id}`}>
+          <Button type="link" size="small" icon={<ChevronRight className="w-4 h-4" />}>
+            View
+          </Button>
+        </Link>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-6">
-      <SectionHeader
-        title="AML Alerts"
-        subtitle="Review and escalate alerts. Update status or escalate to STR."
-      />
-      {error && (
-        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 flex items-center gap-3 text-red-200">
-          <AlertTriangle className="w-5 h-5 shrink-0" />
-          <span>{error}</span>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-bold admin-metric-value">AML Alerts</h1>
+          <p className="text-sm admin-metric-label mt-0.5">
+            Review and escalate alerts. Update status or escalate to STR.
+          </p>
         </div>
+        <Space>
+          <Link href="/admin/compliance/reports">
+            <Button type="primary" icon={<FileDown className="w-4 h-4" />}>
+              STR / CTR Reports
+            </Button>
+          </Link>
+        </Space>
+      </div>
+
+      <Row gutter={[16, 16]}>
+        <Col xs={24} md={12}>
+          <AdminChartCard title="Alert volume trend" subtitle="7d — proxy">
+            <RevenueChart />
+          </AdminChartCard>
+        </Col>
+        <Col xs={24} md={12}>
+          <AdminChartCard title="Risk distribution" subtitle="By severity — 24h">
+            <TradeDistributionChart />
+          </AdminChartCard>
+        </Col>
+      </Row>
+
+      {error && (
+        <Card className="border-red-500/30 bg-red-500/10">
+          <div className="flex items-center gap-3 text-red-200">
+            <AlertTriangle className="w-5 h-5 shrink-0" />
+            <span>{error}</span>
+          </div>
+        </Card>
       )}
 
-      <Panel>
+      <Card title="Alerts" className="admin-card">
         <div className="flex flex-wrap gap-3 mb-4">
-          <select
+          <Select
             value={statusFilter}
-            onChange={(e) => { setStatusFilter(e.target.value); setPage(0); }}
-            className="rounded-lg border border-gray-600 bg-gray-800 text-gray-200 px-3 py-2 text-sm"
-          >
-            <option value="">All statuses</option>
-            <option value="open">Open</option>
-            <option value="reviewing">Reviewing</option>
-            <option value="closed">Closed</option>
-          </select>
-          <select
+            onChange={(v) => { setStatusFilter(v); setPage(0); }}
+            placeholder="Status"
+            style={{ minWidth: 140 }}
+            options={[
+              { value: '', label: 'All statuses' },
+              { value: 'open', label: 'Open' },
+              { value: 'reviewing', label: 'Reviewing' },
+              { value: 'closed', label: 'Closed' },
+            ]}
+          />
+          <Select
             value={severityFilter}
-            onChange={(e) => { setSeverityFilter(e.target.value); setPage(0); }}
-            className="rounded-lg border border-gray-600 bg-gray-800 text-gray-200 px-3 py-2 text-sm"
-          >
-            <option value="">All severities</option>
-            <option value="high">High</option>
-            <option value="medium">Medium</option>
-            <option value="low">Low</option>
-          </select>
+            onChange={(v) => { setSeverityFilter(v); setPage(0); }}
+            placeholder="Severity"
+            style={{ minWidth: 140 }}
+            options={[
+              { value: '', label: 'All severities' },
+              { value: 'high', label: 'High' },
+              { value: 'medium', label: 'Medium' },
+              { value: 'low', label: 'Low' },
+            ]}
+          />
         </div>
 
-        {loading && !alerts.length ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-8 h-8 text-gray-400 animate-spin" />
-          </div>
-        ) : (
-          <DataTableContainer>
-            <DataTableHead>
-              <DataTableRow>
-                <DataTableTh>Alert ID</DataTableTh>
-                <DataTableTh>User</DataTableTh>
-                <DataTableTh>Type</DataTableTh>
-                <DataTableTh>Severity</DataTableTh>
-                <DataTableTh>Status</DataTableTh>
-                <DataTableTh>Created</DataTableTh>
-                <DataTableTh className="w-20">{''}</DataTableTh>
-              </DataTableRow>
-            </DataTableHead>
-            <DataTableBody>
-              {alerts.map((a) => (
-                <DataTableRow key={a.id}>
-                  <DataTableCell className="font-mono text-xs">{a.id.slice(0, 8)}…</DataTableCell>
-                  <DataTableCell className="font-mono text-xs">{a.user_id.slice(0, 8)}…</DataTableCell>
-                  <DataTableCell>{a.alert_type}</DataTableCell>
-                  <DataTableCell>
-                    <StatusBadge variant={severityVariant(a.severity)} label={a.severity} showDot />
-                  </DataTableCell>
-                  <DataTableCell>
-                    <StatusBadge
-                      variant={a.status === 'closed' ? 'NEUTRAL' : a.status === 'reviewing' ? 'DEGRADED' : 'RISK'}
-                      label={a.status}
-                      showDot
-                    />
-                  </DataTableCell>
-                  <DataTableCell className="text-gray-400 text-xs">
-                    {new Date(a.created_at).toLocaleString()}
-                  </DataTableCell>
-                  <DataTableCell>
-                    <Link href={`/admin/compliance/alerts/${a.id}`}>
-                      <ActionButton variant="ghost" icon={<ChevronRight className="w-4 h-4" />}>
-                        View
-                      </ActionButton>
-                    </Link>
-                  </DataTableCell>
-                </DataTableRow>
-              ))}
-            </DataTableBody>
-          </DataTableContainer>
-        )}
-        {total > limit && (
-          <div className="mt-4 flex items-center justify-between text-sm text-gray-400">
-            <span>Total {total} alerts</span>
-            <div className="flex gap-2">
-              <ActionButton variant="secondary" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
-                Previous
-              </ActionButton>
-              <ActionButton variant="secondary" disabled={(page + 1) * limit >= total} onClick={() => setPage((p) => p + 1)}>
-                Next
-              </ActionButton>
-            </div>
-          </div>
-        )}
-      </Panel>
+        <Table
+          dataSource={alerts}
+          columns={columns}
+          rowKey="id"
+          loading={loading}
+          pagination={{
+            current: page + 1,
+            pageSize: limit,
+            total,
+            showSizeChanger: false,
+            onChange: (p) => setPage(p - 1),
+          }}
+          size="small"
+        />
+      </Card>
     </div>
   );
 }

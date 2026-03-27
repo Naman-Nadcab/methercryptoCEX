@@ -33,7 +33,26 @@ function send(socket: WebSocket, payload: object): void {
   }
 }
 
-export function registerConnection(socket: WebSocket, userId?: string): string {
+function countConnectionsForUser(userId: string): number {
+  let n = 0;
+  for (const c of connections.values()) {
+    if (c.userId === userId) n++;
+  }
+  return n;
+}
+
+/**
+ * Register a new connection. Returns connection id, or null if at capacity (DoS protection).
+ */
+export function registerConnection(socket: WebSocket, userId?: string): string | null {
+  if (connections.size >= config.ws.maxConnectionsGlobal) {
+    logger.warn('Spot WS: global connection limit reached', { limit: config.ws.maxConnectionsGlobal });
+    return null;
+  }
+  if (userId && countConnectionsForUser(userId) >= config.ws.maxConnectionsPerUser) {
+    logger.warn('Spot WS: per-user connection limit reached', { userId, limit: config.ws.maxConnectionsPerUser });
+    return null;
+  }
   const id = genId();
   connections.set(id, { id, socket, userId, subscriptions: new Set() });
   return id;
@@ -46,8 +65,8 @@ export function unregisterConnection(connectionId: string): void {
 export function subscribe(connectionId: string, channel: string): boolean {
   const conn = connections.get(connectionId);
   if (!conn) return false;
-  // user.orders and user.trades require auth
-  if ((channel === 'user.orders' || channel === 'user.trades') && !conn.userId) return false;
+  // user.orders, user.trades, user.p2p_orders require auth
+  if ((channel === 'user.orders' || channel === 'user.trades' || channel === 'user.p2p_orders') && !conn.userId) return false;
   conn.subscriptions.add(channel);
   return true;
 }
@@ -69,7 +88,9 @@ function doBroadcast(channel: string, type: string, data: unknown): void {
   }
 }
 
-function doSendToUser(userId: string, channel: 'user.orders' | 'user.trades', type: string, data: unknown): void {
+type UserChannel = 'user.orders' | 'user.trades' | 'user.p2p_orders';
+
+function doSendToUser(userId: string, channel: UserChannel, type: string, data: unknown): void {
   const payload = { type, channel, data };
   for (const conn of connections.values()) {
     if (conn.userId === userId && conn.subscriptions.has(channel)) send(conn.socket, payload);
@@ -88,7 +109,7 @@ export function broadcast(channel: string, type: string, data: unknown): void {
 }
 
 /** Send to user connections. Uses Redis Pub/Sub when REDIS_WS_PUBSUB_ENABLED. */
-export function sendToUser(userId: string, channel: 'user.orders' | 'user.trades', type: string, data: unknown): void {
+export function sendToUser(userId: string, channel: UserChannel, type: string, data: unknown): void {
   if (config.redis.wsPubSubEnabled) {
     redis.publish(SPOT_WS_USER_CH, JSON.stringify({ userId, channel, type, data })).catch((e) =>
       logger.warn('Spot WS Redis publish failed', { error: e instanceof Error ? e.message : String(e) })
@@ -96,6 +117,11 @@ export function sendToUser(userId: string, channel: 'user.orders' | 'user.trades
   } else {
     doSendToUser(userId, channel, type, data);
   }
+}
+
+/** Send P2P order update to user. Subscribe to channel "user.p2p_orders". */
+export function sendP2POrderUpdate(userId: string, order: { id: string; status: string; [k: string]: unknown }): void {
+  sendToUser(userId, 'user.p2p_orders', 'p2p_order_update', order);
 }
 
 /** Start Redis Pub/Sub subscriber for multi-instance WS. Call once at server startup. */
@@ -113,7 +139,7 @@ export async function startSpotWsPubSub(): Promise<void> {
     await redis.subscribe(SPOT_WS_USER_CH, (message: string) => {
       try {
         const { userId, channel, type, data } = JSON.parse(message);
-        if (userId && channel && type) doSendToUser(userId, channel as 'user.orders' | 'user.trades', type, data);
+        if (userId && channel && type) doSendToUser(userId, channel as UserChannel, type, data);
       } catch (e) {
         logger.warn('Spot WS Redis message parse failed', { error: e instanceof Error ? e.message : String(e) });
       }

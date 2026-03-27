@@ -29,23 +29,53 @@ export function validateHotWalletEnv(): void {
 }
 
 /**
- * Production-specific config checks. Logs warnings for misconfigurations.
- * Does not block startup; operator must fix before handling real money.
+ * Production-specific config checks. FAIL CLOSED: blocks startup on critical misconfig.
  */
 export function validateProductionConfig(): void {
   if (process.env.NODE_ENV !== 'production') return;
 
+  const errors: string[] = [];
   const warnings: string[] = [];
 
+  // P0: Admin IP whitelist must be set in production (fail-closed)
   const adminIps = (process.env.ADMIN_IP_WHITELIST ?? '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
   if (adminIps.length === 0) {
-    warnings.push('ADMIN_IP_WHITELIST is empty. No admin will be able to access. Set it before production use.');
+    errors.push(
+      'ADMIN_IP_WHITELIST is empty in production. Set comma-separated admin IPs (e.g. 1.2.3.4,10.0.0.0/8). Server will not start until fixed.'
+    );
+  }
+
+  // P0: Block plain private key in env (production only)
+  const raw = process.env.HOT_WALLET_PRIVATE_KEY?.trim();
+  if (raw && raw.length > 0) {
+    errors.push(
+      'HOT_WALLET_PRIVATE_KEY must not be set in production. Use HSM/KMS and encrypted keys only. Remove HOT_WALLET_PRIVATE_KEY from env.'
+    );
+  }
+
+  // P1: Warn if ALERT_WEBHOOK_URL empty (circuit breaker alerts)
+  const alertUrl = process.env.ALERT_WEBHOOK_URL?.trim();
+  if (!alertUrl) {
+    warnings.push('ALERT_WEBHOOK_URL is empty. Circuit breaker and integrity alerts will not be sent. Set Slack/email webhook for production.');
+  }
+
+  // P1: Warn if DB SSL verification disabled for remote DB
+  const dbUrl = process.env.DATABASE_URL ?? '';
+  const isLocalDb = dbUrl.includes('localhost') || dbUrl.includes('127.0.0.1');
+  const sslReject = process.env.DATABASE_SSL_REJECT_UNAUTHORIZED ?? 'true';
+  if (!isLocalDb && (sslReject === 'false' || sslReject === '0')) {
+    warnings.push('DATABASE_SSL_REJECT_UNAUTHORIZED=false with remote DB. Use true in production to verify server cert, or document private-network-only.');
+  }
+
+  if (errors.length > 0) {
+    logger.error('Production config validation FAILED. Server will not start.', { errors });
+    process.exit(1);
   }
 
   if (warnings.length > 0) {
-    logger.warn('Production config warnings (fix before handling real money)', { warnings });
+    logger.warn('Production config warnings', { warnings });
   }
 }

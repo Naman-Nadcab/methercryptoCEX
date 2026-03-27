@@ -3,19 +3,19 @@
 export type StatusBadgeVariant = 'LIVE' | 'HALTED' | 'DEGRADED' | 'RISK' | 'NEUTRAL';
 
 const variantStyles: Record<StatusBadgeVariant, string> = {
-  LIVE: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30',
-  HALTED: 'bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/30',
-  DEGRADED: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30',
-  RISK: 'bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/30',
-  NEUTRAL: 'bg-gray-500/15 text-gray-600 dark:text-gray-400 border border-gray-500/30',
+  LIVE: 'bg-[#10B981]/15 text-[#10B981] border border-[#10B981]/30',
+  HALTED: 'bg-[#EF4444]/15 text-[#EF4444] border border-[#EF4444]/30',
+  DEGRADED: 'bg-[#F59E0B]/15 text-[#F59E0B] border border-[#F59E0B]/30',
+  RISK: 'bg-[#EF4444]/15 text-[#EF4444] border border-[#EF4444]/30',
+  NEUTRAL: 'bg-[#6B7280]/15 text-[#6B7280] border border-[#6B7280]/30',
 };
 
 const dotStyles: Record<StatusBadgeVariant, string> = {
-  LIVE: 'bg-emerald-500',
-  HALTED: 'bg-red-500',
-  DEGRADED: 'bg-amber-500 animate-pulse',
-  RISK: 'bg-red-500 animate-pulse',
-  NEUTRAL: 'bg-gray-500',
+  LIVE: 'bg-[#10B981]',
+  HALTED: 'bg-[#EF4444]',
+  DEGRADED: 'bg-[#F59E0B] animate-pulse',
+  RISK: 'bg-[#EF4444] animate-pulse',
+  NEUTRAL: 'bg-[#6B7280]',
 };
 
 export interface StatusBadgeProps {
@@ -34,7 +34,7 @@ export function StatusBadge({
   const displayLabel = label ?? variant;
   return (
     <span
-      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[4px] text-[11px] font-medium tabular-nums ${variantStyles[variant]} ${className}`}
+      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[11px] font-medium tabular-nums ${variantStyles[variant]} ${className}`}
       role="status"
     >
       {showDot && (

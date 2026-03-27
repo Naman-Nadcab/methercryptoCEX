@@ -4,6 +4,13 @@
 
 @layer base {
   :root {
+    /* Spot — tier-1 trading green/red (saturated; works with blue/gray chrome elsewhere) */
+    --exchange-buy: 158 88% 36%;
+    --exchange-sell: 350 92% 48%;
+    --price-up: 158 88% 36%;
+    --price-down: 350 92% 48%;
+    --panel: 220 14% 96%;
+
     --background: 0 0% 100%;
     --foreground: 222.2 84% 4.9%;
     --card: 0 0% 100%;
@@ -27,6 +34,12 @@
   }
 
   .dark {
+    --exchange-buy: 158 90% 42%;
+    --exchange-sell: 350 95% 54%;
+    --price-up: 158 90% 42%;
+    --price-down: 350 95% 54%;
+    --panel: 222 47% 8%;
+
     --background: 224 71% 4%;
     --foreground: 213 31% 91%;
     --card: 224 71% 4%;
@@ -229,113 +242,139 @@ input[type="number"] {
   transform: translateY(0);
 }
 
-/* ========== ADMIN PANEL: Tier-1 Exchange Backoffice Design System ========== */
-/* Data-dense, operator-focused, institutional. Dark default, light optional. */
+/* ========== ADMIN PANEL: Trezo-style LIGHT (screenshot design) ========== */
+/* Light theme: white/light gray cards, purple accent, dark text. */
 
 .admin-panel {
-  font-family: var(--font-inter), 'IBM Plex Sans', system-ui, sans-serif;
-  font-size: 13px;
-  /* Density: tight spacing */
-  --admin-space-1: 4px;
-  --admin-space-2: 8px;
-  --admin-space-3: 12px;
-  --admin-space-4: 16px;
-  --admin-radius: 4px;
-  --admin-sidebar-w: 220px;
+  font-family: var(--font-inter), 'Inter', system-ui, sans-serif;
+  font-size: 14px;
+  --admin-bg: #F8FAFC;
+  --admin-card-bg: #FFFFFF;
+  --admin-card-border: #E5E7EB;
+  --admin-sidebar-bg: #FFFFFF;
+  --admin-header-bg: #F8FAFC;
+  --admin-text: #1F2937;
+  --admin-text-muted: #6B7280;
+  --admin-active-bg: rgba(124, 58, 237, 0.1);
+  --admin-hover-bg: #F9FAFB;
+  --admin-primary: #7C3AED;
+  --admin-primary-light: #8B5CF6;
+  --admin-success: #10B981;
+  --admin-warning: #F59E0B;
+  --admin-danger: #EF4444;
+  --admin-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.08), 0 1px 2px -1px rgba(0, 0, 0, 0.06);
+  --admin-shadow-hover: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+  --admin-space-1: 8px;
+  --admin-space-2: 16px;
+  --admin-space-3: 20px;
+  --admin-space-4: 24px;
+  --admin-radius: 12px;
+  --admin-sidebar-w: 260px;
+  --admin-accent-users: #6366F1;
+  --admin-accent-wallets: #0EA5E9;
+  --admin-accent-trading: #7C3AED;
+  --admin-accent-p2p: #8B5CF6;
+  --admin-accent-risk: #F59E0B;
+  --admin-accent-reports: #10B981;
+  --chart-primary: #7C3AED;
+  --chart-secondary: #6366F1;
+  --chart-success: #10B981;
+  --chart-warning: #F59E0B;
+  --chart-danger: #EF4444;
+  --chart-grid: #E5E7EB;
+  --admin-muted: #6B7280;
+  --admin-input-bg: #F3F4F6;
+  color: var(--admin-text);
+  background: var(--admin-bg);
 }
 
-/* ---- Dark theme (default) ---- */
-.dark .admin-panel {
-  --admin-bg: 222 18% 7%;
-  --admin-bg-elevated: 222 16% 10%;
-  --admin-bg-overlay: 222 14% 12%;
-  --admin-fg: 210 14% 92%;
-  --admin-fg-muted: 215 12% 62%;
-  --admin-border: 220 12% 18%;
-  --admin-border-subtle: 220 12% 14%;
-  --admin-accent: 210 100% 52%;
-  --admin-accent-fg: 0 0% 100%;
-  --admin-danger: 0 72% 51%;
-  --admin-warning: 38 92% 50%;
-  --admin-success: 142 71% 45%;
+.admin-panel .admin-card {
+  background: var(--admin-card-bg);
+  border: 1px solid var(--admin-card-border);
+  border-radius: var(--admin-radius);
+  box-shadow: var(--admin-shadow);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
-/* ---- Light theme ---- */
-.admin-panel.light-theme,
-:root:not(.dark) .admin-panel {
-  --admin-bg: 210 20% 98%;
-  --admin-bg-elevated: 0 0% 100%;
-  --admin-bg-overlay: 210 20% 96%;
-  --admin-fg: 220 18% 14%;
-  --admin-fg-muted: 215 14% 42%;
-  --admin-border: 214 20% 88%;
-  --admin-border-subtle: 214 24% 92%;
-  --admin-accent: 210 100% 45%;
-  --admin-accent-fg: 0 0% 100%;
-  --admin-danger: 0 72% 51%;
-  --admin-warning: 38 92% 45%;
-  --admin-success: 142 71% 40%;
+.admin-panel .admin-card:hover {
+  box-shadow: var(--admin-shadow-hover);
 }
 
-/* Map to Tailwind-style tokens for admin */
-.dark .admin-panel {
-  --background: var(--admin-bg);
-  --foreground: var(--admin-fg);
-  --card: var(--admin-bg-elevated);
-  --card-foreground: var(--admin-fg);
-  --muted: var(--admin-bg-overlay);
-  --muted-foreground: var(--admin-fg-muted);
-  --border: var(--admin-border);
-  --primary: var(--admin-accent);
-  --primary-foreground: var(--admin-accent-fg);
-  --ring: var(--admin-accent);
+.admin-panel .admin-sidebar {
+  background: var(--admin-sidebar-bg);
+  border-right: 1px solid var(--admin-card-border);
 }
-.admin-panel.light-theme,
-:root:not(.dark) .admin-panel {
-  --background: var(--admin-bg);
-  --foreground: var(--admin-fg);
-  --card: var(--admin-bg-elevated);
-  --card-foreground: var(--admin-fg);
-  --muted: var(--admin-bg-overlay);
-  --muted-foreground: var(--admin-fg-muted);
-  --border: var(--admin-border);
-  --primary: var(--admin-accent);
-  --primary-foreground: var(--admin-accent-fg);
-  --ring: var(--admin-accent);
+
+.admin-panel .admin-header {
+  background: var(--admin-header-bg);
+  border-bottom: 1px solid var(--admin-card-border);
+  height: 64px;
+}
+
+.admin-panel {
+  --background: 220 20% 97%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --muted: 220 14% 96%;
+  --muted-foreground: 215 16% 47%;
+  --border: 214 32% 91%;
+  --primary: 263 70% 58%;
+  --primary-foreground: 0 0% 100%;
+  --ring: 263 70% 58%;
+  --destructive: 0 84% 60%;
 }
 
 @keyframes admin-fade-in { from { opacity: 0; } to { opacity: 1; } }
-@keyframes admin-slide-up { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes admin-scale-in { from { opacity: 0; transform: scale(0.99); } to { opacity: 1; transform: scale(1); } }
+@keyframes admin-slide-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes admin-scale-in { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
+@keyframes admin-skeleton { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
-.admin-panel .animate-admin-fade-in { animation: admin-fade-in 0.15s ease-out; }
-.admin-panel .animate-admin-slide-up { animation: admin-slide-up 0.2s ease-out; }
-.admin-panel .animate-admin-scale-in { animation: admin-scale-in 0.15s ease-out; }
+.admin-panel .animate-admin-fade-in { animation: admin-fade-in 0.2s ease-out; }
+.admin-panel .animate-admin-slide-up { animation: admin-slide-up 0.25s cubic-bezier(0.22, 1, 0.36, 1); }
+.admin-panel .animate-admin-scale-in { animation: admin-scale-in 0.2s ease-out; }
 
-/* Admin tables: dense, sticky header (all tables in admin) */
+.admin-panel .admin-skeleton {
+  background: linear-gradient(90deg, #F3F4F6 25%, #E5E7EB 50%, #F3F4F6 75%);
+  background-size: 200% 100%;
+  animation: admin-skeleton 1.5s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+/* Admin tables: modern SaaS CRM style */
 .admin-panel table thead {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: hsl(var(--admin-bg-elevated));
+  background: #FFFFFF;
 }
+
 .admin-panel table th {
-  font-weight: 600;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  padding: var(--admin-space-2) var(--admin-space-3);
-  border-bottom: 1px solid hsl(var(--admin-border));
-}
-.admin-panel table td {
-  padding: var(--admin-space-2) var(--admin-space-3);
-  border-bottom: 1px solid hsl(var(--admin-border-subtle));
-  vertical-align: middle;
+  font-weight: 500;
   font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6B7280;
+  padding: 14px 20px;
+  border-bottom: 1px solid #E5E7EB;
 }
+
+.admin-panel table td {
+  padding: 14px 20px;
+  border-bottom: 1px solid #F3F4F6;
+  vertical-align: middle;
+  font-size: 14px;
+  color: #111827;
+}
+
+.admin-panel table tbody tr {
+  transition: background 0.15s ease;
+}
+
 .admin-panel table tbody tr:hover {
-  background: hsl(var(--admin-bg-overlay) / 0.6);
+  background: #F9FAFB;
 }
+
 .admin-panel table .num {
   font-variant-numeric: tabular-nums;
   text-align: right;

@@ -2,12 +2,91 @@
  * Spot-only risk validation. System is strictly SPOT + P2P; no margin/derivatives.
  * Decimal.js only. ROUND_DOWN only.
  * Uses user_balances (trading) as single source of truth.
+ * P0: Pre-trade velocity, large order, position limits.
  */
 import { Decimal } from '../lib/decimal.js';
 import { db } from '../lib/database.js';
+import { redis } from '../lib/redis.js';
+import { config } from '../config/index.js';
 import { CHAIN_ID_GLOBAL } from '../lib/user-balance-helper.js';
+import { logger } from '../lib/logger.js';
 
 const ROUND_DOWN = 1;
+const VELOCITY_KEY_PREFIX = 'spot:order_velocity:';
+const VELOCITY_WINDOW_SEC = 60;
+
+export interface PreTradeRiskResult {
+  allowed: boolean;
+  reason?: string;
+  code?: string;
+}
+
+/**
+ * Check order velocity: max N orders per minute per user.
+ */
+export async function checkOrderVelocity(userId: string): Promise<PreTradeRiskResult> {
+  const limit = config.preTradeRisk.spotOrderVelocityPerMin;
+  const key = `${VELOCITY_KEY_PREFIX}${userId}`;
+  try {
+    const n = await redis.incr(key);
+    if (n === 1) await redis.expire(key, VELOCITY_WINDOW_SEC);
+    if (n > limit) {
+      return { allowed: false, reason: `Order velocity exceeded (max ${limit}/min)`, code: 'ORDER_VELOCITY_EXCEEDED' };
+    }
+    return { allowed: true };
+  } catch (e) {
+    logger.warn('Pre-trade velocity check failed, allowing', { userId, error: e instanceof Error ? e.message : String(e) });
+    return { allowed: true };
+  }
+}
+
+/**
+ * Large order check: reject if notional (quote) > threshold. 0 = disabled.
+ */
+export function checkLargeOrder(notionalUsdt: string): PreTradeRiskResult {
+  const threshold = config.preTradeRisk.spotLargeOrderNotionalUsdt;
+  if (threshold <= 0) return { allowed: true };
+  try {
+    const n = new Decimal(notionalUsdt);
+    if (n.gt(threshold)) {
+      return { allowed: false, reason: `Order size exceeds limit (max ${threshold} USDT notional)`, code: 'LARGE_ORDER_REJECTED' };
+    }
+    return { allowed: true };
+  } catch {
+    return { allowed: true };
+  }
+}
+
+/**
+ * Max open notional: sum of open order notional per user. 0 = disabled.
+ */
+export async function checkMaxOpenNotional(userId: string, symbol: string, additionalNotionalUsdt: string): Promise<PreTradeRiskResult> {
+  const maxNotional = config.preTradeRisk.spotMaxOpenNotionalUsdt;
+  if (maxNotional <= 0) return { allowed: true };
+  try {
+    const rows = await db.query<{ price: string; remaining_quantity: string; quote_asset: string }>(
+      `SELECT o.price, o.remaining_quantity, m.quote_asset
+       FROM spot_orders o
+       JOIN spot_markets m ON m.symbol = o.market
+       WHERE o.user_id = $1 AND o.status IN ('OPEN', 'PARTIALLY_FILLED')`,
+      [userId]
+    );
+    let totalUsdt = new Decimal(0);
+    for (const r of rows.rows) {
+      if (r.quote_asset !== 'USDT' && r.quote_asset !== 'USD' && r.quote_asset !== 'BUSD') continue;
+      const notional = new Decimal(r.price || '0').times(r.remaining_quantity || '0');
+      totalUsdt = totalUsdt.plus(notional);
+    }
+    totalUsdt = totalUsdt.plus(additionalNotionalUsdt);
+    if (totalUsdt.gt(maxNotional)) {
+      return { allowed: false, reason: `Open order exposure exceeds limit (max ${maxNotional} USDT)`, code: 'MAX_OPEN_NOTIONAL_EXCEEDED' };
+    }
+    return { allowed: true };
+  } catch (e) {
+    logger.warn('Pre-trade max open notional check failed, allowing', { userId, error: e instanceof Error ? e.message : String(e) });
+    return { allowed: true };
+  }
+}
 
 export interface ValidateSpotOrderRiskParams {
   user_id: string;

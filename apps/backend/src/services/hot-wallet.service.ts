@@ -523,11 +523,30 @@ export async function setMinHotBalance(chainId: string, minHotBalance: string): 
   );
 }
 
-export async function setColdWalletAddress(chainId: string, coldWalletAddress: string | null): Promise<void> {
+export async function setColdWalletAddress(
+  chainId: string,
+  coldWalletAddress: string | null,
+  actorId?: string | null,
+  actorType: string = 'admin'
+): Promise<void> {
+  const prev = await db.query<{ cold_wallet_address: string | null }>(
+    'SELECT cold_wallet_address FROM hot_wallets WHERE chain_id = $1',
+    [chainId]
+  );
+  const previousAddress = prev.rows[0]?.cold_wallet_address ?? null;
   await db.query(
     'UPDATE hot_wallets SET cold_wallet_address = $1, updated_at = CURRENT_TIMESTAMP WHERE chain_id = $2',
     [coldWalletAddress, chainId]
   );
+  try {
+    await db.query(
+      `INSERT INTO cold_wallet_movements (chain_id, previous_address, new_address, actor_type, actor_id)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [chainId, previousAddress, coldWalletAddress, actorType, actorId ?? null]
+    );
+  } catch {
+    // best-effort
+  }
 }
 
 export async function setHotWalletActive(

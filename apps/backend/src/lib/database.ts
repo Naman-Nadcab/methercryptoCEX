@@ -5,20 +5,24 @@ export type Queryable = { query<T = any>(...args: any[]): Promise<any> };
 import { config } from '../config/index.js';
 import { logger } from './logger.js';
 
+const SLOW_QUERY_MS = 100;
+
 class Database {
   private pool: Pool;
+  private readPool: Pool | null = null;
   private static instance: Database;
 
   private constructor() {
+    const sslConfig = config.database.url.includes('localhost') || config.database.url.includes('127.0.0.1')
+      ? false
+      : { rejectUnauthorized: config.database.sslRejectUnauthorized };
     this.pool = new Pool({
       connectionString: config.database.url,
       min: config.database.poolMin,
       max: config.database.poolMax,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 10000,
-      ssl: {
-        rejectUnauthorized: false,
-      },
+      ...(sslConfig && { ssl: sslConfig }),
     });
 
     this.pool.on('error', (err) => {
@@ -28,6 +32,26 @@ class Database {
     this.pool.on('connect', () => {
       logger.debug('New database connection established');
     });
+
+    if (config.database.readReplicaUrl) {
+      const readSsl = config.database.readReplicaUrl.includes('localhost') || config.database.readReplicaUrl.includes('127.0.0.1')
+        ? false
+        : { rejectUnauthorized: config.database.sslRejectUnauthorized };
+      this.readPool = new Pool({
+        connectionString: config.database.readReplicaUrl,
+        min: Math.max(1, Math.floor(config.database.poolMin / 2)),
+        max: config.database.poolMax,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 10000,
+        ...(readSsl && { ssl: readSsl }),
+      });
+    }
+  }
+
+  /** For read-only queries when read replica is configured. Use for heavy SELECTs (orderbook, tickers). */
+  async queryRead<T extends QueryResultRow = QueryResultRow>(text: string, params?: unknown[]): Promise<QueryResult<T>> {
+    const pool = this.readPool ?? this.pool;
+    return pool.query<T>(text, params);
   }
 
   public static getInstance(): Database {
@@ -53,19 +77,27 @@ class Database {
   ): Promise<QueryResult<T>> {
     Database.guardDeprecatedBalancesTable(text);
     const start = Date.now();
+    const operation = text.replace(/\s+/g, ' ').trim().substring(0, 80);
     try {
       const result = await this.pool.query<T>(text, params);
       const duration = Date.now() - start;
-      logger.debug('Executed query', { 
-        text: text.substring(0, 100), 
-        duration, 
-        rows: result.rowCount 
-      });
+      const durationSec = duration / 1000;
+      try {
+        const { dbQueryDuration, dbSlowQueriesTotal } = await import('./prometheus-metrics.js');
+        dbQueryDuration.observe({ operation: operation || 'query' }, durationSec);
+        if (duration >= SLOW_QUERY_MS) {
+          dbSlowQueriesTotal.inc({ operation: operation || 'query' });
+          logger.warn('Slow query', { operation, duration_ms: duration, rows: result.rowCount });
+        }
+      } catch {
+        /* metrics optional */
+      }
+      logger.debug('Executed query', { text: operation, duration, rows: result.rowCount });
       return result;
     } catch (error) {
-      logger.error('Database query error', { 
-        text: text.substring(0, 100), 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+      logger.error('Database query error', {
+        text: operation,
+        error: error instanceof Error ? error.message : 'Unknown error',
       });
       throw error;
     }

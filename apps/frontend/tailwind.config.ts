@@ -50,20 +50,25 @@ const config: Config = {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
-        // Exchange specific colors
+        // Exchange: Binance-grade — Buy = green (primary), Sell = red (destructive)
         buy: {
-          DEFAULT: '#0ecb81',
-          hover: '#0fdc8c',
-          light: 'rgba(14, 203, 129, 0.1)',
+          DEFAULT: 'hsl(var(--exchange-buy))',
+          hover: 'hsl(var(--exchange-buy) / 0.9)',
+          light: 'hsl(var(--exchange-buy) / 0.15)',
         },
         sell: {
-          DEFAULT: '#f6465d',
-          hover: '#ff5a6e',
-          light: 'rgba(246, 70, 93, 0.1)',
+          DEFAULT: 'hsl(var(--exchange-sell))',
+          hover: 'hsl(var(--exchange-sell) / 0.9)',
+          light: 'hsl(var(--exchange-sell) / 0.15)',
         },
+        panel: {
+          DEFAULT: 'hsl(var(--panel))',
+        },
+        'price-up': 'hsl(var(--price-up))',
+        'price-down': 'hsl(var(--price-down))',
         warning: {
-          DEFAULT: '#f0b90b',
-          light: 'rgba(240, 185, 11, 0.1)',
+          DEFAULT: 'hsl(45 86% 49%)',
+          light: 'hsl(45 86% 49% / 0.15)',
         },
       },
       borderRadius: {

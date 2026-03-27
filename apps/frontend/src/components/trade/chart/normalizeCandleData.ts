@@ -13,6 +13,7 @@ export type RawCandle = {
   high: number | string;
   low: number | string;
   close: number | string;
+  volume?: number | string;
 };
 
 export interface NormalizeOptions {
@@ -64,6 +65,7 @@ function normalizeOne(raw: RawCandle, precision: number): CandleData | null {
   const low = toNumber(raw.low);
   const close = toNumber(raw.close);
   if (open === null || high === null || low === null || close === null) return null;
+  const volumeRaw = raw.volume != null ? toNumber(raw.volume) : null;
 
   const o = roundToPrecision(open, precision);
   const h = roundToPrecision(high, precision);
@@ -71,7 +73,11 @@ function normalizeOne(raw: RawCandle, precision: number): CandleData | null {
   const c = roundToPrecision(close, precision);
   if (!isValidOHLC(o, h, l, c)) return null;
 
-  return { time, open: o, high: h, low: l, close: c };
+  const candle: CandleData = { time, open: o, high: h, low: l, close: c };
+  if (volumeRaw != null && Number.isFinite(volumeRaw) && volumeRaw >= 0) {
+    candle.volume = roundToPrecision(volumeRaw, precision);
+  }
+  return candle;
 }
 
 /**

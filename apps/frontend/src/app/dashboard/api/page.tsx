@@ -5,6 +5,11 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth';
 import { ChevronRight, X, Loader2, Eye, EyeOff, Copy, Check, Key, Trash2, Edit3, Shield, AlertCircle } from 'lucide-react';
+import { SkeletonTableBody } from '@/components/ui/Skeleton';
+import { InfoTooltip } from '@/components/ui/InfoTooltip';
+import { APIUsageStats } from '@/components/api/APIUsageStats';
+import { APISecurityIndicators } from '@/components/api/APISecurityIndicators';
+import { APIDocLinks } from '@/components/api/APIDocLinks';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { toast } from '@/components/ui/toaster';
 
@@ -176,7 +181,9 @@ export default function ApiPage() {
                 <Key className="w-5 h-5 text-blue-600 dark:text-blue-400" />
               </div>
               <div>
-                <h3 className="font-semibold text-gray-900 dark:text-white">API Keys</h3>
+                <h3 className="font-semibold text-gray-900 dark:text-white inline-flex items-center gap-1">
+                  API Keys <InfoTooltip content="Your API keys for trading and integrations. Keys without IP binding expire in 3 months." />
+                </h3>
                 <p className="text-xs text-gray-500">{apiKeys.length} / 20 keys</p>
               </div>
             </div>
@@ -220,6 +227,34 @@ export default function ApiPage() {
           </div>
         </div>
 
+        {/* API Usage Analytics */}
+        <div className="mb-8">
+          <APIUsageStats
+            requestsToday={0}
+            errors={0}
+            rateLimitUsage={0}
+            rateLimitMax={100}
+            loading={loading}
+          />
+        </div>
+
+        {/* API Security Indicators & Doc Links */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+          <div>
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Security</p>
+            <APISecurityIndicators
+              ipWhitelistCount={apiKeys.filter((k) => k.ipAddresses?.length > 0).length}
+              readOnlyCount={apiKeys.filter((k) => k.permission === 'read_only').length}
+              withdrawalDisabledCount={apiKeys.filter((k) => k.permission === 'read_only').length}
+              totalKeys={apiKeys.length}
+            />
+          </div>
+          <div>
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Documentation</p>
+            <APIDocLinks />
+          </div>
+        </div>
+
         {/* API Key Records */}
         <div className="bg-white dark:bg-[#181a20] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
           <div className="px-6 py-5 border-b border-gray-100 dark:border-gray-800">
@@ -228,8 +263,25 @@ export default function ApiPage() {
           </div>
 
           {loading ? (
-            <div className="flex items-center justify-center py-20">
-              <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-gray-50 dark:bg-[#1e2329]">
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Name</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Type</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">API Key</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Secret</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Permission</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">IP Bound</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Created</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Expires</th>
+                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                  <SkeletonTableBody rows={4} columns={9} />
+                </tbody>
+              </table>
             </div>
           ) : apiKeys.length === 0 ? (
             <div className="py-20">

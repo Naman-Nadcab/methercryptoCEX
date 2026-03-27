@@ -5,11 +5,13 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { handleGoogleCallback, consumeOAuthRedirect } from '@/lib/oauth';
 import { useAuthStore } from '@/store/auth';
+import { useAuth } from '@/context/AuthContext';
 
 export default function GoogleCallbackPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { setUser, setTokens } = useAuthStore();
+  const { login } = useAuthStore();
+  const { setAuthenticated } = useAuth();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -32,7 +34,6 @@ export default function GoogleCallbackPage() {
     handleGoogleCallback(code, state)
       .then((result) => {
         if (result.success && result.data) {
-          // Map API response to store format
           const user = {
             id: result.data.user.id,
             email: result.data.user.email,
@@ -43,8 +44,8 @@ export default function GoogleCallbackPage() {
             phoneVerified: result.data.user.phoneVerified,
             tierLevel: result.data.user.tierLevel,
           };
-          setUser(user);
-          setTokens(result.data.accessToken, result.data.refreshToken);
+          login(user, result.data.accessToken, result.data.refreshToken);
+          setAuthenticated(user);
           const redirect = consumeOAuthRedirect();
           router.push(redirect || '/dashboard');
         } else {
@@ -56,7 +57,7 @@ export default function GoogleCallbackPage() {
         setError('An error occurred during login');
         setTimeout(() => router.push('/login'), 3000);
       });
-  }, [searchParams, router, setUser, setTokens]);
+  }, [searchParams, router, login, setAuthenticated]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-950">

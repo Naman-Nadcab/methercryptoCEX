@@ -1,156 +1,288 @@
-# Admin Panel Completeness & Safety Audit
-## FIU-India Compliant CEX — Strict Audit Report
+# Admin Panel — Full Structure & Details Audit
 
-**Scope:** Centralized exchange (Spot + P2P). Admin panel as read/control layer only. No direct balance mutation by design.
-
----
-
-## SECTION 1 — Module Coverage Map
-
-| Required module | Exists (Y/N) | Frontend route(s) | Backend coverage | Notes |
-|-----------------|--------------|-------------------|------------------|--------|
-| **Dashboard** | Y | `/admin/dashboard` | `/admin/dashboard/stats`, `/admin/trading-halt` | Stats: users, KYC, P2P, referrals. Trading halt toggle. No AML/withdrawal risk summary on dashboard. |
-| **User Management** | Y | `/admin/users`, `/admin/users/suspended`, `/admin/users/[id]`, `/admin/users/banned`, `/admin/users/verification`, `/admin/users/tiers` | List, get by id, PATCH status (active/suspended/locked) | Freeze/Unfreeze UI on user detail. No role-based restriction on who can suspend. |
-| **KYC / Identity** | Y | `/admin/kyc/pending`, `approved`, `rejected`, `settings` | GET pending/approved/rejected, KYC settings | Review/approve/reject flows exist. **No audit_logs_immutable for KYC approve/reject.** |
-| **Compliance / AML** | Partial | `/admin/security/compliance` | `/admin/aml/dashboard`, `/admin/aml/alerts`, `/admin/aml/alerts/:id`, `/admin/aml/alerts/:id/status`, `/admin/aml/alerts/:id/escalate`, STR/CTR reports | **UI: dashboard metrics only.** No alerts list, alert detail, escalate-to-STR, or STR/CTR report list in UI. Backend AML exists. |
-| **Wallet & Funds** | Y | `/admin/wallets/*`, `/admin/wallets/withdrawals`, `/admin/wallets/deposits`, `/admin/wallets/adjust`, `/admin/wallets/funds-summary`, hot/cold/ledger/settlement | Deposits, withdrawals, manual-credit, funds summary, escrows list, balance-reconcile (Super Admin) | Control plane present. Manual credit **not** restricted by role; **no audit_logs_immutable for manual credit.** |
-| **Spot Trading** | Y | `/admin/trading/*`, spot-markets, orders, trade-history, fees, circuit-breakers, market-control | Markets, orders, halt, circuit breakers, fees | Adequate for control. |
-| **P2P Marketplace** | Y | `/admin/p2p/trades`, `/admin/p2p/orders`, `/admin/p2p/disputes`, `/admin/p2p/disputes/[id]`, ads, merchants, settings, payment-methods | Orders, disputes, resolve (favor_buyer/favor_seller/cancelled) | Dispute resolve audited in p2p.service (auditLog). Escrow freeze/unfreeze **backend only** — no admin UI for escrow list/freeze. |
-| **Finance & Ledger** | Y | `/admin/wallets/ledger/balance`, `/admin/wallets/ledger/settlement`, `/admin/wallets/funds-summary` | Ledger entries, settlement events, funds summary (ledger vs on-chain) | Reconciliation visibility present. Balance-reconcile is Super Admin only. |
-| **Security & Risk** | Y | `/admin/security/compliance`, `fraud`, `audit-logs`, `sessions`, `ip-rules`, `risk-rules`, `withdrawals`, `dashboard` | AML, audit logs, sessions, IP rules, risk rules, security dashboard | Audit logs read from audit_logs_immutable. |
-| **Audit & Logs** | Y | `/admin/security/audit-logs` | GET audit_logs_immutable (filtered) | Read-only. **Many high-impact admin actions do not write to audit_logs_immutable** (see Section 3). |
-| **Roles & Permissions (RBAC)** | Partial | `/admin/admins/roles` | Admin auth with role/permissions; withdrawal approve uses getAdminForWithdrawalApproval; hot wallet uses requireSuperAdmin; balance-reconcile uses requireSuperAdmin | **Roles page is placeholder only.** No UI to assign roles/permissions. Backend enforces role only for withdrawal approval, hot wallet, balance-reconcile. |
-| **System Configuration** | Y | `/admin/settings`, `/admin/settings/features`, blockchains, tokens, trading-pairs, p2p-assets, maintenance, api | Settings, features, blockchain/currencies, trading pairs | Present. |
-| **Monitoring & Health** | Y | `/admin/monitoring/counters`, `/admin/system-health` | GET /admin/monitoring/counters (Redis), trading halt, stats | Counters and system health pages exist. |
+**Date:** 2026-02-27  
+**Scope:** Frontend admin app (Next.js), layout, routes, components, API client, auth, and backend admin routes.
 
 ---
 
-## SECTION 2 — Missing / Incomplete Components
+## 1. High-Level Structure
 
-1. **Compliance / AML Center (UI)**  
-   - **Missing in UI:** Alerts list (GET `/admin/aml/alerts`), alert detail, update alert status, escalate alert to STR, STR/CTR reports list and submit/acknowledge.  
-   - Compliance page only shows dashboard metrics and a note to “use backend AML endpoints.” **FIU/AML workflows are not operator-usable from the panel.**
+| Layer | Location | Purpose |
+|-------|----------|---------|
+| **Entry** | `apps/frontend/src/app/admin/page.tsx` | Redirects to login or dashboard |
+| **Login** | `apps/frontend/src/app/admin/login/page.tsx` | Admin login (email/password, JWT) |
+| **Protected layout** | `apps/frontend/src/app/admin/(protected)/layout.tsx` | Sidebar + Header + auth check; wraps all authenticated pages |
+| **Dashboard** | `apps/frontend/src/app/admin/(protected)/dashboard/page.tsx` | Main dashboard (welcome card, KPIs, charts, tables) |
+| **All other pages** | `apps/frontend/src/app/admin/(protected)/**/page.tsx` | 177+ route segments (pages) |
 
-2. **Roles & Permissions (RBAC)**  
-   - **Missing:** Any UI to create/edit admin roles, assign permissions, or view who has what.  
-   - Backend has roles (e.g. super_admin, withdrawal_approver) and permissions (e.g. withdrawals:approve) but no admin panel to manage them.
-
-3. **Escrow freeze / unfreeze**  
-   - Backend: `POST /admin/escrows/:id/freeze`, `POST /admin/escrows/:id/unfreeze`.  
-   - **Missing:** Admin UI to list escrows (GET `/admin/escrows` exists) and to freeze/unfreeze from the panel. High-risk operational action with no UI.
-
-4. **Withdrawal risk controls (visibility)**  
-   - Token-level withdrawal limits exist in backend (PATCH tokens/:id/withdrawal-limits).  
-   - **Missing:** No dedicated “Withdrawal risk” or “Limits” view in admin (e.g. per-user or global limits, velocity). AML velocity rules exist in backend but no admin view of configured rules or thresholds.
-
-5. **Finance & Ledger — balance reconcile UI**  
-   - Backend: `POST /admin/settlement/balance-reconcile` (Super Admin only).  
-   - **Missing:** No admin form to trigger balance reconcile (user_id, asset, reason). Operators cannot run reconciliation from the panel.
-
-6. **Deposits / Withdrawals as top-level sections**  
-   - Duplicated in sidebar: “Deposits” and “Withdrawals” vs “Wallets” (Withdrawals Control, Deposits Operations).  
-   - “Deposits” and “Withdrawals” link to legacy pages; control plane lives under Wallets. Redundant and can cause confusion.
+**Auth flow:** Token in `localStorage` (`admin-auth-storage`). Layout calls `GET /api/v1/admin/auth/me` in background; invalid/missing token → redirect to `/admin/login`.
 
 ---
 
-## SECTION 3 — Dangerous Patterns / Risks
+## 2. Design System (CSS)
 
-1. **Manual credit: no immutable audit trail**  
-   - **Risk:** POST `/admin/deposits/manual-credit` updates `user_balances` and writes ledger, but **does not** call `logAuditFromRequest` or `logAudit` to `audit_logs_immutable`.  
-   - Only `logger.info` is used. **Impact:** No immutable record of who credited whom, amount, reason, or when. Compliance and forensics gap.
+**Scope:** Any element under `.admin-panel` (root in protected layout).
 
-2. **User status change (freeze/suspend/lock): no audit**  
-   - **Risk:** PATCH `/admin/users/:id/status` (active/suspended/locked) has **no** call to `logAuditFromRequest` or `logAudit`.  
-   - Body accepts `reason` but it is **not stored** and not logged. **Impact:** No trace of who suspended which user or why.
+| Variable | Value | Usage |
+|----------|--------|--------|
+| `--admin-bg` | `#F8FAFC` | Main content & header background |
+| `--admin-card-bg` | `#FFFFFF` | Cards, dropdowns |
+| `--admin-card-border` | `#E5E7EB` | Card borders |
+| `--admin-sidebar-bg` | `#FFFFFF` | Sidebar |
+| `--admin-header-bg` | `#F8FAFC` | Header |
+| `--admin-text` | `#1F2937` | Primary text |
+| `--admin-text-muted` | `#6B7280` | Secondary text |
+| `--admin-primary` | `#7C3AED` | Links, active states, accents |
+| `--admin-success` | `#10B981` | Success / positive |
+| `--admin-warning` | `#F59E0B` | Warning |
+| `--admin-danger` | `#EF4444` | Danger / negative |
+| `--admin-radius` | `12px` | Card border radius |
+| `--admin-sidebar-w` | `260px` | Sidebar width |
 
-3. **Manual credit: any admin can perform**  
-   - **Risk:** Manual credit uses `getAdminFromRequest(..., false)` — any authenticated admin can credit.  
-   - No separate role or permission (e.g. “finance:manual_credit”). **Impact:** Overprivilege; no separation of duties.
-
-4. **Balance-reconcile: Super Admin only but no UI**  
-   - **Mitigation:** Balance-reconcile correctly requires Super Admin.  
-   - **Risk:** No UI to run it; operators may call API directly without consistent process or documentation.
-
-5. **Escrow freeze/unfreeze: no audit in admin route**  
-   - `freezeEscrow` / `unfreezeEscrow` in operator-controls.service are used by admin routes.  
-   - **Verify:** Whether these functions or the route call `logAudit`/`logAuditFromRequest`. If not, escrow freeze/unfreeze is not in `audit_logs_immutable`.
-
-6. **KYC approve/reject: no audit_logs_immutable**  
-   - **Risk:** KYC approval/rejection is compliance-critical. If admin KYC routes do not call `logAudit`/`logAuditFromRequest`, FIU traceability is incomplete.
-
-7. **Only two admin routes use logAuditFromRequest**  
-   - Confirmed: **only** withdrawal approve and withdrawal reject call `logAuditFromRequest`.  
-   - Manual credit, user status, KYC decisions, (and possibly escrow freeze, balance reconcile) are not consistently written to `audit_logs_immutable` from admin routes.
+**Defined in:** `apps/frontend/src/app/globals.css` (admin section).
 
 ---
 
-## SECTION 4 — Compliance Gaps (FIU / AML / KYC)
+## 3. Layout & Shell
 
-1. **STR/CTR workflow not in admin UI**  
-   - Backend has STR/CTR (pending counts, escalate, reports).  
-   - Admin panel has no alerts list, no “escalate to STR” action, no STR/CTR report list or submit/acknowledge. **FIU-India reporting cannot be done from the panel.**
+### 3.1 Protected layout
 
-2. **AML alerts not actionable in UI**  
-   - Compliance page shows open/high severity and pending STR/CTR counts only.  
-   - Operators cannot list, filter, or act on alerts (e.g. dismiss, escalate) from the panel.
+- **File:** `apps/frontend/src/app/admin/(protected)/layout.tsx`
+- **Behaviour:**
+  - Waits for store hydration (`_hasHydrated`).
+  - If no token → `null` (then redirect from client).
+  - Calls `GET /api/v1/admin/auth/me` with Bearer token (non-blocking).
+  - Renders: `ThemeProvider` → `AdminSessionManager` (30 min idle) → `div.admin-panel` → `Sidebar` + main area (`Header` + `main`).
+- **Main area:** `lg:ml-[260px]`, `main` has `p-5 lg:p-6`.
 
-3. **KYC actions not in immutable audit**  
-   - If KYC approve/reject are not logged to `audit_logs_immutable`, regulator cannot rely on the admin panel for a full audit trail of identity decisions.
+### 3.2 Sidebar
 
-4. **User freeze/suspend: reason not stored or audited**  
-   - Suspend/freeze is a strong compliance action (e.g. suspicion of fraud). Reason in request body is not persisted and not in audit log. **FIU/AML justification for account restriction is not recorded.**
+- **File:** `apps/frontend/src/components/admin/layout/Sidebar.tsx`
+- **Width:** 260px, fixed left, white bg, border-right.
+- **Sections:**
+  - **Logo:** “EX” box + “Exchange”.
+  - **MAIN:** Dashboard only (optional “Live” badge when trading not halted).
+  - **APPS & PAGES:** All other nav groups (see §4).
+- **Behaviour:** Collapsible groups (ChevronDown/ChevronRight). Active link: purple left border + tinted bg. Wallet shows “HOT” badge when `pendingWithdrawals > 0`. Footer: Trading status (Live/Halted) from `getTradingHalt`.
+- **APIs used:** `getWithdrawals` (stats), `getTradingHalt`.
 
-5. **No explicit “compliance hold” or “FIU freeze”**  
-   - User status is generic (active/suspended/locked). No distinct compliance/fraud flag or hold type for reporting (e.g. “suspended for FIU investigation”).
+### 3.3 Header
 
----
-
-## SECTION 5 — Financial Safety Risks
-
-1. **Manual credit path is ledger-consistent but not audit-visible**  
-   - Backend correctly: (1) updates `user_balances`, (2) inserts balance ledger. So **financial invariant (balance = ledger) is maintained.**  
-   - **Risk:** Lack of immutable audit means misuse or error cannot be proven or disproven from logs. Operational and regulatory risk.
-
-2. **No admin debit path**  
-   - Only credit exists (manual-credit). No admin “debit” or “adjust down” in the panel.  
-   - **Assessment:** Reduces risk of arbitrary balance reduction; acceptable if by design. Document that debit is intentionally not offered.
-
-3. **Balance-reconcile is ledger-authoritative**  
-   - `reconcileBalanceToLedger` sets `user_balances` to ledger sum (with reason and audit). Correct and safe.  
-   - Only Super Admin can call it. **Risk:** No UI and no second-approval or maker-checker for this critical action.
-
-4. **Withdrawal approval: correctly gated and audited**  
-   - Uses `getAdminForWithdrawalApproval` (role or permission) and `logAuditFromRequest`.  
-   - **No multi-approval (4-eyes)** for large or high-risk withdrawals. Single approver can approve any withdrawal within policy.
-
-5. **P2P dispute resolve: state transition only**  
-   - Resolution (favor_buyer / favor_seller / cancelled) is a state transition; backend moves escrow. No direct balance edit from admin.  
-   - P2P service logs dispute resolution. **Verify** that this log goes to `audit_logs_immutable` (or equivalent) and is queryable from Security > Audit Logs.
-
-6. **No withdrawal velocity or limit visibility in admin**  
-   - AML velocity rules exist in backend. Admin cannot see “withdrawals last 24h” or velocity alerts per user in one place.  
-   - Increases risk of missing suspicious patterns before or after STR filing.
+- **File:** `apps/frontend/src/components/admin/layout/Header.tsx`
+- **Left:** Hamburger (mobile), “Search here...” (max-width search input).
+- **Right:** Trading status (optional), session count, Grid icon, Theme toggle, Fullscreen, Bell (alerts dropdown), Profile (avatar + name + dropdown).
+- **Dropdowns:** Alerts (pending withdrawals, open disputes); Profile (Settings link, Sign out).
+- **APIs used:** `getTradingHalt`, `getDashboardStats`, `getWithdrawals`.
 
 ---
 
-## SECTION 6 — Priority Fix Order
+## 4. Sidebar Navigation (All Links)
 
-| Priority | Item | Rationale |
-|----------|------|------------|
-| **P0** | Add `logAuditFromRequest` (or `logAudit`) to **manual credit** route — actor, amount, currency, user id, reason, idempotency key reference. | Financial and compliance: every balance-changing admin action must be in immutable audit. |
-| **P0** | Add `logAuditFromRequest` to **user status change** (PATCH users/:id/status) — actor, user id, old/new status, reason (store reason in DB or in audit payload). | Compliance and dispute resolution; FIU may require justification for freezes. |
-| **P0** | Add **AML alerts list + detail + escalate to STR** (and optionally status update) in Compliance UI, backed by existing `/admin/aml/*` APIs. | FIU-India: STR/CTR and alert handling must be doable from the panel. |
-| **P1** | Add **STR/CTR reports list and submit/acknowledge** (or link to process) in Compliance UI. | Completes FIU reporting workflow in admin. |
-| **P1** | Implement **Roles & Permissions** UI: list roles, assign permissions to admins, restrict manual credit (e.g. only role “finance” or permission “balance:credit”). | Reduces overprivilege and supports separation of duties. |
-| **P1** | Add **KYC approve/reject** to immutable audit (logAudit with actor, application id, decision, timestamp). | Required for identity/AML audit trail. |
-| **P2** | Add **Escrow list + freeze/unfreeze** UI (list escrows, action buttons calling existing backend). | High-impact control exists in API but not in panel. |
-| **P2** | **Store and audit** “reason” for user suspend/freeze (e.g. new column or audit payload). | Needed for regulatory and internal review. |
-| **P2** | Add **Balance reconcile** form (Super Admin only): user_id, asset, reason; call POST balance-reconcile. | Makes critical remediation action visible and auditable from panel. |
-| **P3** | Consider **multi-approval (4-eyes)** for manual credit and/or large withdrawal approval (policy + second approver). | Reduces single-operator fraud/error risk. |
-| **P3** | **Withdrawal risk** view: token limits, optional per-user or velocity summary from AML data. | Better visibility for risk and STR decisions. |
-| **P3** | Consolidate **Deposits/Withdrawals** nav: single “Wallet & Funds” entry with sub-items; remove or redirect duplicate top-level items. | Clarity and consistency. |
+Every href below has a matching `page.tsx` under `app/admin/(protected)/`.
+
+| Section | Label | Href |
+|---------|--------|------|
+| **MAIN** | Dashboard | `/admin/dashboard` |
+| **Users** | All Users | `/admin/users` |
+| | KYC Verification | `/admin/kyc/pending` |
+| | KYB Accounts | `/admin/kyc/approved` |
+| | Suspended Accounts | `/admin/users/suspended` |
+| **Wallet & Funds** | Wallet Monitor | `/admin/wallets/monitor` |
+| | Treasury | `/admin/wallets/treasury` |
+| | Deposits | `/admin/deposits` |
+| | Withdrawals | `/admin/withdrawals` |
+| | Hot Wallet Monitor | `/admin/wallets/hot` |
+| | Cold Wallet Monitor | `/admin/wallets/cold-reserves` |
+| | Blockchain Nodes | `/admin/wallets/blockchain` |
+| | Funds Summary | `/admin/wallets/funds-summary` |
+| **Trading** | Engine Monitor | `/admin/trading/engine` |
+| | Liquidity Monitor | `/admin/trading/liquidity` |
+| | Orderbook Surveillance | `/admin/trading/surveillance` |
+| | Spot Markets | `/admin/trading/spot-markets` |
+| | Market Management | `/admin/trading/pairs` |
+| | Trading Pairs | `/admin/settings/trading-pairs` |
+| | Orderbook Monitor | `/admin/trading/orderbook` |
+| | Trade History | `/admin/trading/trade-history` |
+| | Market Making | `/admin/market-making` |
+| | Trading Fees | `/admin/fees/trading` |
+| **P2P Trading** | P2P Orders | `/admin/p2p/orders` |
+| | Disputes | `/admin/p2p/disputes` |
+| | Payment Methods | `/admin/p2p/payment-methods` |
+| | Escrow Wallet | `/admin/p2p/escrows` |
+| | P2P Overview | `/admin/p2p` |
+| **Risk Control** | Risk Dashboard | `/admin/risk` |
+| | Withdrawal Risk | `/admin/risk/withdrawals` |
+| | AML Monitoring | `/admin/compliance/alerts` |
+| | STR/CTR Reports | `/admin/compliance/reports` |
+| | Compliance Dashboard | `/admin/security/compliance` |
+| **Reports & Analytics** | Trading Volume | `/admin/reports` |
+| | Exchange Revenue | `/admin/reports/financial` |
+| | User Growth | `/admin/reports/users` |
+| **System Configuration** | Alert Center | `/admin/alerts` |
+| | API Settings | `/admin/system/api-settings` |
+| | Notifications | `/admin/notifications` |
+| | Feature Flags | `/admin/settings/features` |
+| | Maintenance Mode | `/admin/settings/operations` |
+| | Blockchain Config | `/admin/settings/blockchain` |
+| **Admin Management** | Admin Users | `/admin/admins` |
+| | Roles & Permissions | `/admin/admins/roles` |
+| | Admin Activity Logs | `/admin/security/admin-audit` |
+| **Security** | Admin Audit Logs | `/admin/security/audit` |
+| | Audit Logs | `/admin/security/audit-logs` |
+| | Withdrawal Approvals | `/admin/security/withdrawals` |
+| | IP Whitelisting | `/admin/security/ip-rules` |
+
+**Total sidebar links:** 47. All have corresponding `(protected)/**/page.tsx` files.
 
 ---
 
-**Audit complete.**  
-**Assumption:** Real exchange, real money. Gaps in audit logging and AML UI are treated as P0/P1. No schema or balance logic redesign proposed; only additive audit calls and UI over existing APIs.
+## 5. Pages Not in Sidebar (Orphan / Deep Links)
+
+These routes exist but are not in the sidebar (detail pages, sub-tools, alternate entry points):
+
+- `dashboard` — in sidebar.
+- **Users:** `/admin/users/[id]`, `/admin/users/detail`, `/admin/users/verification`, `/admin/users/tiers`, `/admin/users/api-keys`, `/admin/users/risk`, `/admin/users/banned` — not in sidebar.
+- **KYC:** `/admin/kyc`, `/admin/kyc/rejected`, `/admin/kyc/review`, `/admin/kyc/settings`, `/admin/kyc/audit` — not in sidebar.
+- **Wallets:** `/admin/wallets`, `/admin/wallets/hot/[chainId]`, `/admin/wallets/deposits`, `/admin/wallets/withdrawals`, `/admin/wallets/currencies`, `/admin/wallets/ledger/balance`, `/admin/wallets/ledger/settlement`, `/admin/wallets/deposit-sweeps`, `/admin/wallets/reconciliation`, `/admin/wallets/operations`, `/admin/wallets/adjust`, `/admin/wallets/indexer` — not in sidebar.
+- **Deposits:** `/admin/deposits/pending`, `/admin/deposits/completed`, `/admin/deposits/flagged`, `/admin/deposits/manual-credit`, `/admin/deposits/reports` — not in sidebar.
+- **Withdrawals:** `/admin/withdrawals/pending`, `/admin/withdrawals/pending-approval`, `/admin/withdrawals/processing`, `/admin/withdrawals/completed`, `/admin/withdrawals/failed`, `/admin/withdrawals/reports`, `/admin/withdrawals/settings` — not in sidebar.
+- **Trading:** `/admin/trading`, `/admin/trading/orders`, `/admin/trading/order-history`, `/admin/trading/fees`, `/admin/trading/circuit-breakers`, `/admin/trading/listing-status`, `/admin/trading/market-control` — not in sidebar.
+- **P2P:** `/admin/p2p/ads`, `/admin/p2p/trades`, `/admin/p2p/disputes/[id]`, `/admin/p2p/settings` — not in sidebar.
+- **Compliance:** `/admin/compliance/alert`, `/admin/compliance/alerts/[id]`, `/admin/compliance/cases`, `/admin/compliance/sanctions`, `/admin/compliance/sanctions-config`, `/admin/compliance/str-ctr`, `/admin/compliance/reports/[id]`, `/admin/compliance/circuit-breaker-history` — not in sidebar.
+- **Reports:** `/admin/reports/custom`, `/admin/reports/p2p`, `/admin/reports/trading` — not in sidebar.
+- **Settings:** `/admin/settings`, `/admin/settings/page`, `/admin/settings/blockchain/chains`, `/admin/settings/blockchain/currencies`, `/admin/settings/blockchain/tokens`, `/admin/settings/p2p-assets`, `/admin/settings/withdrawal-tier-limits`, `/admin/settings/liquidity-sla`, `/admin/settings/maintenance`, `/admin/settings/api`, `/admin/settings/alert-channels`, `/admin/settings/scheduled-compliance`, `/admin/settings/2fa-enforcement` — not in sidebar.
+- **Fees:** `/admin/fees`, `/admin/fees/tiers`, `/admin/fees/withdrawal`, `/admin/fees/promotions` — not in sidebar.
+- **Notifications:** `/admin/notifications/announcements`, `/admin/notifications/email`, `/admin/notifications/sms`, `/admin/notifications/push`, `/admin/notifications/broadcast` — not in sidebar.
+- **Security:** `/admin/security`, `/admin/security/dashboard`, `/admin/security/activity`, `/admin/security/audit`, `/admin/security/audit-logs`, `/admin/security/withdrawals`, `/admin/security/ip-rules`, `/admin/security/ip`, `/admin/security/risk-rules`, `/admin/security/geo-blocking`, `/admin/security/network-risk`, `/admin/security/sessions`, `/admin/security/compliance`, `/admin/security/fraud` — not in sidebar.
+- **System:** `/admin/system-config`, `/admin/system-health`, `/admin/system/price-oracle`, `/admin/system/api-settings` — not in sidebar.
+- **Engine:** `/admin/engine/recovery-status` — not in sidebar.
+- **Monitoring:** `/admin/monitoring/counters`, `/admin/monitoring/mm-risk` — not in sidebar.
+- **Other:** `/admin/alerts`, `/admin/analytics`, `/admin/markets`, `/admin/liquidity`, `/admin/liquidity-stability`, `/admin/treasury`, `/admin/revenue`, `/admin/user-risk`, `/admin/risk-intelligence`, `/admin/forensics`, `/admin/orderbook-intelligence`, `/admin/trader-intelligence`, `/admin/user-behavior`, `/admin/whale-activity`, `/admin/smart-alerts`, `/admin/automation`, `/admin/playbooks`, `/admin/incidents`, `/admin/backups`, `/admin/integrations`, `/admin/proof-of-reserves`, `/admin/support`, `/admin/support/responses`, `/admin/support/my-tickets`, `/admin/referrals/codes`, `/admin/referrals/commissions`, `/admin/referrals/campaigns`, `/admin/referrals/relationships`, `/admin/rate-limits`, `/admin/api-monitoring`, `/admin/system-reliability` — not in sidebar.
+
+Many of these are reached from in-page links (e.g. user detail, dispute detail, hot wallet by chain).
+
+---
+
+## 6. Dashboard Page (Structure & Data)
+
+- **File:** `apps/frontend/src/app/admin/(protected)/dashboard/page.tsx`
+- **Layout:**
+  1. **Row 1:** Welcome card (gradient, greeting, Pending Withdrawals, KYC awaiting, refresh) | 3 KPI cards (Total Volume, Total Users, Total Revenue) with sparklines.
+  2. **Row 2:** Total Sales (trading volume area chart, 7d/30d).
+  3. **Row 3:** Volume by market (progress bars) | Top trading pairs table.
+  4. **Row 4:** Recent withdrawals table | Withdrawal summary donut.
+  5. **Row 5:** Recent transactions (deposits + / withdrawals −) | User growth line chart.
+  6. **Footer:** “Exchange Admin — Control center”.
+
+**APIs used:** `getDashboardStats`, `getWithdrawals`, `getDeposits`, `getAnalyticsAll`, `getRevenue`, `getTradingVolume`, `getLiquidity`, `getUserGrowth`.
+
+---
+
+## 7. Frontend API Layer (Admin)
+
+**Base:** `apps/frontend/src/lib/admin/apiClient.ts`  
+- `adminFetch(path, { method, body, token, params })` → `Promise<AdminApiResponse<T>>`.  
+- Base URL: `getApiBaseUrl() + '/api/v1/admin' + path`.
+
+**Modules (all under `apps/frontend/src/lib/admin/`):**
+
+| File | Exports / purpose |
+|------|-------------------|
+| `apiClient.ts` | `adminFetch`, `buildUrl`, `AdminApiResponse` |
+| `users.ts` | Dashboard stats, user list, impersonation, etc. |
+| `wallets.ts` | Wallets, funds summary, hot wallets, withdrawals, deposits, escrows |
+| `trading.ts` | Trading halt, monitoring counters, MM risk, control overview |
+| `p2p.ts` | P2P orders, disputes, ads, escrows |
+| `settings.ts` | Settings endpoints |
+| `analytics.ts` | Trading volume, user growth, revenue, deposits, withdrawals, liquidity, revenue breakdown, API metrics |
+| `index.ts` | Re-exports all of the above |
+
+**Other admin-related libs (root `lib/`):**  
+`admin-users-api.ts`, `admin-wallets-api.ts`, `admin-analytics-api.ts`, `admin-rbac.ts` — used by some pages alongside `lib/admin/*`.
+
+---
+
+## 8. Auth Store
+
+- **File:** `apps/frontend/src/store/admin-auth.ts`
+- **State:** `admin`, `accessToken`, `refreshToken`, `isAuthenticated`, `isLoading`, `_hasHydrated`.
+- **Persistence:** `localStorage` key `admin-auth-storage` (partialize: token, refresh, admin, isAuthenticated).
+- **Actions:** `setAdmin`, `setTokens`, `login`, `logout`, `setLoading`, `setHasHydrated`.
+
+---
+
+## 9. Admin UI Components
+
+| Area | Components |
+|------|------------|
+| **Layout** | `Sidebar`, `Header` |
+| **CRM (cards)** | `KPICard`, `ChartCard`, `TableCard` (`components/admin/crm/`) |
+| **Control plane** | `Panel`, `SectionHeader`, `ActionButton`, `StatusBadge`, `MetricWidget`, `DataTable` (`control-plane/`) |
+| **Charts** | `TradingVolumeChart`, `RevenueChart`, `UserGrowthChart`, `DepositWithdrawChart`, `P2PActivityChart`, `TopMarketsChart`, etc. (`charts/`) |
+| **UI** | `AdminPanel`, `AdminChartCard`, `AdminDataTable`, `AdminEventStream`, `AdminTabs`, `AdminMetricCard`, `AdminStatusBadge` (`ui/`) |
+| **Security** | `ConfirmDialog`, `DataTable`, `StatCard` (`security/`) |
+| **Other** | `AdminSessionManager`, `ReasonCaptureModal`, `AdminAntdProvider` |
+
+---
+
+## 10. Backend Admin Routes (Registered)
+
+All under prefix `/api/v1/admin` unless noted.
+
+| Module | Prefix | Purpose |
+|--------|--------|---------|
+| `admin.fastify` | `/api/v1/admin` | Auth (login, me), WS metrics |
+| `adminAmlRoutes` | `/api/v1/admin` | AML config, dashboard, alerts, reports (STR/CTR) |
+| `adminSecurityRoutes` | `/api/v1/admin` | Security dashboard, risk rules, IP rules, withdrawals (approve/reject), sessions, devices, audit logs |
+| `adminSpotRoutes` | `/api/v1/admin/spot` | Spot markets, orderbook (admin) |
+| `adminControlRoutes` | `/api/v1/admin` | Control overview |
+| `adminAnalyticsRoutes` | `/api/v1/admin` | Analytics (volume, users, revenue, liquidity, etc.) |
+| `adminOperationsRoutes` | `/api/v1/admin` | Operations (trading halt, playbooks, etc.) |
+| `adminOperationalRoutes` | `/api/v1/admin` | Operational (backups, restore, etc.) |
+| `adminIntegrationsRoutes` | `/api/v1/admin` | Integrations |
+| `adminPhase1ComplianceRoutes` | `/api/v1/admin` | Phase1 compliance |
+| `adminPhase24Routes` | `/api/v1/admin` | Phase 2–4 |
+
+Additional admin behaviour lives in other route files (e.g. `admin.fastify.ts` for auth and JWT/session helpers: `getAdminFromRequest`, `getAdminWithPermission`, `getAdminForWithdrawalApproval`).
+
+---
+
+## 11. Findings & Recommendations
+
+### 11.1 Structure
+
+- **Layout:** Single protected layout with sidebar (260px) and header; all 47 sidebar links have a matching page.
+- **Design:** Centralised in `.admin-panel` CSS variables; light theme, card-based.
+- **Auth:** Token + `/auth/me`; session manager for idle timeout; logout clears store and redirects to login.
+
+### 11.2 Gaps / Inconsistencies
+
+1. **Search:** Header “Search here...” is present but search behaviour (e.g. global search for users/orders) is not implemented.
+2. **Orphan pages:** 100+ routes exist without a sidebar entry; many are detail or sub-pages. Consider adding key ones (e.g. KYC rejected, withdrawal reports, fees hub) to sidebar or ensure they are linked from parent pages.
+3. **Duplicate libs:** Both `lib/admin/*` and `lib/admin-*-api.ts` exist; some pages may use different clients. Consider consolidating on `lib/admin/*` and deprecating the `admin-*-api.ts` names.
+4. **Maintenance Mode:** Sidebar points to `/admin/settings/operations`; there is also `/admin/settings/maintenance` — clarify which is canonical and link accordingly.
+
+### 11.3 Recommendations
+
+1. Implement global search (e.g. users, order IDs, withdrawal IDs) and wire it to header search.
+2. Add “Fees” parent to sidebar (Fees, Trading Fees, Withdrawal Fees, Tiers, Promotions) and “Referrals” if needed.
+3. Ensure every critical flow (e.g. withdrawal approval, KYC review) is reachable from sidebar or from a single-hop link from a sidebar page.
+4. Standardise on one admin API client and one set of types for admin responses across the app.
+5. Add a simple “System health” or “API status” link in sidebar if operations rely on it.
+
+---
+
+## 12. File Count Summary
+
+| Category | Count |
+|----------|--------|
+| Admin protected pages (`(protected)/**/page.tsx`) | 177 |
+| Sidebar links | 47 |
+| Admin lib modules | 8 (apiClient + 7 domain) |
+| Admin layout/components | Sidebar, Header, layout.tsx |
+| Admin UI/CRM/control-plane components | 40+ files under `components/admin/` |
+| Backend admin route modules | 11 |
+
+---
+
+*End of audit.*

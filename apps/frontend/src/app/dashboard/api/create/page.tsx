@@ -6,6 +6,7 @@ import { useAuthStore } from '@/store/auth';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { toast } from '@/components/ui/toaster';
 import { ChevronRight, Loader2, Info, Key, Shield, Check, AlertTriangle, Copy } from 'lucide-react';
+import { APIPermissionSummary } from '@/components/api/APIPermissionSummary';
 
 function CreateApiKeyContent() {
   const router = useRouter();
@@ -27,6 +28,7 @@ function CreateApiKeyContent() {
   const [permission, setPermission] = useState<'read_write' | 'read_only'>('read_only');
   const [ipRestriction, setIpRestriction] = useState<'ip_only' | 'no_restriction'>('no_restriction');
   const [ipAddresses, setIpAddresses] = useState('');
+  const [expiration, setExpiration] = useState<'30' | '90' | 'never'>('90');
   
   // Permission checkboxes - grouped
   const [permissions, setPermissions] = useState({
@@ -90,7 +92,8 @@ function CreateApiKeyContent() {
           permission,
           ipRestriction,
           ipAddresses: ipAddresses.split(',').map(ip => ip.trim()).filter(Boolean),
-          permissions
+          permissions,
+          expiresInDays: ipRestriction === 'ip_only' ? null : (expiration === 'never' ? null : parseInt(expiration, 10)),
         })
       });
 
@@ -524,6 +527,18 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
               </div>
             </div>
           </div>
+
+          {/* Permission Summary */}
+          <APIPermissionSummary
+                keyName={name}
+                permission={permission}
+                ipRestriction={ipRestriction}
+                ipAddressCount={ipAddresses.split(',').map((ip) => ip.trim()).filter(Boolean).length}
+                withdrawalAccess={
+                  permission === 'read_only' ? 'read_only' : permissions.walletWithdrawal ? 'enabled' : 'disabled'
+                }
+                enabledPermissions={Object.entries(permissions).filter(([, v]) => v).map(([k]) => k)}
+              />
 
           {/* Submit */}
           <div className="flex items-center gap-4">

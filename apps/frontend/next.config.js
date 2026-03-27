@@ -25,6 +25,7 @@ const nextConfig = {
         source: '/api/v1/:path*',
         destination: `${apiBase.replace(/\/$/, '')}/api/v1/:path*`,
       },
+      { source: '/favicon.ico', destination: '/icon.svg' },
       { source: '/spot', destination: '/dashboard/spot' },
       { source: '/dashboard/trade', destination: '/dashboard/spot' },
       { source: '/dashboard/trade/spot', destination: '/dashboard/spot' },

@@ -54,7 +54,7 @@ impl Ord for BidKey {
 impl From<&OrderKey> for BidKey {
     fn from(k: &OrderKey) -> Self {
         BidKey {
-            price_key: k.price.as_ref().map(Reverse::clone),
+            price_key: k.price.as_ref().map(|p| Reverse(p.clone())),
             created_at: k.created_at,
             order_id: k.order_id,
         }
@@ -145,8 +145,8 @@ impl OrderBook {
         }
     }
 
-    /// Dry-run matching: match best bid vs best ask while bid price >= ask price. No balance updates.
-    pub fn match_orders(&mut self, market: &str) -> Vec<MatchEvent> {
+    /// Match best bid vs best ask while bid price >= ask price. Incoming order is the taker.
+    pub fn match_orders(&mut self, market: &str, incoming_order_id: Uuid) -> Vec<MatchEvent> {
         let mut events = Vec::new();
         loop {
             let (best_bid_key, best_ask_key) = match (self.bids.first_key_value(), self.asks.first_key_value()) {
@@ -182,15 +182,31 @@ impl OrderBook {
                 break;
             }
             let q = matched_qty.clone();
-            bid_order.remaining = bid_order.remaining - q;
+            bid_order.remaining = bid_order.remaining - q.clone();
             ask_order.remaining = ask_order.remaining - matched_qty.clone();
+            let (taker_order_id, maker_order_id, taker_user_id, maker_user_id, taker_side) =
+                if bid_order.id == incoming_order_id {
+                    (bid_order.id, ask_order.id, bid_order.user_id, ask_order.user_id, Side::Buy)
+                } else {
+                    (ask_order.id, bid_order.id, ask_order.user_id, bid_order.user_id, Side::Sell)
+                };
             events.push(MatchEvent {
                 market: market.to_string(),
                 bid_order_id: bid_order.id,
                 ask_order_id: ask_order.id,
+                bid_user_id: bid_order.user_id,
+                ask_user_id: ask_order.user_id,
+                taker_order_id,
+                maker_order_id,
+                taker_user_id,
+                maker_user_id,
+                taker_side,
                 price: ask_price,
                 quantity: matched_qty,
-                timestamp: 0,
+                timestamp: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0),
             });
             if !bid_order.remaining.is_zero() {
                 self.bids.insert(best_bid_key, bid_order);
@@ -200,5 +216,11 @@ impl OrderBook {
             }
         }
         events
+    }
+
+    /// Remove an order by id from the book (bids or asks).
+    pub fn cancel_order(&mut self, order_id: Uuid) {
+        self.bids.retain(|_, o| o.id != order_id);
+        self.asks.retain(|_, o| o.id != order_id);
     }
 }

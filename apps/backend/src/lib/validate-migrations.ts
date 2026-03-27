@@ -9,7 +9,7 @@
 import { db } from './database.js';
 import { logger } from './logger.js';
 
-const REQUIRED_TABLES = ['users', 'user_balances', 'tokens', 'withdrawals', 'chains', 'hot_wallets'] as const;
+const REQUIRED_TABLES = ['users', 'user_balances', 'tokens', 'withdrawals', 'chains', 'hot_wallets', 'otp_verifications'] as const;
 const RELKIND_TABLE = 'r';
 const RELKIND_VIEW = 'v';
 
@@ -67,7 +67,7 @@ export async function validateRequiredTables(): Promise<void> {
       console.error('');
       process.exit(1);
     }
-    logger.info('Required tables validated (users, user_balances, tokens, withdrawals, chains, hot_wallets).');
+    logger.info('Required tables validated (users, user_balances, tokens, withdrawals, chains, hot_wallets, otp_verifications).');
 
     // Fail fast if token withdrawal columns are missing (admin + withdrawal validation depend on them)
     await db.query<{ min_withdrawal: string; max_withdrawal: string | null }>(

@@ -4,7 +4,17 @@ import { config } from '../config/index.js';
 import { logger } from './logger.js';
 
 const require = createRequire(import.meta.url);
-const RedisConstructor = require('ioredis') as new (options?: RedisOptions) => import('ioredis').default;
+const RedisConstructor = require('ioredis') as typeof import('ioredis').default;
+type RedisInstance = InstanceType<typeof RedisConstructor>;
+
+function createRedisClient(first: string | RedisOptions, second?: RedisOptions): RedisInstance {
+  // Runtime: ioredis accepts new Redis(url, options). Typings only expose single-arg overload via require().
+  const R = RedisConstructor as unknown as {
+    new (path: string, options: RedisOptions): RedisInstance;
+    new (options: RedisOptions): RedisInstance;
+  };
+  return typeof first === 'string' && second !== undefined ? new R(first, second) : new R(first as RedisOptions);
+}
 
 class RedisClient {
   private client: InstanceType<typeof RedisConstructor>;
@@ -16,24 +26,45 @@ class RedisClient {
     const baseOptions: RedisOptions = {
       maxRetriesPerRequest: 3,
       retryStrategy(times) {
-        if (times > 5) return null; // Stop retrying
+        if (times > 5) return null;
         const delay = Math.min(times * 100, 2000);
         return delay;
       },
-      connectTimeout: 5000,
+      connectTimeout: 10_000,
+      /** Avoid hanging requests (e.g. auth rate-limit) when Redis stops responding mid-session. */
+      commandTimeout: 10_000,
+      ...(config.redis.password && { password: config.redis.password }),
     };
 
-    // Use REDIS_URL when available; ioredis accepts URL string or options
-    const useUrl = config.redis.url?.startsWith('redis://');
-    const options: RedisOptions = useUrl
-      ? { ...baseOptions }
-      : { ...baseOptions, host: '127.0.0.1', port: 6379, ...(config.redis.password && { password: config.redis.password }) };
+    // Redis Sentinel (HA): when REDIS_SENTINELS + REDIS_SENTINEL_MASTER set
+    const sentinels = config.redis.sentinels && config.redis.sentinels.length > 0;
+    const master = config.redis.sentinelMaster;
+    const sentinelOpts: RedisOptions =
+      sentinels && master
+        ? {
+            ...baseOptions,
+            sentinels: config.redis.sentinels!,
+            name: master,
+          }
+        : {};
 
-    // ioredis accepts URL string at runtime; TypeScript types expect RedisOptions
-    const connArg = useUrl ? (config.redis.url! as unknown as RedisOptions) : options;
-    this.client = new RedisConstructor(connArg);
-    this.subscriber = new RedisConstructor(connArg);
-    this.publisher = new RedisConstructor(connArg);
+    const useSentinel = sentinels && master;
+    const useUrl = !useSentinel && config.redis.url?.startsWith('redis://');
+    const options: RedisOptions = useSentinel
+      ? sentinelOpts
+      : { ...baseOptions, host: '127.0.0.1', port: 6379 };
+
+    // URL mode must pass options as 2nd arg; `new Redis(url)` alone drops connect/command timeouts.
+    if (useUrl && config.redis.url) {
+      const url = config.redis.url;
+      this.client = createRedisClient(url, baseOptions);
+      this.subscriber = createRedisClient(url, baseOptions);
+      this.publisher = createRedisClient(url, baseOptions);
+    } else {
+      this.client = createRedisClient(options);
+      this.subscriber = createRedisClient(options);
+      this.publisher = createRedisClient(options);
+    }
 
     this.setupEventHandlers(this.client, 'main');
     this.setupEventHandlers(this.subscriber, 'subscriber');
@@ -296,6 +327,22 @@ class RedisClient {
     this.subscriber.on('message', (ch: string, message: string) => {
       if (ch === channel) {
         callback(message);
+      }
+    });
+  }
+
+  /**
+   * Pattern subscribe (PSUBSCRIBE) for wildcards e.g. "orderbook:*".
+   * Callback receives (matchedChannel, message).
+   */
+  async psubscribe(
+    pattern: string,
+    callback: (channel: string, message: string) => void
+  ): Promise<void> {
+    await this.subscriber.psubscribe(pattern);
+    this.subscriber.on('pmessage', (pat: string, ch: string, message: string) => {
+      if (pat === pattern) {
+        callback(ch, message);
       }
     });
   }

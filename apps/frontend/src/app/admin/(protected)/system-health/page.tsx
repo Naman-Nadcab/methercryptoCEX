@@ -1,230 +1,338 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAdminAuthStore } from '@/store/admin-auth';
-import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { getSystemHealth, type SystemHealthData } from '@/lib/admin/systemHealth';
 import {
   SectionHeader,
   MetricWidget,
   Panel,
   StatusBadge,
-  ActionButton,
 } from '@/components/admin/control-plane';
-import { Loader2, AlertTriangle } from 'lucide-react';
+import { AdminChartCard } from '@/components/admin/charts';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts';
+import { adminChartTheme } from '@/styles/adminChartTheme';
+import {
+  Activity,
+  Database,
+  Server,
+  Radio,
+  Layers,
+  Loader2,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+} from 'lucide-react';
 
-interface TradingHaltData {
-  halted: boolean;
+const POLL_INTERVAL_MS = 8000;
+const HISTORY_LENGTH = 30;
+
+type StatusVariant = 'LIVE' | 'DEGRADED' | 'HALTED' | 'NEUTRAL';
+
+function statusFromService(status: string, latencyMs?: number): StatusVariant {
+  if (status !== 'up') return 'HALTED';
+  if (latencyMs != null && latencyMs > 500) return 'DEGRADED';
+  return 'LIVE';
 }
 
-interface DashboardStatsData {
-  users?: { total?: number; active?: number };
-  withdrawals?: { pending?: number };
-  p2p?: { openDisputes?: number };
+function formatUptime(sec: number): string {
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  if (m < 60) return `${m}m ${s}s`;
+  const h = Math.floor(m / 60);
+  const min = m % 60;
+  if (h < 24) return `${h}h ${min}m`;
+  const d = Math.floor(h / 24);
+  const hours = h % 24;
+  return `${d}d ${hours}h`;
 }
 
-const API_URL = getApiBaseUrl();
+interface HistoryPoint {
+  time: string;
+  api: number;
+  db: number;
+  redis: number;
+  queue: number;
+  settlement: number;
+}
 
-export default function SystemHealthRiskMonitor() {
+export default function SystemHealthDashboard() {
   const { accessToken } = useAdminAuthStore();
-  const [halted, setHalted] = useState<boolean | null>(null);
-  const [stats, setStats] = useState<DashboardStatsData | null>(null);
-  const [pendingWithdrawals, setPendingWithdrawals] = useState<number | null>(null);
+  const [data, setData] = useState<SystemHealthData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [toggleLoading, setToggleLoading] = useState(false);
-  const [haltError, setHaltError] = useState<string | null>(null);
-  const [confirmHalt, setConfirmHalt] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [history, setHistory] = useState<HistoryPoint[]>([]);
+  const fetchStart = useRef<number>(0);
 
-  const fetchHalt = useCallback(async () => {
-    if (!accessToken) return null;
-    const res = await fetch(`${API_URL}/api/v1/admin/trading-halt`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    const result = await res.json();
-    return result?.success && result?.data ? (result.data as TradingHaltData).halted : null;
-  }, [accessToken]);
-
-  const fetchStats = useCallback(async () => {
+  const fetchHealth = useCallback(async () => {
     if (!accessToken) return;
-    setLoading(true);
-    try {
-      const [haltRes, statsRes, withdrawalsRes] = await Promise.all([
-        fetch(`${API_URL}/api/v1/admin/trading-halt`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }),
-        fetch(`${API_URL}/api/v1/admin/dashboard/stats`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }),
-        fetch(`${API_URL}/api/v1/admin/withdrawals?limit=1`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }),
-      ]);
-      const haltData = await haltRes.json();
-      const statsData = await statsRes.json();
-      const withdrawalsData = await withdrawalsRes.json();
+    fetchStart.current = Date.now();
+    const res = await getSystemHealth(accessToken);
+    const clientLatencyMs = Date.now() - fetchStart.current;
 
-      if (haltData?.success && haltData?.data != null) {
-        setHalted((haltData.data as TradingHaltData).halted);
-      }
-      if (statsData?.success && statsData?.data) {
-        setStats(statsData.data as DashboardStatsData);
-      }
-      if (withdrawalsData?.success && withdrawalsData?.data?.stats != null) {
-        const pw = withdrawalsData.data.stats.pending_approval ?? withdrawalsData.data.stats.pending;
-        setPendingWithdrawals(typeof pw === 'number' ? pw : parseInt(String(pw ?? '0'), 10));
-      } else if (statsData?.success && (statsData.data as DashboardStatsData)?.withdrawals?.pending != null) {
-        setPendingWithdrawals((statsData.data as DashboardStatsData).withdrawals!.pending!);
-      } else {
-        setPendingWithdrawals(0);
-      }
-    } finally {
+    if (!res.success || !res.data) {
+      setError(res.error?.message ?? 'Failed to load system health');
+      setData(null);
       setLoading(false);
+      return;
     }
+    setError(null);
+    const d = res.data;
+    d.api_latency_ms = clientLatencyMs;
+    setData(d);
+
+    const point: HistoryPoint = {
+      time: new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      api: clientLatencyMs,
+      db: d.database.latency_ms,
+      redis: d.redis.latency_ms,
+      queue: d.queue.total_withdrawal_queue,
+      settlement: d.queue.settlement_pending,
+    };
+    setHistory((prev) => [...prev.slice(-(HISTORY_LENGTH - 1)), point]);
+    setLoading(false);
   }, [accessToken]);
 
   useEffect(() => {
-    fetchStats();
-  }, [fetchStats]);
+    fetchHealth();
+    const id = setInterval(fetchHealth, POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [fetchHealth]);
 
-  const handleToggleHalt = async () => {
-    if (!accessToken || halted === null) return;
-    if (halted === false && !confirmHalt) return;
-    setHaltError(null);
-    setToggleLoading(true);
-    setConfirmHalt(false);
-    try {
-      const res = await fetch(`${API_URL}/api/v1/admin/trading-halt`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ halted: !halted }),
-      });
-      const result = await res.json();
-      if (result?.success && result?.data != null) {
-        setHalted((result.data as TradingHaltData).halted);
-      } else {
-        setHaltError(result?.error?.message ?? result?.error?.code ?? 'Request failed');
-      }
-    } catch {
-      setHaltError('Request failed');
-    } finally {
-      setToggleLoading(false);
-    }
-  };
+  const dbStatus = data ? statusFromService(data.database.status, data.database.latency_ms) : 'NEUTRAL';
+  const redisStatus = data ? statusFromService(data.redis.status, data.redis.latency_ms) : 'NEUTRAL';
+  const wsStatus = data?.websocket?.status === 'up' ? 'LIVE' : (data ? 'HALTED' : 'NEUTRAL');
+  const nodeStatus = data?.node?.status === 'up' ? 'LIVE' : (data ? 'HALTED' : 'NEUTRAL');
 
-  const activeUsers = stats?.users?.active ?? 0;
-  const pendingWithdrawalsVal = pendingWithdrawals ?? stats?.withdrawals?.pending ?? 0;
-  const openDisputes = stats?.p2p?.openDisputes ?? 0;
+  const chartData = history.length > 0 ? history : [
+    { time: '—', api: 0, db: 0, redis: 0, queue: 0, settlement: 0 },
+  ];
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <SectionHeader
-        title="System Health & Risk Monitor"
-        subtitle="Operational status and risk signals"
+        title="System Health"
+        subtitle="API latency, websocket, database, node status, and queue metrics"
+        action={
+          <button
+            type="button"
+            onClick={() => { setLoading(true); fetchHealth(); }}
+            disabled={loading}
+            className="text-sm font-medium text-[var(--admin-primary)] hover:underline disabled:opacity-50 flex items-center gap-1"
+          >
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+            Refresh
+          </button>
+        }
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Panel title="Trading State" subtitle="Current exchange trading status">
-          {loading && halted === null ? (
-            <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Loading…
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <StatusBadge
-                  variant={halted === true ? 'HALTED' : 'LIVE'}
-                  label={halted === true ? 'HALTED' : 'LIVE'}
-                  showDot
-                />
-              </div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                {halted === true
-                  ? 'Trading is halted. New orders and matching are disabled. Withdrawals may still be processed depending on configuration.'
-                  : 'Trading is live. Orders are accepted and matching is active.'}
-              </p>
-            </div>
-          )}
-        </Panel>
-
-        <Panel title="Controls" subtitle="Trading halt override">
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <ActionButton
-                variant={halted === true ? 'primary' : 'danger'}
-                loading={toggleLoading}
-                onClick={halted === true ? handleToggleHalt : () => { setHaltError(null); setConfirmHalt(true); }}
-                disabled={loading || halted === null}
-              >
-                {halted === true ? 'Resume trading' : 'Halt trading'}
-              </ActionButton>
-            </div>
-            {haltError && (
-              <p className="text-xs text-red-600 dark:text-red-400" role="alert">{haltError}</p>
-            )}
-          </div>
-        </Panel>
-      </div>
-
-      {confirmHalt && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="halt-trading-title"
-        >
-          <div className="w-full max-w-md rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-xl">
-            <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
-              <h2 id="halt-trading-title" className="text-sm font-semibold text-gray-900 dark:text-white">
-                Confirm halt trading
-              </h2>
-            </div>
-            <div className="p-4 space-y-3 text-sm">
-              <p className="text-gray-600 dark:text-gray-400">
-                New orders will be rejected until trading is resumed. This action is reversible.
-              </p>
-              {haltError && (
-                <p className="text-xs text-red-600 dark:text-red-400" role="alert">{haltError}</p>
-              )}
-            </div>
-            <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-2">
-              <ActionButton variant="secondary" onClick={() => { setConfirmHalt(false); setHaltError(null); }}>
-                Back
-              </ActionButton>
-              <ActionButton
-                variant="danger"
-                loading={toggleLoading}
-                disabled={toggleLoading}
-                onClick={handleToggleHalt}
-              >
-                Halt trading
-              </ActionButton>
-            </div>
-          </div>
+      {error && (
+        <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30 px-4 py-3 flex items-center gap-2 text-sm text-red-800 dark:text-red-200">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          {error}
         </div>
       )}
 
-      <Panel title="Risk signals" subtitle="Operational and risk metrics from backend">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      {/* Metric cards */}
+      <section>
+        <h2 className="text-xs font-semibold text-[var(--admin-text-muted)] uppercase tracking-wider mb-3">
+          Overview
+        </h2>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <MetricWidget
-            label="Pending withdrawals"
-            value={loading ? '—' : pendingWithdrawalsVal}
-            variant={pendingWithdrawalsVal > 0 ? 'warning' : 'neutral'}
-            statusBadge={pendingWithdrawalsVal > 0 ? 'DEGRADED' : undefined}
+            label="API latency"
+            value={loading && !data ? '—' : (data ? `${data.api_latency_ms} ms` : '—')}
+            sublabel="Last probe"
+            variant={data && data.api_latency_ms > 500 ? 'warning' : 'neutral'}
+            statusBadge={data && data.api_latency_ms > 500 ? 'DEGRADED' : undefined}
+            icon={<Activity className="w-5 h-5" />}
           />
           <MetricWidget
-            label="Open disputes"
-            value={loading ? '—' : openDisputes}
-            variant={openDisputes > 0 ? 'danger' : 'neutral'}
-            statusBadge={openDisputes > 0 ? 'RISK' : undefined}
+            label="Database"
+            value={loading && !data ? '—' : (data ? `${data.database.latency_ms} ms` : '—')}
+            sublabel={data?.database.status ?? '—'}
+            variant={data && data.database.status !== 'up' ? 'danger' : 'neutral'}
+            statusBadge={data ? dbStatus : undefined}
+            icon={<Database className="w-5 h-5" />}
           />
           <MetricWidget
-            label="Active users"
-            value={loading ? '—' : activeUsers}
-            sublabel="Sessions now"
+            label="Redis"
+            value={loading && !data ? '—' : (data ? `${data.redis.latency_ms} ms` : '—')}
+            sublabel={data?.redis.status ?? '—'}
+            variant={data && data.redis.status !== 'up' ? 'danger' : 'neutral'}
+            statusBadge={data ? redisStatus : undefined}
+            icon={<Server className="w-5 h-5" />}
+          />
+          <MetricWidget
+            label="WebSocket"
+            value={loading && !data ? '—' : (data ? `${data.websocket.connections} conn` : '—')}
+            sublabel={data ? `${data.websocket.authenticated} auth` : '—'}
+            statusBadge={data ? wsStatus : undefined}
+            icon={<Radio className="w-5 h-5" />}
+          />
+          <MetricWidget
+            label="Node"
+            value={loading && !data ? '—' : (data ? formatUptime(data.node.uptime_sec) : '—')}
+            sublabel={data ? `${data.node.memory_heap_mb} MB heap` : '—'}
+            statusBadge={data ? nodeStatus : undefined}
+            icon={<Server className="w-5 h-5" />}
+          />
+          <MetricWidget
+            label="Withdrawal queue"
+            value={loading && !data ? '—' : (data ? data.queue.total_withdrawal_queue : '—')}
+            sublabel={data ? `Settlement: ${data.queue.settlement_pending}` : '—'}
+            variant={data && data.queue.total_withdrawal_queue > 10 ? 'warning' : 'neutral'}
+            icon={<Layers className="w-5 h-5" />}
+          />
+        </div>
+      </section>
+
+      {/* Status indicators */}
+      <Panel title="Service status" subtitle="Database, Redis, WebSocket, Node">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-[var(--admin-hover-bg)]">
+            {data?.database.status === 'up' ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
+            ) : data ? (
+              <XCircle className="w-5 h-5 text-red-500 shrink-0" />
+            ) : (
+              <Loader2 className="w-5 h-5 animate-spin text-[var(--admin-text-muted)] shrink-0" />
+            )}
+            <div>
+              <p className="text-sm font-medium text-[var(--admin-text)]">Database</p>
+              <p className="text-xs text-[var(--admin-text-muted)]">
+                {data ? (data.database.status === 'up' ? `${data.database.latency_ms} ms` : 'Down') : '—'}
+              </p>
+            </div>
+            {data && <StatusBadge variant={dbStatus} label={dbStatus} showDot />}
+          </div>
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-[var(--admin-hover-bg)]">
+            {data?.redis.status === 'up' ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
+            ) : data ? (
+              <XCircle className="w-5 h-5 text-red-500 shrink-0" />
+            ) : (
+              <Loader2 className="w-5 h-5 animate-spin text-[var(--admin-text-muted)] shrink-0" />
+            )}
+            <div>
+              <p className="text-sm font-medium text-[var(--admin-text)]">Redis</p>
+              <p className="text-xs text-[var(--admin-text-muted)]">
+                {data ? (data.redis.status === 'up' ? `${data.redis.latency_ms} ms` : 'Down') : '—'}
+              </p>
+            </div>
+            {data && <StatusBadge variant={redisStatus} label={redisStatus} showDot />}
+          </div>
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-[var(--admin-hover-bg)]">
+            {data?.websocket?.status === 'up' ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
+            ) : data ? (
+              <AlertCircle className="w-5 h-5 text-amber-500 shrink-0" />
+            ) : (
+              <Loader2 className="w-5 h-5 animate-spin text-[var(--admin-text-muted)] shrink-0" />
+            )}
+            <div>
+              <p className="text-sm font-medium text-[var(--admin-text)]">WebSocket</p>
+              <p className="text-xs text-[var(--admin-text-muted)]">
+                {data ? `${data.websocket.connections} connections` : '—'}
+              </p>
+            </div>
+            {data && <StatusBadge variant={wsStatus} label={wsStatus} showDot />}
+          </div>
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-[var(--admin-hover-bg)]">
+            {data?.node?.status === 'up' ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
+            ) : data ? (
+              <XCircle className="w-5 h-5 text-red-500 shrink-0" />
+            ) : (
+              <Loader2 className="w-5 h-5 animate-spin text-[var(--admin-text-muted)] shrink-0" />
+            )}
+            <div>
+              <p className="text-sm font-medium text-[var(--admin-text)]">Node</p>
+              <p className="text-xs text-[var(--admin-text-muted)]">
+                {data ? `${data.node.memory_heap_mb} MB` : '—'}
+              </p>
+            </div>
+            {data && <StatusBadge variant={nodeStatus} label={nodeStatus} showDot />}
+          </div>
+        </div>
+      </Panel>
+
+      {/* Line charts */}
+      <section>
+        <h2 className="text-xs font-semibold text-[var(--admin-text-muted)] uppercase tracking-wider mb-3">
+          Latency &amp; queues over time
+        </h2>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <AdminChartCard title="API / DB / Redis latency" subtitle="Last probe (ms)">
+            <ResponsiveContainer width="100%" height={240}>
+              <LineChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={adminChartTheme.grid} />
+                <XAxis dataKey="time" stroke={adminChartTheme.axis} fontSize={10} tickLine={false} />
+                <YAxis stroke={adminChartTheme.axis} fontSize={10} tickLine={false} unit=" ms" />
+                <Tooltip
+                  contentStyle={{
+                    background: adminChartTheme.tooltipBg,
+                    border: `1px solid ${adminChartTheme.tooltipBorder}`,
+                    borderRadius: '8px',
+                  }}
+                  labelStyle={{ color: adminChartTheme.axis }}
+                />
+                <Line type="monotone" dataKey="api" stroke={adminChartTheme.primary} strokeWidth={2} dot={false} name="API" />
+                <Line type="monotone" dataKey="db" stroke={adminChartTheme.success} strokeWidth={1.5} dot={false} name="DB" />
+                <Line type="monotone" dataKey="redis" stroke={adminChartTheme.accent} strokeWidth={1.5} dot={false} name="Redis" />
+              </LineChart>
+            </ResponsiveContainer>
+          </AdminChartCard>
+          <AdminChartCard title="Queue depth" subtitle="Withdrawal queue & settlement pending">
+            <ResponsiveContainer width="100%" height={240}>
+              <LineChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={adminChartTheme.grid} />
+                <XAxis dataKey="time" stroke={adminChartTheme.axis} fontSize={10} tickLine={false} />
+                <YAxis stroke={adminChartTheme.axis} fontSize={10} tickLine={false} />
+                <Tooltip
+                  contentStyle={{
+                    background: adminChartTheme.tooltipBg,
+                    border: `1px solid ${adminChartTheme.tooltipBorder}`,
+                    borderRadius: '8px',
+                  }}
+                  labelStyle={{ color: adminChartTheme.axis }}
+                />
+                <Line type="monotone" dataKey="queue" stroke={adminChartTheme.warning} strokeWidth={2} dot={false} name="Withdrawal queue" />
+                <Line type="monotone" dataKey="settlement" stroke={adminChartTheme.danger} strokeWidth={1.5} dot={false} name="Settlement pending" />
+              </LineChart>
+            </ResponsiveContainer>
+          </AdminChartCard>
+        </div>
+      </section>
+
+      {/* Queue breakdown */}
+      <Panel title="Queue metrics" subtitle="Withdrawal signing queue and settlement">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <MetricWidget
+            label="Settlement pending"
+            value={data?.queue.settlement_pending ?? '—'}
+            variant={data && data.queue.settlement_pending > 5 ? 'warning' : 'neutral'}
+          />
+          <MetricWidget
+            label="Withdrawal pending"
+            value={data?.queue.withdrawal_pending ?? '—'}
+          />
+          <MetricWidget
+            label="Withdrawal signing"
+            value={data?.queue.withdrawal_signing ?? '—'}
+          />
+          <MetricWidget
+            label="Withdrawal broadcast"
+            value={data?.queue.withdrawal_broadcast ?? '—'}
           />
         </div>
       </Panel>

@@ -26,6 +26,12 @@ import {
   HelpCircle,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/Tooltip';
+import { InfoTooltip } from '@/components/ui/InfoTooltip';
+import { Skeleton } from '@/components/ui/Skeleton';
+import { PortfolioChangeCard } from '@/components/assets/PortfolioChangeCard';
+import { PortfolioAllocationChart } from '@/components/assets/PortfolioAllocationChart';
+import { AssetPerformanceTable } from '@/components/assets/AssetPerformanceTable';
+
 interface AccountBalance {
   type: string;
   totalUsd: number;
@@ -226,7 +232,7 @@ export default function AssetsOverviewPage() {
               <div className="flex items-center gap-2">
                 {balanceError.includes('Session expired') && (
                   <Link
-                    href="/login"
+                    href={`/login?redirect=${encodeURIComponent('/dashboard/assets/overview')}`}
                     className="px-4 py-2 text-sm font-medium rounded-lg bg-amber-600 text-white hover:bg-amber-700"
                   >
                     Log in again
@@ -243,21 +249,19 @@ export default function AssetsOverviewPage() {
             </div>
           )}
 
-          {/* Total Balance Card */}
-          <div className="bg-white dark:bg-[#1e2329] rounded-2xl p-6 mb-8 border border-gray-100 dark:border-gray-800">
-            <h2 className="text-4xl font-bold text-gray-900 dark:text-white">
-              {showBalance ? formatNumber(totalUsd) : '******'} <span className="text-xl font-normal text-gray-500">USD</span>
-            </h2>
-            <p className="text-base text-gray-500 mt-2">
-              ≈ {showBalance ? formatNumber(totalBtc, 8) : '********'} BTC
-            </p>
-            <div className="flex items-center gap-2 mt-4 pt-4 border-t border-gray-100 dark:border-gray-800">
-              <span className="text-sm text-gray-500">Today's P&L</span>
-              <span className="text-sm font-medium text-gray-900 dark:text-white">{showBalance ? '0.00' : '****'}</span>
-              <ChevronRight className="w-4 h-4 text-gray-400" />
-            </div>
-            {showBalance && totalUsd === 0 && totalBtc === 0 && (
-              <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800">
+          {/* Portfolio Value Card */}
+          <div className="mb-8">
+            <PortfolioChangeCard
+              totalUsd={totalUsd}
+              totalBtc={totalBtc}
+              change24h={0}
+              change24hPercent={0}
+              lastUpdated={lastUpdated}
+              showBalance={showBalance}
+              loading={loading}
+            />
+            {!loading && showBalance && totalUsd === 0 && totalBtc === 0 && (
+              <div className="mt-4 p-4 bg-white dark:bg-[#1e2329] rounded-2xl border border-gray-100 dark:border-gray-800">
                 <button
                   type="button"
                   onClick={() => { setShowWhyZero(!showWhyZero); if (!whyZeroReason && !whyZeroLoading) fetchWhyZero(); }}
@@ -401,6 +405,14 @@ export default function AssetsOverviewPage() {
               </div>
             </div>
             <div className="space-y-6">
+              {/* Portfolio Allocation Chart */}
+              <PortfolioAllocationChart
+                items={perCoinBalances.map((row) => {
+                  const val = parseFloat(row.usd_value || '0');
+                  const total = totalUsd > 0 ? totalUsd : 1;
+                  return { symbol: row.symbol, value: val, percent: (val / total) * 100 };
+                })}
+              />
               {/* Balance Chart */}
               <div className="bg-white dark:bg-[#1e2329] rounded-2xl p-5 border border-gray-100 dark:border-gray-800">
                 <div className="h-40 flex items-end justify-between gap-4 px-4">
@@ -477,9 +489,21 @@ export default function AssetsOverviewPage() {
           </div>
           )}
 
-          {/* Asset tab: coin-level balances only (total_balance > 0). Row click → coin wallet page. */}
+          {/* Asset tab: coin-level balances + performance analytics. */}
           {activeTab === 'asset' && (
-            <div>
+            <div className="space-y-6">
+              {/* Asset Performance Table */}
+              <AssetPerformanceTable
+                showBalance={showBalance}
+                rows={perCoinBalances.map((row) => ({
+                  symbol: row.symbol,
+                  balance: row.total_balance,
+                  change24h: 0,
+                  change24hPercent: 0,
+                  valueUsd: row.usd_value,
+                }))}
+              />
+              <div>
               <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">Which coins do I own?</h3>
               <div className="bg-white dark:bg-[#1e2329] rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden transition-all duration-200 ease-out hover:border-gray-300 dark:hover:border-white/20">
                 <div className="overflow-x-auto">
@@ -549,6 +573,7 @@ export default function AssetsOverviewPage() {
                     </tbody>
                   </table>
                 </div>
+              </div>
               </div>
             </div>
           )}

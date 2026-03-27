@@ -6,13 +6,13 @@ export type ActionButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
 
 const variantStyles: Record<ActionButtonVariant, string> = {
   primary:
-    'bg-primary text-primary-foreground hover:opacity-90 border border-transparent focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+    'bg-[#2563EB] text-white hover:bg-[#1d4ed8] border border-transparent focus-visible:ring-2 focus-visible:ring-[#2563EB]/20',
   secondary:
-    'bg-transparent border border-border text-foreground hover:bg-muted focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+    'bg-transparent border border-[#E5E7EB] text-[#111827] hover:bg-[#F9FAFB] focus-visible:ring-2 focus-visible:ring-[#2563EB]/20',
   danger:
-    'bg-destructive text-destructive-foreground border border-transparent hover:opacity-90 focus-visible:ring-destructive focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+    'bg-[#EF4444] text-white border border-transparent hover:bg-[#dc2626] focus-visible:ring-2 focus-visible:ring-[#EF4444]/20',
   ghost:
-    'bg-transparent border border-transparent text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+    'bg-transparent border border-transparent text-[#6B7280] hover:bg-[#F9FAFB] hover:text-[#111827] focus-visible:ring-2 focus-visible:ring-[#2563EB]/20',
 };
 
 export interface ActionButtonProps
@@ -36,7 +36,7 @@ export function ActionButton({
     <button
       type="button"
       disabled={disabled ?? loading}
-      className={`inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-[12px] font-medium rounded-[4px] disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${variantStyles[variant]} ${className}`}
+      className={`inline-flex items-center justify-center gap-2 px-4 py-2.5 text-[13px] font-medium rounded-xl disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none transition-colors ${variantStyles[variant]} ${className}`}
       {...rest}
     >
       {loading ? (

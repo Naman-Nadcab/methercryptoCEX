@@ -35,6 +35,9 @@ export function triggerCircuitIfViolation(errMsg: string): void {
       logger.error('Failed to persist circuit open to Redis', { error: e instanceof Error ? e.message : String(e) });
     });
     recordOperationalEvent({ type: 'circuit_open', violation: errMsg });
+    import('../circuit-breaker-history.service.js').then(({ logCircuitEvent }) => {
+      logCircuitEvent({ eventType: 'open', reason: errMsg, actorType: 'system' }).catch(() => {});
+    }).catch(() => {});
     logger.error('SETTLEMENT_CIRCUIT_BREAKER_OPEN', {
       message: 'Accounting violation triggered global trading halt. No further settlements until investigation.',
       violation: errMsg,

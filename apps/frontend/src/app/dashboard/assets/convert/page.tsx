@@ -29,6 +29,7 @@ import {
   ArrowLeftRight,
   Send,
 } from 'lucide-react';
+
 interface Currency {
   id: string;
   symbol: string;

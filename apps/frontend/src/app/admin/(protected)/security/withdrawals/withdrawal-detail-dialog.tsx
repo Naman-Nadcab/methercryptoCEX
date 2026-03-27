@@ -16,6 +16,7 @@ import { securityApi, type PendingWithdrawalItem, type WithdrawalDetail } from '
 import { formatDateTime } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui/toaster';
+import { canApproveWithdrawals } from '@/lib/admin/permissions';
 
 const WITHLIST_STYLES = {
   allowed: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300',
@@ -66,6 +67,7 @@ export function WithdrawalDetailDialog({
   const [rejectReason, setRejectReason] = useState('');
 
   const id = withdrawal?.id ?? '';
+  const canApprovePerm = canApproveWithdrawals();
   const { data: detail, isLoading: detailLoading } = useQuery({
     queryKey: ['admin', 'security', 'withdrawal', id],
     queryFn: () => securityApi.getWithdrawal(id),
@@ -278,14 +280,16 @@ export function WithdrawalDetailDialog({
                 <Button
                   variant="destructive"
                   onClick={handleApproveClick}
-                  disabled={!safeToApprove || approveLoading}
+                  disabled={!canApprovePerm || !safeToApprove || approveLoading}
+                  title={!canApprovePerm ? 'You do not have permission to approve withdrawals' : undefined}
                 >
                   {approveLoading ? 'Approving…' : 'Approve'}
                 </Button>
                 <Button
                   variant="outline"
                   onClick={handleRejectClick}
-                  disabled={rejectLoading}
+                  disabled={!canApprovePerm || rejectLoading}
+                  title={!canApprovePerm ? 'You do not have permission to reject withdrawals' : undefined}
                 >
                   {rejectLoading ? 'Rejecting…' : 'Reject'}
                 </Button>

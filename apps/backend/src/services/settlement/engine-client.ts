@@ -1,9 +1,25 @@
 /**
- * Phase-8 Step-5: Engine contract (assumed fixed).
- * GET /engine/matches?after_id=<last_event_id>
+ * Phase-8 Step-5 / Phase C: Engine contract.
+ * - GET /engine/matches?after_id=<last_event_id>
+ * - POST /engine/place (Rust Order)
+ * - POST /engine/cancel { order_id }
  */
-const ENGINE_BASE_URL = process.env.MATCHING_ENGINE_URL ?? 'http://localhost:7101';
+import { config } from '../../config/index.js';
+
+const ENGINE_BASE_URL = config.rustMatchingEngine.url;
 const FETCH_TIMEOUT_MS = 5_000;
+
+export interface RustOrder {
+  id: string;
+  user_id: string;
+  market: string;
+  side: 'buy' | 'sell';
+  type: 'limit' | 'market';
+  price: string | null;
+  quantity: string;
+  remaining: string;
+  created_at: number;
+}
 
 export interface EngineMatchEvent {
   event_id: number;
@@ -38,6 +54,50 @@ export async function fetchMatches(afterId: number): Promise<EngineMatchesRespon
       throw new Error('Invalid response shape from matching engine');
     }
     return data;
+  } catch (e) {
+    clearTimeout(timeout);
+    throw e;
+  }
+}
+
+export async function placeOrderRust(order: RustOrder): Promise<{ ok: boolean }> {
+  const url = `${ENGINE_BASE_URL}/engine/place`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(order),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!res.ok) {
+      throw new Error(`Matching engine place returned ${res.status}`);
+    }
+    return (await res.json()) as { ok: boolean };
+  } catch (e) {
+    clearTimeout(timeout);
+    throw e;
+  }
+}
+
+export async function cancelOrderRust(orderId: string): Promise<{ ok: boolean }> {
+  const url = `${ENGINE_BASE_URL}/engine/cancel`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order_id: orderId }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!res.ok) {
+      throw new Error(`Matching engine cancel returned ${res.status}`);
+    }
+    return (await res.json()) as { ok: boolean };
   } catch (e) {
     clearTimeout(timeout);
     throw e;

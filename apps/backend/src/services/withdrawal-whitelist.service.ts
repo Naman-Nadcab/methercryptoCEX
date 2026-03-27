@@ -5,9 +5,8 @@
  */
 
 import { db } from '../lib/database.js';
+import { config } from '../config/index.js';
 import type { PoolClient } from 'pg';
-
-const DEFAULT_TIMELOCK_HOURS = 24;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -76,7 +75,7 @@ export async function addAddress(params: AddAddressParams): Promise<AddAddressRe
     asset,
     address,
     label = null,
-    timelockHours = DEFAULT_TIMELOCK_HOURS,
+    timelockHours = config.withdrawalAddressCoolingHours,
   } = params;
 
   const normalizedAddress = address.trim();

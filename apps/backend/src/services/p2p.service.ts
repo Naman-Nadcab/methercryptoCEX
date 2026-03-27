@@ -27,8 +27,21 @@ import {
   AuditAction,
 } from '../types/index.js';
 import { PoolClient } from 'pg';
+import * as spotWs from './spot-ws.service.js';
 
 Decimal.set({ precision: 36, rounding: Decimal.ROUND_DOWN });
+
+function emitP2POrderUpdate(order: P2POrder): void {
+  try {
+    const payload = { id: order.id, status: order.status };
+    spotWs.sendP2POrderUpdate(order.buyerId, payload);
+    if (order.sellerId !== order.buyerId) {
+      spotWs.sendP2POrderUpdate(order.sellerId, payload);
+    }
+  } catch {
+    /* best-effort */
+  }
+}
 
 const P2P_QUANTITY_MAX = new Decimal('1e15');
 
@@ -55,6 +68,8 @@ interface CreateAdParams {
   remarks?: string;
   autoReply?: string;
   countries?: string[];
+  /** When true, crypto auto-releases when buyer confirms payment (no seller action) */
+  autoRelease?: boolean;
 }
 
 interface CreateOrderParams {
@@ -96,6 +111,7 @@ class P2PService {
       remarks,
       autoReply,
       countries,
+      autoRelease = false,
     } = params;
 
     // Validate amounts
@@ -182,8 +198,8 @@ class P2PService {
         user_id, type, token_id, fiat_currency, price_type, price,
         floating_price_margin, min_amount, max_amount, available_amount,
         total_amount, payment_methods, payment_time_limit, remarks,
-        auto_reply, countries, status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+        auto_reply, countries, status, auto_release
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
       RETURNING *`,
       [
         userId,
@@ -203,6 +219,7 @@ class P2PService {
         autoReply || null,
         countries || null,
         P2PAdStatus.ACTIVE,
+        autoRelease,
       ]
     );
 
@@ -590,6 +607,11 @@ class P2PService {
           timestamp: Date.now(),
         } as P2PEscrowMessage);
 
+        try {
+          const { publishP2POrderCreated } = await import('./admin-ws.service.js');
+          publishP2POrderCreated({ id: order.id, ad_id: adId, buyer_id: buyerId, seller_id: sellerId, crypto_amount: quantity });
+        } catch { /* best-effort */ }
+        emitP2POrderUpdate(order);
         logger.info('P2P order created', { orderId: order.id, adId, buyerId, sellerId });
         auditLog(AuditAction.P2P_ORDER_CREATED, userId, { orderId: order.id, adId }, undefined);
         logger.info('P2P_SECURITY', { event: 'p2p_security', action: 'order_created', orderId: order.id, userId, adId, timestamp: new Date().toISOString() });
@@ -603,9 +625,9 @@ class P2PService {
   }
 
   /**
-   * Confirm payment received (buyer confirms). State: pending_payment → buyer_marked_paid only. Idempotent.
+   * Confirm payment received (buyer confirms). State: pending_payment → buyer_marked_paid. Optional payment_proof_url for dispute evidence. Idempotent.
    */
-  async confirmPayment(orderId: string, userId: string, requestIp?: string): Promise<P2POrder> {
+  async confirmPayment(orderId: string, userId: string, requestIp?: string, proofUrl?: string): Promise<P2POrder> {
     return await db.transaction(async (client) => {
       const orderResult = await client.query<P2POrder>(
         'SELECT * FROM p2p_orders WHERE id = $1 FOR UPDATE',
@@ -631,11 +653,16 @@ class P2PService {
       }
 
       const result = await client.query<P2POrder>(
-        `UPDATE p2p_orders 
-         SET status = 'payment_confirmed', payment_confirmed_at = NOW(), updated_at = NOW()
-         WHERE id = $1
-         RETURNING *`,
-        [orderId]
+        proofUrl
+          ? `UPDATE p2p_orders 
+             SET status = 'payment_confirmed', payment_confirmed_at = NOW(), payment_proof_url = $2, updated_at = NOW()
+             WHERE id = $1
+             RETURNING *`
+          : `UPDATE p2p_orders 
+             SET status = 'payment_confirmed', payment_confirmed_at = NOW(), updated_at = NOW()
+             WHERE id = $1
+             RETURNING *`,
+        proofUrl ? [orderId, proofUrl] : [orderId]
       );
 
       await rabbitmq.sendToQueue(QUEUES.P2P_PAYMENT_CONFIRMED, {
@@ -648,7 +675,9 @@ class P2PService {
       auditLog(AuditAction.P2P_PAYMENT_CONFIRMED, userId, { orderId }, requestIp);
       logger.info('P2P_SECURITY', { event: 'p2p_security', action: 'payment_confirmed', orderId, userId, ip: requestIp, timestamp: new Date().toISOString() });
 
-      return result.rows[0]!;
+      const updated = result.rows[0]!;
+      emitP2POrderUpdate(updated);
+      return updated;
     });
   }
 
@@ -713,7 +742,9 @@ class P2PService {
           [orderId]
         );
         const existing = await client.query<P2POrder>('SELECT * FROM p2p_orders WHERE id = $1', [orderId]);
-        return existing.rows[0]!;
+        const o = existing.rows[0]!;
+        emitP2POrderUpdate(o);
+        return o;
       }
 
       // Update order
@@ -753,7 +784,9 @@ class P2PService {
       logger.info('P2P crypto released', { orderId, userId });
       logger.info('P2P_SECURITY', { event: 'p2p_security', action: 'order_released', orderId, userId, ip: requestIp, timestamp: new Date().toISOString() });
 
-      return result.rows[0]!;
+      const released = result.rows[0]!;
+      emitP2POrderUpdate(released);
+      return released;
     });
   }
 
@@ -801,7 +834,9 @@ class P2PService {
           [orderId]
         );
         const existing = await client.query<P2POrder>('SELECT * FROM p2p_orders WHERE id = $1', [orderId]);
-        return existing.rows[0]!;
+        const o = existing.rows[0]!;
+        emitP2POrderUpdate(o);
+        return o;
       }
 
       const qty = (order as { quantity?: string }).quantity ?? (order as { crypto_amount?: string }).crypto_amount;
@@ -847,7 +882,9 @@ class P2PService {
       logger.info('P2P_SECURITY', { event: 'p2p_security', action: 'order_cancelled', orderId, userId, ip: requestIp, timestamp: new Date().toISOString() });
       logger.info('P2P order cancelled', { orderId, userId, reason });
 
-      return result.rows[0]!;
+      const cancelled = result.rows[0]!;
+      emitP2POrderUpdate(cancelled);
+      return cancelled;
     });
   }
 
@@ -905,6 +942,8 @@ class P2PService {
         `UPDATE p2p_orders SET status = 'disputed', updated_at = NOW() WHERE id = $1`,
         [orderId]
       );
+
+      emitP2POrderUpdate({ ...order, status: P2POrderStatus.DISPUTED });
 
       await rabbitmq.sendToQueue(QUEUES.P2P_DISPUTE_OPENED, {
         disputeId: disputeResult.rows[0]!.id,
@@ -1005,6 +1044,11 @@ class P2PService {
          RETURNING *`,
         [disputeId, resolution, adminId, notes]
       );
+
+      const updatedOrder = await client.query<P2POrder>('SELECT * FROM p2p_orders WHERE id = $1', [order.id]);
+      if (updatedOrder.rows.length > 0) {
+        emitP2POrderUpdate(updatedOrder.rows[0]!);
+      }
 
       logger.info('P2P dispute resolved', { disputeId, resolution });
       auditLog(AuditAction.P2P_DISPUTE_RESOLVED, adminId, { disputeId, resolution }, undefined);

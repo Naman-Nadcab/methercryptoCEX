@@ -73,11 +73,19 @@ async function createAlert(params: {
   details: Record<string, unknown>;
 }): Promise<void> {
   try {
-    await db.query(
+    const res = await db.query<{ id: string }>(
       `INSERT INTO aml_alerts (user_id, alert_type, severity, status, details)
-       VALUES ($1, $2, $3, 'open', $4::jsonb)`,
+       VALUES ($1, $2, $3, 'open', $4::jsonb)
+       RETURNING id`,
       [params.userId, params.alertType, params.severity, JSON.stringify(params.details)]
     );
+    const alertId = res.rows[0]?.id;
+    if (alertId) {
+      try {
+        const { publishAmlAlertTriggered } = await import('./admin-ws.service.js');
+        publishAmlAlertTriggered({ id: alertId, user_id: params.userId, alert_type: params.alertType, severity: params.severity });
+      } catch { /* best-effort */ }
+    }
   } catch (e) {
     logger.warn('AML alert insert failed (best-effort)', {
       userId: params.userId,

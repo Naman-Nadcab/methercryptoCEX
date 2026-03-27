@@ -10,6 +10,7 @@ import { PoolClient } from 'pg';
 import { Decimal, type DecimalInstance } from '../../lib/decimal.js';
 import { db } from '../../lib/database.js';
 import { logger } from '../../lib/logger.js';
+import { triggerCircuitIfViolation } from './settlement-circuit.js';
 import { tradeValue, takerFee, makerFee, toNumeric } from './decimal-utils.js';
 import { SETTLEMENT_EVENT_DOMAIN } from './settlement-hash-constants.js';
 
@@ -116,6 +117,7 @@ export async function replaySettlementIntegrityCheck(): Promise<{ ok: boolean; m
 
       if (computedHash !== storedHash) {
         mismatches++;
+        triggerCircuitIfViolation('SETTLEMENT_HASH_MISMATCH');
         logger.error('SETTLEMENT_REPLAY_MISMATCH', {
           message: 'Settlement replay integrity check failed; recomputed hash does not match stored hash.',
           level: 'CRITICAL',

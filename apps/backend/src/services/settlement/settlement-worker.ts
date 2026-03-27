@@ -20,9 +20,16 @@ import {
   recordOperationalEvent,
 } from '../exchange-monitoring.service.js';
 import { ensureUserBalanceRow, assertBalanceInvariant, CHAIN_ID_GLOBAL } from '../../lib/user-balance-helper.js';
+import { config } from '../../config/index.js';
+import { publishTradeExecuted } from '../admin-ws.service.js';
+import { invalidateTickersCache, invalidateOrderbook } from '../cache-invalidation.service.js';
 
 const WORKER_INTERVAL_MS = 1_000;
 const MAX_RETRIES = 10;
+
+function batchSize(): number {
+  return config.workers?.settlementBatchSize ?? 1;
+}
 const SETTLEMENT_ACCOUNT_TYPE = 'trading';
 
 interface SettlementRow {
@@ -128,12 +135,14 @@ async function processEvent(client: PoolClient, row: SettlementRow): Promise<voi
     const payloadCanonical = JSON.stringify(
       payloadSorted.map((k) => [k, (p as unknown as Record<string, unknown>)[k]])
     );
+    const rebates = config.features.makerRebatesEnabled;
+    const makerFeeForHashReplay = rebates ? makerFeeAmt.negated() : makerFeeAmt;
     const hashPayload = [
       SETTLEMENT_EVENT_DOMAIN,
       payloadCanonical,
       toNumeric(tradeVal),
       toNumeric(takerFeeAmt),
-      toNumeric(makerFeeAmt),
+      toNumeric(makerFeeForHashReplay),
       ledgerLines,
     ].join('|');
     const computedHash = crypto.createHash('sha256').update(hashPayload, 'utf8').digest('hex');
@@ -163,9 +172,12 @@ async function processEvent(client: PoolClient, row: SettlementRow): Promise<voi
   const tradeVal = tradeValue(p.price, p.qty).toDecimalPlaces(quote_precision, ROUND_DOWN);
   const takerFeeAmt = takerFee(tradeVal).toDecimalPlaces(quote_precision, ROUND_DOWN);
   const makerFeeAmt = makerFee(tradeVal).toDecimalPlaces(quote_precision, ROUND_DOWN);
-  /* Fee invariant: taker_fee + maker_fee <= trade_value. Fees derived only from rounded trade_value. */
-  if (takerFeeAmt.plus(makerFeeAmt).gt(tradeVal)) {
-    throw new Error('FEE_INVARIANT_VIOLATION');
+  const makerRebatesEnabled = config.features.makerRebatesEnabled;
+  /* Fee invariant: taker_fee + maker_fee <= trade_value. With rebates, maker gets credit so only taker_fee <= trade_value. */
+  if (makerRebatesEnabled) {
+    if (takerFeeAmt.gt(tradeVal)) throw new Error('FEE_INVARIANT_VIOLATION');
+  } else {
+    if (takerFeeAmt.plus(makerFeeAmt).gt(tradeVal)) throw new Error('FEE_INVARIANT_VIOLATION');
   }
 
   const takerId = p.taker_user_id;
@@ -236,7 +248,7 @@ async function processEvent(client: PoolClient, row: SettlementRow): Promise<voi
     if (takerQuoteAvail.lt(takerFeeAmt)) {
       throw new Error('INSUFFICIENT_FUNDS_FOR_FEE');
     }
-    if (makerQuoteAvail.plus(tradeVal).lt(makerFeeAmt)) {
+    if (!makerRebatesEnabled && makerQuoteAvail.plus(tradeVal).lt(makerFeeAmt)) {
       throw new Error('INSUFFICIENT_FUNDS_FOR_FEE');
     }
   } else {
@@ -245,12 +257,15 @@ async function processEvent(client: PoolClient, row: SettlementRow): Promise<voi
     if (takerQuoteAvail.plus(tradeVal).lt(takerFeeAmt)) {
       throw new Error('INSUFFICIENT_FUNDS_FOR_FEE');
     }
-    if (makerQuoteAvail.lt(makerFeeAmt)) {
+    if (!makerRebatesEnabled && makerQuoteAvail.lt(makerFeeAmt)) {
       throw new Error('INSUFFICIENT_FUNDS_FOR_FEE');
     }
   }
 
-  const makerQuoteNetCredit = tradeVal.minus(makerFeeAmt).toDecimalPlaces(quote_precision, ROUND_DOWN);
+  /* Phase D: Maker rebates = maker receives trade value + rebate (no fee). Otherwise maker receives trade - fee. */
+  const makerQuoteNetCredit = (makerRebatesEnabled
+    ? tradeVal.plus(makerFeeAmt)
+    : tradeVal.minus(makerFeeAmt)).toDecimalPlaces(quote_precision, ROUND_DOWN);
   const takerQuoteNetCredit = tradeVal.minus(takerFeeAmt).toDecimalPlaces(quote_precision, ROUND_DOWN);
 
   const updates: { userId: string; asset: string; currencyId: string; available: DecimalInstance; locked: DecimalInstance }[] = [];
@@ -423,12 +438,13 @@ async function processEvent(client: PoolClient, row: SettlementRow): Promise<voi
   const payloadCanonical = JSON.stringify(
     payloadSorted.map((k) => [k, (p as unknown as Record<string, unknown>)[k]])
   );
+  const makerFeeForHash = makerRebatesEnabled ? makerFeeAmt.negated() : makerFeeAmt;
   const hashPayload = [
     SETTLEMENT_EVENT_DOMAIN,
     payloadCanonical,
     toNumeric(tradeVal),
     toNumeric(takerFeeAmt),
-    toNumeric(makerFeeAmt),
+    toNumeric(makerFeeForHash),
     ledgerLines,
   ].join('|');
   const computedHash = crypto.createHash('sha256').update(hashPayload, 'utf8').digest('hex');
@@ -442,6 +458,7 @@ async function processEvent(client: PoolClient, row: SettlementRow): Promise<voi
     throw new Error('SETTLEMENT_HASH_MISMATCH');
   }
 
+  const makerFeeForDb = makerRebatesEnabled ? makerFeeAmt.negated() : makerFeeAmt;
   await client.query(
     `INSERT INTO settlement_trades (symbol, price, qty, quote_qty, taker_user_id, maker_user_id, taker_order_id, maker_order_id, taker_fee, maker_fee)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
@@ -455,29 +472,59 @@ async function processEvent(client: PoolClient, row: SettlementRow): Promise<voi
       p.taker_order_id,
       p.maker_order_id,
       toNumeric(takerFeeAmt),
-      toNumeric(makerFeeAmt),
+      toNumeric(makerFeeForDb),
     ]
   );
 
   const matchedQtyNum = toNumeric(qty);
+  /* Spot path: update spot_orders and insert spot_trades (symbol from spot_markets) */
   const takerOrderUpdate = await client.query(
-    `UPDATE orders SET filled_quantity = filled_quantity + $1, remaining_quantity = remaining_quantity - $1,
-     status = CASE WHEN (remaining_quantity - $1) <= 0 THEN 'filled' ELSE 'partially_filled' END,
-     updated_at = NOW() WHERE id = $2::uuid AND remaining_quantity >= $1`,
+    `UPDATE spot_orders SET filled_quantity = filled_quantity + $1::numeric, status = CASE
+       WHEN (quantity - filled_quantity - $1::numeric) <= 0 THEN 'FILLED' ELSE 'PARTIALLY_FILLED' END,
+     updated_at = NOW() WHERE id = $2::uuid`,
     [matchedQtyNum, p.taker_order_id]
   );
   if ((takerOrderUpdate.rowCount ?? 0) === 0) {
     throw new Error('ORDER_INVARIANT_VIOLATION');
   }
   const makerOrderUpdate = await client.query(
-    `UPDATE orders SET filled_quantity = filled_quantity + $1, remaining_quantity = remaining_quantity - $1,
-     status = CASE WHEN (remaining_quantity - $1) <= 0 THEN 'filled' ELSE 'partially_filled' END,
-     updated_at = NOW() WHERE id = $2::uuid AND remaining_quantity >= $1`,
+    `UPDATE spot_orders SET filled_quantity = filled_quantity + $1::numeric, status = CASE
+       WHEN (quantity - filled_quantity - $1::numeric) <= 0 THEN 'FILLED' ELSE 'PARTIALLY_FILLED' END,
+     updated_at = NOW() WHERE id = $2::uuid`,
     [matchedQtyNum, p.maker_order_id]
   );
   if ((makerOrderUpdate.rowCount ?? 0) === 0) {
     throw new Error('ORDER_INVARIANT_VIOLATION');
   }
+
+  const buyerId = p.taker_side === 'buy' ? p.taker_user_id : p.maker_user_id;
+  const sellerId = p.taker_side === 'buy' ? p.maker_user_id : p.taker_user_id;
+  const buyerOrderId = p.taker_side === 'buy' ? p.taker_order_id : p.maker_order_id;
+  const sellerOrderId = p.taker_side === 'buy' ? p.maker_order_id : p.taker_order_id;
+  const buyerFee = p.taker_side === 'buy' ? toNumeric(takerFeeAmt) : toNumeric(makerRebatesEnabled ? makerFeeAmt.negated() : makerFeeAmt);
+  const sellerFee = p.taker_side === 'buy' ? toNumeric(makerRebatesEnabled ? makerFeeAmt.negated() : makerFeeAmt) : toNumeric(takerFeeAmt);
+  await client.query(
+    `INSERT INTO spot_trades (order_id, user_id, market, side, price, quantity, fee, fee_asset) VALUES ($1, $2, $3, 'buy', $4, $5, $6, $7)`,
+    [buyerOrderId, buyerId, p.symbol, toNumeric(price), matchedQtyNum, buyerFee, quote]
+  );
+  await client.query(
+    `INSERT INTO spot_trades (order_id, user_id, market, side, price, quantity, fee, fee_asset) VALUES ($1, $2, $3, 'sell', $4, $5, $6, $7)`,
+    [sellerOrderId, sellerId, p.symbol, toNumeric(price), matchedQtyNum, sellerFee, quote]
+  );
+
+  try {
+    publishTradeExecuted({
+      market: p.symbol,
+      side: 'buy',
+      price: toNumeric(price).toString(),
+      quantity: matchedQtyNum.toString(),
+      user_id: buyerId,
+    });
+  } catch {
+    /* best-effort admin metrics */
+  }
+  void invalidateTickersCache();
+  void invalidateOrderbook(p.symbol);
 
   await client.query(
     `UPDATE settlement_events SET status = 'processed', processed_at = NOW(), hash = $2 WHERE id = $1`,
@@ -485,10 +532,7 @@ async function processEvent(client: PoolClient, row: SettlementRow): Promise<voi
   );
 }
 
-async function runOnce(): Promise<void> {
-  if (isTradingHalted()) return;
-  if (await getTradingHalted()) return;
-  if (await getSettlementCircuitOpen()) return;
+async function processOneEvent(): Promise<boolean> {
   const client = await db.getSettlementClient();
   try {
     await client.query('BEGIN');
@@ -500,12 +544,13 @@ async function runOnce(): Promise<void> {
     );
     if (pending.rows.length === 0) {
       await client.query('ROLLBACK');
-      return;
+      return false;
     }
     const row = pending.rows[0]!;
     try {
       await processEvent(client, row);
       await client.query('COMMIT');
+      return true;
     } catch (err) {
       await client.query('ROLLBACK');
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -576,6 +621,7 @@ async function runOnce(): Promise<void> {
           retry_count: newRetryCount,
         });
       }
+      return true;
     }
   } catch (err) {
     try {
@@ -590,6 +636,17 @@ async function runOnce(): Promise<void> {
     throw err;
   } finally {
     client.release();
+  }
+}
+
+async function runOnce(): Promise<void> {
+  if (isTradingHalted()) return;
+  if (await getTradingHalted()) return;
+  if (await getSettlementCircuitOpen()) return;
+  const limit = batchSize();
+  for (let i = 0; i < limit; i++) {
+    const processed = await processOneEvent();
+    if (!processed) break;
   }
 }
 

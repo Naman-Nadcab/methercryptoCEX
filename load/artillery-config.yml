@@ -1,0 +1,32 @@
+# Artillery load test config — Exchange API
+# Install: npm install -g artillery
+# Run: artillery run load/artillery-config.yml
+# Target: set BASE_URL or use default http://localhost:4000
+config:
+  target: "http://localhost:4000"
+  phases:
+    - duration: 60
+      arrivalRate: 50
+      name: "Warm up"
+    - duration: 120
+      arrivalRate: 100
+      name: "Sustained load"
+    - duration: 30
+      arrivalRate: 200
+      name: "Spike"
+  ensure:
+    maxErrorRate: 0.05
+    p95: 5000
+
+scenarios:
+  - name: "Health and public APIs"
+    flow:
+      - get:
+          url: "/health"
+      - think: 0.1
+      - get:
+          url: "/api/v1/spot/markets"
+      - think: 0.1
+      - get:
+          url: "/api/v1/spot/tickers"
+      - think: 0.2

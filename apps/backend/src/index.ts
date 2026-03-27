@@ -1,3 +1,8 @@
+/**
+ * DEPRECATED: Legacy Express entry. Do not use for production.
+ * Tier 1 production entry: apps/backend/src/server.ts (Fastify).
+ * Start with: node --import tsx src/server.ts (or npm run dev which uses server.ts).
+ */
 import express, { Request, Response, NextFunction } from 'express';
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
@@ -143,7 +148,7 @@ async function bootstrap(): Promise<void> {
     logger.info(`🚀 Server running on port ${config.port}`);
     logger.info(`   Environment: ${config.env}`);
     logger.info(`   API Version: ${config.apiVersion}`);
-    logger.info(`   WebSocket: ws://localhost:${config.port}/ws`);
+    logger.info(`   WebSocket: ws://localhost:${config.port}/api/v1/spot/ws`);
   });
 
   // Graceful shutdown

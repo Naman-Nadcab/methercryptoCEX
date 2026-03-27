@@ -4,19 +4,8 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useAdminAuthStore } from '@/store/admin-auth';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
-import {
-  SectionHeader,
-  Panel,
-  DataTableContainer,
-  DataTableHead,
-  DataTableTh,
-  DataTableBody,
-  DataTableRow,
-  DataTableCell,
-  StatusBadge,
-  ActionButton,
-} from '@/components/admin/control-plane';
-import { Loader2, AlertTriangle, ChevronRight } from 'lucide-react';
+import { Card, Table, Tag, Select, Button, Space, Row, Col, Statistic } from 'antd';
+import { Loader2, AlertTriangle, ChevronRight, FileDown, Plus } from 'lucide-react';
 
 const API_URL = getApiBaseUrl();
 
@@ -40,6 +29,7 @@ export default function ComplianceReportsPage() {
   const [reportTypeFilter, setReportTypeFilter] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [page, setPage] = useState(0);
+  const [exporting, setExporting] = useState(false);
   const limit = 20;
 
   const fetchReports = useCallback(async () => {
@@ -75,100 +65,162 @@ export default function ComplianceReportsPage() {
     fetchReports();
   }, [fetchReports]);
 
+  const handleExport = async () => {
+    if (!accessToken) return;
+    setExporting(true);
+    try {
+      const params = new URLSearchParams();
+      params.set('format', 'csv');
+      params.set('limit', '5000');
+      if (reportTypeFilter) params.set('reportType', reportTypeFilter);
+      if (statusFilter) params.set('status', statusFilter);
+      const res = await fetch(`${API_URL}/api/v1/admin/aml/reports/export?${params}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        setError(data?.error?.message ?? 'Export failed');
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `str-ctr-export-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Export failed');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const statusColor = (s: string) => (s === 'acknowledged' ? 'default' : s === 'submitted' ? 'processing' : 'error');
+
+  const columns = [
+    { title: 'Report ID', dataIndex: 'id', key: 'id', render: (v: string) => <span className="font-mono text-xs">{v.slice(0, 8)}…</span> },
+    { title: 'Type', dataIndex: 'report_type', key: 'report_type', render: (v: string) => <Tag color={v === 'STR' ? 'red' : 'blue'}>{v}</Tag> },
+    { title: 'User', dataIndex: 'user_id', key: 'user_id', render: (v: string | null) => (v ? <span className="font-mono text-xs">{v.slice(0, 8)}…</span> : '—') },
+    {
+      title: 'Period',
+      key: 'period',
+      render: (_: unknown, r: StrCtrReport) =>
+        r.period_start && r.period_end
+          ? `${new Date(r.period_start).toLocaleDateString()} – ${new Date(r.period_end).toLocaleDateString()}`
+          : '—',
+    },
+    { title: 'Total', dataIndex: 'total_amount', key: 'total_amount', render: (v: string | null) => v ?? '—' },
+    {
+      title: 'Status',
+      dataIndex: 'status',
+      key: 'status',
+      render: (v: string) => <Tag color={statusColor(v)}>{v}</Tag>,
+    },
+    {
+      title: 'Created',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      render: (v: string) => <span className="text-xs admin-metric-label">{new Date(v).toLocaleString()}</span>,
+    },
+    {
+      title: '',
+      key: 'action',
+      render: (_: unknown, r: StrCtrReport) => (
+        <Link href={`/admin/compliance/reports/${r.id}`}>
+          <Button type="link" size="small" icon={<ChevronRight className="w-4 h-4" />}>
+            View
+          </Button>
+        </Link>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-6">
-      <SectionHeader
-        title="STR / CTR Reports"
-        subtitle="Suspicious and cash transaction reports. Submit or acknowledge from detail."
-      />
-      {error && (
-        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 flex items-center gap-3 text-red-200">
-          <AlertTriangle className="w-5 h-5 shrink-0" />
-          <span>{error}</span>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-bold admin-metric-value">STR / CTR Reports</h1>
+          <p className="text-sm admin-metric-label mt-0.5">
+            Suspicious and cash transaction reports. Submit or acknowledge from detail.
+          </p>
         </div>
+        <Space>
+          <Button
+            type="default"
+            icon={<FileDown className="w-4 h-4" />}
+            onClick={handleExport}
+            loading={exporting}
+          >
+            Export CSV
+          </Button>
+          <Link href="/admin/compliance/alerts">
+            <Button type="primary" icon={<Plus className="w-4 h-4" />}>
+              AML Alerts
+            </Button>
+          </Link>
+        </Space>
+      </div>
+
+      <Row gutter={[16, 16]}>
+        <Col xs={24} sm={12} md={8}>
+          <Card size="small" className="admin-card">
+            <Statistic title="Total reports" value={total} />
+          </Card>
+        </Col>
+      </Row>
+
+      {error && (
+        <Card className="border-red-500/30 bg-red-500/10">
+          <div className="flex items-center gap-3 text-red-200">
+            <AlertTriangle className="w-5 h-5 shrink-0" />
+            <span>{error}</span>
+          </div>
+        </Card>
       )}
 
-      <Panel>
+      <Card title="Reports" className="admin-card">
         <div className="flex flex-wrap gap-3 mb-4">
-          <select
+          <Select
             value={reportTypeFilter}
-            onChange={(e) => { setReportTypeFilter(e.target.value); setPage(0); }}
-            className="rounded-lg border border-gray-600 bg-gray-800 text-gray-200 px-3 py-2 text-sm"
-          >
-            <option value="">All types</option>
-            <option value="STR">STR</option>
-            <option value="CTR">CTR</option>
-          </select>
-          <select
+            onChange={(v) => { setReportTypeFilter(v); setPage(0); }}
+            placeholder="Type"
+            style={{ minWidth: 120 }}
+            options={[
+              { value: '', label: 'All types' },
+              { value: 'STR', label: 'STR' },
+              { value: 'CTR', label: 'CTR' },
+            ]}
+          />
+          <Select
             value={statusFilter}
-            onChange={(e) => { setStatusFilter(e.target.value); setPage(0); }}
-            className="rounded-lg border border-gray-600 bg-gray-800 text-gray-200 px-3 py-2 text-sm"
-          >
-            <option value="">All statuses</option>
-            <option value="pending">Pending</option>
-            <option value="submitted">Submitted</option>
-            <option value="acknowledged">Acknowledged</option>
-          </select>
+            onChange={(v) => { setStatusFilter(v); setPage(0); }}
+            placeholder="Status"
+            style={{ minWidth: 140 }}
+            options={[
+              { value: '', label: 'All statuses' },
+              { value: 'pending', label: 'Pending' },
+              { value: 'submitted', label: 'Submitted' },
+              { value: 'acknowledged', label: 'Acknowledged' },
+            ]}
+          />
         </div>
 
-        {loading && !reports.length ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-8 h-8 text-gray-400 animate-spin" />
-          </div>
-        ) : (
-          <DataTableContainer>
-            <DataTableHead>
-              <DataTableRow>
-                <DataTableTh>Report ID</DataTableTh>
-                <DataTableTh>Type</DataTableTh>
-                <DataTableTh>User</DataTableTh>
-                <DataTableTh>Period</DataTableTh>
-                <DataTableTh>Total</DataTableTh>
-                <DataTableTh>Status</DataTableTh>
-                <DataTableTh>Created</DataTableTh>
-                <DataTableTh className="w-20">{''}</DataTableTh>
-              </DataTableRow>
-            </DataTableHead>
-            <DataTableBody>
-              {reports.map((r) => (
-                <DataTableRow key={r.id}>
-                  <DataTableCell className="font-mono text-xs">{r.id.slice(0, 8)}…</DataTableCell>
-                  <DataTableCell>{r.report_type}</DataTableCell>
-                  <DataTableCell className="font-mono text-xs">{r.user_id ? r.user_id.slice(0, 8) + '…' : '—'}</DataTableCell>
-                  <DataTableCell className="text-xs text-gray-400">
-                    {r.period_start && r.period_end
-                      ? `${new Date(r.period_start).toLocaleDateString()} – ${new Date(r.period_end).toLocaleDateString()}`
-                      : '—'}
-                  </DataTableCell>
-                  <DataTableCell className="font-mono text-xs">{r.total_amount ?? '—'}</DataTableCell>
-                  <DataTableCell>
-                    <StatusBadge
-                      variant={r.status === 'acknowledged' ? 'NEUTRAL' : r.status === 'submitted' ? 'DEGRADED' : 'RISK'}
-                      label={r.status}
-                      showDot
-                    />
-                  </DataTableCell>
-                  <DataTableCell className="text-gray-400 text-xs">{new Date(r.created_at).toLocaleString()}</DataTableCell>
-                  <DataTableCell>
-                    <Link href={`/admin/compliance/reports/${r.id}`}>
-                      <ActionButton variant="ghost" icon={<ChevronRight className="w-4 h-4" />}>View</ActionButton>
-                    </Link>
-                  </DataTableCell>
-                </DataTableRow>
-              ))}
-            </DataTableBody>
-          </DataTableContainer>
-        )}
-        {total > limit && (
-          <div className="mt-4 flex items-center justify-between text-sm text-gray-400">
-            <span>Total {total} reports</span>
-            <div className="flex gap-2">
-              <ActionButton variant="secondary" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>Previous</ActionButton>
-              <ActionButton variant="secondary" disabled={(page + 1) * limit >= total} onClick={() => setPage((p) => p + 1)}>Next</ActionButton>
-            </div>
-          </div>
-        )}
-      </Panel>
+        <Table
+          dataSource={reports}
+          columns={columns}
+          rowKey="id"
+          loading={loading}
+          pagination={{
+            current: page + 1,
+            pageSize: limit,
+            total,
+            showSizeChanger: false,
+            onChange: (p) => setPage(p - 1),
+          }}
+          size="small"
+        />
+      </Card>
     </div>
   );
 }

@@ -36,16 +36,23 @@ class OTPService {
     // Initialize email transporter if configured
     const smtpHost = process.env.SMTP_HOST;
     const smtpUser = process.env.SMTP_USER;
-    const smtpPass = process.env.SMTP_PASS;
+    const smtpPass = process.env.SMTP_PASS || process.env.SMTP_PASSWORD;
     
     if (smtpHost && smtpUser && smtpPass) {
       const smtpPort = parseInt(process.env.SMTP_PORT || '465');
       const smtpSecure = process.env.SMTP_SECURE === 'true' || smtpPort === 465;
       
+      // Nodemailer defaults connectionTimeout to 120s — slow/blocked SMTP then delays delivery ~2 min.
       this.emailTransporter = nodemailer.createTransport({
         host: smtpHost,
         port: smtpPort,
         secure: smtpSecure,
+        pool: true,
+        maxConnections: 2,
+        maxMessages: 100,
+        connectionTimeout: 12_000,
+        greetingTimeout: 12_000,
+        socketTimeout: OTP_SEND_TIMEOUT_MS,
         auth: {
           user: smtpUser,
           pass: smtpPass,
@@ -211,41 +218,48 @@ class OTPService {
     }
   }
 
+  private static readonly SMS_CONFIG_CACHE_KEY = 'otp:sms_config';
+  private static readonly SMS_CONFIG_TTL_SECONDS = 300; // 5 minutes
+
   /**
-   * Get SMS config from database
-   * Prioritizes fast2sms for Indian numbers
+   * Get SMS config from database (cached in Redis). Prioritizes fast2sms for Indian numbers.
    */
   private async getSMSConfigFromDB(): Promise<OTPConfig['sms'] | null> {
     try {
-      // Prioritize fast2sms, then other providers
-      const result = await db.query<{ 
+      const cached = await redis.getJson<OTPConfig['sms']>(OTPService.SMS_CONFIG_CACHE_KEY);
+      if (cached) return cached;
+    } catch {
+      /* Redis down; fall through to DB */
+    }
+    try {
+      const result = await db.query<{
         provider: string;
         api_key: string;
         api_secret: string | null;
         additional_config: Record<string, string>;
       }>(
-        `SELECT provider, api_key, api_secret, additional_config FROM api_settings 
-         WHERE category = 'sms' AND is_active = TRUE 
-         ORDER BY 
-           CASE WHEN provider = 'fast2sms' THEN 0 ELSE 1 END,
-           is_default DESC 
-         LIMIT 1`
+        `SELECT provider, api_key, api_secret, additional_config FROM api_settings
+         WHERE category = 'sms' AND is_active = TRUE
+         ORDER BY CASE WHEN provider = 'fast2sms' THEN 0 ELSE 1 END, is_default DESC LIMIT 1`
       );
 
       if (result.rows.length > 0 && result.rows[0]) {
         const row = result.rows[0];
         const config = row.additional_config || {};
-        
-        logger.info('Using SMS provider', { provider: row.provider });
-        
-        return {
-          provider: row.provider as any,
+        const smsConfig: OTPConfig['sms'] = {
+          provider: row.provider as 'twilio' | 'msg91' | 'textlocal' | 'fast2sms',
           apiKey: row.api_key || config.api_key || '',
           apiSecret: row.api_secret ?? config.api_secret ?? undefined,
           senderId: config.sender_id || 'INRXPE',
           messageId: config.message_id || '181649',
           route: config.route || 'dlt',
         };
+        try {
+          await redis.setJson(OTPService.SMS_CONFIG_CACHE_KEY, smsConfig, OTPService.SMS_CONFIG_TTL_SECONDS);
+        } catch {
+          /* best effort */
+        }
+        return smsConfig;
       }
       return null;
     } catch (error) {
@@ -396,19 +410,18 @@ class OTPService {
         userId ? [identifier, type, otpHash, salt, expiresAt, userId] : [identifier, type, otpHash, salt, expiresAt]
       );
 
-      // Also store in Redis for quick access (optional; DB is source of truth)
+      // Redis for fast verify (must complete before return so verify can use it)
       try {
         await redis.setJson(`otp:${type}:${identifier}`, {
           hash: otpHash,
           salt,
           attempts: 0,
           expiresAt: expiresAt.toISOString(),
-        }, 600); // 10 minutes TTL
+        }, 600);
       } catch {
-        // Redis down: OTP is still in DB, verifyOTP will fall back to DB
+        // Redis down: OTP is in DB, verifyOTP falls back to DB
       }
 
-      logger.info('OTP created', { identifier, type, expiresAt });
       return { otp, expiresAt };
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : 'Unknown';
@@ -449,22 +462,18 @@ class OTPService {
 
     if (!isValid) {
       cached.attempts++;
-      try { await redis.setJson(cacheKey, cached, 600); } catch { /* best effort */ }
-      await db.query(
-        `UPDATE otp_verifications SET attempts = attempts + 1 
-         WHERE identifier = $1 AND type = $2 AND verified_at IS NULL`,
-        [identifier, type]
-      );
+      await Promise.all([
+        redis.setJson(cacheKey, cached, 600).catch(() => {}),
+        db.query(`UPDATE otp_verifications SET attempts = attempts + 1 WHERE identifier = $1 AND type = $2 AND verified_at IS NULL`, [identifier, type]),
+      ]);
       return { valid: false, message: 'Invalid OTP' };
     }
 
-    // Mark as verified in DB (source of truth)
-    await db.query(
-      `UPDATE otp_verifications SET verified_at = NOW() 
-       WHERE identifier = $1 AND type = $2 AND verified_at IS NULL`,
-      [identifier, type]
-    );
-    try { await redis.del(cacheKey); } catch { /* best effort */ }
+    // Mark verified: DB + Redis del in parallel
+    await Promise.all([
+      db.query(`UPDATE otp_verifications SET verified_at = NOW() WHERE identifier = $1 AND type = $2 AND verified_at IS NULL`, [identifier, type]),
+      redis.del(cacheKey).catch(() => {}),
+    ]);
     return { valid: true, message: 'OTP verified successfully' };
   }
 
@@ -482,7 +491,7 @@ class OTPService {
       max_attempts: number;
       expires_at: Date;
     }>(
-      `SELECT * FROM otp_verifications 
+      `SELECT id, otp_hash, salt, attempts, max_attempts, expires_at FROM otp_verifications
        WHERE identifier = $1 AND type = $2 AND verified_at IS NULL
        ORDER BY created_at DESC LIMIT 1`,
       [identifier, type]

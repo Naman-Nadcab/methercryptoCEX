@@ -13,3 +13,20 @@ export type {
 } from './validateCandleContinuity';
 export { buildChartCandles } from './buildChartCandles';
 export { getChartCandles } from './getChartCandles';
+export type {
+  ChartExtensionsConfig,
+  DrawingToolMode,
+  SerializedDrawing,
+  CandleSyncIndicator,
+} from './extension/types';
+export { throttleLeading } from './utils/throttle';
+export { DrawingToolManager } from './tools/DrawingToolManager';
+export { ChartErrorBoundary } from './ChartErrorBoundary';
+export { FibonacciRetracementTool } from './tools/FibonacciRetracementTool';
+export type { PricePaneOverlayPlugin, ModularExtensionPatch } from './indicators/plugins';
+export {
+  ModularEmaVwapPlugin,
+  OverlayStudyPlugin,
+  RsiPanePlugin,
+  VolumeMaPlugin,
+} from './indicators/plugins';

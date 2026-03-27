@@ -7,11 +7,19 @@ import ThemeProvider from '@/components/ThemeProvider';
 import { rehydrateAuthStore } from '@/store/auth';
 import { notifyError } from '@/lib/notifyError';
 
+/** Max wait for rehydration; resolve immediately when done. No artificial 5s delay. */
+const REHYDRATE_MAX_MS = 2000;
+
 export function Providers({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    rehydrateAuthStore().then(() => setHydrated(true));
+    const timer = setTimeout(() => setHydrated(true), REHYDRATE_MAX_MS);
+    rehydrateAuthStore()
+      .then(() => setHydrated(true))
+      .catch(() => setHydrated(true))
+      .finally(() => clearTimeout(timer));
+    return () => clearTimeout(timer);
   }, []);
 
   const [queryClient] = useState(

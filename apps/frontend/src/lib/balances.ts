@@ -6,7 +6,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from './api';
 
-const BALANCE_STALE_MS = 60 * 1000;
+const BALANCE_STALE_MS = 60 * 1000; // 60s - reduce refetches; refetchOnWindowFocus for tab resume
 
 export interface AccountBalance {
   type: string;
@@ -38,32 +38,8 @@ async function fetchBalancesSummary(): Promise<BalancesSummaryResult> {
   }
   const funding = data.data?.funding ?? { totalUsd: '0' };
   const trading = data.data?.trading ?? { totalUsd: '0' };
-  let fundingUsd = Number(funding.totalUsd) || 0;
-  let tradingUsd = Number(trading.totalUsd) || 0;
-  if (fundingUsd === 0 && tradingUsd === 0) {
-    const byData = await api.get<{ funding?: string; trading?: string }[]>('/api/v1/wallet/balances/by-account');
-    if (byData.success && Array.isArray(byData.data)) {
-      let sumFunding = 0;
-      let sumTrading = 0;
-      byData.data.forEach((row) => {
-        sumFunding += parseFloat(row.funding || '0');
-        sumTrading += parseFloat(row.trading || '0');
-      });
-      if (sumFunding > 0 || sumTrading > 0) {
-        fundingUsd = sumFunding;
-        tradingUsd = sumTrading;
-      }
-    } else if (!byData.success && byData.error) {
-      return {
-        fundingBalance: { type: 'funding', totalUsd: 0, totalBtc: 0 },
-        tradingBalance: { type: 'trading', totalUsd: 0, totalBtc: 0 },
-        balanceError: byData.error.code === 'UNAUTHORIZED' || byData.error.code === 'SESSION_INVALID'
-          ? 'Session expired. Please log in again.'
-          : byData.error.message || 'Could not load balance breakdown.',
-        lastUpdated: '',
-      };
-    }
-  }
+  const fundingUsd = Number(funding.totalUsd) || 0;
+  const tradingUsd = Number(trading.totalUsd) || 0;
   return {
     fundingBalance: { type: 'funding', totalUsd: fundingUsd, totalBtc: fundingUsd / 82000 },
     tradingBalance: { type: 'trading', totalUsd: tradingUsd, totalBtc: tradingUsd / 82000 },

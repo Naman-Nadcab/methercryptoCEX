@@ -29,6 +29,12 @@ import {
 } from 'lucide-react';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { toast } from '@/components/ui/toaster';
+import { Skeleton } from '@/components/ui/Skeleton';
+import { InfoTooltip } from '@/components/ui/InfoTooltip';
+import { ReferralEarningsChart } from '@/components/referral/ReferralEarningsChart';
+import { ReferralFunnel } from '@/components/referral/ReferralFunnel';
+import { ReferralLeaderboard } from '@/components/referral/ReferralLeaderboard';
+import { ReferralBannerGenerator } from '@/components/referral/ReferralBannerGenerator';
 
 type ActiveCard = 'earnings' | 'commissions';
 
@@ -317,21 +323,23 @@ export default function ReferralProgramPage() {
                 <div className="w-12 h-12 bg-yellow-500/20 rounded-xl flex items-center justify-center mb-3">
                   <Trophy className="w-6 h-6 text-yellow-400" />
                 </div>
-                <p className="text-3xl font-bold">${stats && Number.isFinite(stats.totalEarnings) ? Math.max(0, stats.totalEarnings).toFixed(0) : '0'}</p>
+                {loading ? <Skeleton className="h-8 w-16 mb-2 bg-white/20" /> : <p className="text-3xl font-bold">${stats && Number.isFinite(stats.totalEarnings) ? Math.max(0, stats.totalEarnings).toFixed(0) : '0'}</p>}
                 <p className="text-blue-200 text-sm">Your Earnings</p>
               </div>
               <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-5 border border-white/10">
                 <div className="w-12 h-12 bg-green-500/20 rounded-xl flex items-center justify-center mb-3">
                   <TrendingUp className="w-6 h-6 text-green-400" />
                 </div>
-                <p className="text-3xl font-bold">{stats ? Math.round(stats.commissionRate) : 20}%</p>
-                <p className="text-blue-200 text-sm">Commission Rate</p>
+                {loading ? <Skeleton className="h-8 w-12 mb-2 bg-white/20" /> : <p className="text-3xl font-bold">{stats ? Math.round(stats.commissionRate) : 20}%</p>}
+                <p className="text-blue-200 text-sm inline-flex items-center gap-1">
+                  Commission Rate <InfoTooltip content="This is the percentage you earn from your referrals' trading fees." className="text-blue-200/90" />
+                </p>
               </div>
               <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-5 border border-white/10">
                 <div className="w-12 h-12 bg-purple-500/20 rounded-xl flex items-center justify-center mb-3">
                   <Users className="w-6 h-6 text-purple-400" />
                 </div>
-                <p className="text-3xl font-bold">{stats?.totalReferrals ?? 0}</p>
+                {loading ? <Skeleton className="h-8 w-12 mb-2 bg-white/20" /> : <p className="text-3xl font-bold">{stats?.totalReferrals ?? 0}</p>}
                 <p className="text-blue-200 text-sm">Your Referrals</p>
               </div>
               <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-5 border border-white/10">
@@ -354,6 +362,24 @@ export default function ReferralProgramPage() {
             <button onClick={() => window.location.reload()} className="text-sm text-blue-600 dark:text-blue-400 hover:underline">Retry</button>
           </div>
         )}
+
+        {/* Growth Analytics */}
+        <div className="mb-12">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Growth Analytics</h2>
+          <p className="text-gray-500 dark:text-gray-400 text-sm mb-6">Track referral performance and conversion</p>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <ReferralEarningsChart data={undefined} loading={loading} />
+            <ReferralFunnel
+              metrics={stats ? { linkClicks: 0, signups: stats.totalReferrals, verifiedUsers: stats.totalReferrals, activeTraders: 0, revenue: stats.totalEarnings } : undefined}
+              loading={loading}
+            />
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <ReferralLeaderboard entries={[]} loading={loading} />
+            <ReferralBannerGenerator referralCode={referralCode} referralLink={referralLink} />
+          </div>
+        </div>
+
         {/* How to get rewards */}
         <div className="mb-12">
           <div className="flex items-center justify-between mb-6">

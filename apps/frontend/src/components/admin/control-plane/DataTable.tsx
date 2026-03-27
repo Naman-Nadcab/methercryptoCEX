@@ -38,12 +38,12 @@ export function DataTableContainer({
     >
       {error ? (
         <div className="px-3 py-6 text-center">
-          <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4 inline-flex items-center gap-3 text-red-400 text-sm">
+          <div className="rounded-xl border border-[#EF4444]/30 bg-[#EF4444]/5 p-4 inline-flex items-center gap-3 text-[#EF4444] text-sm">
             {error}
           </div>
         </div>
       ) : isEmpty ? (
-        <div className="px-3 py-6 text-center text-[12px] text-muted-foreground">
+        <div className="px-5 py-8 text-center text-[13px] text-[#6B7280]">
           {emptyMessage}
         </div>
       ) : wrapTable ? (
@@ -86,7 +86,7 @@ export function DataTableTh({
         : 'text-left';
   return (
     <th
-      className={`px-3 py-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap ${alignClass} ${className}`}
+      className={`px-5 py-3.5 text-[12px] font-medium text-[#6B7280] uppercase tracking-wider whitespace-nowrap ${alignClass} ${className}`}
     >
       {children}
     </th>
@@ -94,7 +94,7 @@ export function DataTableTh({
 }
 
 export function DataTableBody({ children }: { children: ReactNode }) {
-  return <tbody className="divide-y divide-border">{children}</tbody>;
+  return <tbody className="divide-y divide-[#E5E7EB]">{children}</tbody>;
 }
 
 export function DataTableRow({
@@ -106,7 +106,7 @@ export function DataTableRow({
 }) {
   return (
     <tr
-      className={`hover:bg-muted/40 focus-within:bg-muted/40 ${className}`}
+      className={`hover:bg-[#F9FAFB] focus-within:bg-[#F9FAFB] transition-colors ${className}`}
     >
       {children}
     </tr>
@@ -135,7 +135,7 @@ export function DataTableCell({
   return (
     <td
       title={title}
-      className={`px-3 py-2 text-[12px] text-foreground whitespace-nowrap tabular-nums ${alignClass} ${mono ? 'font-mono text-[11px]' : ''} ${className}`}
+      className={`px-5 py-3.5 text-[14px] text-[#111827] whitespace-nowrap tabular-nums ${alignClass} ${mono ? 'font-mono text-[13px]' : ''} ${className}`}
     >
       {children}
     </td>

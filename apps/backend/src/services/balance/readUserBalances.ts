@@ -9,6 +9,7 @@
 import { db } from '../../lib/database.js';
 import { ensureUserBalanceRowsBulk, CHAIN_ID_GLOBAL } from '../../lib/user-balance-helper.js';
 import { logger } from '../../lib/logger.js';
+import { getActiveCurrencyIds } from '../../lib/active-currencies-cache.js';
 
 export interface BalanceRow {
   currency_id: string;
@@ -19,10 +20,6 @@ export interface BalanceRow {
   /** PHASE-11: P2P escrow (non-withdrawable, non-tradable). */
   escrow_balance?: string;
 }
-
-const ACTIVE_CURRENCIES_SQL = `
-  SELECT id FROM currencies WHERE is_active = TRUE ORDER BY symbol ASC
-`;
 
 const BALANCE_READ_SQL = `
   SELECT
@@ -44,13 +41,13 @@ const BALANCE_READ_SQL = `
  * Load balance rows from user_balances (single source of truth).
  * Ensures a row exists for every active currency so the list is complete; then reads all rows for (user, accountType).
  * Never filters by balance value. Returns numeric strings only ('0', not null).
+ * @param currencyIds Optional pre-fetched IDs (e.g. from getActiveCurrencyIds) to avoid redundant queries in batch calls.
  */
-export async function readUserBalances(userId: string, accountType: string): Promise<BalanceRow[]> {
-  const active = await db.query<{ id: string }>(ACTIVE_CURRENCIES_SQL, []);
-  const currencyIds = active.rows.map((r) => r.id);
+export async function readUserBalances(userId: string, accountType: string, currencyIds?: string[]): Promise<BalanceRow[]> {
+  const ids = currencyIds ?? (await getActiveCurrencyIds());
 
-  if (currencyIds.length > 0) {
-    await ensureUserBalanceRowsBulk(userId, currencyIds, CHAIN_ID_GLOBAL, accountType);
+  if (ids.length > 0) {
+    await ensureUserBalanceRowsBulk(userId, ids, CHAIN_ID_GLOBAL, accountType);
   }
 
   const result = await db.query<BalanceRow & { escrow_balance?: string }>(BALANCE_READ_SQL, [userId, accountType]);
@@ -64,7 +61,7 @@ export async function readUserBalances(userId: string, accountType: string): Pro
   }));
 
   if (rows.length === 0) {
-    logger.debug('Balance read returned zero rows', { userId, accountType, activeCurrencyCount: currencyIds.length });
+    logger.debug('Balance read returned zero rows', { userId, accountType, activeCurrencyCount: ids.length });
   }
 
   return rows;

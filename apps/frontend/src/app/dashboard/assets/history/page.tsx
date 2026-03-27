@@ -8,6 +8,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import type { LucideIcon } from 'lucide-react';
 import { notifyError } from '@/lib/notifyError';
+import { SkeletonTableBody } from '@/components/ui/Skeleton';
 import {
   ChevronRight,
   ChevronDown,
@@ -74,6 +75,7 @@ export default function AssetHistoryPage() {
   const [showCoinDropdown, setShowCoinDropdown] = useState(false);
   const [showMethodDropdown, setShowMethodDropdown] = useState(false);
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
+  const [showExportDropdown, setShowExportDropdown] = useState(false);
   const [copiedTxid, setCopiedTxid] = useState<string | null>(null);
 
   const coins = ['All', 'BTC', 'ETH', 'USDT', 'USDC', 'SOL', 'XRP'];
@@ -217,6 +219,61 @@ export default function AssetHistoryPage() {
     return `${addr.slice(0, 8)}...${addr.slice(-8)}`;
   };
 
+  // Client-side filtered transactions (date range, type, status, asset)
+  const filteredTransactions = (() => {
+    let list = [...transactions];
+    if (mainTab === 'transactions') {
+      if (methodFilter !== 'all') {
+        const typeMap: Record<string, Transaction['type']> = { deposit: 'deposit', withdraw: 'withdraw', transfer: 'transfer' };
+        const targetType = typeMap[methodFilter];
+        if (targetType) list = list.filter((tx) => tx.type === targetType);
+      }
+    }
+    if (coinFilter !== 'all') list = list.filter((tx) => tx.coin.toUpperCase() === coinFilter.toUpperCase());
+    if (statusFilter !== 'all') list = list.filter((tx) => tx.status.toLowerCase() === statusFilter.toLowerCase());
+    if (startDate) list = list.filter((tx) => new Date(tx.date_time) >= new Date(startDate));
+    if (endDate) list = list.filter((tx) => new Date(tx.date_time) <= new Date(endDate + 'T23:59:59'));
+    return list;
+  })();
+
+  const exportCSV = () => {
+    const headers = mainTab === 'transactions'
+      ? ['Date & Time', 'Coin', 'Qty', 'Type', 'Available Balance', 'Description']
+      : ['Coin', 'Chain Type', 'Qty', 'Address', 'Txid', 'Status', 'Date & Time'];
+    const rows = filteredTransactions.map((tx) =>
+      mainTab === 'transactions'
+        ? [formatDate(tx.date_time), tx.coin, tx.quantity, tx.type, tx.available_balance || '-', (tx.description ?? '-')]
+        : [tx.coin, tx.chain_type || '-', tx.quantity, tx.address || '-', tx.txid || '-', tx.status, formatDate(tx.date_time)]
+    );
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `transaction-history-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+    setShowExportDropdown(false);
+  };
+
+  const exportExcel = () => {
+    const headers = mainTab === 'transactions'
+      ? ['Date & Time', 'Coin', 'Qty', 'Type', 'Available Balance', 'Description']
+      : ['Coin', 'Chain Type', 'Qty', 'Address', 'Txid', 'Status', 'Date & Time'];
+    const rows = filteredTransactions.map((tx) =>
+      mainTab === 'transactions'
+        ? [formatDate(tx.date_time), tx.coin, tx.quantity, tx.type, tx.available_balance || '-', (tx.description ?? '-')]
+        : [tx.coin, tx.chain_type || '-', tx.quantity, tx.address || '-', tx.txid || '-', tx.status, formatDate(tx.date_time)]
+    );
+    const csvContent = '\uFEFF' + [headers.join('\t'), ...rows.map((r) => r.map((c) => String(c).replace(/\t/g, ' ')).join('\t'))].join('\n');
+    const blob = new Blob([csvContent], { type: 'application/vnd.ms-excel' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `transaction-history-${new Date().toISOString().slice(0, 10)}.xls`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+    setShowExportDropdown(false);
+  };
+
   const getStatusBadge = (status: string) => {
     const styles: Record<string, string> = {
       completed: 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400',
@@ -303,10 +360,28 @@ export default function AssetHistoryPage() {
                 <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                 Refresh
               </button>
-              <button className="flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-[#1e2329] text-gray-700 dark:text-gray-300 font-medium text-sm rounded-xl border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors">
-                <Download className="w-4 h-4" />
-                Export
-              </button>
+              <div className="relative">
+                <button
+                  onClick={() => setShowExportDropdown(!showExportDropdown)}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-[#1e2329] text-gray-700 dark:text-gray-300 font-medium text-sm rounded-xl border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
+                >
+                  <Download className="w-4 h-4" />
+                  Export <ChevronDown className={`w-4 h-4 ${showExportDropdown ? 'rotate-180' : ''}`} />
+                </button>
+                {showExportDropdown && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setShowExportDropdown(false)} aria-hidden />
+                    <div className="absolute right-0 top-full mt-2 py-1 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-20 min-w-[140px]">
+                      <button onClick={exportCSV} className="w-full px-4 py-2.5 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                        CSV
+                      </button>
+                      <button onClick={exportExcel} className="w-full px-4 py-2.5 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                        Excel
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
 
@@ -341,11 +416,31 @@ export default function AssetHistoryPage() {
             {mainTab === 'transactions' ? (
               /* All Transactions View */
               <div className="p-6">
-                {/* Filters */}
-                <div className="grid grid-cols-3 gap-4 mb-6">
-                  {/* Coin Filter */}
+                {/* Advanced Filters */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+                  {/* Date Range */}
                   <div>
-                    <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Coin</p>
+                    <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Date Range</p>
+                    <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] rounded-xl border border-gray-200 dark:border-gray-700">
+                      <input
+                        type="date"
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                        className="bg-transparent text-sm text-gray-900 dark:text-white focus:outline-none flex-1 min-w-0"
+                      />
+                      <span className="text-gray-400">→</span>
+                      <input
+                        type="date"
+                        value={endDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                        className="bg-transparent text-sm text-gray-900 dark:text-white focus:outline-none flex-1 min-w-0"
+                      />
+                      <Calendar className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                    </div>
+                  </div>
+                  {/* Asset */}
+                  <div>
+                    <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Asset</p>
                     <div className="relative">
                       <button
                         onClick={() => setShowCoinDropdown(!showCoinDropdown)}
@@ -374,9 +469,9 @@ export default function AssetHistoryPage() {
                     </div>
                   </div>
 
-                  {/* Type Filter */}
+                  {/* Transaction Type */}
                   <div>
-                    <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Type</p>
+                    <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Transaction Type</p>
                     <div className="relative">
                       <button
                         onClick={() => setShowMethodDropdown(!showMethodDropdown)}
@@ -405,24 +500,34 @@ export default function AssetHistoryPage() {
                     </div>
                   </div>
 
-                  {/* Date Filter */}
+                  {/* Status Filter */}
                   <div>
-                    <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Date</p>
-                    <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] rounded-xl border border-gray-200 dark:border-gray-700">
-                      <input
-                        type="date"
-                        value={startDate}
-                        onChange={(e) => setStartDate(e.target.value)}
-                        className="bg-transparent text-sm text-gray-900 dark:text-white focus:outline-none"
-                      />
-                      <span className="text-gray-400">→</span>
-                      <input
-                        type="date"
-                        value={endDate}
-                        onChange={(e) => setEndDate(e.target.value)}
-                        className="bg-transparent text-sm text-gray-900 dark:text-white focus:outline-none"
-                      />
-                      <Calendar className="w-4 h-4 text-gray-400" />
+                    <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Status</p>
+                    <div className="relative">
+                      <button
+                        onClick={() => setShowStatusDropdown(!showStatusDropdown)}
+                        className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] rounded-xl text-sm text-gray-900 dark:text-white border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
+                      >
+                        <span>{statusFilter === 'all' ? 'All' : statusFilter}</span>
+                        <ChevronDown className={`w-4 h-4 transition-transform ${showStatusDropdown ? 'rotate-180' : ''}`} />
+                      </button>
+                      {showStatusDropdown && (
+                        <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl z-10 overflow-hidden">
+                          {statuses.map((status) => (
+                            <button
+                              key={status}
+                              onClick={() => { setStatusFilter(status === 'All' ? 'all' : status.toLowerCase()); setShowStatusDropdown(false); }}
+                              className={`w-full px-4 py-3 text-left text-sm transition-colors ${
+                                (status === 'All' && statusFilter === 'all') || status.toLowerCase() === statusFilter
+                                  ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
+                                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                              }`}
+                            >
+                              {status}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -441,18 +546,9 @@ export default function AssetHistoryPage() {
                   </thead>
                   <tbody>
                     {loading ? (
-                      Array.from({ length: 8 }).map((_, i) => (
-                        <tr key={i} className="border-b border-gray-50 dark:border-gray-800/50">
-                          <td className="px-4 py-4"><div className="h-4 w-24 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" /></td>
-                          <td className="px-4 py-4"><div className="h-4 w-16 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" /></td>
-                          <td className="px-4 py-4 text-right"><div className="h-4 w-20 bg-gray-200 dark:bg-gray-700 rounded animate-pulse ml-auto" /></td>
-                          <td className="px-4 py-4"><div className="h-4 w-14 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" /></td>
-                          <td className="px-4 py-4 text-right"><div className="h-4 w-24 bg-gray-200 dark:bg-gray-700 rounded animate-pulse ml-auto" /></td>
-                          <td className="px-4 py-4"><div className="h-4 w-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" /></td>
-                        </tr>
-                      ))
-                    ) : transactions.length > 0 ? (
-                      transactions.map((tx) => (
+                      <SkeletonTableBody rows={8} columns={6} />
+                    ) : filteredTransactions.length > 0 ? (
+                      filteredTransactions.map((tx) => (
                         <tr key={tx.id} className="border-b border-gray-50 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
                           <td className="px-4 py-4 text-sm text-gray-600 dark:text-gray-400">{formatDate(tx.date_time)}</td>
                           <td className="px-4 py-4">
@@ -507,11 +603,31 @@ export default function AssetHistoryPage() {
                 </div>
 
                 <div className="p-6">
-                  {/* Filters */}
-                  <div className="grid grid-cols-4 gap-4 mb-6">
-                    {/* Coin Filter */}
+                  {/* Advanced Filters */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+                    {/* Date Range */}
                     <div>
-                      <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Coin</p>
+                      <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Date Range</p>
+                      <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] rounded-xl border border-gray-200 dark:border-gray-700">
+                        <input
+                          type="date"
+                          value={startDate}
+                          onChange={(e) => setStartDate(e.target.value)}
+                          className="bg-transparent text-sm text-gray-900 dark:text-white focus:outline-none flex-1 min-w-0"
+                        />
+                        <span className="text-gray-400">→</span>
+                        <input
+                          type="date"
+                          value={endDate}
+                          onChange={(e) => setEndDate(e.target.value)}
+                          className="bg-transparent text-sm text-gray-900 dark:text-white focus:outline-none flex-1 min-w-0"
+                        />
+                        <Calendar className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                      </div>
+                    </div>
+                    {/* Asset */}
+                    <div>
+                      <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Asset</p>
                       <div className="relative">
                         <button
                           onClick={() => setShowCoinDropdown(!showCoinDropdown)}
@@ -553,14 +669,14 @@ export default function AssetHistoryPage() {
                           <span>{methodFilter === 'all' ? 'All' : methodFilter}</span>
                           <ChevronDown className={`w-4 h-4 transition-transform ${showMethodDropdown ? 'rotate-180' : ''}`} />
                         </button>
-                        {showMethodDropdown && (
-                          <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl z-10 overflow-hidden">
-                            {methods.map((method) => (
+                      {showMethodDropdown && (
+                        <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl z-10 overflow-hidden">
+                          {methods.map((method) => (
                               <button
                                 key={method}
-                                onClick={() => { setMethodFilter(method === 'All' ? 'all' : method); setShowMethodDropdown(false); }}
+                                onClick={() => { setMethodFilter(method === 'All' ? 'all' : method.toLowerCase()); setShowMethodDropdown(false); }}
                                 className={`w-full px-4 py-3 text-left text-sm transition-colors ${
-                                  (method === 'All' && methodFilter === 'all') || method === methodFilter
+                                  (method === 'All' && methodFilter === 'all') || method.toLowerCase() === methodFilter
                                     ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
                                     : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
                                 }`}
@@ -603,27 +719,6 @@ export default function AssetHistoryPage() {
                         )}
                       </div>
                     </div>
-
-                    {/* Date Filter */}
-                    <div>
-                      <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Date</p>
-                      <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] rounded-xl border border-gray-200 dark:border-gray-700">
-                        <input
-                          type="date"
-                          value={startDate}
-                          onChange={(e) => setStartDate(e.target.value)}
-                          className="bg-transparent text-sm text-gray-900 dark:text-white focus:outline-none flex-1 min-w-0"
-                        />
-                        <span className="text-gray-400">→</span>
-                        <input
-                          type="date"
-                          value={endDate}
-                          onChange={(e) => setEndDate(e.target.value)}
-                          className="bg-transparent text-sm text-gray-900 dark:text-white focus:outline-none flex-1 min-w-0"
-                        />
-                        <Calendar className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                      </div>
-                    </div>
                   </div>
 
                   {/* Self-Service Link */}
@@ -663,8 +758,8 @@ export default function AssetHistoryPage() {
                             <p className="text-sm text-gray-500">Loading history...</p>
                           </td>
                         </tr>
-                      ) : transactions.length > 0 ? (
-                        transactions.map((tx) => (
+                      ) : filteredTransactions.length > 0 ? (
+                        filteredTransactions.map((tx) => (
                           <tr key={tx.id} className="border-b border-gray-50 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
                             <td className="px-4 py-4">
                               <div className="flex items-center gap-2">

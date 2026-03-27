@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAdminAuthStore } from '@/store/admin-auth';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { getSettings, patchSettings } from '@/lib/admin/settings';
 import { 
   ToggleLeft, Search, Loader2, Check, X, AlertTriangle, 
   ChevronDown, Filter, RefreshCw, Upload,
@@ -308,6 +310,29 @@ export default function FeatureTogglesPage() {
   const totalEnabled = categories.reduce((sum, c) => sum + parseInt(c.enabled || '0'), 0);
   const totalFeatures = categories.reduce((sum, c) => sum + parseInt(c.total || '0'), 0);
 
+  const queryClient = useQueryClient();
+  const { data: settingsData } = useQuery({
+    queryKey: ['admin', 'settings'],
+    queryFn: () => getSettings(accessToken),
+    enabled: !!accessToken,
+  });
+  const settings = (settingsData?.data ?? {}) as Record<string, unknown>;
+  const [systemTogglingKey, setSystemTogglingKey] = useState<string | null>(null);
+  const patchMutation = useMutation({
+    mutationFn: (body: Record<string, unknown>) => patchSettings(accessToken, body),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'settings'] }),
+    onSettled: () => setSystemTogglingKey(null),
+  });
+  const systemToggles = [
+    { key: 'spot_trading_enabled', label: 'Spot trading' },
+    { key: 'p2p_trading_enabled', label: 'P2P trading' },
+    { key: 'margin_trading_enabled', label: 'Margin trading' },
+    { key: 'maintenance_mode', label: 'Maintenance mode' },
+    { key: 'user_registration_enabled', label: 'User registration' },
+    { key: 'deposits_enabled', label: 'Deposits' },
+    { key: 'withdrawals_enabled', label: 'Withdrawals' },
+  ];
+
   if (loading && features.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -318,6 +343,41 @@ export default function FeatureTogglesPage() {
 
   return (
     <div className="space-y-6">
+      {/* System toggles via patchSettings */}
+      <div className="admin-card rounded-xl border border-gray-200 dark:border-gray-700 p-4 sm:p-6">
+        <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">System toggles</h2>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">Updated via GET/PATCH /admin/settings. Keys may vary by backend.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {systemToggles.map(({ key, label }) => {
+            const value = settings[key];
+            const enabled = value === true || value === 'true' || value === '1';
+            const isToggling = systemTogglingKey === key;
+            return (
+              <div key={key} className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2">
+                <span className="text-sm text-gray-900 dark:text-white">{label}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSystemTogglingKey(key);
+                    patchMutation.mutate({ [key]: !enabled });
+                  }}
+                  disabled={!!systemTogglingKey}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                    isToggling ? 'bg-gray-500 cursor-wait' : enabled ? 'bg-green-500' : 'bg-gray-600'
+                  }`}
+                >
+                  {isToggling ? (
+                    <Loader2 className="w-3 h-3 text-gray-900 dark:text-white animate-spin mx-auto" />
+                  ) : (
+                    <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                  )}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

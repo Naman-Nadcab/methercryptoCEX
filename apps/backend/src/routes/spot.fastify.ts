@@ -21,7 +21,7 @@ import {
 } from '../services/spot-orderbook-cache.service.js';
 import * as spotWs from '../services/spot-ws.service.js';
 import * as spotMetrics from '../services/spot-metrics.service.js';
-import { validateSpotOrderRiskUserBalances } from '../services/spot-risk.service.js';
+import { validateSpotOrderRiskUserBalances, checkOrderVelocity, checkLargeOrder, checkMaxOpenNotional } from '../services/spot-risk.service.js';
 import { TAKER_FEE_RATE } from '../services/settlement/decimal-utils.js';
 import {
   lockAmountQuote,
@@ -35,31 +35,92 @@ import {
 } from '../services/spot-decimal.js';
 import { rateLimitByUser } from '../lib/rate-limit-fastify.js';
 import { isTradingHalted } from '../lib/trading-halt.js';
+import { getSpotTradesUseMarket } from '../lib/spot-schema-cache.js';
+import { invalidateTickersCache } from '../services/cache-invalidation.service.js';
+import { isSymbolCircuitOpen } from '../lib/per-symbol-circuit.js';
 import { config } from '../config/index.js';
 import { isUserMmEmergencyStopped } from '../services/mm-risk.service.js';
 import { runMatching, getFillableQuantity, type MarketRow, type ExecutedTrade } from '../services/spot-matching.service.js';
+import { placeOrderRust, type RustOrder } from '../services/settlement/engine-client.js';
 import { recordAndEvaluate } from '../services/aml-transaction-monitor.service.js';
+import { publishOrderCreated, publishTradeExecuted } from '../services/admin-ws.service.js';
 
 const CIRCUIT_BREAKER_THRESHOLD = 5;
 const CIRCUIT_KEY_PREFIX = 'spot:circuit:';
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 /** Worst-case execution for BUY market orders: effective_price = best_ask × (1 + slippage_buffer). */
 const MARKET_ORDER_SLIPPAGE_BUFFER = new Decimal('0.01');
 
 async function pushSpotUpdates(symbol: string, userId: string, orderPayload: object): Promise<void> {
   await invalidateOrderbookCache(symbol);
+  void invalidateTickersCache();
   const snapshot = await refreshOrderbookCache(symbol);
   spotWs.broadcast(`orderbook:${symbol}`, 'orderbook_update', snapshot);
   spotWs.sendToUser(userId, 'user.orders', 'order_update', orderPayload);
-  const tickerRes = await db.query<{ price: string; bid: string; ask: string }>(`
+  const tickerRes = await db.query<{
+    price: string;
+    bid: string;
+    ask: string;
+    high_24h: string;
+    low_24h: string;
+    volume_24h: string;
+    base_volume_24h: string;
+    open_24h: string | null;
+  }>(`
     SELECT (SELECT price::text FROM spot_trades WHERE market = $1 ORDER BY created_at DESC LIMIT 1) as price,
            (SELECT MAX(price)::text FROM spot_orders WHERE market = $1 AND side = 'buy' AND status IN ('OPEN','PARTIALLY_FILLED')) as bid,
-           (SELECT MIN(price)::text FROM spot_orders WHERE market = $1 AND side = 'sell' AND status IN ('OPEN','PARTIALLY_FILLED')) as ask
+           (SELECT MIN(price)::text FROM spot_orders WHERE market = $1 AND side = 'sell' AND status IN ('OPEN','PARTIALLY_FILLED')) as ask,
+           (SELECT COALESCE(MAX(price)::text, '0') FROM spot_trades WHERE market = $1 AND created_at > NOW() - INTERVAL '24 hours') as high_24h,
+           (SELECT COALESCE(MIN(price)::text, '0') FROM spot_trades WHERE market = $1 AND created_at > NOW() - INTERVAL '24 hours') as low_24h,
+           (SELECT COALESCE(SUM(quantity * price)::text, '0') FROM spot_trades WHERE market = $1 AND created_at > NOW() - INTERVAL '24 hours') as volume_24h,
+           (SELECT COALESCE(SUM(quantity)::text, '0') FROM spot_trades WHERE market = $1 AND created_at > NOW() - INTERVAL '24 hours') as base_volume_24h,
+           (SELECT price::text FROM spot_trades WHERE market = $1 AND created_at > NOW() - INTERVAL '24 hours' ORDER BY created_at ASC LIMIT 1) as open_24h
   `, [symbol]);
   const row = tickerRes.rows[0];
-  if (row) spotWs.broadcast(`ticker:${symbol}`, 'ticker', { symbol, last_price: row.price, bid: row.bid, ask: row.ask });
-  const tradesRes = await db.query(`SELECT id, order_id, user_id, market, side, price, quantity, fee, fee_asset, created_at FROM spot_trades WHERE market = $1 ORDER BY created_at DESC LIMIT 10`, [symbol]);
-  spotWs.broadcast(`trades:${symbol}`, 'trades', tradesRes.rows);
-  spotWs.sendToUser(userId, 'user.trades', 'trade', tradesRes.rows.filter((t) => (t as { user_id: string }).user_id === userId).slice(0, 5));
+  if (row) {
+    spotWs.broadcast(`ticker:${symbol}`, 'ticker', {
+      symbol,
+      last_price: row.price,
+      bid: row.bid,
+      ask: row.ask,
+      high_24h: row.high_24h || null,
+      low_24h: row.low_24h || null,
+      volume_24h: row.volume_24h || '0',
+      base_volume_24h: row.base_volume_24h || '0',
+      open_24h: row.open_24h ?? null,
+    });
+  }
+  const tradesRes = await db.query<{ id: string; order_id: string; user_id: string; market: string; side: string; price: string; quantity: string; fee: string; fee_asset: string | null; created_at: Date }>(
+    `SELECT id, order_id, user_id, market, side, price::text, quantity::text, fee::text, fee_asset, created_at FROM spot_trades WHERE market = $1 ORDER BY created_at DESC LIMIT 10`,
+    [symbol]
+  );
+  const tradesPayload = tradesRes.rows.map((t) => ({
+    id: t.id,
+    order_id: t.order_id,
+    market: t.market,
+    side: t.side,
+    price: t.price,
+    quantity: t.quantity,
+    amount: t.quantity,
+    created_at: t.created_at instanceof Date ? t.created_at.toISOString() : t.created_at,
+    time: t.created_at instanceof Date ? t.created_at.toISOString() : String(t.created_at),
+    timestamp: t.created_at instanceof Date ? Math.floor(t.created_at.getTime() / 1000) : null,
+  }));
+  spotWs.broadcast(`trades:${symbol}`, 'trades', tradesPayload);
+  const userTradeRows = tradesRes.rows.filter((r) => r.user_id === userId);
+  const userTradesPayload = userTradeRows.map((t) => ({
+    id: t.id,
+    order_id: t.order_id,
+    market: t.market,
+    side: t.side,
+    price: t.price,
+    quantity: t.quantity,
+    amount: t.quantity,
+    created_at: t.created_at instanceof Date ? t.created_at.toISOString() : t.created_at,
+    time: t.created_at instanceof Date ? t.created_at.toISOString() : String(t.created_at),
+    timestamp: t.created_at instanceof Date ? Math.floor(t.created_at.getTime() / 1000) : null,
+  }));
+  spotWs.sendToUser(userId, 'user.trades', 'trade', userTradesPayload);
 }
 
 async function recordCircuitBreaker(symbol: string): Promise<void> {
@@ -94,6 +155,7 @@ export default async function spotRoutes(app: FastifyInstance) {
         WHERE status IN ('active', 'maintenance')
         ORDER BY symbol
       `);
+      reply.header('Cache-Control', 'public, max-age=30');
       return reply.send({ success: true, data: result.rows });
     } catch (error) {
       logger.error('Spot markets failed', { error: error instanceof Error ? error.message : 'Unknown' });
@@ -101,56 +163,105 @@ export default async function spotRoutes(app: FastifyInstance) {
     }
   });
 
-  // GET /spot/tickers — all active markets with last_price, 24h stats, change_pct
+  const TICKERS_CACHE_KEY = 'spot:tickers';
+  const TICKERS_CACHE_TTL_SEC = 2;
+
+  // GET /spot/tickers — all active markets with last_price, 24h stats, change_pct (single optimized query + Redis cache)
   app.get('/tickers', async (_request, reply) => {
     try {
-      const markets = await db.query<{ symbol: string; base_asset: string; quote_asset: string }>(`
-        SELECT symbol, base_asset, quote_asset FROM spot_markets
-        WHERE status IN ('active', 'maintenance') ORDER BY symbol
-      `);
-      if (markets.rows.length === 0) {
-        return reply.send({ success: true, data: [] });
+      const cached = await redis.getJson<{ success: true; data: unknown[] }>(TICKERS_CACHE_KEY);
+      if (cached?.data && Array.isArray(cached.data) && cached.data.length >= 0) {
+        reply.header('Cache-Control', 'public, max-age=2');
+        return reply.send(cached);
       }
-      const symbols = markets.rows.map((r) => r.symbol);
-      const hasMarketCol = await db.query(`SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='spot_trades' AND column_name='market' LIMIT 1`);
-      const useMarket = hasMarketCol.rows.length > 0;
-      const tickers: Array<{
+      const useMarket = await getSpotTradesUseMarket();
+      const tickersQuery = useMarket
+        ? `
+          SELECT m.symbol, m.base_asset, m.quote_asset,
+            lp.price::text as last_price,
+            COALESCE(s.high, '0')::text as high_24h,
+            COALESCE(s.low, '0')::text as low_24h,
+            COALESCE(s.volume, '0')::text as volume_24h
+          FROM spot_markets m
+          LEFT JOIN (
+            SELECT DISTINCT ON (market) market, price
+            FROM spot_trades
+            WHERE market IN (SELECT symbol FROM spot_markets WHERE status IN ('active', 'maintenance'))
+            ORDER BY market, created_at DESC
+          ) lp ON lp.market = m.symbol
+          LEFT JOIN (
+            SELECT market,
+              COALESCE(MAX(price), 0)::text as high,
+              COALESCE(MIN(price), 0)::text as low,
+              COALESCE(SUM(quantity * price), 0)::text as volume
+            FROM spot_trades
+            WHERE market IN (SELECT symbol FROM spot_markets WHERE status IN ('active', 'maintenance'))
+              AND created_at >= NOW() - INTERVAL '24 hours'
+            GROUP BY market
+          ) s ON s.market = m.symbol
+          WHERE m.status IN ('active', 'maintenance')
+          ORDER BY m.symbol
+        `
+        : `
+          SELECT m.symbol, m.base_asset, m.quote_asset,
+            lp.price::text as last_price,
+            COALESCE(s.high, '0')::text as high_24h,
+            COALESCE(s.low, '0')::text as low_24h,
+            COALESCE(s.volume, '0')::text as volume_24h
+          FROM spot_markets m
+          LEFT JOIN (
+            SELECT DISTINCT ON (tp.symbol) tp.symbol, t.price
+            FROM spot_trades t
+            JOIN trading_pairs tp ON t.trading_pair_id = tp.id
+            WHERE tp.symbol IN (SELECT symbol FROM spot_markets WHERE status IN ('active', 'maintenance'))
+            ORDER BY tp.symbol, t.created_at DESC
+          ) lp ON lp.symbol = m.symbol
+          LEFT JOIN (
+            SELECT tp.symbol,
+              COALESCE(MAX(t.price), 0)::text as high,
+              COALESCE(MIN(t.price), 0)::text as low,
+              COALESCE(SUM(t.quantity * t.price), 0)::text as volume
+            FROM spot_trades t
+            JOIN trading_pairs tp ON t.trading_pair_id = tp.id
+            WHERE tp.symbol IN (SELECT symbol FROM spot_markets WHERE status IN ('active', 'maintenance'))
+              AND t.created_at >= NOW() - INTERVAL '24 hours'
+            GROUP BY tp.symbol
+          ) s ON s.symbol = m.symbol
+          WHERE m.status IN ('active', 'maintenance')
+          ORDER BY m.symbol
+        `;
+      const result = await db.query<{
         symbol: string;
         base_asset: string;
         quote_asset: string;
         last_price: string | null;
-        high_24h: string | null;
-        low_24h: string | null;
+        high_24h: string;
+        low_24h: string;
         volume_24h: string;
-        change_pct: number;
-      }> = [];
-      for (const sym of symbols) {
-        const last = useMarket
-          ? await db.query<{ price: string }>(`SELECT price::text FROM spot_trades WHERE market = $1 ORDER BY created_at DESC LIMIT 1`, [sym])
-          : await db.query<{ price: string }>(`SELECT t.price::text FROM spot_trades t JOIN trading_pairs tp ON t.trading_pair_id = tp.id WHERE tp.symbol = $1 ORDER BY t.created_at DESC LIMIT 1`, [sym]);
-        const stats = useMarket
-          ? await db.query<{ high: string; low: string; volume: string }>(`SELECT COALESCE(MAX(price), 0)::text as high, COALESCE(MIN(price), 0)::text as low, COALESCE(SUM(quantity * price), 0)::text as volume FROM spot_trades WHERE market = $1 AND created_at >= NOW() - INTERVAL '24 hours'`, [sym])
-          : await db.query<{ high: string; low: string; volume: string }>(`SELECT COALESCE(MAX(t.price), 0)::text as high, COALESCE(MIN(t.price), 0)::text as low, COALESCE(SUM(t.quantity * t.price), 0)::text as volume FROM spot_trades t JOIN trading_pairs tp ON t.trading_pair_id = tp.id WHERE tp.symbol = $1 AND t.created_at >= NOW() - INTERVAL '24 hours'`, [sym]);
-        const lastPrice = last.rows[0]?.price ?? null;
-        const high = stats.rows[0]?.high ?? '0';
-        const low = stats.rows[0]?.low ?? '0';
+      }>(tickersQuery);
+      const tickers = result.rows.map((r) => {
+        const lastPrice = r.last_price ?? null;
+        const high = r.high_24h ?? '0';
+        const low = r.low_24h ?? '0';
         const lowNum = parseFloat(low) || 0;
         const lastNum = lastPrice ? parseFloat(lastPrice) : 0;
         let changePct = 0;
         if (lowNum > 0 && lastNum > 0) changePct = ((lastNum - lowNum) / lowNum) * 100;
-        const m = markets.rows.find((r) => r.symbol === sym)!;
-        tickers.push({
-          symbol: m.symbol,
-          base_asset: m.base_asset,
-          quote_asset: m.quote_asset,
+        return {
+          symbol: r.symbol,
+          base_asset: r.base_asset,
+          quote_asset: r.quote_asset,
           last_price: lastPrice,
           high_24h: high !== '0' ? high : null,
           low_24h: low !== '0' ? low : null,
-          volume_24h: stats.rows[0]?.volume ?? '0',
+          volume_24h: r.volume_24h ?? '0',
           change_pct: Math.round(changePct * 100) / 100,
-        });
-      }
-      return reply.send({ success: true, data: tickers });
+        };
+      });
+      const payload = { success: true, data: tickers };
+      await redis.setJson(TICKERS_CACHE_KEY, payload, TICKERS_CACHE_TTL_SEC).catch(() => {});
+      reply.header('Cache-Control', 'public, max-age=2');
+      return reply.send(payload);
     } catch (error) {
       logger.error('Spot tickers failed', { error: error instanceof Error ? error.message : 'Unknown' });
       return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to fetch tickers' } });
@@ -176,8 +287,7 @@ export default async function spotRoutes(app: FastifyInstance) {
         const r = tp.rows[0]!;
         market.rows.push({ symbol: r.symbol, base_asset: r.base_asset ?? symbol.split('_')[0], quote_asset: r.quote_asset ?? symbol.split('_')[1], status: 'active' });
       }
-      const hasMarketCol = await db.query(`SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='spot_trades' AND column_name='market' LIMIT 1`);
-      const useMarket = hasMarketCol.rows.length > 0;
+      const useMarket = await getSpotTradesUseMarket();
 
       const last = useMarket
         ? await db.query<{ price: string; created_at: string }>(`SELECT price::text, created_at FROM spot_trades WHERE market = $1 ORDER BY created_at DESC LIMIT 1`, [symbol])
@@ -197,8 +307,36 @@ export default async function spotRoutes(app: FastifyInstance) {
       const ask = openOrders.rows[0]?.ask ?? null;
 
       const stats24h = useMarket
-        ? await db.query<{ volume: string; high: string; low: string }>(`SELECT COALESCE(SUM(quantity * price), 0)::text as volume, COALESCE(MAX(price), 0)::text as high, COALESCE(MIN(price), 0)::text as low FROM spot_trades WHERE market = $1 AND created_at >= NOW() - INTERVAL '24 hours'`, [symbol])
-        : await db.query<{ volume: string; high: string; low: string }>(`SELECT COALESCE(SUM(t.quantity * t.price), 0)::text as volume, COALESCE(MAX(t.price), 0)::text as high, COALESCE(MIN(t.price), 0)::text as low FROM spot_trades t JOIN trading_pairs tp ON t.trading_pair_id = tp.id WHERE tp.symbol = $1 AND t.created_at >= NOW() - INTERVAL '24 hours'`, [symbol]);
+        ? await db.query<{
+            quote_volume: string;
+            base_volume: string;
+            high: string;
+            low: string;
+            open_24h: string | null;
+          }>(
+            `SELECT
+              (SELECT COALESCE(SUM(quantity * price), 0)::text FROM spot_trades WHERE market = $1 AND created_at >= NOW() - INTERVAL '24 hours') as quote_volume,
+              (SELECT COALESCE(SUM(quantity), 0)::text FROM spot_trades WHERE market = $1 AND created_at >= NOW() - INTERVAL '24 hours') as base_volume,
+              (SELECT COALESCE(MAX(price), 0)::text FROM spot_trades WHERE market = $1 AND created_at >= NOW() - INTERVAL '24 hours') as high,
+              (SELECT COALESCE(MIN(price), 0)::text FROM spot_trades WHERE market = $1 AND created_at >= NOW() - INTERVAL '24 hours') as low,
+              (SELECT price::text FROM spot_trades WHERE market = $1 AND created_at >= NOW() - INTERVAL '24 hours' ORDER BY created_at ASC LIMIT 1) as open_24h`,
+            [symbol]
+          )
+        : await db.query<{
+            quote_volume: string;
+            base_volume: string;
+            high: string;
+            low: string;
+            open_24h: string | null;
+          }>(
+            `SELECT
+              (SELECT COALESCE(SUM(t.quantity * t.price), 0)::text FROM spot_trades t JOIN trading_pairs tp ON t.trading_pair_id = tp.id WHERE tp.symbol = $1 AND t.created_at >= NOW() - INTERVAL '24 hours') as quote_volume,
+              (SELECT COALESCE(SUM(t.quantity), 0)::text FROM spot_trades t JOIN trading_pairs tp ON t.trading_pair_id = tp.id WHERE tp.symbol = $1 AND t.created_at >= NOW() - INTERVAL '24 hours') as base_volume,
+              (SELECT COALESCE(MAX(t.price), 0)::text FROM spot_trades t JOIN trading_pairs tp ON t.trading_pair_id = tp.id WHERE tp.symbol = $1 AND t.created_at >= NOW() - INTERVAL '24 hours') as high,
+              (SELECT COALESCE(MIN(t.price), 0)::text FROM spot_trades t JOIN trading_pairs tp ON t.trading_pair_id = tp.id WHERE tp.symbol = $1 AND t.created_at >= NOW() - INTERVAL '24 hours') as low,
+              (SELECT t.price::text FROM spot_trades t JOIN trading_pairs tp ON t.trading_pair_id = tp.id WHERE tp.symbol = $1 AND t.created_at >= NOW() - INTERVAL '24 hours' ORDER BY t.created_at ASC LIMIT 1) as open_24h`,
+            [symbol]
+          );
       const s = stats24h.rows[0];
       return reply.send({
         success: true,
@@ -211,7 +349,9 @@ export default async function spotRoutes(app: FastifyInstance) {
           bid,
           ask,
           updated_at: row?.created_at ?? null,
-          volume_24h: s?.volume ?? '0',
+          volume_24h: s?.quote_volume ?? '0',
+          base_volume_24h: s?.base_volume ?? '0',
+          open_24h: s?.open_24h ?? null,
           high_24h: s?.high ?? null,
           low_24h: s?.low ?? null,
         },
@@ -249,11 +389,11 @@ export default async function spotRoutes(app: FastifyInstance) {
     }
   });
 
-  // POST /spot/order (PHASE-12: rate limit 30/min per user, global trading halt check). Types: market, limit, stop_loss, stop_limit. Optional client_order_id for idempotency.
+  // POST /spot/order (PHASE-12: rate limit 30/min per user, global trading halt check). Types: market, limit, stop_loss, stop_limit. Optional client_order_id, post_only. post_only = maker only, reject if would take.
   app.post<{
-    Body: { market: string; side: string; type: string; price?: string; quantity: string; stop_price?: string; trailing_delta?: string; oco_group_id?: string; time_in_force?: string; client_order_id?: string };
+    Body: { market: string; side: string; type: string; price?: string; quantity: string; stop_price?: string; trailing_delta?: string; oco_group_id?: string; time_in_force?: string; client_order_id?: string; display_quantity?: string; post_only?: boolean; reduce_only?: boolean };
   }>('/order', {
-    preHandler: [app.authenticateUser, rateLimitByUser('spot:order', 30, 60)],
+    preHandler: [app.authenticateUser, rateLimitByUser('spot:order', 30, 60, { failClosed: config.rateLimit.failClosed })],
   }, async (request, reply) => {
     if (request.user?.permission === 'read_only') {
       return reply.status(403).send({
@@ -262,10 +402,17 @@ export default async function spotRoutes(app: FastifyInstance) {
       });
     }
     const userId = request.user!.id;
+    const marketSymbol = (request.body?.market || '').toUpperCase().replace(/-/g, '_');
     if (await isTradingHalted()) {
       return reply.status(503).send({
         success: false,
         error: { code: 'TRADING_HALTED', message: 'Trading is temporarily halted' },
+      });
+    }
+    if (marketSymbol && (await isSymbolCircuitOpen(marketSymbol))) {
+      return reply.status(503).send({
+        success: false,
+        error: { code: 'SYMBOL_CIRCUIT_OPEN', message: `Trading for ${marketSymbol} is temporarily paused` },
       });
     }
     if (await isUserMmEmergencyStopped(userId)) {
@@ -274,7 +421,13 @@ export default async function spotRoutes(app: FastifyInstance) {
         error: { code: 'MM_EMERGENCY_STOPPED', message: 'Trading is suspended for your account. Contact support.' },
       });
     }
-    const marketSymbol = (request.body?.market || '').toUpperCase().replace(/-/g, '_');
+    const velocityCheck = await checkOrderVelocity(userId);
+    if (!velocityCheck.allowed) {
+      return reply.status(429).send({
+        success: false,
+        error: { code: velocityCheck.code ?? 'ORDER_VELOCITY_EXCEEDED', message: velocityCheck.reason ?? 'Order velocity exceeded' },
+      });
+    }
     const side = (request.body?.side || '').toLowerCase();
     const type = (request.body?.type || 'limit').toLowerCase();
     let timeInForce = (request.body?.time_in_force || 'gtc').toLowerCase();
@@ -283,10 +436,19 @@ export default async function spotRoutes(app: FastifyInstance) {
     const quantityStr = request.body?.quantity;
     const stopPriceStr = request.body?.stop_price;
     const trailingDeltaStr = request.body?.trailing_delta;
-    const ocoGroupId = (request.body?.oco_group_id as string)?.trim() || null;
+    let ocoGroupId = (request.body?.oco_group_id as string)?.trim() || null;
+    if (ocoGroupId && !UUID_REGEX.test(ocoGroupId)) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'INVALID_ORDER', message: 'oco_group_id must be a valid UUID' },
+      });
+    }
     const clientOrderId = typeof request.body?.client_order_id === 'string' && request.body.client_order_id.trim()
       ? request.body.client_order_id.trim().slice(0, 64)
       : null;
+    const displayQuantityStr = (request.body?.display_quantity as string)?.trim() || null;
+    const postOnly = request.body?.post_only === true;
+    const reduceOnly = request.body?.reduce_only === true;
 
     const isStopOrder = type === 'stop_loss' || type === 'stop_limit' || type === 'trailing_stop_market';
     if (!marketSymbol || !['buy', 'sell'].includes(side) || !['market', 'limit', 'stop_loss', 'stop_limit', 'trailing_stop_market'].includes(type)) {
@@ -313,6 +475,24 @@ export default async function spotRoutes(app: FastifyInstance) {
         error: { code: 'INVALID_ORDER', message: 'Stop-limit orders require price' },
       });
     }
+    if (postOnly && type !== 'limit') {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'INVALID_ORDER', message: 'post_only is only allowed for limit orders' },
+      });
+    }
+    if (postOnly && (timeInForce === 'ioc' || timeInForce === 'fok')) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'INVALID_ORDER', message: 'post_only requires GTC (good-til-cancelled). IOC/FOK would execute immediately.' },
+      });
+    }
+    if (reduceOnly && side === 'buy') {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'INVALID_ORDER', message: 'reduce_only is not applicable for buy orders (spot only)' },
+      });
+    }
     let quantityDec: DecimalInstance;
     try {
       quantityDec = new Decimal(quantityStr);
@@ -327,6 +507,23 @@ export default async function spotRoutes(app: FastifyInstance) {
         success: false,
         error: { code: 'INVALID_ORDER', message: 'Invalid quantity' },
       });
+    }
+    let displayQuantityDec: DecimalInstance | null = null;
+    if (displayQuantityStr && config.features.icebergOrdersEnabled && type === 'limit') {
+      try {
+        displayQuantityDec = new Decimal(displayQuantityStr);
+        if (displayQuantityDec.lte(0) || displayQuantityDec.gt(quantityDec) || !displayQuantityDec.isFinite()) {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'INVALID_ORDER', message: 'display_quantity must be positive and <= quantity for iceberg orders' },
+          });
+        }
+      } catch {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_ORDER', message: 'Invalid display_quantity' },
+        });
+      }
     }
 
     try {
@@ -506,6 +703,26 @@ export default async function spotRoutes(app: FastifyInstance) {
         priceForRisk = priceDec != null ? priceDec.toString() : (stopPriceDec != null ? stopPriceDec.toString() : '0');
       }
 
+      const notionalQuote = side === 'buy'
+        ? lockAmount
+        : new Decimal(priceForRisk).times(qtyRounded).toDecimalPlaces(precision, ROUND_DOWN).toString();
+      const quoteIsUsd = m.quote_asset === 'USDT' || m.quote_asset === 'USD' || m.quote_asset === 'BUSD';
+      const largeCheck = quoteIsUsd ? checkLargeOrder(notionalQuote) : { allowed: true };
+      if (!largeCheck.allowed) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: largeCheck.code ?? 'LARGE_ORDER_REJECTED', message: largeCheck.reason ?? 'Order size exceeds limit' },
+        });
+      }
+      const notionalForOpenCheck = quoteIsUsd ? notionalQuote : '0';
+      const maxOpenCheck = await checkMaxOpenNotional(userId, marketSymbol, notionalForOpenCheck);
+      if (!maxOpenCheck.allowed) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: maxOpenCheck.code ?? 'MAX_OPEN_NOTIONAL_EXCEEDED', message: maxOpenCheck.reason ?? 'Open order exposure exceeds limit' },
+        });
+      }
+
       await validateSpotOrderRiskUserBalances({
         user_id: userId,
         quote_currency_id: quoteCurrencyId,
@@ -516,6 +733,25 @@ export default async function spotRoutes(app: FastifyInstance) {
         fee_rate: TAKER_FEE_RATE.toString(),
         precision,
       });
+
+      if (postOnly && type === 'limit' && priceDec) {
+        const [bestAsk, bestBid] = await Promise.all([getBestAsk(marketSymbol), getBestBid(marketSymbol)]);
+        const bestAskDec = new Decimal(bestAsk);
+        const bestBidDec = new Decimal(bestBid);
+        const priceDecVal = priceDec;
+        if (side === 'buy' && bestAskDec.gt(0) && bestAskDec.lte(priceDecVal)) {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'POST_ONLY_WOULD_TAKE', message: 'Post-only order would immediately match. Use a lower price or remove post_only.' },
+          });
+        }
+        if (side === 'sell' && bestBidDec.gt(0) && bestBidDec.gte(priceDecVal)) {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'POST_ONLY_WOULD_TAKE', message: 'Post-only order would immediately match. Use a higher price or remove post_only.' },
+          });
+        }
+      }
 
       const orderResult = await db.transaction(async (client) => {
         const locked = await lockTradingBalance(userId, lockCurrencyId, lockAmount, client);
@@ -535,6 +771,7 @@ export default async function spotRoutes(app: FastifyInstance) {
         const insertStopPrice = isStopOrder && stopPriceDec != null ? stopPriceDec.toString() : (type === 'trailing_stop_market' && stopPriceDec != null ? stopPriceDec.toString() : null);
         const insertTrailingDelta = type === 'trailing_stop_market' && trailingDeltaDec != null ? trailingDeltaDec.toString() : null;
         const insertTrailingBest = null;
+        const insertDisplayQty = displayQuantityDec != null ? displayQuantityDec.toString() : null;
         const status = isStopOrder ? 'PENDING_TRIGGER' : 'OPEN';
         const orderIns = await client.query<{
           id: string;
@@ -549,15 +786,35 @@ export default async function spotRoutes(app: FastifyInstance) {
           created_at: Date;
           client_order_id: string | null;
         }>(
-          `INSERT INTO spot_orders (user_id, market, side, type, price, stop_price, trailing_delta, trailing_best_price, oco_group_id, quantity, filled_quantity, status, time_in_force, client_order_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, $11, $12, $13)
+          `INSERT INTO spot_orders (user_id, market, side, type, price, stop_price, trailing_delta, trailing_best_price, oco_group_id, quantity, filled_quantity, status, time_in_force, client_order_id, display_quantity)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, $11, $12, $13, $14)
            RETURNING id, user_id, market, side, type, price, quantity, filled_quantity, status, created_at, client_order_id`,
-          [userId, marketSymbol, side, type, insertPrice, insertStopPrice, insertTrailingDelta, insertTrailingBest, ocoGroupId, qtyRounded.toString(), status, timeInForce, clientOrderId]
+          [userId, marketSymbol, side, type, insertPrice, insertStopPrice, insertTrailingDelta, insertTrailingBest, ocoGroupId, qtyRounded.toString(), status, timeInForce, clientOrderId, insertDisplayQty]
         );
         const order = orderIns.rows[0]!;
         let executedTrades: ExecutedTrade[] = [];
+        const useRustEngine = !postOnly && config.rustMatchingEngine.enabled && (type === 'limit' || type === 'market') && timeInForce !== 'fok';
         if (!isStopOrder) {
-          if (type === 'limit') {
+          if (postOnly && type === 'limit') {
+            if (timeInForce === 'ioc' || timeInForce === 'fok') {
+              await unlockTradingBalance(userId, lockCurrencyId, lockAmount, client);
+              throw new Error('POST_ONLY_REQUIRES_GTC');
+            }
+            executedTrades = [];
+          } else if (useRustEngine) {
+            const rustOrder: RustOrder = {
+              id: order.id,
+              user_id: order.user_id,
+              market: marketSymbol,
+              side: side as 'buy' | 'sell',
+              type: type as 'limit' | 'market',
+              price: insertPrice,
+              quantity: qtyRounded.toString(),
+              remaining: qtyRounded.toString(),
+              created_at: Math.floor(Date.now() / 1000),
+            };
+            await placeOrderRust(rustOrder);
+          } else if (type === 'limit' && !postOnly) {
             executedTrades = await runMatching(client, order, m, baseCurrencyId, quoteCurrencyId, precision, qtyPrecision, timeInForce as 'gtc' | 'ioc' | 'fok');
           } else {
             executedTrades = await runMatching(client, order, m, baseCurrencyId, quoteCurrencyId, precision, qtyPrecision, 'ioc');
@@ -571,8 +828,11 @@ export default async function spotRoutes(app: FastifyInstance) {
             }
           }
         }
+        if (useRustEngine) {
+          executedTrades = [];
+        }
         const final = await client.query(
-          `SELECT id, user_id, market, side, type, price, quantity, filled_quantity, status, created_at, updated_at, client_order_id FROM spot_orders WHERE id = $1`,
+          `SELECT id, user_id, market, side, type, price, quantity, filled_quantity, status, created_at, updated_at, client_order_id, oco_group_id FROM spot_orders WHERE id = $1`,
           [order.id]
         );
         return { order: final.rows[0], executedTrades };
@@ -593,6 +853,15 @@ export default async function spotRoutes(app: FastifyInstance) {
 
       void pushSpotUpdates(marketSymbol, userId, { ...o, displayStatus: displayStatus(o.status) }).catch((e) => logger.warn('Spot push updates failed', { error: e instanceof Error ? e.message : 'Unknown' }));
 
+      try {
+        publishOrderCreated({ id: o.id, market: o.market, side: o.side, type: o.type, user_id: userId });
+        for (const t of executedTrades) {
+          publishTradeExecuted({ market: marketSymbol, side: 'buy', price: t.price?.toString(), quantity: t.quantity?.toString(), user_id: t.buyerId });
+        }
+      } catch {
+        /* best-effort admin metrics */
+      }
+
       return reply.send({
         success: true,
         data: {
@@ -607,6 +876,7 @@ export default async function spotRoutes(app: FastifyInstance) {
           displayStatus: displayStatus(o.status),
           created_at: o.created_at,
           ...(o.client_order_id != null ? { client_order_id: o.client_order_id } : {}),
+          ...(((o as Record<string, unknown>).oco_group_id != null) ? { oco_group_id: (o as Record<string, unknown>).oco_group_id } : {}),
         },
       });
     } catch (err: unknown) {
@@ -642,6 +912,12 @@ export default async function spotRoutes(app: FastifyInstance) {
           error: { code: 'FOK_NOT_FILLABLE', message: 'Fill-or-Kill order could not be fully filled' },
         });
       }
+      if (msg === 'POST_ONLY_REQUIRES_GTC') {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'POST_ONLY_REQUIRES_GTC', message: 'Post-only orders require time_in_force GTC' },
+        });
+      }
       logger.error('Spot place order failed', { error: msg, userId });
       return reply.status(500).send({
         success: false,
@@ -659,9 +935,18 @@ export default async function spotRoutes(app: FastifyInstance) {
     return p ?? '0';
   }
 
+  async function getBestBid(symbol: string): Promise<string> {
+    const r = await db.query<{ price: string }>(
+      `SELECT MAX(price)::text as price FROM spot_orders WHERE market = $1 AND side = 'buy' AND status IN ('OPEN', 'PARTIALLY_FILLED') AND (quantity - filled_quantity) > 0`,
+      [symbol]
+    );
+    const p = r.rows[0]?.price;
+    return p ?? '0';
+  }
+
   // POST /spot/order/:id/cancel (PHASE-12: rate limit to prevent rapid create/cancel abuse)
   app.post<{ Params: { id: string } }>('/order/:id/cancel', {
-    preHandler: [app.authenticateUser, rateLimitByUser('spot:cancel', 60, 60)],
+    preHandler: [app.authenticateUser, rateLimitByUser('spot:cancel', 60, 60, { failClosed: config.rateLimit.failClosed })],
   }, async (request, reply) => {
     if (request.user?.permission === 'read_only') {
       return reply.status(403).send({
@@ -794,7 +1079,7 @@ export default async function spotRoutes(app: FastifyInstance) {
         status: string;
         created_at: Date;
       }>(
-        `SELECT id, market, side, type, price, stop_price, quantity, filled_quantity, status, created_at
+        `SELECT id, market, side, type, price, stop_price, quantity, filled_quantity, status, oco_group_id, created_at
          FROM spot_orders
          WHERE user_id = $1 AND status IN ('OPEN', 'PARTIALLY_FILLED', 'PENDING_TRIGGER')
          ORDER BY created_at DESC`,
@@ -859,47 +1144,66 @@ export default async function spotRoutes(app: FastifyInstance) {
     }
   });
 
-  // GET /spot/trade-history
-  app.get<{ Querystring: { page?: string; limit?: string; market?: string } }>('/trade-history', {
-    preHandler: [app.authenticateUser],
-  }, async (request, reply) => {
-    const userId = request.user!.id;
-    const page = Math.max(1, parseInt(request.query.page || '1'));
-    const limit = Math.min(100, Math.max(1, parseInt(request.query.limit || '20')));
+  // GET /spot/trade-history (and GET /spot/trades alias for consistency)
+  const tradeHistoryHandler = async (
+    request: FastifyRequest<{ Querystring: { page?: string; limit?: string; market?: string } }>,
+    reply: FastifyReply
+  ) => {
+    const user = request.user;
+    if (!user?.id) {
+      return reply.status(401).send({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+    }
+    const userId = user.id;
+    const page = Math.max(1, parseInt(request.query.page || '1', 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(request.query.limit || '20', 10) || 20));
     const offset = (page - 1) * limit;
-    const market = request.query.market?.toUpperCase().replace(/-/g, '_');
+    const market = request.query.market?.toUpperCase().replace(/-/g, '_').trim() || null;
     try {
-      let q = `SELECT id, order_id, market, side, price, quantity, fee, fee_asset, created_at FROM spot_trades WHERE user_id = $1`;
       const params: unknown[] = [userId];
+      let whereClause = 'WHERE user_id = $1';
       if (market) {
         params.push(market);
-        q += ` AND market = $${params.length}`;
+        whereClause += ` AND market = $${params.length}`;
       }
-      q += ` ORDER BY created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
       params.push(limit, offset);
+      const q = `SELECT id, order_id, market, side, price::text, quantity::text, fee::text, fee_asset, created_at FROM spot_trades ${whereClause} ORDER BY created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`;
       const result = await db.query(q, params);
+      const countParams = market ? [userId, market] : [userId];
       const countResult = await db.query<{ count: string }>(
         `SELECT COUNT(*)::text as count FROM spot_trades WHERE user_id = $1 ${market ? 'AND market = $2' : ''}`,
-        market ? [userId, market] : [userId]
+        countParams
       );
-      const total = parseInt(countResult.rows[0]?.count || '0');
+      const total = parseInt(countResult.rows[0]?.count || '0', 10) || 0;
+      const totalPages = limit > 0 ? Math.ceil(total / limit) : 0;
+      const rows = result.rows.map((r: { created_at?: Date }) => ({
+        ...r,
+        created_at: r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
+      }));
       return reply.send({
         success: true,
-        data: result.rows,
-        pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+        data: rows,
+        pagination: { page, limit, total, totalPages },
       });
     } catch (error) {
       logger.error('Spot trade-history failed', { error: error instanceof Error ? error.message : 'Unknown' });
       return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to fetch trade history' } });
     }
-  });
+  };
+
+  app.get<{ Querystring: { page?: string; limit?: string; market?: string } }>('/trade-history', {
+    preHandler: [app.authenticateUser],
+  }, tradeHistoryHandler);
+
+  app.get<{ Querystring: { page?: string; limit?: string; market?: string } }>('/trades', {
+    preHandler: [app.authenticateUser],
+  }, tradeHistoryHandler);
 
   // POST /spot/orders — reserve-only path (no matching). Disabled by default; set ENABLE_SPOT_ORDERS_RESERVE_ONLY=true for market makers.
   // For normal trading use POST /spot/order.
   app.post<{
     Body: { market: string; side: string; type: string; price?: string; quantity: string; client_order_id?: string };
   }>('/orders', {
-    preHandler: [app.authenticateUser, rateLimitByUser('spot:orders', 30, 60)],
+    preHandler: [app.authenticateUser, rateLimitByUser('spot:orders', 30, 60, { failClosed: config.rateLimit.failClosed })],
   }, async (request, reply) => {
     if (!config.features.enableSpotOrdersReserveOnly) {
       return reply.status(410).send({
@@ -907,6 +1211,17 @@ export default async function spotRoutes(app: FastifyInstance) {
         error: {
           code: 'ENDPOINT_DISABLED',
           message: 'Use POST /spot/order for trading (this reserve-only path is disabled). Set ENABLE_SPOT_ORDERS_RESERVE_ONLY=true to enable.',
+        },
+      });
+    }
+    // Reserve-only path: require API key (not JWT) to prevent UI/user misuse
+    const u = request.user as { sessionId?: string } | undefined;
+    if (u?.sessionId && u.sessionId.length > 0) {
+      return reply.status(403).send({
+        success: false,
+        error: {
+          code: 'API_KEY_REQUIRED',
+          message: 'Reserve-only orders require X-API-Key authentication. Use POST /spot/order for normal trading.',
         },
       });
     }
@@ -1093,7 +1408,11 @@ export default async function spotRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { status?: string; limit?: string; cursor?: string } }>('/orders', {
     preHandler: [app.authenticateUser],
   }, async (request, reply) => {
-    const userId = request.user!.id;
+    const user = request.user;
+    if (!user?.id) {
+      return reply.status(401).send({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+    }
+    const userId = user.id;
     const statusParam = (request.query.status ?? 'OPEN').toUpperCase();
     const limitRaw = Math.min(100, Math.max(1, parseInt(request.query.limit ?? '50', 10) || 50));
     const limit = Number.isFinite(limitRaw) ? limitRaw : 50;
@@ -1125,7 +1444,7 @@ export default async function spotRoutes(app: FastifyInstance) {
 
       const fetchLimit = limit + 1;
       params.push(fetchLimit);
-      const q = `SELECT id, market, side, type, price, stop_price, quantity, filled_quantity, status, client_order_id, created_at
+      const q = `SELECT id, market, side, type, price, stop_price, quantity, filled_quantity, status, client_order_id, oco_group_id, created_at
         FROM spot_orders
         WHERE user_id = $1 ${statusFilter} ${cursorFilter}
         ORDER BY created_at DESC, id DESC
@@ -1134,13 +1453,23 @@ export default async function spotRoutes(app: FastifyInstance) {
       const rows = result.rows as { id: string; market: string; side: string; type: string; price: string | null; stop_price: string | null; quantity: string; filled_quantity: string; status: string; client_order_id: string | null; created_at: Date }[];
       const orders = rows.slice(0, limit);
       const hasMore = rows.length > limit;
-      const last = rows[limit - 1];
+      const last = orders[orders.length - 1];
       const next_cursor = hasMore && last ? `${(last.created_at as Date).toISOString()}|${last.id}` : null;
       const serialized = orders.map((o) => ({ ...o, created_at: (o.created_at as Date).toISOString() }));
-      return reply.send({ success: true, data: { orders: serialized, next_cursor } });
+      return reply.send({
+        success: true,
+        data: { orders: serialized, next_cursor },
+        orders: serialized,
+        pagination: serialized.length === 0 ? {} : { limit, next_cursor: next_cursor ?? undefined },
+      });
     } catch (error) {
-      logger.error('Spot orders list failed', { error: error instanceof Error ? error.message : 'Unknown' });
-      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to fetch orders' } });
+      logger.error('Spot orders list failed', { error: error instanceof Error ? error.message : 'Unknown', stack: error instanceof Error ? error.stack : undefined });
+      return reply.send({
+        success: true,
+        data: { orders: [], next_cursor: null },
+        orders: [],
+        pagination: {},
+      });
     }
   });
 
@@ -1148,7 +1477,11 @@ export default async function spotRoutes(app: FastifyInstance) {
   app.post<{ Params: { orderId: string } }>('/orders/:orderId/cancel', {
     preHandler: [app.authenticateUser],
   }, async (request, reply) => {
-    const userId = request.user!.id;
+    const user = request.user;
+    if (!user?.id) {
+      return reply.status(401).send({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
+    }
+    const userId = user.id;
     const orderId = request.params.orderId?.trim();
     if (!orderId) {
       return reply.status(400).send({ success: false, error: { code: 'INVALID_ORDER', message: 'Order ID required' } });
@@ -1241,6 +1574,11 @@ export default async function spotRoutes(app: FastifyInstance) {
       }
     }
     const connId = spotWs.registerConnection(socket as any, userId);
+    if (!connId) {
+      socket.send(JSON.stringify({ type: 'error', data: { message: 'Connection limit reached. Try again later.' }, timestamp: Date.now() }));
+      socket.close(1013, 'Connection limit reached');
+      return;
+    }
 
     socket.on('close', () => {
       spotWs.unregisterConnection(connId);
@@ -1262,18 +1600,50 @@ export default async function spotRoutes(app: FastifyInstance) {
           if (ch.startsWith('orderbook:')) {
             const symbol = ch.slice('orderbook:'.length);
             (getCachedOrderbook(symbol).then((s) => s ?? getOrderbookFromDb(symbol))).then((snap) => {
-              socket.send(JSON.stringify({ type: 'orderbook_snapshot', channel: ch, data: snap, timestamp: Date.now() }));
-            }).catch(() => {});
+              const data = snap ?? { symbol, bids: [], asks: [], lastUpdateId: 0 };
+              socket.send(JSON.stringify({ type: 'orderbook_snapshot', channel: ch, data, timestamp: Date.now() }));
+            }).catch(() => {
+              socket.send(JSON.stringify({ type: 'orderbook_snapshot', channel: ch, data: { symbol, bids: [], asks: [], lastUpdateId: 0 }, timestamp: Date.now() }));
+            });
           } else if (ch.startsWith('ticker:')) {
             const symbol = ch.slice('ticker:'.length);
-            db.query(
+            db.query<{
+              last_price: string;
+              bid: string;
+              ask: string;
+              high_24h: string;
+              low_24h: string;
+              volume_24h: string;
+              base_volume_24h: string;
+              open_24h: string | null;
+            }>(
               `SELECT (SELECT price::text FROM spot_trades WHERE market = $1 ORDER BY created_at DESC LIMIT 1) as last_price,
                       (SELECT MAX(price)::text FROM spot_orders WHERE market = $1 AND side = 'buy' AND status IN ('OPEN','PARTIALLY_FILLED')) as bid,
-                      (SELECT MIN(price)::text FROM spot_orders WHERE market = $1 AND side = 'sell' AND status IN ('OPEN','PARTIALLY_FILLED')) as ask`,
+                      (SELECT MIN(price)::text FROM spot_orders WHERE market = $1 AND side = 'sell' AND status IN ('OPEN','PARTIALLY_FILLED')) as ask,
+                      (SELECT COALESCE(MAX(price)::text, '0') FROM spot_trades WHERE market = $1 AND created_at > NOW() - INTERVAL '24 hours') as high_24h,
+                      (SELECT COALESCE(MIN(price)::text, '0') FROM spot_trades WHERE market = $1 AND created_at > NOW() - INTERVAL '24 hours') as low_24h,
+                      (SELECT COALESCE(SUM(quantity * price)::text, '0') FROM spot_trades WHERE market = $1 AND created_at > NOW() - INTERVAL '24 hours') as volume_24h,
+                      (SELECT COALESCE(SUM(quantity)::text, '0') FROM spot_trades WHERE market = $1 AND created_at > NOW() - INTERVAL '24 hours') as base_volume_24h,
+                      (SELECT price::text FROM spot_trades WHERE market = $1 AND created_at > NOW() - INTERVAL '24 hours' ORDER BY created_at ASC LIMIT 1) as open_24h`,
               [symbol]
             ).then((r) => {
               const row = r.rows[0];
-              socket.send(JSON.stringify({ type: 'ticker', channel: ch, data: { symbol, last_price: row?.last_price, bid: row?.bid, ask: row?.ask }, timestamp: Date.now() }));
+              socket.send(JSON.stringify({
+                type: 'ticker',
+                channel: ch,
+                data: {
+                  symbol,
+                  last_price: row?.last_price ?? null,
+                  bid: row?.bid ?? null,
+                  ask: row?.ask ?? null,
+                  high_24h: row?.high_24h ?? null,
+                  low_24h: row?.low_24h ?? null,
+                  volume_24h: row?.volume_24h ?? '0',
+                  base_volume_24h: row?.base_volume_24h ?? '0',
+                  open_24h: row?.open_24h ?? null,
+                },
+                timestamp: Date.now(),
+              }));
             }).catch(() => {});
           } else if (ch.startsWith('trades:')) {
             const symbol = ch.slice('trades:'.length);

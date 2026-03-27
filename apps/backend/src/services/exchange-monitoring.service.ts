@@ -7,6 +7,7 @@
 
 import { logger } from '../lib/logger.js';
 import { redis } from '../lib/redis.js';
+import { sendAlertWebhook } from '../lib/alert-webhook.js';
 
 const LOG_CATEGORY = 'EXCHANGE_MONITOR';
 const REDIS_PREFIX = 'monitoring:';
@@ -170,6 +171,14 @@ export function recordOperationalEvent(params: {
   const key = `operational.${params.type}`;
   increment(key);
   emit('operational_event', params);
+
+  if (params.type === 'circuit_open') {
+    void sendAlertWebhook({
+      type: 'circuit_open',
+      violation: params.violation,
+      message: 'Settlement circuit breaker opened. No further settlements until investigation.',
+    });
+  }
 }
 
 /** PHASE-16: Emit when RPC live balance differs from balance_cache. No financial mutation; alert only. */

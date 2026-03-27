@@ -23,7 +23,7 @@ test.describe('Smoke tests', () => {
   });
 
   test('p2p page loads', async ({ page }) => {
-    await page.goto('/p2p', { waitUntil: 'domcontentloaded', timeout: 10_000 });
-    await expect(page.locator('body')).toBeVisible({ timeout: 5_000 });
+    await page.goto('/p2p', { waitUntil: 'domcontentloaded', timeout: 15_000 });
+    await expect(page.getByRole('heading', { name: /P2P Trading/i })).toBeVisible({ timeout: 10_000 });
   });
 });

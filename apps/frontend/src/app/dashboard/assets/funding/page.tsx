@@ -5,6 +5,7 @@ import { useAuthStore } from '@/store/auth';
 import { useBalancesFunding, type TokenBalance } from '@/lib/balances';
 import Link from 'next/link';
 import Image from 'next/image';
+import { SkeletonTableBody } from '@/components/ui/Skeleton';
 import {
   Eye,
   EyeOff,
@@ -283,14 +284,7 @@ export default function FundingAccountPage() {
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                 {loading ? (
-                  <tr>
-                    <td colSpan={6} className="py-16 text-center">
-                      <div className="flex flex-col items-center">
-                        <RefreshCw className="w-8 h-8 text-blue-500 animate-spin mb-3" />
-                        <p className="text-sm text-gray-500">Loading balances...</p>
-                      </div>
-                    </td>
-                  </tr>
+                  <SkeletonTableBody rows={6} columns={6} />
                 ) : filteredBalances.length > 0 ? (
                   filteredBalances.map((balance) => (
                     <tr key={balance.token_id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">

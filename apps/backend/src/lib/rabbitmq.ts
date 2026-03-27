@@ -37,6 +37,9 @@ export const QUEUES = {
   P2P_PAYMENT_CONFIRMED: 'p2p.payment.confirmed',
   P2P_DISPUTE_OPENED: 'p2p.dispute.opened',
   P2P_ESCROW_RELEASED: 'p2p.escrow.released',
+
+  // OTP delivery (async, non-blocking)
+  OTP_SEND: 'otp.send',
 } as const;
 
 export const ROUTING_KEYS = {

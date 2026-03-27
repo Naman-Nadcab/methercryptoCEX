@@ -18,7 +18,14 @@ export default defineConfig({
     actionTimeout: 10_000,
     navigationTimeout: 15_000,
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [{
+    name: 'chromium',
+    use: {
+      ...devices['Desktop Chrome'],
+      // Use system Chrome (avoids sandbox path issues with bundled Chromium in Cursor/CI)
+      channel: 'chrome',
+    },
+  }],
   // Use SKIP_WEBSERVER=1 when servers are already running. Otherwise Playwright starts them.
   webServer: process.env.SKIP_WEBSERVER
     ? undefined

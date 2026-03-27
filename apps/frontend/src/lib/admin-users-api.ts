@@ -199,6 +199,22 @@ export async function fetchAdminWithdrawalsByUser(
   return res.json();
 }
 
+/** POST /admin/users/:id/impersonate — returns short-lived user JWT for support. */
+export async function impersonateUser(
+  adminToken: string | null,
+  userId: string
+): Promise<{
+  success: boolean;
+  data?: { accessToken: string; expiresIn: string; userId: string; email?: string | null };
+  error?: { code?: string; message?: string };
+}> {
+  const res = await fetch(`${API_URL}/api/v1/admin/users/${userId}/impersonate`, {
+    method: 'POST',
+    headers: authHeaders(adminToken),
+  });
+  return res.json();
+}
+
 // ---------------------------------------------------------------------------
 // React Query hooks (use from components with useAdminAuthStore)
 // ---------------------------------------------------------------------------

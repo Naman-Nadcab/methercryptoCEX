@@ -1,32 +1,15 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useAdminAuthStore } from '@/store/admin-auth';
-import {
-  ArrowDownToLine,
-  Loader2,
-  Search,
-  ChevronLeft,
-  ChevronRight,
-  AlertCircle,
-  CheckCircle2,
-  Copy,
-} from 'lucide-react';
+import { Search, AlertCircle, CheckCircle2, Copy } from 'lucide-react';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { SectionHeader } from '@/components/admin/control-plane';
+import { DataTable } from '@/components/admin/v2/tables';
+import { useDepositsList } from '@/hooks/admin/useAdminDashboard';
+import type { ColumnDef } from '@tanstack/react-table';
 
-const API_URL = getApiBaseUrl();
-
-interface DepositStats {
-  total: string;
-  pending: string;
-  confirming: string;
-  completed: string;
-  failed: string;
-  flagged: string;
-}
-
-interface Deposit {
+interface DepositRow {
   deposit_id: string;
   user_id: string;
   user_email: string;
@@ -38,23 +21,13 @@ interface Deposit {
   token_name: string;
   amount: string;
   tx_hash: string | null;
-  from_address: string | null;
-  to_address: string | null;
   confirmations: number;
   required_confirmations: number;
   status: string;
   credited: boolean;
   credited_at: string | null;
   created_at: string;
-  updated_at: string;
   is_flagged: boolean;
-}
-
-interface Pagination {
-  page: number;
-  limit: number;
-  total: number;
-  totalPages: number;
 }
 
 interface BlockchainOption {
@@ -65,128 +38,83 @@ interface BlockchainOption {
 }
 
 export default function DepositsPage() {
-  const searchParams = useSearchParams();
   const { accessToken } = useAdminAuthStore();
-  const [stats, setStats] = useState<DepositStats | null>(null);
-  const [deposits, setDeposits] = useState<Deposit[]>([]);
-  const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, totalPages: 1 });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
   const [userSearch, setUserSearch] = useState('');
   const [chainId, setChainId] = useState('');
   const [tokenId, setTokenId] = useState('');
-  const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') || 'all');
-  const [flaggedOnly, setFlaggedOnly] = useState(() => searchParams.get('flagged') === '1' || searchParams.get('flagged') === 'true');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [flaggedOnly, setFlaggedOnly] = useState(false);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [chainOptions, setChainOptions] = useState<BlockchainOption[]>([]);
-  const [tokenOptions, setTokenOptions] = useState<{ id: string; symbol: string; name: string; chain_name?: string }[]>([]);
 
-  const fetchBlockchains = useCallback(async () => {
+  const params = useMemo(
+    () => ({
+      page,
+      limit: pageSize,
+      user: userSearch.trim() || undefined,
+      chain: chainId || undefined,
+      token: tokenId || undefined,
+      status: statusFilter === 'all' ? undefined : statusFilter,
+      flagged: flaggedOnly || undefined,
+      date_from: dateFrom || undefined,
+      date_to: dateTo || undefined,
+    }),
+    [page, pageSize, userSearch, chainId, tokenId, statusFilter, flaggedOnly, dateFrom, dateTo]
+  );
+
+  const { data, isLoading, isError, error } = useDepositsList(params);
+
+  useEffect(() => {
     if (!accessToken) return;
-    try {
-      const res = await fetch(`${API_URL}/api/v1/admin/settings/blockchains`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const data = await res.json();
-      if (data.success && data.data?.blockchains) {
-        setChainOptions(data.data.blockchains);
-        const tokens: { id: string; symbol: string; name: string; chain_name?: string }[] = [];
-        data.data.blockchains.forEach((b: BlockchainOption) => {
-          (b.currencies || []).forEach((c: { id: string; symbol: string; name: string }) => {
-            tokens.push({ id: c.id, symbol: c.symbol, name: c.name, chain_name: b.chain_name });
-          });
-        });
-        setTokenOptions(tokens);
-      }
-    } catch {
-      // Non-blocking; filters still work with raw UUIDs
-    }
+    const apiUrl = getApiBaseUrl();
+    fetch(`${apiUrl}/api/v1/admin/settings/blockchains`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.success && d?.data?.blockchains) setChainOptions(d.data.blockchains);
+      })
+      .catch(() => {});
   }, [accessToken]);
 
-  const fetchDeposits = useCallback(async (pageOverride?: number) => {
-    if (!accessToken) return;
-    setLoading(true);
-    setError(null);
-    const page = pageOverride ?? pagination.page;
-    try {
-      const params = new URLSearchParams();
-      params.set('page', String(page));
-      params.set('limit', String(pagination.limit));
-      if (userSearch.trim()) params.set('user', userSearch.trim());
-      if (chainId) params.set('chain', chainId);
-      if (tokenId) params.set('token', tokenId);
-      if (statusFilter !== 'all') params.set('status', statusFilter);
-      if (flaggedOnly) params.set('flagged', 'true');
-      if (dateFrom) params.set('date_from', dateFrom);
-      if (dateTo) params.set('date_to', dateTo);
-
-      const response = await fetch(`${API_URL}/api/v1/admin/deposits?${params}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
+  const tokenOptions = useMemo(() => {
+    const tokens: { id: string; symbol: string; name: string; chain_name?: string }[] = [];
+    chainOptions.forEach((b) => {
+      (b.currencies || []).forEach((c) => {
+        tokens.push({ id: c.id, symbol: c.symbol, name: c.name, chain_name: b.chain_name });
       });
-      const result = await response.json();
+    });
+    return tokens;
+  }, [chainOptions]);
 
-      if (!response.ok) {
-        setError(result?.error?.message || 'Failed to fetch deposits');
-        return;
-      }
-      if (result.success) {
-        setStats(result.data.stats ?? null);
-        setDeposits(result.data.deposits ?? []);
-        if (result.data.pagination) {
-          setPagination((prev) => ({
-            ...prev,
-            page: result.data.pagination.page ?? prev.page,
-            limit: result.data.pagination.limit ?? prev.limit,
-            total: result.data.pagination.total ?? 0,
-            totalPages: result.data.pagination.totalPages ?? 1,
-          }));
-        }
-      } else {
-        setError(result?.error?.message || 'Failed to fetch deposits');
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Network error');
-    } finally {
-      setLoading(false);
-    }
-  }, [accessToken, pagination.page, pagination.limit, userSearch, chainId, tokenId, statusFilter, flaggedOnly, dateFrom, dateTo]);
+  const stats = data?.data?.stats as Record<string, string> | undefined;
+  const deposits = (data?.data?.deposits ?? []) as DepositRow[];
+  const pagination = data?.data?.pagination ?? { page: 1, limit: 20, total: 0, totalPages: 1 };
+  const total = pagination.total;
 
-  useEffect(() => {
-    fetchBlockchains();
-  }, [fetchBlockchains]);
+  const applyFilters = useCallback(() => setPage(1), []);
 
-  useEffect(() => {
-    fetchDeposits();
-  }, [fetchDeposits]);
-
-  const applyFilters = () => {
-    setPagination((p) => ({ ...p, page: 1 }));
-    fetchDeposits(1);
-  };
-
-  const copyTxHash = (tx: string) => {
-    navigator.clipboard.writeText(tx);
-  };
+  const copyTxHash = (tx: string) => navigator.clipboard.writeText(tx);
 
   const getStatusBadge = (status: string, credited: boolean) => {
     if (credited) {
       return (
-        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-400 border border-green-500/30">
+        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-[var(--admin-success)]/20 text-[var(--admin-success)] border border-[var(--admin-success)]/30">
           <CheckCircle2 className="w-3.5 h-3.5" />
           Credited
         </span>
       );
     }
     const colors: Record<string, string> = {
-      pending: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-      confirming: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-      completed: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
-      failed: 'bg-red-500/20 text-red-400 border-red-500/30',
+      pending: 'bg-yellow-500/20 text-yellow-600 border-yellow-500/30',
+      confirming: 'bg-blue-500/20 text-blue-600 border-blue-500/30',
+      completed: 'bg-gray-500/20 text-gray-600 border-gray-500/30',
+      failed: 'bg-red-500/20 text-red-600 border-red-500/30',
     };
-    const style = colors[status] || 'bg-gray-500/20 text-gray-400 border-gray-500/30';
+    const style = colors[status] || 'bg-gray-500/20 text-gray-600 border-gray-500/30';
     return (
       <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium border ${style}`}>
         {status}
@@ -200,24 +128,119 @@ export default function DepositsPage() {
     return `${hash.slice(0, 6)}…${hash.slice(-6)}`;
   };
 
-  if (error && !deposits.length && !loading) {
+  const columns = useMemo<ColumnDef<DepositRow>[]>(
+    () => [
+      {
+        id: 'user_email',
+        header: 'User',
+        accessorKey: 'user_email',
+        cell: ({ getValue }) => (
+          <span className="font-medium text-[var(--admin-text)]">{String(getValue() ?? '—')}</span>
+        ),
+        enableSorting: false,
+      },
+      {
+        id: 'chain',
+        header: 'Chain',
+        cell: ({ row }) => (
+          <span className="text-[var(--admin-text-muted)]">{row.original.chain_name || row.original.chain_symbol}</span>
+        ),
+        enableSorting: false,
+      },
+      {
+        id: 'token_symbol',
+        header: 'Token',
+        accessorKey: 'token_symbol',
+        cell: ({ getValue }) => (
+          <span className="text-[var(--admin-text-muted)]">{String(getValue() ?? '—')}</span>
+        ),
+        enableSorting: false,
+      },
+      {
+        id: 'amount',
+        header: 'Amount',
+        cell: ({ row }) => {
+          const d = row.original;
+          const amt = typeof d.amount === 'string' ? parseFloat(d.amount).toFixed(8) : Number(d.amount).toFixed(8);
+          return (
+            <span className="text-[var(--admin-text)] font-medium">
+              {amt} <span className="text-[var(--admin-text-muted)] ml-1">{d.token_symbol}</span>
+            </span>
+          );
+        },
+        enableSorting: false,
+      },
+      {
+        id: 'tx_hash',
+        header: 'Tx Hash',
+        cell: ({ row }) => {
+          const hash = row.original.tx_hash;
+          if (!hash)
+            return <span className="text-[var(--admin-text-muted)]">—</span>;
+          return (
+            <button
+              type="button"
+              onClick={() => copyTxHash(hash)}
+              className="inline-flex items-center gap-1 text-[var(--admin-primary)] hover:underline font-mono text-xs"
+              title={hash}
+            >
+              {shortenHash(hash)}
+              <Copy className="w-3.5 h-3.5" />
+            </button>
+          );
+        },
+        enableSorting: false,
+      },
+      {
+        id: 'confirmations',
+        header: 'Confirmations',
+        cell: ({ row }) => (
+          <span className="text-[var(--admin-text-muted)]">
+            {row.original.confirmations} / {row.original.required_confirmations}
+          </span>
+        ),
+        enableSorting: false,
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        cell: ({ row }) => getStatusBadge(row.original.status, row.original.credited),
+        enableSorting: false,
+      },
+      {
+        id: 'credited_at',
+        header: 'Credited at',
+        cell: ({ row }) => (
+          <span className="text-sm text-[var(--admin-text-muted)]">
+            {row.original.credited_at ? new Date(row.original.credited_at).toLocaleString() : '—'}
+          </span>
+        ),
+        enableSorting: false,
+      },
+      {
+        id: 'created_at',
+        header: 'Created at',
+        accessorKey: 'created_at',
+        cell: ({ getValue }) => (
+          <span className="text-sm text-[var(--admin-text-muted)]">
+            {getValue() ? new Date(String(getValue())).toLocaleString() : '—'}
+          </span>
+        ),
+        enableSorting: false,
+      },
+    ],
+    []
+  );
+
+  if (isError && !deposits.length && !isLoading) {
     return (
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Deposits</h1>
-          <p className="text-gray-400 text-sm mt-1">Manage user deposits</p>
-        </div>
-        <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-6 flex items-center gap-4">
-          <AlertCircle className="w-10 h-10 text-red-400 shrink-0" />
+        <SectionHeader title="Deposits" subtitle="Manage user deposits" />
+        <div className="admin-card p-6 flex items-center gap-4 border-[var(--admin-danger)]/30 bg-[var(--admin-danger)]/10">
+          <AlertCircle className="w-10 h-10 text-[var(--admin-danger)] shrink-0" />
           <div>
-            <p className="font-medium text-red-200">Failed to load deposits</p>
-            <p className="text-sm text-red-300/80 mt-1">{error}</p>
-            <button
-              onClick={() => { setError(null); fetchDeposits(); }}
-              className="mt-3 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-200 rounded-lg text-sm font-medium"
-            >
-              Retry
-            </button>
+            <p className="font-medium text-[var(--admin-text)]">Failed to load deposits</p>
+            <p className="text-sm text-[var(--admin-text-muted)] mt-1">{error instanceof Error ? error.message : 'Unknown error'}</p>
           </div>
         </div>
       </div>
@@ -226,58 +249,44 @@ export default function DepositsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Deposits</h1>
-        <p className="text-gray-400 text-sm mt-1">View and filter user deposits. Credited rows are highlighted.</p>
-      </div>
+      <SectionHeader title="Deposits" subtitle="View and filter user deposits. Credited rows are highlighted." />
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-        <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4 shadow-sm">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Total</p>
-          <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{stats?.total ?? 0}</p>
-        </div>
-        <div className="bg-yellow-50 dark:bg-yellow-500/10 border border-yellow-200 dark:border-yellow-500/30 rounded-xl p-4">
-          <p className="text-sm text-yellow-600 dark:text-yellow-400">Pending</p>
-          <p className="text-2xl font-bold text-yellow-700 dark:text-yellow-300 mt-1">{stats?.pending ?? 0}</p>
-        </div>
-        <div className="bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 rounded-xl p-4">
-          <p className="text-sm text-blue-600 dark:text-blue-400">Confirming</p>
-          <p className="text-2xl font-bold text-blue-700 dark:text-blue-300 mt-1">{stats?.confirming ?? 0}</p>
-        </div>
-        <div className="bg-green-50 dark:bg-green-500/10 border border-green-200 dark:border-green-500/30 rounded-xl p-4">
-          <p className="text-sm text-green-600 dark:text-green-400">Completed</p>
-          <p className="text-2xl font-bold text-green-700 dark:text-green-300 mt-1">{stats?.completed ?? 0}</p>
-        </div>
-        <div className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 rounded-xl p-4">
-          <p className="text-sm text-red-600 dark:text-red-400">Failed</p>
-          <p className="text-2xl font-bold text-red-700 dark:text-red-300 mt-1">{stats?.failed ?? 0}</p>
-        </div>
-        <div className="bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/30 rounded-xl p-4">
-          <p className="text-sm text-orange-600 dark:text-orange-400">Flagged</p>
-          <p className="text-2xl font-bold text-orange-700 dark:text-orange-300 mt-1">{stats?.flagged ?? 0}</p>
-        </div>
+        {[
+          { label: 'Total', value: stats?.total ?? 0, className: 'admin-card' },
+          { label: 'Pending', value: stats?.pending ?? 0, className: 'admin-card border-l-[var(--admin-warning)]' },
+          { label: 'Confirming', value: stats?.confirming ?? 0, className: 'admin-card border-l-[var(--admin-primary)]' },
+          { label: 'Completed', value: stats?.completed ?? 0, className: 'admin-card border-l-[var(--admin-success)]' },
+          { label: 'Failed', value: stats?.failed ?? 0, className: 'admin-card border-l-[var(--admin-danger)]' },
+          { label: 'Flagged', value: stats?.flagged ?? 0, className: 'admin-card border-l-orange-500' },
+        ].map(({ label, value, className }) => (
+          <div key={label} className={`p-4 ${className}`}>
+            <p className="text-sm text-[var(--admin-text-muted)]">{label}</p>
+            <p className="text-2xl font-bold text-[var(--admin-text)] mt-1">{value}</p>
+          </div>
+        ))}
       </div>
 
       {/* Filters */}
-      <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-        <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Filters</p>
+      <div className="admin-card p-4">
+        <p className="text-sm font-medium text-[var(--admin-text)] mb-3">Filters</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--admin-text-muted)]" />
             <input
               type="text"
               placeholder="User (email)"
               value={userSearch}
               onChange={(e) => setUserSearch(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && applyFilters()}
-              className="w-full pl-9 pr-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg text-sm text-gray-900 dark:text-white placeholder-gray-500"
+              className="w-full pl-9 pr-3 py-2 rounded-lg border border-[var(--admin-card-border)] bg-[var(--admin-input-bg)] text-sm text-[var(--admin-text)] placeholder-[var(--admin-text-muted)]"
             />
           </div>
           <select
             value={chainId}
-            onChange={(e) => setChainId(e.target.value)}
-            className="px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg text-sm text-gray-900 dark:text-white"
+            onChange={(e) => { setChainId(e.target.value); setPage(1); }}
+            className="px-3 py-2 rounded-lg border border-[var(--admin-card-border)] bg-[var(--admin-input-bg)] text-sm text-[var(--admin-text)]"
           >
             <option value="">All chains</option>
             {chainOptions.map((c) => (
@@ -286,8 +295,8 @@ export default function DepositsPage() {
           </select>
           <select
             value={tokenId}
-            onChange={(e) => setTokenId(e.target.value)}
-            className="px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg text-sm text-gray-900 dark:text-white"
+            onChange={(e) => { setTokenId(e.target.value); setPage(1); }}
+            className="px-3 py-2 rounded-lg border border-[var(--admin-card-border)] bg-[var(--admin-input-bg)] text-sm text-[var(--admin-text)]"
           >
             <option value="">All tokens</option>
             {tokenOptions.map((t) => (
@@ -298,8 +307,8 @@ export default function DepositsPage() {
           </select>
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg text-sm text-gray-900 dark:text-white"
+            onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+            className="px-3 py-2 rounded-lg border border-[var(--admin-card-border)] bg-[var(--admin-input-bg)] text-sm text-[var(--admin-text)]"
           >
             <option value="all">All statuses</option>
             <option value="pending">Pending</option>
@@ -307,12 +316,12 @@ export default function DepositsPage() {
             <option value="completed">Completed</option>
             <option value="failed">Failed</option>
           </select>
-          <label className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+          <label className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--admin-card-border)] bg-[var(--admin-input-bg)] text-sm text-[var(--admin-text)] cursor-pointer">
             <input
               type="checkbox"
               checked={flaggedOnly}
-              onChange={(e) => setFlaggedOnly(e.target.checked)}
-              className="rounded border-gray-300 text-amber-500 focus:ring-amber-500"
+              onChange={(e) => { setFlaggedOnly(e.target.checked); setPage(1); }}
+              className="rounded border-[var(--admin-card-border)] text-amber-500 focus:ring-amber-500"
             />
             Flagged only
           </label>
@@ -320,142 +329,48 @@ export default function DepositsPage() {
             type="date"
             value={dateFrom}
             onChange={(e) => setDateFrom(e.target.value)}
-            className="px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg text-sm text-gray-900 dark:text-white"
-            placeholder="From"
+            className="px-3 py-2 rounded-lg border border-[var(--admin-card-border)] bg-[var(--admin-input-bg)] text-sm text-[var(--admin-text)]"
           />
           <input
             type="date"
             value={dateTo}
             onChange={(e) => setDateTo(e.target.value)}
-            className="px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg text-sm text-gray-900 dark:text-white"
-            placeholder="To"
+            className="px-3 py-2 rounded-lg border border-[var(--admin-card-border)] bg-[var(--admin-input-bg)] text-sm text-[var(--admin-text)]"
           />
         </div>
         <div className="mt-3 flex justify-end">
           <button
             onClick={applyFilters}
-            disabled={loading}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium"
+            disabled={isLoading}
+            className="px-4 py-2 rounded-lg bg-[var(--admin-primary)] hover:opacity-90 disabled:opacity-50 text-white text-sm font-medium"
           >
             Apply filters
           </button>
         </div>
       </div>
 
-      {/* Table */}
-      <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
-        {loading && !deposits.length ? (
-          <div className="flex items-center justify-center min-h-[320px]">
-            <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
-          </div>
-        ) : deposits.length === 0 ? (
-          <div className="p-12 text-center">
-            <ArrowDownToLine className="w-12 h-12 text-gray-500 dark:text-gray-500 mx-auto mb-4 opacity-60" />
-            <p className="text-gray-500 dark:text-gray-400 font-medium">No deposits found</p>
-            <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Try adjusting filters or date range.</p>
-          </div>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/80">
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">User</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Chain</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Token</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Amount</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Tx Hash</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Confirmations</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Credited at</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Created at</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {deposits.map((d) => (
-                    <tr
-                      key={d.deposit_id}
-                      className={`border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/20 ${
-                        d.credited ? 'bg-green-500/5 dark:bg-green-500/10' : ''
-                      }`}
-                    >
-                      <td className="px-4 py-3">
-                        <p className="text-gray-900 dark:text-white font-medium">{d.user_email}</p>
-                      </td>
-                      <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{d.chain_name || d.chain_symbol}</td>
-                      <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{d.token_symbol}</td>
-                      <td className="px-4 py-3">
-                        <span className="text-gray-900 dark:text-white font-medium">
-                          {typeof d.amount === 'string' ? parseFloat(d.amount).toFixed(8) : Number(d.amount).toFixed(8)}
-                        </span>
-                        <span className="text-gray-400 ml-1">{d.token_symbol}</span>
-                      </td>
-                      <td className="px-4 py-3">
-                        {d.tx_hash ? (
-                          <button
-                            type="button"
-                            onClick={() => copyTxHash(d.tx_hash!)}
-                            className="inline-flex items-center gap-1 text-blue-500 hover:text-blue-400 font-mono text-xs"
-                            title={d.tx_hash}
-                          >
-                            {shortenHash(d.tx_hash)}
-                            <Copy className="w-3.5 h-3.5" />
-                          </button>
-                        ) : (
-                          <span className="text-gray-500">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
-                        {d.confirmations} / {d.required_confirmations}
-                      </td>
-                      <td className="px-4 py-3">{getStatusBadge(d.status, d.credited)}</td>
-                      <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                        {d.credited_at ? new Date(d.credited_at).toLocaleString() : '—'}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                        {new Date(d.created_at).toLocaleString()}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Pagination */}
-            {pagination.totalPages > 1 && (
-              <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700">
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Page {pagination.page} of {pagination.totalPages} ({pagination.total} total)
-                </p>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setPagination((p) => ({ ...p, page: Math.max(1, p.page - 1) }))}
-                    disabled={pagination.page <= 1 || loading}
-                    className="p-2 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 disabled:opacity-50 hover:bg-gray-100 dark:hover:bg-gray-700"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => setPagination((p) => ({ ...p, page: Math.min(p.totalPages, p.page + 1) }))}
-                    disabled={pagination.page >= pagination.totalPages || loading}
-                    className="p-2 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 disabled:opacity-50 hover:bg-gray-100 dark:hover:bg-gray-700"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {error && deposits.length > 0 && (
-        <div className="flex items-center gap-2 text-amber-500 text-sm">
-          <AlertCircle className="w-4 h-4 shrink-0" />
-          <span>{error}</span>
-          <button onClick={() => fetchDeposits()} className="underline">Retry</button>
-        </div>
-      )}
+      <DataTable<DepositRow>
+        data={deposits}
+        columns={columns}
+        rowCount={total}
+        manualPagination
+        manualSorting={false}
+        pageSize={pageSize}
+        pagination={{ pageIndex: page - 1, pageSize }}
+        onPaginationChange={(updater) => {
+          const next = updater({ pageIndex: page - 1, pageSize });
+          setPage(next.pageIndex + 1);
+          setPageSize(next.pageSize);
+        }}
+        showSearch={false}
+        showExport
+        exportFilename="admin-deposits"
+        title="Deposits"
+        subtitle={`${total} total`}
+        emptyMessage="No deposits found. Try adjusting filters or date range."
+        isLoading={isLoading}
+        getRowClassName={(row) => (row.credited ? 'bg-[var(--admin-success)]/5' : undefined)}
+      />
     </div>
   );
 }

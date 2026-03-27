@@ -5,6 +5,7 @@
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { PUBLIC_AUTH_ROUTES } from '../lib/public-auth-routes.js';
 import { getClientIp, getCountryFromRequest } from '../lib/client-ip.js';
 import { matchRules } from '../services/ip-rules.service.js';
 import { checkVpnTor } from '../services/vpn-tor.service.js';
@@ -12,6 +13,7 @@ import { logUserActivity } from '../services/activity-monitor.service.js';
 import { logAudit } from '../services/audit-log.service.js';
 import { getAuditContextFromRequest } from '../lib/audit-context.js';
 import { logger } from '../lib/logger.js';
+import { config } from '../config/index.js';
 
 export type IpRulesScope = 'admin' | 'user';
 
@@ -78,11 +80,25 @@ async function logBlock(params: {
  * - Evaluates IP rules for scope (admin vs user)
  * - Returns 403 with reason code on block and logs
  */
-const SKIP_PATHS = new Set(['/', '/health']);
+const SKIP_PATHS = new Set([
+  '/',
+  '/health',
+  '/api/v1/admin/auth/login',
+  '/api/v1/auth/login/check-passkeys',
+  '/api/v1/auth/login/resend-otp',
+  '/api/v1/auth/passkey/options',
+  '/api/v1/auth/passkey/verify',
+  '/api/v1/auth/register/options',
+  '/api/v1/auth/register/verify',
+]);
 
 export function ipRulesMiddleware(app: FastifyInstance): void {
   app.addHook('onRequest', async (request: FastifyRequest, reply: FastifyReply) => {
-    const path = (typeof request.url === 'string' ? request.url.split('?')[0] : null) ?? '/';
+    const path = (request.url || '').split('?')[0];
+    if (PUBLIC_AUTH_ROUTES.has(path)) {
+      console.log('[BYPASS]', path);
+      return;
+    }
     if (SKIP_PATHS.has(path)) return;
 
     const clientIp = getClientIp(request);
@@ -101,6 +117,10 @@ export function ipRulesMiddleware(app: FastifyInstance): void {
     }
 
     const scope = getScopeFromPath(request.url);
+    // In development, skip IP whitelist for admin so local/dev usage works without configuring rules
+    if (scope === 'admin' && config.isDevelopment) {
+      return;
+    }
     const result = await matchRules({ scope, clientIp, countryCode });
 
     if (!result.allow) {

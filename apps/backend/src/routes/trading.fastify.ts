@@ -62,7 +62,7 @@ export default async function tradingRoutes(app: FastifyInstance) {
     604800: '1w',
     2592000: '1M',
   };
-  app.get<{ Params: { symbol: string }; Querystring: { interval?: string } }>('/candles/:symbol', async (request, reply) => {
+  app.get<{ Params: { symbol: string }; Querystring: { interval?: string; from?: string; to?: string; cursor?: string; limit?: string; direction?: string } }>('/candles/:symbol', async (request, reply) => {
     try {
       const symbol = (request.params.symbol ?? '').toUpperCase().replace(/-/g, '_').trim();
       if (!symbol) {
@@ -88,25 +88,47 @@ export default async function tradingRoutes(app: FastifyInstance) {
         return reply.send({ success: true, data: [] });
       }
       const tradingPairId = pair.rows[0]!.id;
-      const result = await db.query<{ time: number; open: string; high: string; low: string; close: string }>(`
+      const from = request.query.from ? parseInt(String(request.query.from), 10) : null;
+      const to = request.query.to ? parseInt(String(request.query.to), 10) : null;
+      const cursor = request.query.cursor ? parseInt(String(request.query.cursor), 10) : null;
+      const direction = (request.query.direction ?? 'asc').toString().toLowerCase() === 'desc' ? 'desc' : 'asc';
+      const limitRaw = request.query.limit ? parseInt(String(request.query.limit), 10) : 500;
+      const limit = Math.min(5000, Math.max(50, Number.isFinite(limitRaw) ? limitRaw : 500));
+
+      const where: string[] = ['trading_pair_id = $1', 'interval_type = $2'];
+      const params: Array<string | number> = [tradingPairId, intervalType];
+      if (from != null && Number.isFinite(from)) {
+        params.push(from);
+        where.push(`open_time >= to_timestamp($${params.length})`);
+      }
+      if (to != null && Number.isFinite(to)) {
+        params.push(to);
+        where.push(`open_time <= to_timestamp($${params.length})`);
+      }
+      if (cursor != null && Number.isFinite(cursor)) {
+        params.push(cursor);
+        where.push(direction === 'desc' ? `open_time < to_timestamp($${params.length})` : `open_time > to_timestamp($${params.length})`);
+      }
+
+      params.push(limit);
+      const result = await db.query<{ time: number; open: string; high: string; low: string; close: string; volume: string }>(`
         SELECT
           EXTRACT(EPOCH FROM open_time)::bigint AS time,
           open_price::text AS open,
           high_price::text AS high,
           low_price::text AS low,
-          close_price::text AS close
+          close_price::text AS close,
+          volume::text AS volume
         FROM ohlcv_candles
-        WHERE trading_pair_id = $1 AND interval_type = $2
-        ORDER BY open_time ASC
-        LIMIT 500
-      `, [tradingPairId, intervalType]);
-      return reply.send({ success: true, data: result.rows });
+        WHERE ${where.join(' AND ')}
+        ORDER BY open_time ${direction.toUpperCase()}
+        LIMIT $${params.length}
+      `, params);
+      const rows = direction === 'desc' ? result.rows.reverse() : result.rows;
+      return reply.send({ success: true, data: rows });
     } catch (error) {
       logger.error('Failed to fetch candles', { error });
-      return reply.status(500).send({
-        success: false,
-        error: { code: 'FETCH_FAILED', message: 'Failed to fetch candles' },
-      });
+      return reply.send({ success: true, data: [] });
     }
   });
 

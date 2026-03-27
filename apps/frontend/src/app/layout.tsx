@@ -24,6 +24,9 @@ export const metadata: Metadata = {
   title: 'CryptoExchange - Trade Crypto with Confidence',
   description: 'Secure and fast cryptocurrency exchange for spot trading and P2P transactions',
   keywords: ['crypto', 'exchange', 'bitcoin', 'ethereum', 'trading'],
+  icons: {
+    icon: '/icon.svg',
+  },
 };
 
 export default function RootLayout({

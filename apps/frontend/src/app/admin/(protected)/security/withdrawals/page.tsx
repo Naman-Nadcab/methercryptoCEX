@@ -15,6 +15,7 @@ import { DataTable } from '@/components/admin/security/DataTable';
 import { WithdrawalDetailDialog } from './withdrawal-detail-dialog';
 import { toast } from '@/components/ui/toaster';
 import { formatDateTime } from '@/lib/utils';
+import { canApproveWithdrawals } from '@/lib/admin/permissions';
 import {
   securityApi,
   type PendingWithdrawalItem,
@@ -46,6 +47,8 @@ export default function WithdrawalSecurityPage() {
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectWithdrawal, setRejectWithdrawal] = useState<PendingWithdrawalItem | null>(null);
   const [rejectReason, setRejectReason] = useState('');
+
+  const canApprove = canApproveWithdrawals();
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['admin', 'security', 'withdrawals', 'pending'],
@@ -186,7 +189,8 @@ export default function WithdrawalSecurityPage() {
                 setApproveOnOpen(true);
                 setDetailOpen(true);
               }}
-              title="Approve (opens detail)"
+              disabled={!canApprove}
+              title={canApprove ? 'Approve (opens detail)' : 'You do not have permission to approve withdrawals'}
             >
               <CheckCircle className="h-4 w-4" />
             </Button>
@@ -199,7 +203,8 @@ export default function WithdrawalSecurityPage() {
                 setRejectReason('');
                 setRejectDialogOpen(true);
               }}
-              title="Reject"
+              disabled={!canApprove}
+              title={canApprove ? 'Reject' : 'You do not have permission to reject withdrawals'}
             >
               <XCircle className="h-4 w-4" />
             </Button>
@@ -207,7 +212,7 @@ export default function WithdrawalSecurityPage() {
         ),
       },
     ],
-    []
+    [canApprove]
   );
 
   return (

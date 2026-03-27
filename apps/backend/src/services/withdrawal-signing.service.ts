@@ -17,8 +17,11 @@ import { ensureUserBalanceRow, assertUserBalanceUpdated, assertBalanceInvariant,
 import { insertBalanceLedger } from '../lib/balance-ledger.js';
 import { ROUND_DOWN, AMOUNT_PRECISION } from '../config/monetary-precision.js';
 import { getSignerForChain, getHotWalletByChainId, checkHotWalletCaps, resolveHotWalletChainId } from './hot-wallet.service.js';
+import { redis } from '../lib/redis.js';
 
 const ACTOR_SYSTEM = 'withdrawal-signing-processor';
+const WITHDRAWAL_SIGN_LOCK_TTL_MS = 30_000;
+const WITHDRAWAL_SIGN_LOCK_PREFIX = 'withdrawal:sign:';
 const RATE_LIMIT_MS_PER_CHAIN = 2000;
 const MAX_ATTEMPTS = 3;
 
@@ -143,6 +146,35 @@ export async function processSigningQueue(): Promise<void> {
   });
   if (!claimed) return;
 
+  const queueId = claimed.id;
+  const withdrawalId = claimed.withdrawal_id;
+
+  // Tier-1: distributed lock so multi-node workers never double-sign the same withdrawal
+  const lockKey = `${WITHDRAWAL_SIGN_LOCK_PREFIX}${withdrawalId}`;
+  const lockValue = await redis.acquireLock(lockKey, WITHDRAWAL_SIGN_LOCK_TTL_MS);
+  if (!lockValue) {
+    await db.query(
+      `UPDATE withdrawal_signing_queue SET status = 'pending', attempts = GREATEST(0, attempts - 1) WHERE id = $1`,
+      [queueId]
+    );
+    return;
+  }
+
+  try {
+    await processSigningQueueClaimed(claimed);
+  } finally {
+    await redis.releaseLock(lockKey, lockValue);
+  }
+}
+
+async function processSigningQueueClaimed(claimed: {
+  id: string;
+  withdrawal_id: string;
+  chain_id: string;
+  attempts: number;
+  status: string;
+  signed_tx_hex: string | null;
+}): Promise<void> {
   const queueId = claimed.id;
   const withdrawalId = claimed.withdrawal_id;
   const isRetryBroadcast = claimed.status === 'broadcast' && claimed.signed_tx_hex != null;

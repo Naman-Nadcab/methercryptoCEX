@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth';
 import { ChevronRight, Loader2, X, CheckSquare, Square } from 'lucide-react';
+import { SkeletonCard } from '@/components/ui/Skeleton';
+import { InfoTooltip } from '@/components/ui/InfoTooltip';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { toast } from '@/components/ui/toaster';
 
@@ -278,8 +280,9 @@ export default function WithdrawalLimitsPage() {
         </div>
 
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <SkeletonCard />
+            <SkeletonCard />
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -302,8 +305,8 @@ export default function WithdrawalLimitsPage() {
               {/* Daily Withdrawal Amount */}
               <div className="mb-6">
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm text-gray-500 dark:text-gray-400">
-                    Daily Withdrawal Amount
+                  <label className="text-sm text-gray-500 dark:text-gray-400 inline-flex items-center gap-1">
+                    Daily Withdrawal Amount <InfoTooltip content="Maximum amount you can withdraw in 24 hours. Higher limits may require additional verification." />
                   </label>
                   <span className="text-sm text-gray-500 dark:text-gray-400">
                     Used {formatNumber(limits.dailyUsed)}/{formatNumber(limits.maxDailyLimit)}
@@ -328,8 +331,8 @@ export default function WithdrawalLimitsPage() {
               {/* Monthly Withdrawal Amount */}
               <div className="mb-6">
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm text-gray-500 dark:text-gray-400">
-                    Monthly Withdrawal Amount
+                  <label className="text-sm text-gray-500 dark:text-gray-400 inline-flex items-center gap-1">
+                    Monthly Withdrawal Amount <InfoTooltip content="Maximum amount you can withdraw per calendar month. Resets at the start of each month." />
                   </label>
                   <span className="text-sm text-gray-500 dark:text-gray-400">
                     Used {formatNumber(limits.monthlyUsed)}/{formatNumber(limits.maxMonthlyLimit)}

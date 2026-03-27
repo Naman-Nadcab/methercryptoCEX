@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAdminAuthStore } from '@/store/admin-auth';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { getMessageFromApiError } from '@/lib/errorMessages';
-import { Loader2, Edit2, Pause, Play, X } from 'lucide-react';
+import { Loader2, Edit2, Pause, Play, X, RefreshCw } from 'lucide-react';
 
 type SpotMarket = {
   id: string;
@@ -151,9 +151,14 @@ export default function SpotMarketsAdminPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Spot Markets</h1>
-        <p className="text-gray-400 text-sm mt-1">Enable/disable markets, set min size, and maker/taker fees</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Spot Markets</h1>
+          <p className="text-gray-400 text-sm mt-1">Enable/disable markets, set min size, and maker/taker fees</p>
+        </div>
+        <button type="button" onClick={fetchMarkets} disabled={loading} className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground border border-border rounded-lg transition-colors disabled:opacity-50" title="Refresh">
+          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
+        </button>
       </div>
 
       {error && (

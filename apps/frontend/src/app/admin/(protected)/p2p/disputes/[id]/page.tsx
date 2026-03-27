@@ -108,6 +108,11 @@ export default function P2PDisputeDetailPage() {
       </Panel>
 
       <Panel>
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Evidence & chat</h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400">Evidence uploads and chat history are shown here when provided by the backend. Use resolve actions below to approve buyer, approve seller, or release escrow.</p>
+      </Panel>
+
+      <Panel>
         <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Escrow state</h3>
         <p className="text-sm text-gray-600 dark:text-gray-400">Escrow is held until dispute is resolved. Use actions below to release (favor buyer), refund (favor seller), or cancel.</p>
         <Link href={`/admin/p2p/escrows?order_id=${dispute.order_id}`} className="inline-flex items-center gap-1 mt-2 text-sm text-blue-600 dark:text-blue-400 hover:underline">

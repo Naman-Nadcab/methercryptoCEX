@@ -3,7 +3,7 @@
  * Run: cd apps/backend && npx tsx seed-admin.ts
  *
  * Creates (if missing):
- * - Super Admin: admin@example.com / admin123
+ * - Super Admin: test@gmail.com / test123
  * - Withdrawal Approver: approver@example.com / approver123
  */
 import dotenv from 'dotenv';
@@ -16,7 +16,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 const ADMINS = [
-  { email: 'admin@example.com', password: 'admin123', name: 'Super Admin', role: 'super_admin', permissions: ['all'] },
+  { email: 'test@gmail.com', password: 'test123', name: 'Super Admin', role: 'super_admin', permissions: ['all'] },
   { email: 'approver@example.com', password: 'approver123', name: 'Withdrawal Approver', role: 'withdrawal_approver', permissions: ['withdrawals:approve'] },
 ] as const;
 
@@ -35,7 +35,7 @@ async function main() {
       WHERE table_schema = 'public' AND table_name = 'admin_users'
     `);
     if (tableExists.rows.length === 0) {
-      console.error('Table admin_users does not exist. Run migrations first: npm run db:migrate');
+      console.error('Table admin_users does not exist. Run migrations first: npm run migrate');
       process.exit(1);
     }
 
@@ -73,7 +73,7 @@ async function main() {
     }
 
     console.log('\nLogin at: /admin/login');
-    console.log('  Super Admin: admin@example.com / admin123');
+    console.log('  Super Admin: test@gmail.com / test123');
     console.log('  Withdrawal Approver: approver@example.com / approver123');
   } catch (e) {
     console.error('Error:', e instanceof Error ? e.message : e);

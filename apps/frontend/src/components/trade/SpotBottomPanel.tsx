@@ -1,45 +1,180 @@
 'use client';
 
 import Link from 'next/link';
-import { Loader2, X, Wallet } from 'lucide-react';
+import { Loader2, X, RefreshCw, Trash2, Download } from 'lucide-react';
+import { ordersToCsv, tradesToCsv, downloadCsv } from '@/lib/exportCsv';
 import { useSpotBottomPanel } from './useSpotBottomPanel';
 import { useBalancesByAccount } from '@/lib/balances';
+import { useMemo, useState } from 'react';
 
 interface SpotBottomPanelProps {
   symbol: string;
   isAuth: boolean;
   ordersVersion?: number;
+  tradesVersion?: number;
 }
 
 function displayStatus(s: string): string {
   if (s === 'PENDING_TRIGGER') return 'Pending Trigger';
-  return s;
+  if (s === 'PARTIALLY_FILLED') return 'Partially Filled';
+  if (s === 'REJECTED') return 'Rejected';
+  if (s === 'CANCELLED') return 'Cancelled';
+  if (s === 'FILLED') return 'Filled';
+  return s || 'Unknown';
+}
+
+function displayOrderType(t: string | undefined): string {
+  if (!t) return '—';
+  const map: Record<string, string> = {
+    limit: 'Limit',
+    market: 'Market',
+    stop_loss: 'Stop',
+    stop_limit: 'Stop Limit',
+    trailing_stop_market: 'Trailing',
+    oco: 'OCO',
+  };
+  return map[t] ?? t;
 }
 
 export function SpotBottomPanel(props: SpotBottomPanelProps) {
-  const { symbol, isAuth, ordersVersion = 0 } = props;
-  const data = useSpotBottomPanel({ symbol, isAuth, ordersVersion });
+  const { symbol, isAuth, ordersVersion = 0, tradesVersion = 0 } = props;
+  const data = useSpotBottomPanel({ symbol, isAuth, ordersVersion, tradesVersion });
   const { data: balancesByAccount = [] } = useBalancesByAccount(isAuth);
-  const tradingBalances = balancesByAccount.filter((b) => parseFloat(b.trading ?? '0') > 0).slice(0, 12);
+  const allTradingBalances = useMemo(
+    () => balancesByAccount.filter((b) => parseFloat(b.trading ?? '0') > 0).slice(0, 24),
+    [balancesByAccount]
+  );
+  const [hideSmallBalances, setHideSmallBalances] = useState(false);
+  const [showAllMarkets, setShowAllMarkets] = useState(false);
+  const tradingBalances = useMemo(() => {
+    if (!hideSmallBalances) return allTradingBalances;
+    const min = 0.0001;
+    return allTradingBalances.filter((b) => parseFloat(b.trading ?? '0') >= min);
+  }, [allTradingBalances, hideSmallBalances]);
+  const [sortKey, setSortKey] = useState<string>('created_at');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const toggleSort = (key: string) => {
+    if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else {
+      setSortKey(key);
+      setSortDir('desc');
+    }
+  };
+
+  const compare = (av: unknown, bv: unknown, key: string, dir: number) => {
+    if (key.endsWith('_at')) {
+      const at = av ? new Date(String(av)).getTime() : 0;
+      const bt = bv ? new Date(String(bv)).getTime() : 0;
+      return (at - bt) * dir;
+    }
+    if (key === 'price' || key === 'quantity' || key === 'filled_quantity' || key === 'fee') {
+      return (Number(av ?? 0) - Number(bv ?? 0)) * dir;
+    }
+    return String(av ?? '').localeCompare(String(bv ?? '')) * dir;
+  };
+
+  const displayOpenOrders = useMemo(() => {
+    const list = showAllMarkets ? data.openOrders : (data.openOrdersForMarket ?? data.openOrders.filter((o) => o.market === symbol));
+    return list;
+  }, [data.openOrders, data.openOrdersForMarket, symbol, showAllMarkets]);
+
+  const sortedOpenOrders = useMemo(() => {
+    const list = [...displayOpenOrders];
+    const dir = sortDir === 'asc' ? 1 : -1;
+    list.sort((a, b) => {
+      const av = (a as any)[sortKey];
+      const bv = (b as any)[sortKey];
+      return compare(av, bv, sortKey, dir);
+    });
+    return list;
+  }, [displayOpenOrders, sortKey, sortDir]);
+
+  const sortedOrderHistory = useMemo(() => {
+    const list = [...data.orderHistory];
+    const dir = sortDir === 'asc' ? 1 : -1;
+    list.sort((a, b) => {
+      const av = (a as any)[sortKey];
+      const bv = (b as any)[sortKey];
+      return compare(av, bv, sortKey, dir);
+    });
+    return list;
+  }, [data.orderHistory, sortKey, sortDir]);
+
+  const sortedTrades = useMemo(() => {
+    const list = [...data.trades];
+    const dir = sortDir === 'asc' ? 1 : -1;
+    list.sort((a, b) => {
+      const av = (a as any)[sortKey];
+      const bv = (b as any)[sortKey];
+      return compare(av, bv, sortKey, dir);
+    });
+    return list;
+  }, [data.trades, sortKey, sortDir]);
+
+  const sortGlyph = (key: string) => {
+    if (sortKey !== key) return '';
+    return sortDir === 'asc' ? ' ↑' : ' ↓';
+  };
 
   if (!isAuth) {
     return (
-      <div className="h-[200px] flex-shrink-0 flex items-center justify-center border-t border-white/5 bg-[#0b0e11] text-gray-500 text-sm">
-        Sign in to view open orders, order history, and trade history
+      <div className="h-full min-h-0 flex flex-col items-center justify-center bg-card text-muted-foreground text-sm">
+        Sign in to view your trading activity.
       </div>
     );
   }
 
+  const openOrdersForMarket = symbol ? data.openOrders.filter((o) => o.market === symbol) : [];
+  const canCancelAll = symbol && openOrdersForMarket.length > 0 && !data.cancellingAll;
+
+  const tabBtn = (active: boolean) =>
+    `min-h-[40px] flex items-center px-3 py-2 text-[11px] font-semibold border-b-2 -mb-px transition-colors duration-150 touch-manipulation sm:px-4 ${
+      active
+        ? 'border-blue-600 text-blue-700 dark:border-blue-400 dark:text-blue-300'
+        : 'border-transparent text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
+    }`;
+
   return (
-    <div className="h-[280px] flex-shrink-0 flex flex-col border-t border-white/5 bg-[#0b0e11]">
-      <div className="flex border-b border-white/5 gap-px">
-        <button type="button" onClick={() => data.setTab('open')} className={`px-3 py-2 text-[11px] font-medium border-b-2 transition-colors ${data.tab === 'open' ? 'text-white border-white/60' : 'text-gray-500 border-transparent hover:text-gray-400'}`}>Open Orders</button>
-        <button type="button" onClick={() => data.setTab('orders')} className={`px-3 py-2 text-[11px] font-medium border-b-2 transition-colors ${data.tab === 'orders' ? 'text-white border-white/60' : 'text-gray-500 border-transparent hover:text-gray-400'}`}>Order History</button>
-        <button type="button" onClick={() => data.setTab('trades')} className={`px-3 py-2 text-[11px] font-medium border-b-2 transition-colors ${data.tab === 'trades' ? 'text-white border-white/60' : 'text-gray-500 border-transparent hover:text-gray-400'}`}>Trade History</button>
-        <button type="button" onClick={() => data.setTab('assets')} className={`px-3 py-2 text-[11px] font-medium border-b-2 transition-colors ${data.tab === 'assets' ? 'text-white border-white/60' : 'text-gray-500 border-transparent hover:text-gray-400'}`}>Assets</button>
+    <div className="flex h-full min-h-0 flex-col bg-white dark:bg-[#181a20]">
+      <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 border-b border-gray-200/90 bg-gray-50/90 px-1 dark:border-gray-800/90 dark:bg-gray-900/30">
+        <div className="flex flex-wrap items-center gap-0.5 sm:gap-1">
+          <button type="button" onClick={() => data.setTab('open')} className={tabBtn(data.tab === 'open')}>Open ({data.openOrders.length})</button>
+          <button type="button" onClick={() => data.setTab('orders')} className={tabBtn(data.tab === 'orders')}>History</button>
+          <button type="button" onClick={() => data.setTab('trades')} className={tabBtn(data.tab === 'trades')}>Trades</button>
+          <button type="button" onClick={() => data.setTab('assets')} className={tabBtn(data.tab === 'assets')}>Assets</button>
+        </div>
+        <div className="flex items-center gap-2 pr-2">
+          {data.tab === 'open' && (
+            <>
+              <button type="button" onClick={() => setShowAllMarkets((v) => !v)} className="min-h-[36px] px-3 py-1.5 text-[10px] text-muted-foreground hover:text-foreground border border-border rounded touch-manipulation" title={showAllMarkets ? 'Show current pair only' : 'Show all markets'}>
+                {showAllMarkets ? 'All' : 'Pair'}
+              </button>
+              {canCancelAll && (
+                <button type="button" onClick={() => data.handleCancelAll?.()} disabled={data.cancellingAll} className="min-h-[36px] px-3 py-1.5 text-[10px] text-destructive hover:bg-destructive/10 border border-destructive/30 rounded flex items-center gap-1 disabled:opacity-50 touch-manipulation" title="Cancel all open orders for this pair">
+                  {data.cancellingAll ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                  Cancel All
+                </button>
+              )}
+            </>
+          )}
+          {data.tab === 'orders' && data.orderHistory.length > 0 && (
+            <button type="button" onClick={() => { const csv = ordersToCsv(data.orderHistory); downloadCsv(`spot-orders-${new Date().toISOString().slice(0,10)}.csv`, csv); }} className="min-h-[36px] px-3 py-1.5 text-[10px] text-muted-foreground hover:text-foreground border border-border rounded flex items-center gap-1 touch-manipulation" title="Export Order History as CSV">
+              <Download className="w-3 h-3" /> Export
+            </button>
+          )}
+          {data.tab === 'trades' && data.trades.length > 0 && (
+            <button type="button" onClick={() => { const csv = tradesToCsv(data.trades); downloadCsv(`spot-trades-${new Date().toISOString().slice(0,10)}.csv`, csv); }} className="min-h-[36px] px-3 py-1.5 text-[10px] text-muted-foreground hover:text-foreground border border-border rounded flex items-center gap-1 touch-manipulation" title="Export Trade History as CSV">
+              <Download className="w-3 h-3" /> Export
+            </button>
+          )}
+          <button type="button" onClick={() => { data.tab === 'open' && data.fetchOpen?.(); data.tab === 'orders' && data.fetchOrderHistory?.(null, false); data.tab === 'trades' && data.fetchTrades?.(1, false); }} className="min-h-[36px] min-w-[36px] flex items-center justify-center text-muted-foreground hover:text-foreground rounded touch-manipulation" title="Refresh">
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
       {data.cancelError && (
-        <div className="px-3 py-1.5 flex items-center justify-between bg-red-500/10 text-red-400 text-xs">
+        <div className="px-3 py-1.5 flex items-center justify-between bg-destructive/10 text-destructive text-xs">
           <span>{data.cancelError}</span>
           <button type="button" onClick={() => data.setCancelError(null)} aria-label="Dismiss"><X className="w-3 h-3" /></button>
         </div>
@@ -47,40 +182,49 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
       <div className="flex-1 min-h-0 overflow-auto">
         {data.tab === 'open' && (
           data.openLoading ? (
-            <div className="p-4 flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-gray-500" /></div>
+            <div className="p-4 flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
           ) : data.openOrders.length === 0 ? (
-            <div className="p-4 text-center text-gray-500 text-xs">No open orders</div>
+            <div className="p-4 text-center text-muted-foreground text-xs">No open orders</div>
           ) : (
-            <table className="w-full text-[11px]">
-              <thead>
-                <tr className="text-left text-gray-500 border-b border-white/5">
-                  <th className="py-1.5 px-2 font-medium">Market</th>
-                  <th className="py-1.5 px-2 font-medium">Side</th>
-                  <th className="py-1.5 px-2 font-medium">Price</th>
-                  <th className="py-1.5 px-2 font-medium">Trigger</th>
-                  <th className="py-1.5 px-2 font-medium">Qty</th>
-                  <th className="py-1.5 px-2 font-medium">Status</th>
-                  <th className="py-1.5 px-2 font-medium w-14">Action</th>
+            <table className="w-full text-[11px] table-fixed">
+              <thead className="sticky top-0 z-10 bg-gray-50/95 backdrop-blur-sm dark:bg-[#1e2026]/95">
+                <tr className="border-b border-gray-200/90 text-left text-[11px] font-medium text-gray-500 dark:border-gray-800/90 dark:text-gray-500">
+                  <th className="py-2 px-2 font-medium cursor-pointer w-24" onClick={() => toggleSort('market')}>Market{sortGlyph('market')}</th>
+                  <th className="py-2 px-2 font-medium cursor-pointer w-16" onClick={() => toggleSort('type')}>Type{sortGlyph('type')}</th>
+                  <th className="py-2 px-2 font-medium cursor-pointer w-12" onClick={() => toggleSort('side')}>Side{sortGlyph('side')}</th>
+                  <th className="py-2 px-2 font-medium cursor-pointer w-20" onClick={() => toggleSort('price')}>Price{sortGlyph('price')}</th>
+                  <th className="py-2 px-2 font-medium cursor-pointer w-20" onClick={() => toggleSort('stop_price')}>Trigger{sortGlyph('stop_price')}</th>
+                  <th className="py-2 px-2 font-medium cursor-pointer w-24" onClick={() => toggleSort('quantity')}>Filled/Qty{sortGlyph('quantity')}</th>
+                  <th className="py-2 px-2 font-medium cursor-pointer" onClick={() => toggleSort('status')}>Status{sortGlyph('status')}</th>
+                  <th className="py-2 px-2 font-medium w-16">Action</th>
                 </tr>
               </thead>
               <tbody>
-                {data.openOrders.map((o) => {
+                {sortedOpenOrders.map((o) => {
                   const canCancel = ['OPEN', 'PARTIALLY_FILLED', 'PENDING_TRIGGER'].includes(o.status);
+                  const filled = parseFloat(o.filled_quantity ?? '0') || 0;
+                  const qty = parseFloat(o.quantity ?? '0') || 0;
+                  const filledQtyStr = filled > 0 && qty > 0 ? `${filled.toFixed(4)}/${qty.toFixed(4)}` : (o.quantity ?? '—');
+                  const isOco = o.type === 'oco' || !!(o as { oco_group_id?: string }).oco_group_id;
                   return (
-                    <tr key={o.id} className="border-b border-white/5 hover:bg-white/5">
-                      <td className="py-1 px-2 text-gray-300 tabular-nums">{o.market}</td>
-                      <td className="py-1 px-2"><span className={o.side === 'buy' ? 'text-green-400' : 'text-red-400'}>{o.side}</span></td>
-                      <td className="py-1 px-2 text-gray-400 tabular-nums">{o.price ?? '—'}</td>
-                      <td className="py-1 px-2 text-gray-400 tabular-nums">{o.stop_price ?? '—'}</td>
-                      <td className="py-1 px-2 text-gray-400 tabular-nums">{o.quantity}</td>
-                      <td className="py-1 px-2"><span className="text-blue-400">{displayStatus(o.status)}</span></td>
-                      <td className="py-1 px-2">
+                    <tr key={o.id} className="min-h-[36px] border-b border-gray-200/80 transition-colors duration-150 hover:bg-gray-50/80 dark:border-gray-800/80 dark:hover:bg-gray-900/40 sm:min-h-[30px]">
+                      <td className="py-1.5 px-2 align-middle font-mono text-[11px] tabular-nums text-gray-900 dark:text-white">{o.market}</td>
+                      <td className="py-1.5 px-2 align-middle">
+                        <span className="text-[10px] text-gray-500 dark:text-gray-500">{displayOrderType(o.type)}</span>
+                        {isOco && <span className="ml-1 rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-semibold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300" title="One-Cancels-Other">OCO</span>}
+                      </td>
+                      <td className="py-1.5 px-2 align-middle"><span className={o.side === 'buy' ? 'text-price-up' : 'text-price-down'}>{o.side}</span></td>
+                      <td className="py-1.5 px-2 align-middle font-mono text-[11px] tabular-nums text-gray-600 dark:text-gray-400">{o.price ?? '—'}</td>
+                      <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums text-[11px]">{o.stop_price ?? '—'}</td>
+                      <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums text-[11px]">{filledQtyStr}</td>
+                      <td className="py-1.5 px-2 align-middle"><span className="text-[11px] font-medium text-blue-600 dark:text-blue-400">{displayStatus(o.status)}</span></td>
+                      <td className="py-1.5 px-2 align-middle">
                         {canCancel && (
                           <button
                             type="button"
                             disabled={!!data.cancellingId}
                             onClick={() => data.handleCancel(o.id)}
-                            className="text-red-400 hover:underline disabled:opacity-50 text-[10px]"
+                            className="min-h-[32px] px-2 py-1 text-destructive hover:underline disabled:opacity-50 text-[10px] touch-manipulation rounded"
                           >
                             {data.cancellingId === o.id ? <Loader2 className="w-3 h-3 animate-spin inline" /> : 'Cancel'}
                           </button>
@@ -95,82 +239,119 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
         )}
         {data.tab === 'orders' && (
           data.orderHistoryLoading ? (
-            <div className="p-4 flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-gray-500" /></div>
+            <div className="p-4 flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
           ) : data.orderHistory.length === 0 ? (
-            <div className="p-4 text-center text-gray-500 text-xs">No order history</div>
+            <div className="p-4 text-center text-muted-foreground text-xs">No order history</div>
           ) : (
-            <table className="w-full text-[11px]">
-              <thead>
-                <tr className="text-left text-gray-500 border-b border-white/5">
-                  <th className="py-1.5 px-2 font-medium">Market</th>
-                  <th className="py-1.5 px-2 font-medium">Side</th>
-                  <th className="py-1.5 px-2 font-medium">Price</th>
-                  <th className="py-1.5 px-2 font-medium">Qty</th>
-                  <th className="py-1.5 px-2 font-medium">Status</th>
+            <table className="w-full text-[11px] table-fixed">
+              <thead className="sticky top-0 z-10 bg-card">
+                <tr className="text-left text-muted-foreground border-b border-border">
+                  <th className="py-2 px-2 font-medium cursor-pointer w-24" onClick={() => toggleSort('market')}>Market{sortGlyph('market')}</th>
+                  <th className="py-2 px-2 font-medium cursor-pointer w-16" onClick={() => toggleSort('type')}>Type{sortGlyph('type')}</th>
+                  <th className="py-2 px-2 font-medium cursor-pointer w-12" onClick={() => toggleSort('side')}>Side{sortGlyph('side')}</th>
+                  <th className="py-2 px-2 font-medium cursor-pointer w-20" onClick={() => toggleSort('price')}>Price{sortGlyph('price')}</th>
+                  <th className="py-2 px-2 font-medium cursor-pointer w-20" onClick={() => toggleSort('stop_price')}>Trigger{sortGlyph('stop_price')}</th>
+                  <th className="py-2 px-2 font-medium cursor-pointer w-24" onClick={() => toggleSort('quantity')}>Filled/Qty{sortGlyph('quantity')}</th>
+                  <th className="py-2 px-2 font-medium cursor-pointer" onClick={() => toggleSort('status')}>Status{sortGlyph('status')}</th>
                 </tr>
               </thead>
               <tbody>
-                {data.orderHistory.map((o) => (
-                  <tr key={o.id} className="border-b border-white/5 hover:bg-white/5">
-                    <td className="py-1 px-2 text-gray-300 tabular-nums">{o.market}</td>
-                    <td className="py-1 px-2"><span className={o.side === 'buy' ? 'text-green-400' : 'text-red-400'}>{o.side}</span></td>
-                    <td className="py-1 px-2 text-gray-400 tabular-nums">{o.price ?? '—'}</td>
-                    <td className="py-1 px-2 text-gray-400 tabular-nums">{o.quantity}</td>
-                    <td className="py-1 px-2 text-gray-400">{displayStatus(o.status)}</td>
-                  </tr>
-                ))}
+                {sortedOrderHistory.map((o) => {
+                  const filled = parseFloat(o.filled_quantity ?? '0') || 0;
+                  const qty = parseFloat(o.quantity ?? '0') || 0;
+                  const filledQtyStr = filled > 0 || o.status === 'FILLED' ? `${filled.toFixed(4)}/${qty.toFixed(4)}` : (o.quantity ?? '—');
+                  return (
+                    <tr key={o.id} className="border-b border-border hover:bg-muted/50 min-h-[36px] sm:min-h-[30px] transition-colors duration-150">
+                      <td className="py-1.5 px-2 align-middle text-foreground font-mono tabular-nums">{o.market}</td>
+                      <td className="py-1.5 px-2 align-middle text-muted-foreground text-[10px]">{displayOrderType(o.type)}</td>
+                      <td className="py-1.5 px-2 align-middle"><span className={o.side === 'buy' ? 'text-price-up' : 'text-price-down'}>{o.side}</span></td>
+                      <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums">{o.price ?? '—'}</td>
+                      <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums">{o.stop_price ?? '—'}</td>
+                      <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums">{filledQtyStr}</td>
+                      <td className="py-1.5 px-2 align-middle text-muted-foreground text-[11px]">{displayStatus(o.status)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )
         )}
         {data.tab === 'assets' && (
           <div className="p-2">
+            <label className="flex items-center gap-2 mb-2 text-[11px] text-muted-foreground cursor-pointer">
+              <input
+                type="checkbox"
+                checked={hideSmallBalances}
+                onChange={(e) => setHideSmallBalances(e.target.checked)}
+                className="rounded border-border"
+              />
+              Hide small balances
+            </label>
             {tradingBalances.length === 0 ? (
-              <div className="p-4 text-center text-gray-500 text-xs">No trading balance</div>
+              <div className="p-4 text-center text-muted-foreground text-xs">No trading balance</div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
                 {tradingBalances.map((b) => (
-                  <Link key={b.symbol} href={`/dashboard/assets/${b.symbol}`} className="flex justify-between items-center px-2 py-1.5 rounded hover:bg-white/5 text-[11px]">
-                    <span className="text-gray-300">{b.symbol}</span>
-                    <span className="tabular-nums text-gray-400">{parseFloat(b.trading ?? '0').toFixed(4)}</span>
+                  <Link key={b.symbol} href={`/dashboard/assets/${b.symbol}`} className="flex justify-between items-center px-2 py-1.5 rounded hover:bg-muted text-[11px]">
+                    <span className="text-foreground">{b.symbol}</span>
+                    <span className="tabular-nums text-muted-foreground">{parseFloat(b.trading ?? '0').toFixed(4)}</span>
                   </Link>
                 ))}
               </div>
             )}
-            <Link href="/dashboard/assets/overview" className="block mt-2 text-center text-[11px] text-blue-400 hover:text-blue-300">
+            <Link href="/dashboard/assets/overview" className="mt-2 block text-center text-[11px] font-medium text-blue-600 hover:underline dark:text-blue-400">
               View all assets →
             </Link>
           </div>
         )}
         {data.tab === 'trades' && (
           data.tradesLoading ? (
-            <div className="p-4 flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-gray-500" /></div>
+            <div className="p-4 flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
           ) : data.trades.length === 0 ? (
-            <div className="p-4 flex flex-col items-center justify-center gap-1 text-gray-500 text-xs">
+            <div className="p-4 flex flex-col items-center justify-center gap-1 text-muted-foreground text-xs">
               <p>No trades yet</p>
-              <p className="text-[10px] text-gray-600">Your trade history will appear here</p>
+              <p className="text-[10px]">Your trade history will appear here</p>
             </div>
           ) : (
-            <table className="w-full text-[11px]">
-              <thead>
-                <tr className="text-left text-gray-500 border-b border-white/5">
-                  <th className="py-1.5 px-2 font-medium">Market</th>
-                  <th className="py-1.5 px-2 font-medium">Side</th>
-                  <th className="py-1.5 px-2 font-medium">Price</th>
-                  <th className="py-1.5 px-2 font-medium">Qty</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.trades.map((t) => (
-                  <tr key={t.id} className="border-b border-white/5 hover:bg-white/5">
-                    <td className="py-1 px-2 text-gray-300 tabular-nums">{t.market}</td>
-                    <td className="py-1 px-2"><span className={t.side === 'buy' ? 'text-green-400' : 'text-red-400'}>{t.side}</span></td>
-                    <td className="py-1 px-2 text-gray-400 tabular-nums">{t.price}</td>
-                    <td className="py-1 px-2 text-gray-400 tabular-nums">{t.quantity}</td>
+            <>
+              <table className="w-full text-[11px] table-fixed">
+                <thead className="sticky top-0 z-10 bg-card">
+                  <tr className="text-left text-muted-foreground border-b border-border">
+                    <th className="py-2 px-2 font-medium cursor-pointer w-24" onClick={() => toggleSort('market')}>Market{sortGlyph('market')}</th>
+                    <th className="py-2 px-2 font-medium cursor-pointer w-12" onClick={() => toggleSort('side')}>Side{sortGlyph('side')}</th>
+                    <th className="py-2 px-2 font-medium cursor-pointer w-20" onClick={() => toggleSort('price')}>Price{sortGlyph('price')}</th>
+                    <th className="py-2 px-2 font-medium cursor-pointer w-20" onClick={() => toggleSort('quantity')}>Qty{sortGlyph('quantity')}</th>
+                    <th className="py-2 px-2 font-medium cursor-pointer w-16" onClick={() => toggleSort('fee')}>Fee{sortGlyph('fee')}</th>
+                    <th className="py-2 px-2 font-medium cursor-pointer" onClick={() => toggleSort('created_at')}>Time{sortGlyph('created_at')}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {sortedTrades.map((t) => (
+                    <tr key={t.id} className="border-b border-border hover:bg-muted/50 min-h-[36px] sm:min-h-[30px] transition-colors duration-150">
+                      <td className="py-1.5 px-2 align-middle text-foreground font-mono tabular-nums">{t.market}</td>
+                      <td className="py-1.5 px-2 align-middle"><span className={t.side === 'buy' ? 'text-price-up' : 'text-price-down'}>{t.side}</span></td>
+                      <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums">{t.price}</td>
+                      <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums">{t.quantity}</td>
+                      <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums text-[10px]">{t.fee ?? '—'}{t.fee_asset ? ` ${t.fee_asset}` : ''}</td>
+                      <td className="py-1.5 px-2 align-middle text-muted-foreground text-[10px]">{t.created_at ? new Date(t.created_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {data.tradesPage < data.tradesTotalPages && (
+                <div className="p-2 border-t border-border">
+                  <button
+                    type="button"
+                    disabled={!!data.tradesLoadMore}
+                    onClick={data.loadMoreTrades}
+                    className="w-full py-2 text-xs text-muted-foreground hover:text-foreground hover:bg-muted rounded disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {data.tradesLoadMore ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                    Load more
+                  </button>
+                </div>
+              )}
+            </>
           )
         )}
       </div>

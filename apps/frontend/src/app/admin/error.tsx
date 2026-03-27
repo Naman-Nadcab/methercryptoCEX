@@ -17,34 +17,34 @@ export default function AdminError({
   }, [error]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-950 px-4">
-      <div className="max-w-md w-full text-center">
-        <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-red-500/20 mb-6">
-          <AlertCircle className="w-8 h-8 text-red-400" />
+    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <div className="admin-card rounded-xl border border-border shadow-sm max-w-md w-full p-6 text-center">
+        <div className="inline-flex items-center justify-center w-14 h-14 rounded-xl bg-destructive/10 text-destructive mb-5">
+          <AlertCircle className="w-7 h-7" />
         </div>
-        <h1 className="text-xl font-semibold text-white mb-2">Something went wrong</h1>
-        <p className="text-gray-400 text-sm mb-6">
-          The admin panel hit an error. This can happen if the backend is not running or there is a connection issue.
+        <h1 className="text-lg font-semibold text-foreground mb-2">Something went wrong</h1>
+        <p className="text-muted-foreground text-sm mb-5">
+          The admin panel encountered an error. This can happen if the backend is unavailable or there is a connection issue.
         </p>
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <button
             onClick={reset}
-            className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
           >
             <RefreshCw className="w-4 h-4" />
             Try again
           </button>
           <Link
             href="/admin/login"
-            className="inline-flex items-center justify-center px-4 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm font-medium transition-colors"
+            className="inline-flex items-center justify-center px-4 py-2.5 border border-border rounded-lg text-sm font-medium text-foreground bg-muted/50 hover:bg-muted transition-colors"
           >
             Go to login
           </Link>
         </div>
-        <div className="mt-6 text-left text-xs text-gray-500 bg-gray-900/50 rounded-lg p-3 space-y-1">
-          <p>1. Start the backend: <code className="bg-gray-800 px-1 rounded">cd apps/backend &amp;&amp; npm run dev</code></p>
-          <p>2. It should listen at <code className="bg-gray-800 px-1 rounded">{getApiBaseUrl()}</code></p>
-          <p>3. Click Try again or go to login and sign in again.</p>
+        <div className="mt-5 text-left text-xs text-muted-foreground bg-muted/30 rounded-lg p-3 space-y-1">
+          <p>1. Ensure backend is running: <code className="bg-muted px-1 rounded">cd apps/backend &amp;&amp; npm run dev</code></p>
+          <p>2. API base: <code className="bg-muted px-1 rounded">{getApiBaseUrl()}</code></p>
+          <p>3. Click Try again or sign in again from login.</p>
         </div>
       </div>
     </div>

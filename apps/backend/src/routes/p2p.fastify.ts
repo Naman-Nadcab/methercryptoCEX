@@ -1,4 +1,7 @@
 import crypto from 'node:crypto';
+import path from 'node:path';
+import fs from 'node:fs';
+import { pipeline } from 'node:stream/promises';
 import { FastifyInstance } from 'fastify';
 import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
@@ -6,6 +9,8 @@ import { logger } from '../lib/logger.js';
 import { p2pService } from '../services/p2p.service.js';
 import { evaluateP2PRisk } from '../services/abuse-resilience.service.js';
 import { recordAndEvaluate } from '../services/aml-transaction-monitor.service.js';
+import { assertKycAllowed, KycRequiredError, KycPendingError } from '../services/kyc-enforcement.service.js';
+import { checkSanctions } from '../services/sanctions-screening.service.js';
 import { getCurrencyIdBySymbol, getTokenIdsByCurrencyId } from '../lib/currency-resolver.js';
 import { rateLimitByUser } from '../lib/rate-limit-fastify.js';
 import { P2PAdType, P2PPriceType } from '../types/index.js';
@@ -41,8 +46,9 @@ function buildP2PReleaseRequestHash(orderId: string): string {
   return crypto.createHash('sha256').update(String(orderId).trim()).digest('hex');
 }
 
-function buildP2PConfirmRequestHash(orderId: string): string {
-  return crypto.createHash('sha256').update(String(orderId).trim()).digest('hex');
+function buildP2PConfirmRequestHash(orderId: string, proofUrl?: string): string {
+  const payload = `${orderId}|${proofUrl ?? ''}`;
+  return crypto.createHash('sha256').update(payload).digest('hex');
 }
 
 function buildP2PCancelRequestHash(orderId: string, reason: string): string {
@@ -138,7 +144,8 @@ export default async function p2pRoutes(app: FastifyInstance) {
           u.avatar_url,
           pms.total_orders as merchant_total_orders,
           pms.completion_rate as merchant_completion_rate,
-          pms.average_rating as merchant_rating
+          pms.average_rating as merchant_rating,
+          pms.avg_release_time as merchant_avg_release_time_minutes
         FROM p2p_ads pa
         JOIN currencies c ON pa.crypto_currency_id = c.id
         JOIN users u ON pa.user_id = u.id
@@ -176,10 +183,20 @@ export default async function p2pRoutes(app: FastifyInstance) {
       params.push(limit, offset);
 
       const result = await db.query(query, params);
+      const VERIFIED_MIN_COMPLETION = 98;
+      const VERIFIED_MIN_ORDERS = 30;
+      const VERIFIED_MIN_RATING = 4;
+      const rows = result.rows.map((r: Record<string, unknown>) => {
+        const total = parseFloat(String(r.merchant_total_orders ?? 0)) || 0;
+        const completion = parseFloat(String(r.merchant_completion_rate ?? 0)) || 0;
+        const rating = parseFloat(String(r.merchant_rating ?? 0)) || 0;
+        const verified_merchant = total >= VERIFIED_MIN_ORDERS && completion >= VERIFIED_MIN_COMPLETION && rating >= VERIFIED_MIN_RATING;
+        return { ...r, verified_merchant };
+      });
 
       return reply.send({
         success: true,
-        data: result.rows,
+        data: rows,
       });
     } catch (error) {
       logger.error('Failed to fetch P2P ads', { error });
@@ -318,6 +335,7 @@ export default async function p2pRoutes(app: FastifyInstance) {
       available_amount?: string;
       payment_method_ids?: string[];
       payment_time_limit?: number;
+      auto_release?: boolean;
     };
   }>('/ads', {
     preHandler: [app.authenticate],
@@ -333,6 +351,7 @@ export default async function p2pRoutes(app: FastifyInstance) {
     const availableAmount = body.available_amount != null ? String(body.available_amount).trim() : '';
     const paymentMethodIds = Array.isArray(body.payment_method_ids) ? body.payment_method_ids : [];
     const paymentTimeLimit = typeof body.payment_time_limit === 'number' ? body.payment_time_limit : 15;
+    const autoRelease = body.auto_release === true;
 
     if (type !== 'buy' && type !== 'sell') {
       return reply.status(400).send({
@@ -406,6 +425,35 @@ export default async function p2pRoutes(app: FastifyInstance) {
       });
     }
 
+    // Tier-1: KYC required for P2P selling — only approved users can create sell ads
+    if (type === 'sell') {
+      try {
+        await assertKycAllowed({ userId, action: 'p2p_sell' });
+      } catch (err) {
+        if (err instanceof KycPendingError) {
+          return reply.status(403).send({
+            success: false,
+            error: { code: 'KYC_PENDING', message: 'KYC approval is required for selling crypto. Your application is under review.' },
+          });
+        }
+        return reply.status(403).send({
+          success: false,
+          error: { code: 'KYC_REQUIRED', message: 'KYC verification is required for selling crypto. Please complete identity verification.' },
+        });
+      }
+      const sellerSanctions = await checkSanctions({
+        userId,
+        amount: availableAmount || maxAmount,
+        asset: currency,
+      });
+      if (!sellerSanctions.allowed) {
+        return reply.status(403).send({
+          success: false,
+          error: { code: 'SANCTIONS_BLOCKED', message: sellerSanctions.reason ?? 'Cannot create sell ad due to compliance check.' },
+        });
+      }
+    }
+
     const cryptoCurrencyId = await getCurrencyIdBySymbol(currency);
     if (!cryptoCurrencyId) {
       return reply.status(400).send({
@@ -436,6 +484,7 @@ export default async function p2pRoutes(app: FastifyInstance) {
         totalAmount: String(availNum),
         paymentMethodIds: validPmIds,
         paymentTimeLimit,
+        autoRelease,
       });
       return reply.status(201).send({
         success: true,
@@ -739,9 +788,21 @@ export default async function p2pRoutes(app: FastifyInstance) {
         SELECT * FROM p2p_merchant_stats WHERE user_id = $1
       `, [userId]);
 
+      const row = result.rows[0] as Record<string, unknown> | undefined;
+      if (!row) {
+        return reply.send({ success: true, data: null });
+      }
+      const total = parseInt(String(row.total_orders ?? 0), 10) || 0;
+      const completion = parseFloat(String(row.completion_rate ?? 0)) || 0;
+      const rating = parseFloat(String(row.average_rating ?? 0)) || 0;
+      const VERIFIED_MIN_ORDERS = 30;
+      const VERIFIED_MIN_COMPLETION = 98;
+      const VERIFIED_MIN_RATING = 4;
+      const verified_merchant = total >= VERIFIED_MIN_ORDERS && completion >= VERIFIED_MIN_COMPLETION && rating >= VERIFIED_MIN_RATING;
+
       return reply.send({
         success: true,
-        data: result.rows[0] || null,
+        data: { ...row, verified_merchant },
       });
     } catch (error) {
       return reply.status(500).send({
@@ -1058,6 +1119,36 @@ export default async function p2pRoutes(app: FastifyInstance) {
       });
     }
 
+    // Tier-1: Sanctions check for both buyer and seller before creating P2P order
+    const adParty = await db.query<{ user_id: string; type: string }>(
+      'SELECT user_id, type FROM p2p_ads WHERE id = $1',
+      [body.adId]
+    );
+    if (adParty.rows.length === 0) {
+      return reply.status(404).send({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Ad not found' },
+      });
+    }
+    const adOwnerId = adParty.rows[0]!.user_id;
+    const adType = adParty.rows[0]!.type;
+    const buyerId = adType === 'sell' ? userId : adOwnerId;
+    const sellerId = adType === 'sell' ? adOwnerId : userId;
+    const buyerCheck = await checkSanctions({ userId: buyerId, amount: body.quantity, asset: 'P2P' });
+    const sellerCheck = await checkSanctions({ userId: sellerId, amount: body.quantity, asset: 'P2P' });
+    if (!buyerCheck.allowed) {
+      return reply.status(403).send({
+        success: false,
+        error: { code: 'SANCTIONS_BLOCKED', message: buyerCheck.reason ?? 'Cannot create order: compliance check failed for buyer.' },
+      });
+    }
+    if (!sellerCheck.allowed) {
+      return reply.status(403).send({
+        success: false,
+        error: { code: 'SANCTIONS_BLOCKED', message: sellerCheck.reason ?? 'Cannot create order: compliance check failed for seller.' },
+      });
+    }
+
     const ip = (request as { ip?: string }).ip ?? request.headers['x-forwarded-for'] ?? null;
     const ipStr = Array.isArray(ip) ? ip[0] : String(ip ?? '');
     const cfCountry = request.headers['cf-ipcountry'];
@@ -1101,10 +1192,59 @@ export default async function p2pRoutes(app: FastifyInstance) {
   });
 
   /**
-   * POST /p2p/orders/:orderId/confirm-payment
-   * Buyer confirms payment sent. Requires Idempotency-Key. Cooldown per order.
+   * POST /p2p/orders/:orderId/upload-payment-proof
+   * Buyer uploads payment receipt/screenshot. Returns URL to pass to confirm-payment. Max 5MB, PNG/JPEG.
    */
-  app.post<{ Params: { orderId: string } }>('/orders/:orderId/confirm-payment', {
+  app.post<{ Params: { orderId: string } }>('/orders/:orderId/upload-payment-proof', {
+    preHandler: [app.authenticate, rateLimitByUser('p2p:upload-proof', 10, 60)],
+  }, async (request, reply) => {
+    const userId = request.user!.id;
+    const orderId = request.params.orderId;
+    if (!orderId || !UUID_REGEX.test(orderId)) {
+      return reply.status(400).send({ success: false, error: { code: 'INVALID_ORDER', message: 'Invalid order ID' } });
+    }
+    const orderCheck = await db.query<{ buyer_id: string; status: string }>(
+      `SELECT buyer_id, status FROM p2p_orders WHERE id = $1`,
+      [orderId]
+    );
+    if (orderCheck.rows.length === 0) {
+      return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Order not found' } });
+    }
+    const row = orderCheck.rows[0]!;
+    if (row.buyer_id !== userId) {
+      return reply.status(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Only buyer can upload payment proof' } });
+    }
+    if (row.status !== 'payment_pending') {
+      return reply.status(400).send({ success: false, error: { code: 'INVALID_STATUS', message: 'Order must be in payment_pending to upload proof' } });
+    }
+    const data = await request.file();
+    if (!data) {
+      return reply.status(400).send({ success: false, error: { code: 'NO_FILE', message: 'No file uploaded' } });
+    }
+    const allowed = ['image/png', 'image/jpeg', 'image/jpg'];
+    if (!allowed.includes(data.mimetype)) {
+      return reply.status(400).send({ success: false, error: { code: 'INVALID_TYPE', message: 'Only PNG/JPEG allowed' } });
+    }
+    const ext = data.mimetype === 'image/png' ? '.png' : '.jpg';
+    const filename = `${orderId}-${crypto.randomUUID().slice(0, 8)}${ext}`;
+    const uploadDir = path.resolve(process.cwd(), '../frontend/public/assets/upload/p2p-proofs');
+    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+    const filepath = path.join(uploadDir, filename);
+    try {
+      await pipeline(data.file, fs.createWriteStream(filepath));
+    } catch (e) {
+      logger.warn('P2P proof upload failed', { orderId });
+      return reply.status(500).send({ success: false, error: { code: 'UPLOAD_FAILED', message: 'Failed to save file' } });
+    }
+    const proofUrl = `/assets/upload/p2p-proofs/${filename}`;
+    return reply.send({ success: true, data: { proof_url: proofUrl } });
+  });
+
+  /**
+   * POST /p2p/orders/:orderId/confirm-payment
+   * Buyer confirms payment sent. Optional body: { proof_url: string }. Requires Idempotency-Key. Cooldown per order.
+   */
+  app.post<{ Params: { orderId: string }; Body: { proof_url?: string } }>('/orders/:orderId/confirm-payment', {
     preHandler: [app.authenticate, rateLimitByUser('p2p:confirm-payment', 60, 60)],
   }, async (request, reply) => {
     const userId = request.user!.id;
@@ -1129,7 +1269,8 @@ export default async function p2pRoutes(app: FastifyInstance) {
         error: { code: 'IDEMPOTENCY_KEY_INVALID', message: 'Idempotency-Key must be at most 256 characters.' },
       });
     }
-    const requestHash = buildP2PConfirmRequestHash(orderId);
+    const proofUrl = typeof request.body?.proof_url === 'string' ? request.body.proof_url.trim().slice(0, 2048) : undefined;
+    const requestHash = buildP2PConfirmRequestHash(orderId, proofUrl);
     const redisKey = `p2p:confirm:idempotency:${userId}:${idempotencyKey}`;
     const cached = await redis.getJson<P2PConfirmIdempotencyCache>(redisKey);
     if (cached) {
@@ -1164,8 +1305,28 @@ export default async function p2pRoutes(app: FastifyInstance) {
     }
     const requestIp = getRequestIp(request);
     try {
-      const order = await p2pService.confirmPayment(orderId, userId, requestIp);
-      const response = { success: true as const, data: order as unknown as Record<string, unknown> };
+      const order = await p2pService.confirmPayment(orderId, userId, requestIp, proofUrl);
+      // Auto-release: if ad has auto_release, release crypto immediately (seller pre-agreed)
+      let finalOrder = order;
+      const adId = (order as { adId?: string }).adId ?? (order as { ad_id?: string }).ad_id;
+      if (adId) {
+        const adRow = await db.query<{ auto_release?: boolean }>(
+          'SELECT auto_release FROM p2p_ads WHERE id = $1',
+          [adId]
+        );
+        const ad = adRow.rows[0];
+        if (ad?.auto_release === true) {
+          const sellerId = (order as { sellerId?: string }).sellerId ?? (order as { seller_id?: string }).seller_id;
+          if (sellerId) {
+            try {
+              finalOrder = await p2pService.releaseCrypto(orderId, sellerId, requestIp);
+            } catch (e) {
+              logger.warn('P2P auto-release failed (best-effort)', { orderId, error: e instanceof Error ? e.message : String(e) });
+            }
+          }
+        }
+      }
+      const response = { success: true as const, data: finalOrder as unknown as Record<string, unknown> };
       try {
         await redis.setJson(redisKey, { requestHash, response }, P2P_CONFIRM_IDEMPOTENCY_TTL_SECONDS);
       } catch {
@@ -1241,6 +1402,48 @@ export default async function p2pRoutes(app: FastifyInstance) {
           code: 'DUPLICATE_REQUEST',
           message: 'A release with this Idempotency-Key is already in progress. Retry after a few seconds.',
         },
+      });
+    }
+
+    // Tier-1: KYC required for P2P seller (releaser); sanctions check for both parties before escrow release
+    try {
+      await assertKycAllowed({ userId, action: 'p2p_sell' });
+    } catch (err) {
+      if (err instanceof KycPendingError) {
+        return reply.status(403).send({
+          success: false,
+          error: { code: 'KYC_PENDING', message: 'KYC approval is required for releasing crypto. Your application is under review.' },
+        });
+      }
+      return reply.status(403).send({
+        success: false,
+        error: { code: 'KYC_REQUIRED', message: 'KYC verification is required for selling crypto. Please complete identity verification.' },
+      });
+    }
+    const orderRow = await db.query<{ buyer_id: string; seller_id: string; quantity: string }>(
+      'SELECT buyer_id, seller_id, quantity FROM p2p_orders WHERE id = $1',
+      [orderId]
+    );
+    if (orderRow.rows.length === 0) {
+      return reply.status(404).send({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Order not found' },
+      });
+    }
+    const ord = orderRow.rows[0]!;
+    if (ord.seller_id !== userId) {
+      return reply.status(403).send({
+        success: false,
+        error: { code: 'FORBIDDEN', message: 'Only seller can release crypto' },
+      });
+    }
+    const buyerSanctions = await checkSanctions({ userId: ord.buyer_id, amount: ord.quantity, asset: 'P2P' });
+    const sellerSanctions = await checkSanctions({ userId: ord.seller_id, amount: ord.quantity, asset: 'P2P' });
+    if (!buyerSanctions.allowed || !sellerSanctions.allowed) {
+      const reason = !buyerSanctions.allowed ? buyerSanctions.reason : sellerSanctions.reason;
+      return reply.status(403).send({
+        success: false,
+        error: { code: 'SANCTIONS_BLOCKED', message: reason ?? 'Cannot release: compliance check failed.' },
       });
     }
 

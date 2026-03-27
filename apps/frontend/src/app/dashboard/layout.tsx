@@ -104,6 +104,13 @@ const navItems = [
   { label: 'History', href: '/dashboard/assets/history' },
 ];
 
+function isNavItemActive(pathname: string | null, href: string): boolean {
+  if (!pathname) return false;
+  if (pathname === href) return true;
+  if (href === '/dashboard') return false;
+  return pathname.startsWith(`${href}/`);
+}
+
 export default function DashboardLayout({
   children,
 }: {
@@ -124,7 +131,8 @@ export default function DashboardLayout({
   const [notifications, setNotifications] = useState<{ id: string; title: string; message: string; is_read: boolean; created_at: string; notification_type: string }[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [uidCopied, setUidCopied] = useState(false);
-  const [kycVerified, setKycVerified] = useState(true); // Default true to hide banner initially
+  const [kycVerified, setKycVerified] = useState(true); // Default true to hide until we know
+  const [kycLoading, setKycLoading] = useState(true);
   const [showKycBanner, setShowKycBanner] = useState(true);
 
   const { data: balanceSummary } = useBalancesSummary(!!_hasHydrated && !!accessToken);
@@ -135,14 +143,16 @@ export default function DashboardLayout({
 
   // Fetch KYC status
   useEffect(() => {
-    if (!_hasHydrated || !accessToken) return;
+    if (!_hasHydrated || !accessToken) {
+      setKycLoading(false);
+      return;
+    }
     const checkKycStatus = async () => {
-      
+      setKycLoading(true);
       try {
         const res = await fetch(`${getApiBaseUrl()}/api/v1/wallet/kyc-status`, {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
-        
         if (res.ok) {
           const data = await res.json();
           if (data.success) {
@@ -151,6 +161,9 @@ export default function DashboardLayout({
         }
       } catch (error) {
         console.error('Failed to fetch KYC status:', error);
+        // On error, keep kycVerified true so we don't show banner unnecessarily
+      } finally {
+        setKycLoading(false);
       }
     };
     checkKycStatus();
@@ -190,7 +203,19 @@ export default function DashboardLayout({
     } catch (_) {}
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    const token = useAuthStore.getState().accessToken;
+    const apiUrl = getApiBaseUrl();
+    if (token && apiUrl !== undefined) {
+      try {
+        await fetch(`${apiUrl}/api/v1/auth/logout`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch (_) {
+        // Best effort; clear local state regardless
+      }
+    }
     setUnauthenticated();
     router.replace('/login');
   };
@@ -242,11 +267,20 @@ export default function DashboardLayout({
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
+  const isExchangeFullScreen = pathname === '/dashboard/spot' || pathname?.startsWith('/dashboard/p2p/') || pathname === '/dashboard/p2p';
+
   return (
     <RequireAuth>
       <ThemeProvider>
         <SessionManager redirectPath="/login" />
         <div className="min-h-screen bg-gray-50 dark:bg-[#0b0e11]">
+      {/* Exchange (Spot/P2P) full-screen: no dashboard header/sidebar; page renders its own ExchangeHeader */}
+      {isExchangeFullScreen ? (
+        <main id="main-content" tabIndex={-1} className="w-full h-screen overflow-hidden flex flex-col">
+          {children}
+        </main>
+      ) : (
+        <>
       {/* Skip to main content - visible on focus for accessibility */}
       <a
         href="#main-content"
@@ -255,9 +289,9 @@ export default function DashboardLayout({
         Skip to main content
       </a>
       {/* Top Header */}
-      <header className="bg-white dark:bg-[#181a20] border-b border-gray-200 dark:border-gray-800 sticky top-0 z-50">
+      <header className="sticky top-0 z-50 border-b border-gray-200/80 dark:border-gray-800/80 bg-white/95 dark:bg-[#181a20]/95 backdrop-blur-md supports-[backdrop-filter]:bg-white/80 dark:supports-[backdrop-filter]:bg-[#181a20]/80">
         {/* Main Nav */}
-        <div className="flex items-center justify-between px-3 h-12">
+        <div className="flex items-center justify-between px-3 sm:px-4 h-14">
           {/* Left: Logo + Nav */}
           <div className="flex items-center gap-3">
             {/* Mobile Menu Toggle */}
@@ -280,16 +314,23 @@ export default function DashboardLayout({
             </Link>
 
             {/* Desktop Nav */}
-            <nav className="hidden lg:flex items-center">
-              {navItems.map((item) => (
-                <Link
-                  key={item.label}
-                  href={item.href}
-                  className="px-2 py-1.5 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors"
-                >
-                  {item.label}
-                </Link>
-              ))}
+            <nav className="hidden lg:flex items-center gap-0.5" aria-label="Primary">
+              {navItems.map((item) => {
+                const active = isNavItemActive(pathname ?? null, item.href);
+                return (
+                  <Link
+                    key={item.label}
+                    href={item.href}
+                    className={`px-3 py-2 text-xs font-medium rounded-lg transition-colors ${
+                      active
+                        ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40'
+                        : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/80'
+                    }`}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              })}
             </nav>
           </div>
 
@@ -581,7 +622,7 @@ export default function DashboardLayout({
                     </div>
                   </div>
                 </div>
-                {!kycVerified && (
+                {!kycLoading && !kycVerified && (
                   <Link 
                     href="/dashboard/identity"
                     onClick={() => setUserMenuOpen(false)}
@@ -643,7 +684,7 @@ export default function DashboardLayout({
         </div>
 
         {/* Verification Banner */}
-        {!kycVerified && showKycBanner && (
+        {!kycLoading && !kycVerified && showKycBanner && (
           <div className="flex items-center justify-between px-4 py-2 bg-gray-50 dark:bg-[#1e2026] border-t border-gray-200 dark:border-gray-800">
             <div className="flex items-center gap-2 text-sm">
               <span className="text-gray-600 dark:text-gray-400">
@@ -675,8 +716,8 @@ export default function DashboardLayout({
           onMouseEnter={() => { if (isAutoCollapsePage) setSidebarOpen(true); }}
           onMouseLeave={() => { if (isAutoCollapsePage) setSidebarOpen(false); }}
           className={`${
-            sidebarOpen ? 'w-48' : 'w-14'
-          } hidden lg:flex flex-col fixed left-0 top-12 bottom-0 bg-white dark:bg-[#181a20] border-r border-gray-200 dark:border-gray-800 transition-all duration-300 z-30`}
+            sidebarOpen ? 'w-56' : 'w-14'
+          } hidden lg:flex flex-col fixed left-0 top-14 bottom-0 bg-white dark:bg-[#181a20] border-r border-gray-200 dark:border-gray-800 transition-all duration-300 z-30 shadow-[4px_0_24px_-12px_rgba(0,0,0,0.08)] dark:shadow-[4px_0_24px_-12px_rgba(0,0,0,0.35)]`}
         >
           {/* Sidebar Toggle - Arrow for manual expand/collapse */}
           <button
@@ -714,30 +755,33 @@ export default function DashboardLayout({
                     </button>
                     {sidebarOpen && expandedMenus.includes(item.id) && (
                       <div className="ml-6 border-l border-gray-200 dark:border-gray-700">
-                        {item.children.map((child) => (
+                        {item.children.map((child) => {
+                          const childActive = pathname === child.href || (!!pathname && pathname.startsWith(`${child.href}/`));
+                          return (
                           <Link
                             key={child.id}
                             href={child.href}
-                            className={`block px-3 py-1.5 text-xs transition-colors ${
-                              pathname === child.href
-                                ? 'text-blue-500'
-                                : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                            className={`block px-3 py-1.5 text-xs transition-colors rounded-r-md -ml-px border-l-2 ${
+                              childActive
+                                ? 'text-blue-600 dark:text-blue-400 border-blue-500 bg-blue-50/80 dark:bg-blue-950/25 font-medium'
+                                : 'text-gray-500 dark:text-gray-400 border-transparent hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50'
                             }`}
                           >
                             {child.label}
                           </Link>
-                        ))}
+                        );})}
                       </div>
                     )}
                   </>
                 ) : (
                   <Link
                     href={item.href || '#'}
-                    className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors ${
-                      pathname === item.href
-                        ? 'text-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                    className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors rounded-lg mx-1.5 ${
+                      (item.href && (pathname === item.href || (item.id === 'orders' && pathname?.startsWith('/dashboard/orders')))) ||
+                      (item.href === '/dashboard/spot' && pathname?.startsWith('/dashboard/spot'))
+                        ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 font-medium ring-1 ring-blue-200/60 dark:ring-blue-800/40'
                         : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                    } ${!sidebarOpen ? 'justify-center' : ''}`}
+                    } ${!sidebarOpen ? 'justify-center mx-0' : ''}`}
                   >
                     {item.icon}
                     {sidebarOpen && <span className="text-xs">{item.label}</span>}
@@ -844,20 +888,20 @@ export default function DashboardLayout({
         )}
 
         {/* Main Content - with left margin for fixed sidebar (except on deposit/withdraw/transfer pages) */}
-        <main id="main-content" tabIndex={-1} className={`flex-1 min-h-[calc(100vh-48px)] overflow-x-hidden transition-all duration-300 ${
+        <main id="main-content" tabIndex={-1} className={`flex-1 min-h-[calc(100vh-3.5rem)] overflow-x-hidden transition-all duration-300 ${
           (pathname?.startsWith('/dashboard/deposit') || 
            pathname?.startsWith('/dashboard/withdraw') || 
            pathname?.startsWith('/dashboard/transfer') ||
            pathname?.startsWith('/dashboard/spot') ||
-           pathname?.startsWith('/dashboard/p2p')) ? '' : (sidebarOpen ? 'lg:ml-48' : 'lg:ml-14')
+           pathname?.startsWith('/dashboard/p2p')) ? '' : (sidebarOpen ? 'lg:ml-56' : 'lg:ml-14')
         }`}>
           {(pathname === '/dashboard/spot' || pathname?.startsWith('/dashboard/p2p/')) ? (
-            <div className="w-full h-[calc(100vh-48px)] min-h-0">
+            <div className="w-full h-[calc(100vh-3.5rem)] min-h-0">
               {children}
             </div>
           ) : (
             <div className="flex-1 flex justify-center">
-              <div className="w-full max-w-[1400px] px-4">
+              <div className="w-full max-w-[1400px] px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
                 {children}
               </div>
             </div>
@@ -871,10 +915,10 @@ export default function DashboardLayout({
        !pathname?.startsWith('/dashboard/transfer') && 
        !pathname?.startsWith('/dashboard/spot') &&
        !pathname?.startsWith('/dashboard/p2p') && (
-      <footer className={`bg-white dark:bg-[#181a20] border-t border-gray-200 dark:border-gray-800 py-4 transition-all duration-300 ${
-        sidebarOpen ? 'lg:ml-48' : 'lg:ml-14'
+      <footer className={`bg-white/90 dark:bg-[#181a20]/90 border-t border-gray-200 dark:border-gray-800 py-5 transition-all duration-300 backdrop-blur-sm ${
+        sidebarOpen ? 'lg:ml-56' : 'lg:ml-14'
       }`}>
-        <div className="container mx-auto px-4">
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-wrap items-center justify-center gap-6 text-sm text-gray-500 dark:text-gray-400">
             <Link href="/dashboard/markets" className="hover:text-gray-900 dark:hover:text-white">
               Market Overview
@@ -892,6 +936,9 @@ export default function DashboardLayout({
           </div>
         </div>
       </footer>
+      )}
+
+      </>
       )}
 
       {/* Transfer Modal */}

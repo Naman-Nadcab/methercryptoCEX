@@ -1,5 +1,10 @@
 'use client';
 
+import type { ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Star } from 'lucide-react';
+import { formatCompactNumber, formatValueFixedTrim } from './terminalFormat';
+
 type Market = { symbol: string; base_asset: string; quote_asset: string };
 
 interface PairHeaderProps {
@@ -7,12 +12,48 @@ interface PairHeaderProps {
   baseAsset?: string;
   quoteAsset?: string;
   lastPrice?: string | null;
+  lastPriceUsd?: string | null;
+  bid?: string | null;
+  ask?: string | null;
+  pricePrecision?: number;
+  changePct24h?: number | null;
   high24h?: string | null;
   low24h?: string | null;
   volume24h?: string | null;
+  turnover24h?: string | null;
   markets?: Market[];
   onSymbolChange?: (symbol: string) => void;
   wsConnected?: boolean;
+  isFavorite?: (symbol: string) => boolean;
+  onToggleFavorite?: (symbol: string) => void;
+  tierLevel?: number;
+  embedded?: boolean;
+}
+
+function MiniStat({
+  label,
+  children,
+  className = '',
+  title: titleAttr,
+}: {
+  label: string;
+  children: ReactNode;
+  className?: string;
+  title?: string;
+}) {
+  return (
+    <div
+      className={`flex min-w-0 max-w-full flex-col items-center justify-center gap-px px-1.5 py-0 sm:px-2 ${className}`}
+      title={titleAttr}
+    >
+      <span className="w-full truncate text-center text-[8px] font-semibold uppercase leading-none tracking-wide text-gray-500 dark:text-gray-500">
+        {label}
+      </span>
+      <div className="w-full min-w-0 truncate text-center font-mono text-[10px] font-semibold tabular-nums leading-none text-gray-900 dark:text-gray-100 sm:text-[11px]">
+        {children}
+      </div>
+    </div>
+  );
 }
 
 export function PairHeader({
@@ -20,12 +61,22 @@ export function PairHeader({
   baseAsset,
   quoteAsset,
   lastPrice,
+  lastPriceUsd,
+  bid,
+  ask,
+  pricePrecision = 6,
+  changePct24h,
   high24h,
   low24h,
   volume24h,
+  turnover24h,
   markets,
   onSymbolChange,
   wsConnected,
+  isFavorite,
+  onToggleFavorite,
+  tierLevel,
+  embedded = false,
 }: PairHeaderProps) {
   const sym = symbol ?? 'BTC_USDT';
   const base = baseAsset ?? 'BTC';
@@ -34,14 +85,77 @@ export function PairHeader({
   const pairLabel = base && quote ? `${base}/${quote}` : sym;
   const onChange = onSymbolChange ?? (() => {});
 
+  const computedChangePct = (() => {
+    if (typeof changePct24h === 'number' && Number.isFinite(changePct24h)) return changePct24h;
+    const last = lastPrice != null ? Number(lastPrice) : NaN;
+    const low = low24h != null ? Number(low24h) : NaN;
+    if (!Number.isFinite(last) || !Number.isFinite(low) || low <= 0) return null;
+    return ((last - low) / low) * 100;
+  })();
+  const changeUp = computedChangePct != null ? computedChangePct >= 0 : null;
+
+  const spreadTooltip = (() => {
+    if (bid == null || bid === '' || ask == null || ask === '') return undefined;
+    const b = Number(bid);
+    const a = Number(ask);
+    if (!Number.isFinite(b) || !Number.isFinite(a) || a <= b) return undefined;
+    const spread = a - b;
+    const mid = (a + b) / 2;
+    const spreadPct = mid > 0 ? (spread / mid) * 100 : 0;
+    return `Spread ${formatValueFixedTrim(String(spread), pricePrecision)} (${spreadPct.toFixed(3)}%)`;
+  })();
+
+  const [priceFlash, setPriceFlash] = useState<'up' | 'down' | null>(null);
+  const prevPriceRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const current = lastPrice ?? null;
+    const prev = prevPriceRef.current;
+    if (prev != null && current != null && prev !== current) {
+      const pPrev = parseFloat(prev);
+      const pCur = parseFloat(current);
+      if (Number.isFinite(pPrev) && Number.isFinite(pCur)) {
+        setPriceFlash(pCur > pPrev ? 'up' : 'down');
+        const t = setTimeout(() => setPriceFlash(null), 400);
+        prevPriceRef.current = current;
+        return () => clearTimeout(t);
+      }
+    }
+    prevPriceRef.current = current;
+  }, [lastPrice]);
+
+  const lastDisplay =
+    quote === 'USDT' && lastPrice != null && lastPrice !== ''
+      ? `$${formatValueFixedTrim(lastPrice, pricePrecision)}`
+      : formatValueFixedTrim(lastPrice, pricePrecision);
+
+  const lastSub =
+    lastPriceUsd != null && lastPriceUsd !== '' && quote !== 'USDT'
+      ? `≈ ${formatValueFixedTrim(lastPriceUsd, pricePrecision)} USDT`
+      : undefined;
+
+  const changeColor =
+    computedChangePct == null ? 'text-gray-400 dark:text-gray-500' : changeUp ? 'text-price-up' : 'text-price-down';
+
+  const lastColor =
+    priceFlash === 'up'
+      ? 'text-price-up'
+      : priceFlash === 'down'
+        ? 'text-price-down'
+        : 'text-gray-900 dark:text-white';
+
   return (
-    <header className="h-[60px] flex-shrink-0 flex items-center justify-between px-4 bg-[#0b0e11] border-b border-white/5">
-      <div className="flex items-center gap-3">
+    <header
+      className={`flex h-11 min-h-11 shrink-0 border-b border-gray-200/90 bg-white dark:border-gray-800/90 dark:bg-[#181a20] ${
+        embedded ? 'rounded-t-lg' : ''
+      }`}
+    >
+      <div className="flex h-full shrink-0 items-center gap-1 border-r border-gray-200/80 bg-gray-50/40 px-1.5 dark:border-gray-700/80 dark:bg-white/[0.03] sm:gap-1.5 sm:px-2">
         {mkt.length > 1 ? (
           <select
             value={sym}
             onChange={(e) => onChange(e.target.value)}
-            className="text-lg font-semibold text-white bg-transparent border-none outline-none cursor-pointer appearance-none pr-6 focus:ring-0"
+            className="h-7 max-w-[7.5rem] min-w-0 shrink cursor-pointer truncate rounded border border-gray-200/90 bg-white py-0 pl-1.5 pr-6 text-[11px] font-bold leading-7 text-gray-900 shadow-sm outline-none focus:ring-1 focus:ring-blue-500/30 dark:border-gray-600 dark:bg-gray-900/80 dark:text-white sm:max-w-[9.5rem] sm:text-xs"
           >
             {mkt.map((m) => (
               <option key={m.symbol} value={m.symbol}>
@@ -50,21 +164,71 @@ export function PairHeader({
             ))}
           </select>
         ) : (
-          <span className="text-lg font-semibold text-white">{pairLabel}</span>
+          <span className="max-w-[7.5rem] truncate text-[11px] font-bold leading-none tracking-tight text-gray-900 dark:text-white sm:max-w-[9.5rem] sm:text-xs">
+            {pairLabel}
+          </span>
         )}
-        <span className="text-xs text-gray-500">Spot</span>
+        <span className="inline-flex h-5 shrink-0 items-center rounded border border-gray-200/80 bg-white px-1 text-[8px] font-bold uppercase text-gray-600 dark:border-gray-600 dark:bg-gray-900/60 dark:text-gray-400">
+          Spot
+        </span>
+        {onToggleFavorite && sym && (
+          <button
+            type="button"
+            onClick={() => onToggleFavorite(sym)}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-gray-400 hover:bg-gray-200/60 hover:text-amber-500 dark:hover:bg-gray-800 dark:hover:text-amber-400"
+            title={isFavorite?.(sym) ? 'Remove from favorites' : 'Add to favorites'}
+            aria-label="Toggle favorite"
+          >
+            <Star className={`h-3.5 w-3.5 ${isFavorite?.(sym) ? 'fill-amber-400 text-amber-400' : ''}`} />
+          </button>
+        )}
+        {tierLevel != null && tierLevel > 0 && (
+          <span
+            className="hidden h-5 shrink-0 items-center rounded border border-blue-200/60 bg-blue-50/90 px-1 text-[8px] font-bold text-blue-700 sm:inline-flex dark:border-blue-900/50 dark:bg-blue-950/50 dark:text-blue-300"
+            title="Withdrawal tier"
+          >
+            T{tierLevel}
+          </span>
+        )}
         {wsConnected !== undefined && (
-          <span className="flex items-center gap-1.5 text-[10px] text-gray-500" title={wsConnected ? 'Live data' : 'Disconnected'}>
-            <span className={`w-1.5 h-1.5 rounded-full ${wsConnected ? 'bg-green-500' : 'bg-amber-500'}`} aria-hidden />
-            {wsConnected ? 'Live' : 'Disconnected'}
+          <span
+            className="inline-flex h-5 shrink-0 items-center gap-1 rounded border border-gray-200/70 bg-white/80 px-1 text-[8px] font-bold uppercase text-gray-600 dark:border-gray-600 dark:bg-gray-900/40 dark:text-gray-400"
+            title={wsConnected ? 'Stream connected' : 'Stream disconnected'}
+          >
+            <span
+              className={`h-1 w-1 shrink-0 rounded-full ${wsConnected ? 'bg-[hsl(var(--price-up))]' : 'bg-red-500'}`}
+              aria-hidden
+            />
+            <span className="hidden sm:inline">{wsConnected ? 'Live' : 'Off'}</span>
           </span>
         )}
       </div>
-      <div className="flex items-center gap-4 text-sm text-gray-400">
-        <span>Price {lastPrice ?? '—'}</span>
-        <span>24h High {high24h ?? '—'}</span>
-        <span>24h Low {low24h ?? '—'}</span>
-        <span>24h Vol {volume24h ?? '—'}</span>
+
+      {/* Content-sized columns, centered; dividers only between stats */}
+      <div className="flex min-w-0 flex-1 items-stretch justify-evenly divide-x divide-gray-200/70 px-0.5 dark:divide-gray-700/60 sm:px-1">
+        <MiniStat label="Last" title={lastSub}>
+          <span className={`font-bold ${lastColor}`}>{lastDisplay}</span>
+        </MiniStat>
+        <MiniStat label="24h">
+          <span className={changeColor}>
+            {computedChangePct == null ? '—' : `${computedChangePct >= 0 ? '+' : ''}${computedChangePct.toFixed(2)}%`}
+          </span>
+        </MiniStat>
+        <MiniStat label="High">{formatValueFixedTrim(high24h, pricePrecision)}</MiniStat>
+        <MiniStat label="Low">{formatValueFixedTrim(low24h, pricePrecision)}</MiniStat>
+        <MiniStat label={`V·${base.slice(0, 4)}`} title={`Volume ${base}`}>
+          {formatCompactNumber(volume24h)}
+        </MiniStat>
+        <MiniStat label={`T·${quote.slice(0, 4)}`} title={`Turnover ${quote}`}>
+          {formatCompactNumber(turnover24h)}
+        </MiniStat>
+        <MiniStat label="B/A" title={spreadTooltip} className="max-w-[min(100%,9.5rem)]">
+          <div className="min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-center">
+            <span className="text-price-up">{formatValueFixedTrim(bid, pricePrecision)}</span>
+            <span className="text-gray-400 dark:text-gray-500">/</span>
+            <span className="text-price-down">{formatValueFixedTrim(ask, pricePrecision)}</span>
+          </div>
+        </MiniStat>
       </div>
     </header>
   );

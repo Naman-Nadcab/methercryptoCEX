@@ -102,10 +102,29 @@ export function consumeOAuthRedirect(): string | null {
   if (typeof sessionStorage === 'undefined') return null;
   const stored = sessionStorage.getItem(OAUTH_REDIRECT_KEY);
   sessionStorage.removeItem(OAUTH_REDIRECT_KEY);
-  if (stored && (stored.startsWith('/dashboard') || stored === '/' || (stored.startsWith('/') && !stored.includes('//')))) {
-    return stored;
-  }
+  return validateRedirectPath(stored);
+}
+
+/** Validate and return redirect path, or null if invalid. */
+function validateRedirectPath(path: string | null): string | null {
+  if (!path) return null;
+  if (path.startsWith('//') || path.includes('//')) return null;
+  if (path.startsWith('/dashboard') || path === '/' || (path.startsWith('/') && path.length > 1)) return path;
   return null;
+}
+
+/** Get redirect target from sessionStorage or fallback. Does NOT consume. Use after login. */
+export function getStoredRedirect(): string | null {
+  if (typeof sessionStorage === 'undefined') return null;
+  return validateRedirectPath(sessionStorage.getItem(OAUTH_REDIRECT_KEY));
+}
+
+/** Consume stored redirect for use after login. Use instead of consumeOAuthRedirect when you need same behavior. */
+export function consumeStoredRedirect(): string | null {
+  if (typeof sessionStorage === 'undefined') return null;
+  const stored = sessionStorage.getItem(OAUTH_REDIRECT_KEY);
+  sessionStorage.removeItem(OAUTH_REDIRECT_KEY);
+  return validateRedirectPath(stored);
 }
 
 /**

@@ -1,5 +1,15 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { config } from '../config/index.js';
+import { PUBLIC_AUTH_ROUTES } from '../lib/public-auth-routes.js';
+
+/** Routes that skip session-core HTTP call (use fallback) for faster auth/profile/balance fetches. */
+const SKIP_SESSION_CORE_ROUTES = new Set([
+  '/api/v1/auth/me',
+  '/api/v1/wallet/balances/summary',
+  '/api/v1/wallet/balances/by-account',
+  '/api/v1/wallet/balances/funding',
+  '/api/v1/wallet/balances/trading',
+]);
 
 export interface AuthDecision {
   session_id: string | null;
@@ -33,7 +43,17 @@ function isAuthDecisionShape(v: unknown): v is AuthDecision {
 }
 
 async function authDecisionPlugin(app: FastifyInstance) {
-  app.addHook('onRequest', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.addHook('onRequest', async (request: FastifyRequest, _reply: FastifyReply) => {
+    const path = (request.url || '').split('?')[0];
+    if (PUBLIC_AUTH_ROUTES.has(path)) {
+      (request as FastifyRequest & { authDecision: Readonly<AuthDecision> }).authDecision = FALLBACK_AUTH_DECISION;
+      return;
+    }
+    if (SKIP_SESSION_CORE_ROUTES.has(path)) {
+      (request as FastifyRequest & { authDecision: Readonly<AuthDecision> }).authDecision = FALLBACK_AUTH_DECISION;
+      return;
+    }
+
     const raw = request.headers['x-session-id'];
     const session_id = typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : null;
 

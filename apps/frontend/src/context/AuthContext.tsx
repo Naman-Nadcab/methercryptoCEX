@@ -99,6 +99,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const authResolved = useAuthStore((s) => s.authResolved);
   const _hasHydrated = useAuthStore((s) => s._hasHydrated);
   const meCalled = useRef(false);
+  const isMountedRef = useRef(true);
 
   const setAuthenticated = useCallback((u: User) => {
     setAuthResolved(true);
@@ -122,14 +123,53 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [setUnauthenticated]);
 
   useEffect(() => {
-    if (!_hasHydrated || meCalled.current) return;
-    meCalled.current = true;
+    if (typeof window === 'undefined' || !_hasHydrated) return;
+    isMountedRef.current = true;
     const controller = new AbortController();
+    const AUTH_ME_TIMEOUT_MS = 3000;
+    const FALLBACK_RESOLVE_MS = 4000;
+    const timeoutId = setTimeout(() => {
+      if (!isMountedRef.current) return;
+      controller.abort();
+      setAuthResolved(true);
+      setAuthFlags(0);
+      setUnauthenticated();
+    }, AUTH_ME_TIMEOUT_MS);
+    const fallbackId = setTimeout(() => {
+      if (!isMountedRef.current) return;
+      if (!useAuthStore.getState().authResolved) {
+        setAuthResolved(true);
+        setAuthFlags(0);
+        setUnauthenticated();
+      }
+    }, FALLBACK_RESOLVE_MS);
 
     const apiUrl = getApiBaseUrl();
 
     const runMe = async () => {
-      let token = getStoredAccessToken();
+      const clearAuthTimeout = () => clearTimeout(timeoutId);
+      const safeSet = (fn: () => void) => {
+        if (isMountedRef.current) fn();
+      };
+      const stored = getStoredAccessToken();
+      const fromStore = useAuthStore.getState().accessToken;
+      let token = (typeof stored === 'string' && stored.length > 0) ? stored : (typeof fromStore === 'string' && fromStore.length > 0 ? fromStore : null);
+
+      // No token and no refresh token → not logged in; resolve immediately without calling /me (avoids 401 and long wait)
+      if (!token && !getStoredRefreshToken()) {
+        clearTimeout(timeoutId);
+        clearTimeout(fallbackId);
+        safeSet(() => {
+          setAuthResolved(true);
+          setAuthFlags(0);
+          setUnauthenticated();
+        });
+        return;
+      }
+
+      if (process.env.NODE_ENV === 'development' && token) {
+        console.warn('[Auth] token before /me:', token.slice(0, 12) + '...');
+      }
       try {
         let res = await fetch(`${apiUrl}/api/v1/auth/me`, {
           signal: controller.signal,
@@ -138,24 +178,82 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             ...(token && { Authorization: `Bearer ${token}` }),
           },
         });
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('[Auth] /me response:', res.status, res.statusText);
+        }
         if (res.status === 401 && token) {
           const newToken = await tryRefreshFromStorage();
-          if (newToken) {
-            token = newToken;
+          const freshToken = newToken ?? getStoredAccessToken();
+          if (freshToken) {
+            token = freshToken;
             res = await fetch(`${apiUrl}/api/v1/auth/me`, {
               signal: controller.signal,
               headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
             });
           }
         }
-        // Only 401/403 mean session invalid; 5xx/network must not log user out
+        if (!isMountedRef.current) return;
         if (res.status === 401 || res.status === 403) {
-          setAuthResolved(true);
-          setAuthFlags(0);
-          setUnauthenticated();
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('[Auth] /me 401 or 403 — setting unauthenticated');
+          }
+          clearAuthTimeout();
+          safeSet(() => {
+            setAuthResolved(true);
+            setAuthFlags(0);
+            setUnauthenticated();
+          });
           return;
         }
         if (!res.ok) {
+          clearAuthTimeout();
+          safeSet(() => {
+            setAuthResolved(true);
+            const existingUser = useAuthStore.getState().user;
+            if (existingUser) {
+              setUserState(existingUser);
+              setStatus('authenticated');
+            } else {
+              setAuthFlags(0);
+              setUnauthenticated();
+            }
+          });
+          return;
+        }
+        const json = await res.json();
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('[Auth] /me body:', json?.success ? 'success' : 'no success', json?.data ? 'has data' : 'no data');
+        }
+        if (!isMountedRef.current) return;
+        clearAuthTimeout();
+        safeSet(() => {
+          setAuthResolved(true);
+          if (json?.success && json?.data) {
+            const u = mapMeResponseToUser(json.data as Record<string, unknown>);
+            setUser(u);
+            setUserState(u);
+            setStatus('authenticated');
+            setAuthFlags(typeof json.data.auth_flags === 'number' ? json.data.auth_flags : 1);
+          } else {
+            setAuthFlags(0);
+            setUnauthenticated();
+          }
+        });
+      } catch (e) {
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('[Auth] /me catch:', (e as Error).name, (e as Error).message);
+        }
+        clearAuthTimeout();
+        if (!isMountedRef.current) return;
+        if ((e as Error).name === 'AbortError') {
+          safeSet(() => {
+            setAuthResolved(true);
+            setAuthFlags(0);
+            setUnauthenticated();
+          });
+          return;
+        }
+        safeSet(() => {
           setAuthResolved(true);
           const existingUser = useAuthStore.getState().user;
           if (existingUser) {
@@ -165,40 +263,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setAuthFlags(0);
             setUnauthenticated();
           }
-          return;
-        }
-        const json = await res.json();
-        setAuthResolved(true);
-        if (json?.success && json?.data) {
-          // Valid JWT + user data = authenticated. auth_flags must NOT control login state.
-          const u = mapMeResponseToUser(json.data as Record<string, unknown>);
-          setUser(u);
-          setUserState(u);
-          setStatus('authenticated');
-          setAuthFlags(typeof json.data.auth_flags === 'number' ? json.data.auth_flags : 1);
-        } else {
-          setAuthFlags(0);
-          setUnauthenticated();
-        }
-      } catch (e) {
-        if ((e as Error).name === 'AbortError') return;
-        setAuthResolved(true);
-        const existingUser = useAuthStore.getState().user;
-        if (existingUser) {
-          setUserState(existingUser);
-          setStatus('authenticated');
-        } else {
-          setAuthFlags(0);
-          setUnauthenticated();
-        }
+        });
       }
     };
     runMe();
     return () => {
-      controller.abort();
+      isMountedRef.current = false;
+      clearTimeout(timeoutId);
+      clearTimeout(fallbackId);
       meCalled.current = false;
     };
-  }, [_hasHydrated, setAuthResolved, setAuthFlags, setUnauthenticated, setUser]);
+  }, [_hasHydrated]);
 
   const isAuthenticated = status === 'authenticated';
   const showChildren = _hasHydrated && authResolved;

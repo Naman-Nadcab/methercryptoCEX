@@ -20,9 +20,9 @@ export interface OrderbookSnapshot {
   lastUpdateId: number;
 }
 
-/** Resolve symbol to trading_pair_id (when market column doesn't exist). */
+/** Resolve symbol to trading_pair_id (when market column doesn't exist). Uses read replica when configured. */
 async function getTradingPairId(symbol: string): Promise<string | null> {
-  const r = await db.query<{ id: string }>(
+  const r = await db.queryRead<{ id: string }>(
     `SELECT id FROM trading_pairs WHERE symbol = $1 AND trading_enabled = TRUE LIMIT 1`,
     [symbol]
   );
@@ -34,7 +34,7 @@ export async function getOrderbookFromDb(symbol: string, limit: number = DEFAULT
   const useMarket = !pairId; // If no trading_pairs row, try market column (migrate schema)
 
   const bidsQuery = useMarket
-    ? db.query<{ price: string; quantity: string }>(`
+    ? db.queryRead<{ price: string; quantity: string }>(`
         SELECT price::text as price, SUM(quantity - COALESCE(filled_quantity,0))::text as quantity
         FROM spot_orders
         WHERE market = $1 AND side = 'buy' AND status IN ('OPEN', 'PARTIALLY_FILLED') AND (quantity - COALESCE(filled_quantity,0)) > 0
@@ -42,7 +42,7 @@ export async function getOrderbookFromDb(symbol: string, limit: number = DEFAULT
         ORDER BY price DESC
         LIMIT $2
       `, [symbol, limit])
-    : db.query<{ price: string; quantity: string }>(`
+    : db.queryRead<{ price: string; quantity: string }>(`
         SELECT o.price::text as price, SUM(COALESCE(o.remaining_quantity, o.quantity - COALESCE(o.filled_quantity,0)))::text as quantity
         FROM spot_orders o
         WHERE o.trading_pair_id = $1 AND o.side = 'buy' AND o.status IN ('new', 'partially_filled')
@@ -53,7 +53,7 @@ export async function getOrderbookFromDb(symbol: string, limit: number = DEFAULT
       `, [pairId, limit]);
 
   const asksQuery = useMarket
-    ? db.query<{ price: string; quantity: string }>(`
+    ? db.queryRead<{ price: string; quantity: string }>(`
         SELECT price::text as price, SUM(quantity - COALESCE(filled_quantity,0))::text as quantity
         FROM spot_orders
         WHERE market = $1 AND side = 'sell' AND status IN ('OPEN', 'PARTIALLY_FILLED') AND (quantity - COALESCE(filled_quantity,0)) > 0
@@ -61,7 +61,7 @@ export async function getOrderbookFromDb(symbol: string, limit: number = DEFAULT
         ORDER BY price ASC
         LIMIT $2
       `, [symbol, limit])
-    : db.query<{ price: string; quantity: string }>(`
+    : db.queryRead<{ price: string; quantity: string }>(`
         SELECT o.price::text as price, SUM(COALESCE(o.remaining_quantity, o.quantity - COALESCE(o.filled_quantity,0)))::text as quantity
         FROM spot_orders o
         WHERE o.trading_pair_id = $1 AND o.side = 'sell' AND o.status IN ('new', 'partially_filled')

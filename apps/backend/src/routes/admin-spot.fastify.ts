@@ -1,12 +1,37 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
+import { setSymbolCircuit, isSymbolCircuitOpen } from '../lib/per-symbol-circuit.js';
 import { logger } from '../lib/logger.js';
 import { getAdminFromRequest } from './admin.fastify.js';
+import { getOrderbookFromDb } from '../services/spot-orderbook-cache.service.js';
 
 const CIRCUIT_KEY_PREFIX = 'spot:circuit:';
 
 export default async function adminSpotRoutes(app: FastifyInstance) {
+  // GET /admin/spot/orderbook/:symbol — L2 orderbook for admin monitor (depth default 50, max 100)
+  app.get<{ Params: { symbol: string }; Querystring: { depth?: string } }>('/orderbook/:symbol', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    const symbol = (request.params.symbol || '').toUpperCase().replace(/-/g, '_');
+    const depth = Math.min(100, Math.max(10, parseInt(request.query.depth || '50', 10) || 50));
+    try {
+      const ob = await getOrderbookFromDb(symbol, depth);
+      return reply.send({
+        success: true,
+        data: {
+          symbol: ob.symbol,
+          bids: ob.bids.slice(0, depth),
+          asks: ob.asks.slice(0, depth),
+          lastUpdateId: ob.lastUpdateId ?? 0,
+        },
+      });
+    } catch (error) {
+      logger.error('Admin spot orderbook failed', { error: error instanceof Error ? error.message : 'Unknown', symbol });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to fetch orderbook' } });
+    }
+  });
+
   // GET /admin/spot/markets — list all spot markets (admin), with circuit_breaker_count per symbol
   app.get('/markets', async (request: FastifyRequest, reply: FastifyReply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
@@ -62,13 +87,14 @@ export default async function adminSpotRoutes(app: FastifyInstance) {
       } catch {
         // ignore
       }
-      const [openOrdersRes, statsRes] = await Promise.all([
+      const [openOrdersRes, statsRes, symbolHalted] = await Promise.all([
         db.query<{ count: string }>(`SELECT COUNT(*)::text as count FROM spot_orders WHERE market = $1 AND status IN ('OPEN', 'PARTIALLY_FILLED')`, [symbol]),
         db.query<{ volume_24h: string; last_price: string }>(
           `SELECT COALESCE(SUM(quantity * price), 0)::text as volume_24h,
                   (SELECT price::text FROM spot_trades WHERE market = $1 ORDER BY created_at DESC LIMIT 1) as last_price`,
           [symbol]
         ),
+        isSymbolCircuitOpen(symbol),
       ]);
       const open_orders_count = parseInt(openOrdersRes.rows[0]?.count || '0', 10);
       const volume_24h = statsRes.rows[0]?.volume_24h || '0';
@@ -79,6 +105,7 @@ export default async function adminSpotRoutes(app: FastifyInstance) {
           ...market,
           circuit_breaker_count: circuitCount,
           circuit_breaker_tripped: circuitCount >= 5,
+          symbol_circuit_halted: symbolHalted,
           open_orders_count,
           volume_24h,
           last_price,
@@ -90,6 +117,22 @@ export default async function adminSpotRoutes(app: FastifyInstance) {
     }
   });
 
+  // POST /admin/spot/markets/:symbol/symbol-circuit — set per-symbol halt (body: { halted: boolean })
+  app.post<{ Params: { symbol: string }; Body: { halted: boolean } }>('/markets/:symbol/symbol-circuit', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    const symbol = (request.params.symbol || '').toUpperCase().replace(/-/g, '_');
+    const halted = request.body?.halted === true;
+    try {
+      await setSymbolCircuit(symbol, halted);
+      logger.info('admin_symbol_circuit_set', { adminId: admin.adminId, symbol, halted });
+      return reply.send({ success: true, data: { symbol, halted } });
+    } catch (error) {
+      logger.error('Admin symbol circuit set failed', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'UPDATE_FAILED', message: 'Failed to set symbol circuit' } });
+    }
+  });
+
   // POST /admin/spot/markets/:symbol/circuit-reset — clear circuit key and set status to active
   app.post<{ Params: { symbol: string } }>('/markets/:symbol/circuit-reset', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
@@ -97,6 +140,7 @@ export default async function adminSpotRoutes(app: FastifyInstance) {
     const symbol = (request.params.symbol || '').toUpperCase().replace(/-/g, '_');
     try {
       await redis.del(`${CIRCUIT_KEY_PREFIX}${symbol}`);
+      await setSymbolCircuit(symbol, false); // clear per-symbol halt
       await db.query(`UPDATE spot_markets SET status = 'active', updated_at = NOW() WHERE symbol = $1 RETURNING id, symbol, status`, [symbol]);
       logger.info('admin_spot_circuit_reset', { adminId: admin.adminId, symbol });
       return reply.send({ success: true, data: { symbol, status: 'active' } });

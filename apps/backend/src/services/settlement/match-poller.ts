@@ -3,13 +3,18 @@
  * Poll engine using persistent cursor; insert events into settlement_events.
  * Cursor survives restarts (stored in settlement_poller_cursor).
  * Phase-9: Resumes from latest system snapshot when cursor is 0.
+ * Graceful degrade: when engine is down, back off to 30s and log at warn (no error spam).
+ * Tier-1: On first engine failure, send alert webhook so ops are notified.
  */
 import { db } from '../../lib/database.js';
 import { logger } from '../../lib/logger.js';
+import { sendAlertWebhook } from '../../lib/alert-webhook.js';
 import { fetchMatches } from './engine-client.js';
 import { initializeRecoveryState } from './snapshot-service.js';
 
 const POLL_INTERVAL_MS = 2_000;
+const BACKOFF_INTERVAL_MS = 30_000;
+const BACKOFF_LOG_EVERY_N = 5; // log warn only every Nth backoff poll
 
 async function getLastEngineEventId(): Promise<number> {
   const r = await db.query<{ last_engine_event_id: string }>(
@@ -60,23 +65,77 @@ async function pollOnce(): Promise<void> {
   logger.debug('Match poller inserted events', { count: events.length, last_id, cursorToSet });
 }
 
-let pollIntervalId: ReturnType<typeof setInterval> | null = null;
+let pollIntervalId: ReturnType<typeof setInterval> | ReturnType<typeof setTimeout> | null = null;
+let isBackoff = false;
+let consecutiveFailures = 0;
+
+function scheduleNext(intervalMs: number): void {
+  pollIntervalId = setTimeout(async () => {
+    try {
+      await pollOnce();
+      if (isBackoff) {
+        isBackoff = false;
+        consecutiveFailures = 0;
+        pollIntervalId = setInterval(schedulePoll, POLL_INTERVAL_MS);
+        logger.info('Match poller resumed (engine back online)');
+      }
+    } catch (err) {
+      isBackoff = true;
+      consecutiveFailures++;
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (consecutiveFailures === 1) {
+        sendAlertWebhook({
+          type: 'engine_unavailable',
+          message: 'Match poller: engine unavailable, backoff mode. No new matches until engine is back.',
+          error: errMsg,
+        }).catch(() => {});
+      }
+      const shouldLog = consecutiveFailures % BACKOFF_LOG_EVERY_N === 1;
+      if (shouldLog) {
+        logger.warn('Match poller: engine unavailable, backoff mode', {
+          error: errMsg,
+          nextPollMs: BACKOFF_INTERVAL_MS,
+        });
+      }
+      scheduleNext(BACKOFF_INTERVAL_MS);
+    }
+  }, intervalMs);
+}
+
+function schedulePoll(): void {
+  pollOnce().catch((err) => {
+    if (pollIntervalId != null) {
+      clearInterval(pollIntervalId as ReturnType<typeof setInterval>);
+      pollIntervalId = null;
+    }
+    isBackoff = true;
+    consecutiveFailures++;
+    if (consecutiveFailures === 1) {
+      sendAlertWebhook({
+        type: 'engine_unavailable',
+        message: 'Match poller: engine unavailable, switching to backoff. No new matches until engine is back.',
+        error: err instanceof Error ? err.message : String(err),
+      }).catch(() => {});
+    }
+    logger.warn('Match poller: engine unavailable, switching to backoff', {
+      error: err instanceof Error ? err.message : String(err),
+      nextPollMs: BACKOFF_INTERVAL_MS,
+    });
+    scheduleNext(BACKOFF_INTERVAL_MS);
+  });
+}
 
 export function startMatchPoller(): void {
   if (pollIntervalId != null) {
     return;
   }
-  pollIntervalId = setInterval(() => {
-    pollOnce().catch((err) => {
-      logger.error('Match poller error', { error: err instanceof Error ? err.message : String(err) });
-    });
-  }, POLL_INTERVAL_MS);
+  pollIntervalId = setInterval(schedulePoll, POLL_INTERVAL_MS);
   logger.info('Match poller started');
 }
 
 export function stopMatchPoller(): void {
   if (pollIntervalId != null) {
-    clearInterval(pollIntervalId);
+    clearTimeout(pollIntervalId);
     pollIntervalId = null;
     logger.info('Match poller stopped');
   }

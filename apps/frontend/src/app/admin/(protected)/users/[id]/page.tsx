@@ -10,6 +10,7 @@ import {
   useAdminUserStatusUpdate,
   useAdminDepositsByUser,
   useAdminWithdrawalsByUser,
+  impersonateUser,
   type AdminUserDetail as UserDetailType,
   type AdminUserBalanceRow,
   type AdminDepositRow,
@@ -27,6 +28,7 @@ import {
   StatusBadge,
   ActionButton,
 } from '@/components/admin/control-plane';
+import { AdminTabs } from '@/components/admin/ui';
 import {
   ArrowLeft,
   Loader2,
@@ -38,7 +40,9 @@ import {
   Snowflake,
   Sun,
   X,
+  LogIn,
 } from 'lucide-react';
+import { useAuthStore } from '@/store/auth';
 import { formatAmountAdmin } from '@/lib/utils';
 
 const userStatusVariant: Record<string, 'LIVE' | 'DEGRADED' | 'RISK' | 'NEUTRAL'> = {
@@ -201,6 +205,9 @@ export default function AdminUserDetailPage() {
   const [statusModal, setStatusModal] = useState<{
     action: 'freeze' | 'unfreeze';
   } | null>(null);
+  const [impersonating, setImpersonating] = useState(false);
+  const [impersonateError, setImpersonateError] = useState<string | null>(null);
+  const { setUser, setTokens } = useAuthStore();
 
   const { data: userData, isLoading: loadingUser, isError: userError, error: userErr } = useAdminUserDetail(accessToken, userId);
   const { data: balancesData, isLoading: loadingBalances } = useAdminUserBalances(accessToken, userId);
@@ -225,6 +232,45 @@ export default function AdminUserDetailPage() {
       throw new Error(res.error?.message);
     }
     setStatusModal(null);
+  };
+
+  const handleImpersonate = async () => {
+    setImpersonateError(null);
+    setImpersonating(true);
+    try {
+      const res = await impersonateUser(accessToken, userId);
+      if (!res.success || !res.data?.accessToken) {
+        setImpersonateError(res.error?.message ?? 'Impersonation failed');
+        return;
+      }
+      const { accessToken: userToken, userId: targetId, email } = res.data;
+      setUser({
+        id: targetId,
+        email: email ?? null,
+        phone: null,
+        username: null,
+        firstName: null,
+        lastName: null,
+        avatarUrl: null,
+        role: 'user',
+        status: 'active',
+        accountType: 'individual',
+        emailVerified: true,
+        phoneVerified: false,
+        twoFaEnabled: false,
+        tierLevel: 0,
+        countryCode: null,
+        timezone: undefined,
+        language: undefined,
+        referralCode: null,
+      });
+      setTokens(userToken, '');
+      window.location.href = '/dashboard';
+    } catch (e) {
+      setImpersonateError(e instanceof Error ? e.message : 'Impersonation failed');
+    } finally {
+      setImpersonating(false);
+    }
   };
 
   if (loadingUser && !user) {
@@ -283,7 +329,16 @@ export default function AdminUserDetailPage() {
         title={user?.email ?? 'User'}
         subtitle={`User detail · ${user?.id ?? userId}`}
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <ActionButton
+              variant="secondary"
+              icon={<LogIn className="w-4 h-4" />}
+              onClick={handleImpersonate}
+              loading={impersonating}
+              disabled={impersonating}
+            >
+              Impersonate
+            </ActionButton>
             {isFrozen ? (
               <ActionButton
                 variant="primary"
@@ -301,161 +356,230 @@ export default function AdminUserDetailPage() {
                 Freeze
               </ActionButton>
             )}
+            {impersonateError && (
+              <span className="text-sm text-red-600 dark:text-red-400" role="alert">
+                {impersonateError}
+              </span>
+            )}
           </div>
         }
       />
 
-      {/* Basic profile + KYC + Account status */}
-      <Panel title="Profile & status" subtitle="Read-only user and account information">
-        <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <div>
-            <dt className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Email</dt>
-            <dd className="mt-1 text-gray-900 dark:text-white">{user?.email ?? '—'}</dd>
-          </div>
-          <div>
-            <dt className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Phone</dt>
-            <dd className="mt-1 text-gray-900 dark:text-white">{user?.phone ?? '—'}</dd>
-          </div>
-          <div>
-            <dt className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Username</dt>
-            <dd className="mt-1 text-gray-900 dark:text-white">{user?.username ?? '—'}</dd>
-          </div>
-          <div>
-            <dt className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Account status</dt>
-            <dd className="mt-1">
-              <UserStatusBadge status={user?.status ?? 'active'} />
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">KYC / Tier</dt>
-            <dd className="mt-1 text-gray-900 dark:text-white">
-              {user?.tier_level != null ? `Tier ${user.tier_level}` : '—'}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Created</dt>
-            <dd className="mt-1 text-gray-500 dark:text-gray-400">
-              {user?.created_at ? new Date(user.created_at).toLocaleString() : '—'}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Last login</dt>
-            <dd className="mt-1 text-gray-500 dark:text-gray-400">
-              {user?.last_login_at ? new Date(user.last_login_at).toLocaleString() : '—'}
-            </dd>
-          </div>
-        </dl>
-      </Panel>
-
-      {/* Balance summary (from API) */}
-      <Panel title="Balance summary" subtitle="From user_balances (read-only)">
-        {loadingBalances ? (
-          <div className="flex justify-center py-8">
-            <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
-          </div>
-        ) : balances.length === 0 ? (
-          <p className="text-sm text-gray-500 dark:text-gray-400 py-4">No balance rows.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 dark:border-gray-700">
-                  <th className="text-left py-2 px-3 font-medium text-gray-500 dark:text-gray-400">Token</th>
-                  <th className="text-left py-2 px-3 font-medium text-gray-500 dark:text-gray-400">Chain</th>
-                  <th className="text-right py-2 px-3 font-medium text-gray-500 dark:text-gray-400">Available</th>
-                  <th className="text-right py-2 px-3 font-medium text-gray-500 dark:text-gray-400">Locked</th>
-                </tr>
-              </thead>
-              <tbody>
-                {balances.map((b, i) => (
-                  <tr key={`bal-${i}-${(b as { token_id?: string; currency_id?: string }).token_id ?? (b as { currency_id?: string }).currency_id ?? b.token_symbol}`} className="border-b border-gray-100 dark:border-gray-800">
-                    <td className="py-2 px-3 text-gray-900 dark:text-white">{(b as { symbol?: string }).symbol ?? b.token_symbol}</td>
-                    <td className="py-2 px-3 text-gray-500 dark:text-gray-400">{b.chain_name ?? '—'}</td>
-                    <td className="py-2 px-3 text-right font-mono text-gray-900 dark:text-white">
-                      {formatAmountAdmin(b.available_balance)}
-                    </td>
-                    <td className="py-2 px-3 text-right font-mono text-gray-600 dark:text-gray-400">
-                      {formatAmountAdmin(b.locked_balance)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
-
-      {/* Recent deposits */}
-      <Panel title="Recent deposits" subtitle="Last 10 (if any)">
-        {loadingDeposits ? (
-          <div className="flex justify-center py-6">
-            <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
-          </div>
-        ) : deposits.length === 0 ? (
-          <p className="text-sm text-gray-500 dark:text-gray-400 py-4">No recent deposits.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 dark:border-gray-700">
-                  <DataTableTh>Amount</DataTableTh>
-                  <DataTableTh>Asset</DataTableTh>
-                  <DataTableTh>Status</DataTableTh>
-                  <DataTableTh>Created</DataTableTh>
-                </tr>
-              </thead>
-              <tbody>
-                {deposits.map((d) => (
-                  <DataTableRow key={d.deposit_id}>
-                    <DataTableCell mono>{formatAmount(d.amount)}</DataTableCell>
-                    <DataTableCell>{d.token_symbol ?? '—'}</DataTableCell>
-                    <DataTableCell>{d.status}</DataTableCell>
-                    <DataTableCell className="text-gray-500 dark:text-gray-400">
-                      {new Date(d.created_at).toLocaleString()}
-                    </DataTableCell>
-                  </DataTableRow>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
-
-      {/* Recent withdrawals */}
-      <Panel title="Recent withdrawals" subtitle="Last 10 (if any)">
-        {loadingWithdrawals ? (
-          <div className="flex justify-center py-6">
-            <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
-          </div>
-        ) : withdrawals.length === 0 ? (
-          <p className="text-sm text-gray-500 dark:text-gray-400 py-4">No recent withdrawals.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 dark:border-gray-700">
-                  <DataTableTh>Amount</DataTableTh>
-                  <DataTableTh>Asset</DataTableTh>
-                  <DataTableTh>Status</DataTableTh>
-                  <DataTableTh>Created</DataTableTh>
-                </tr>
-              </thead>
-              <tbody>
-                {withdrawals.map((w) => (
-                  <DataTableRow key={w.id}>
-                    <DataTableCell mono>{formatAmount(w.amount)}</DataTableCell>
-                    <DataTableCell>{w.currency_symbol ?? '—'}</DataTableCell>
-                    <DataTableCell>{w.status}</DataTableCell>
-                    <DataTableCell className="text-gray-500 dark:text-gray-400">
-                      {new Date(w.created_at).toLocaleString()}
-                    </DataTableCell>
-                  </DataTableRow>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
+      <AdminTabs
+        defaultActiveKey="overview"
+        items={[
+          {
+            key: 'overview',
+            label: 'Overview',
+            children: (
+              <Panel title="Profile & status" subtitle="Identity, account status, risk">
+                <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Email</dt>
+                    <dd className="mt-1 text-gray-900 dark:text-white">{user?.email ?? '—'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Phone</dt>
+                    <dd className="mt-1 text-gray-900 dark:text-white">{user?.phone ?? '—'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Username</dt>
+                    <dd className="mt-1 text-gray-900 dark:text-white">{user?.username ?? '—'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Account status</dt>
+                    <dd className="mt-1">
+                      <UserStatusBadge status={user?.status ?? 'active'} />
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">KYC / Tier</dt>
+                    <dd className="mt-1 text-gray-900 dark:text-white">
+                      {user?.tier_level != null ? `Tier ${user.tier_level}` : user?.kyc_status ?? '—'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Created</dt>
+                    <dd className="mt-1 text-gray-500 dark:text-gray-400">
+                      {user?.created_at ? new Date(user.created_at).toLocaleString() : '—'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Last login</dt>
+                    <dd className="mt-1 text-gray-500 dark:text-gray-400">
+                      {user?.last_login_at ? new Date(user.last_login_at).toLocaleString() : '—'}
+                    </dd>
+                  </div>
+                </dl>
+              </Panel>
+            ),
+          },
+          {
+            key: 'wallet',
+            label: 'Wallet Balances',
+            children: (
+              <Panel title="Balance summary" subtitle="From user_balances (read-only)">
+                {loadingBalances ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
+                  </div>
+                ) : balances.length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 py-4">No balance rows.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-gray-200 dark:border-gray-700">
+                          <th className="text-left py-2 px-3 font-medium text-gray-500 dark:text-gray-400">Token</th>
+                          <th className="text-left py-2 px-3 font-medium text-gray-500 dark:text-gray-400">Chain</th>
+                          <th className="text-right py-2 px-3 font-medium text-gray-500 dark:text-gray-400">Available</th>
+                          <th className="text-right py-2 px-3 font-medium text-gray-500 dark:text-gray-400">Locked</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {balances.map((b, i) => (
+                          <tr key={`bal-${i}-${(b as { token_id?: string }).token_id ?? b.token_symbol}`} className="border-b border-gray-100 dark:border-gray-800">
+                            <td className="py-2 px-3 text-gray-900 dark:text-white">{(b as { symbol?: string }).symbol ?? b.token_symbol}</td>
+                            <td className="py-2 px-3 text-gray-500 dark:text-gray-400">{b.chain_name ?? '—'}</td>
+                            <td className="py-2 px-3 text-right font-mono text-gray-900 dark:text-white">{formatAmountAdmin(b.available_balance)}</td>
+                            <td className="py-2 px-3 text-right font-mono text-gray-600 dark:text-gray-400">{formatAmountAdmin(b.locked_balance)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Panel>
+            ),
+          },
+          {
+            key: 'trading',
+            label: 'Trading Activity',
+            children: (
+              <Panel title="Trading activity" subtitle="Spot trades and volume">
+                <p className="text-sm text-gray-500 dark:text-gray-400 py-4">Trading activity is available from the trading history API. Use Trading → Trade History filtered by user.</p>
+              </Panel>
+            ),
+          },
+          {
+            key: 'open-orders',
+            label: 'Open Orders',
+            children: (
+              <Panel title="Open orders" subtitle="Current open spot orders">
+                <p className="text-sm text-gray-500 dark:text-gray-400 py-4">Open orders are available from Trading → Orders filtered by user.</p>
+              </Panel>
+            ),
+          },
+          {
+            key: 'trade-history',
+            label: 'Trade History',
+            children: (
+              <Panel title="Trade history" subtitle="Executed spot trades">
+                <p className="text-sm text-gray-500 dark:text-gray-400 py-4">Trade history is available from Trading → Trade History.</p>
+              </Panel>
+            ),
+          },
+          {
+            key: 'deposits',
+            label: 'Deposits',
+            children: (
+              <Panel title="Recent deposits" subtitle="Last 10">
+                {loadingDeposits ? (
+                  <div className="flex justify-center py-6"><Loader2 className="w-6 h-6 text-gray-400 animate-spin" /></div>
+                ) : deposits.length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 py-4">No recent deposits.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-gray-200 dark:border-gray-700">
+                          <DataTableTh>Amount</DataTableTh>
+                          <DataTableTh>Asset</DataTableTh>
+                          <DataTableTh>Status</DataTableTh>
+                          <DataTableTh>Created</DataTableTh>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {deposits.map((d) => (
+                          <DataTableRow key={d.deposit_id}>
+                            <DataTableCell mono>{formatAmount(d.amount)}</DataTableCell>
+                            <DataTableCell>{d.token_symbol ?? '—'}</DataTableCell>
+                            <DataTableCell>{d.status}</DataTableCell>
+                            <DataTableCell className="text-gray-500 dark:text-gray-400">{new Date(d.created_at).toLocaleString()}</DataTableCell>
+                          </DataTableRow>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Panel>
+            ),
+          },
+          {
+            key: 'withdrawals',
+            label: 'Withdrawals',
+            children: (
+              <Panel title="Recent withdrawals" subtitle="Last 10">
+                {loadingWithdrawals ? (
+                  <div className="flex justify-center py-6"><Loader2 className="w-6 h-6 text-gray-400 animate-spin" /></div>
+                ) : withdrawals.length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400 py-4">No recent withdrawals.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-gray-200 dark:border-gray-700">
+                          <DataTableTh>Amount</DataTableTh>
+                          <DataTableTh>Asset</DataTableTh>
+                          <DataTableTh>Status</DataTableTh>
+                          <DataTableTh>Created</DataTableTh>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {withdrawals.map((w) => (
+                          <DataTableRow key={w.id}>
+                            <DataTableCell mono>{formatAmount(w.amount)}</DataTableCell>
+                            <DataTableCell>{w.currency_symbol ?? '—'}</DataTableCell>
+                            <DataTableCell>{w.status}</DataTableCell>
+                            <DataTableCell className="text-gray-500 dark:text-gray-400">{new Date(w.created_at).toLocaleString()}</DataTableCell>
+                          </DataTableRow>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Panel>
+            ),
+          },
+          {
+            key: 'p2p',
+            label: 'P2P Activity',
+            children: (
+              <Panel title="P2P activity" subtitle="P2P orders and ads">
+                <p className="text-sm text-gray-500 dark:text-gray-400 py-4">P2P activity is available from P2P → Orders filtered by user.</p>
+              </Panel>
+            ),
+          },
+          {
+            key: 'security',
+            label: 'Security Logs',
+            children: (
+              <Panel title="Security logs" subtitle="Login history, device fingerprints">
+                <p className="text-sm text-gray-500 dark:text-gray-400 py-4">Session and activity data appear here when returned by the user detail API.</p>
+              </Panel>
+            ),
+          },
+          {
+            key: 'kyc',
+            label: 'KYC Documents',
+            children: (
+              <Panel title="KYC documents" subtitle="Verification status and documents">
+                <p className="text-sm text-gray-500 dark:text-gray-400 py-4">KYC status: {user?.kyc_status ?? '—'}. Full KYC list is available in KYC Verification.</p>
+              </Panel>
+            ),
+          },
+        ]}
+      />
 
       <StatusConfirmModal
         open={!!statusModal}

@@ -11,28 +11,49 @@ import { logger } from './logger.js';
 
 const RATE_LIMIT_EXCEEDED_CODE = 'RATE_LIMIT_EXCEEDED';
 const RATE_LIMIT_MESSAGE = 'Too many requests, please try again later';
+const RATE_LIMIT_UNAVAILABLE_CODE = 'RATE_LIMIT_UNAVAILABLE';
+const RATE_LIMIT_UNAVAILABLE_MESSAGE = 'Rate limit service temporarily unavailable. Please try again shortly.';
 
 function buildKey(scope: string, identifier: string): string {
   return `rate:${scope}:${identifier}`;
 }
 
+export type RateLimitOptions = { failClosed?: boolean };
+
 /**
  * Check rate limit and return result. Does not send response.
+ * When failClosed=true and Redis errors, returns allowed: false (caller should send 503).
  */
 async function checkLimit(
   key: string,
   limit: number,
-  windowSeconds: number
-): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
+  windowSeconds: number,
+  failClosed = false
+): Promise<{ allowed: boolean; remaining: number; resetAt: number; unavailable?: boolean }> {
   try {
     return await redis.rateLimit(key, limit, windowSeconds);
   } catch (err) {
-    logger.warn('Rate limit Redis check failed, allowing request', {
+    logger.warn('Rate limit Redis check failed', {
       key,
+      failClosed,
       error: err instanceof Error ? err.message : 'Unknown',
     });
+    if (failClosed) {
+      return { allowed: false, remaining: 0, resetAt: Date.now() + 60_000, unavailable: true };
+    }
     return { allowed: true, remaining: limit, resetAt: Date.now() + windowSeconds * 1000 };
   }
+}
+
+/**
+ * Send 503 when rate limit service unavailable (Redis down, fail-closed).
+ */
+function sendRateLimitUnavailable(reply: FastifyReply, retryAfterSec = 60): boolean {
+  reply.status(503).header('Retry-After', String(retryAfterSec)).send({
+    success: false,
+    error: { code: RATE_LIMIT_UNAVAILABLE_CODE, message: RATE_LIMIT_UNAVAILABLE_MESSAGE },
+  });
+  return true;
 }
 
 /**
@@ -57,18 +78,25 @@ function sendRateLimitExceeded(
 /**
  * PreHandler: rate limit by client IP (trustProxy aware).
  * Key: rate:{scope}:ip:{ip}
+ * options.failClosed: when true and Redis fails, return 503 instead of allowing.
  */
 export function rateLimitByIp(
   scope: string,
   limit: number,
-  windowSeconds: number
+  windowSeconds: number,
+  options?: RateLimitOptions
 ): (request: FastifyRequest, reply: FastifyReply) => Promise<void> {
+  const failClosed = options?.failClosed ?? false;
   return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const ip = getClientIp(request);
     const key = buildKey(scope, `ip:${ip}`);
-    const result = await checkLimit(key, limit, windowSeconds);
+    const result = await checkLimit(key, limit, windowSeconds, failClosed);
     if (!result.allowed) {
-      sendRateLimitExceeded(reply, scope, `ip:${ip}`);
+      if (result.unavailable) {
+        sendRateLimitUnavailable(reply);
+      } else {
+        sendRateLimitExceeded(reply, scope, `ip:${ip}`);
+      }
       return;
     }
     reply.header('X-RateLimit-Limit', limit);
@@ -81,12 +109,15 @@ export function rateLimitByIp(
  * PreHandler: rate limit by authenticated user ID.
  * Requires request.user (run after authenticate).
  * Key: rate:{scope}:user:{userId}
+ * options.failClosed: when true and Redis fails, return 503 instead of allowing.
  */
 export function rateLimitByUser(
   scope: string,
   limit: number,
-  windowSeconds: number
+  windowSeconds: number,
+  options?: RateLimitOptions
 ): (request: FastifyRequest, reply: FastifyReply) => Promise<void> {
+  const failClosed = options?.failClosed ?? false;
   return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const userId = (request.user as { id?: string } | undefined)?.id;
     if (!userId) {
@@ -97,9 +128,13 @@ export function rateLimitByUser(
       return;
     }
     const key = buildKey(scope, `user:${userId}`);
-    const result = await checkLimit(key, limit, windowSeconds);
+    const result = await checkLimit(key, limit, windowSeconds, failClosed);
     if (!result.allowed) {
-      sendRateLimitExceeded(reply, scope, `user:${userId}`);
+      if (result.unavailable) {
+        sendRateLimitUnavailable(reply);
+      } else {
+        sendRateLimitExceeded(reply, scope, `user:${userId}`);
+      }
       return;
     }
     reply.header('X-RateLimit-Limit', limit);
@@ -119,12 +154,17 @@ export async function enforceAdminRateLimit(
   adminId: string,
   scope: string,
   limit: number,
-  windowSeconds: number
+  windowSeconds: number,
+  options?: RateLimitOptions
 ): Promise<boolean> {
   const key = buildKey(scope, `admin:${adminId}`);
-  const result = await checkLimit(key, limit, windowSeconds);
+  const result = await checkLimit(key, limit, windowSeconds, options?.failClosed ?? false);
   if (!result.allowed) {
-    sendRateLimitExceeded(reply, scope, `admin:${adminId}`);
+    if (result.unavailable) {
+      sendRateLimitUnavailable(reply);
+    } else {
+      sendRateLimitExceeded(reply, scope, `admin:${adminId}`);
+    }
     return false;
   }
   reply.header('X-RateLimit-Limit', limit);

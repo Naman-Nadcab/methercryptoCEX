@@ -27,7 +27,8 @@ function getLockKey(request: FastifyRequest & { authDecision?: Readonly<AuthDeci
   return 'anon';
 }
 
-async function tryAcquireLock(key: string): Promise<boolean> {
+/** Returns: true = lock acquired, false = explicitly denied, null = service unreachable (allow request) */
+async function tryAcquireLock(key: string): Promise<boolean | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), LOCK_TIMEOUT_MS);
   try {
@@ -38,12 +39,12 @@ async function tryAcquireLock(key: string): Promise<boolean> {
       signal: controller.signal,
     });
     clearTimeout(timeout);
-    if (!res.ok) return false;
+    if (!res.ok) return null;
     const data = (await res.json()) as { acquired?: boolean };
     return data.acquired === true;
   } catch {
     clearTimeout(timeout);
-    return false;
+    return null;
   }
 }
 
@@ -55,6 +56,9 @@ async function authLockPlugin(app: FastifyInstance) {
 
     const key = getLockKey(request as FastifyRequest & { authDecision?: Readonly<AuthDecision> });
     const acquired = await tryAcquireLock(key);
+    if (acquired === null) {
+      return;
+    }
     if (!acquired) {
       return reply.status(409).send({
         success: false,

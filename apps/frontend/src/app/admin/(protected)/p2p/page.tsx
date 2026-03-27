@@ -5,6 +5,7 @@ import { useAdminAuthStore } from '@/store/admin-auth';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { Repeat, Loader2, AlertTriangle, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
+import { AdminChartCard, P2PActivityChart, TradeDistributionChart } from '@/components/admin/charts';
 
 interface P2PStats {
   adsStats: {
@@ -144,6 +145,20 @@ export default function P2PPage() {
           </p>
         </Link>
       </div>
+
+      <section>
+        <h2 className="text-xs font-semibold admin-metric-label uppercase tracking-wider mb-3">
+          P2P analytics
+        </h2>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <AdminChartCard title="P2P activity" subtitle="Orders — 7d">
+            <P2PActivityChart />
+          </AdminChartCard>
+          <AdminChartCard title="Order distribution" subtitle="By type — 24h">
+            <TradeDistributionChart />
+          </AdminChartCard>
+        </div>
+      </section>
 
       {/* Dispute Alert */}
       {(data?.disputeStats?.open_disputes || 0) > 0 && (

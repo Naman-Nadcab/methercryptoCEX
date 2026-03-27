@@ -16,9 +16,15 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "e2e": "playwright test",
+    "e2e:smoke": "playwright test e2e/smoke.spec.ts",
+    "e2e:install": "playwright install chromium",
     "e2e:ui": "playwright test --ui",
+    "test:e2e": "tsx e2e/run-e2e.ts",
+    "test:security": "tsx security/run-security-tests.ts",
     "smoke:api": "node scripts/smoke-api.mjs",
     "load": "k6 run load/k6-spot-order.js",
+    "load:health": "k6 run load/k6-health-markets.js",
+    "load:stress": "k6 run load/k6-high-throughput.js",
     "db:migrate": "npm run migrate --workspace=@exchange/backend",
     "db:seed": "npm run seed --workspace=@exchange/backend",
     "docker:up": "(docker compose up -d 2>/dev/null || docker-compose up -d)",
@@ -28,7 +34,9 @@
   "devDependencies": {
     "@playwright/test": "^1.49.0",
     "turbo": "^2.0.0",
-    "typescript": "^5.3.3"
+    "tsx": "^4.6.2",
+    "typescript": "^5.3.3",
+    "ws": "^8.14.2"
   },
   "engines": {
     "node": ">=20.0.0",

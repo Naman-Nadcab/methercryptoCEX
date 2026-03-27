@@ -6,17 +6,17 @@ import { StatusBadge, type StatusBadgeVariant } from './StatusBadge';
 export type MetricWidgetVariant = 'neutral' | 'positive' | 'warning' | 'danger';
 
 const containerVariants: Record<MetricWidgetVariant, string> = {
-  neutral: 'border-border bg-card',
-  positive: 'border-emerald-500/30 bg-emerald-500/5 dark:bg-emerald-500/10',
-  warning: 'border-amber-500/30 bg-amber-500/5 dark:bg-amber-500/10',
-  danger: 'border-red-500/30 bg-red-500/5 dark:bg-red-500/10',
+  neutral: 'admin-card border-[#E5E7EB] rounded-[12px]',
+  positive: 'admin-card border-[#10B981]/30 bg-[#10B981]/5 rounded-[12px]',
+  warning: 'admin-card border-[#F59E0B]/30 bg-[#F59E0B]/5 rounded-[12px]',
+  danger: 'admin-card border-[#EF4444]/30 bg-[#EF4444]/5 rounded-[12px]',
 };
 
 const valueVariants: Record<MetricWidgetVariant, string> = {
-  neutral: 'text-foreground',
-  positive: 'text-emerald-700 dark:text-emerald-400',
-  warning: 'text-amber-700 dark:text-amber-400',
-  danger: 'text-red-700 dark:text-red-400',
+  neutral: 'text-[#111827]',
+  positive: 'text-[#10B981]',
+  warning: 'text-[#F59E0B]',
+  danger: 'text-[#EF4444]',
 };
 
 export interface MetricWidgetProps {
@@ -44,26 +44,26 @@ export function MetricWidget({
 }: MetricWidgetProps) {
   const content = (
     <div
-      className={`rounded-[4px] border p-3 min-h-0 flex flex-col ${containerVariants[variant]} ${href ? 'hover:opacity-95 cursor-pointer' : ''} ${className}`}
+      className={`min-h-0 flex flex-col p-5 ${containerVariants[variant]} ${href ? 'cursor-pointer hover:shadow-md' : ''} transition-all duration-200 ${className}`}
     >
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+          <p className="text-[12px] font-medium text-[#6B7280] uppercase tracking-wider">
             {label}
           </p>
           <p className={`mt-0.5 text-base font-semibold tabular-nums ${valueVariants[variant]}`}>
             {value}
           </p>
           {sublabel !== undefined && sublabel !== '' && (
-            <p className="mt-0.5 text-[11px] text-muted-foreground">
+            <p className="mt-0.5 text-[12px] text-[#6B7280]">
               {sublabel}
             </p>
           )}
         </div>
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
           {statusBadge != null && <StatusBadge variant={statusBadge} />}
           {icon && (
-            <div className="w-7 h-7 rounded-[4px] bg-muted flex items-center justify-center text-muted-foreground">
+            <div className="w-10 h-10 rounded-xl bg-[#F1F5F9] flex items-center justify-center text-[#6B7280]">
               {icon}
             </div>
           )}

@@ -6,7 +6,7 @@ export type Order = {
   id: string;
   market: string;
   side: string;
-  type: string;
+  type?: string;
   price: string | null;
   stop_price?: string | null;
   quantity: string;
@@ -31,9 +31,10 @@ interface UseSpotBottomPanelParams {
   symbol: string;
   isAuth: boolean;
   ordersVersion: number;
+  tradesVersion?: number;
 }
 
-export function useSpotBottomPanel({ symbol, isAuth, ordersVersion }: UseSpotBottomPanelParams) {
+export function useSpotBottomPanel({ symbol, isAuth, ordersVersion, tradesVersion = 0 }: UseSpotBottomPanelParams) {
   const [tab, setTab] = useState<'open' | 'orders' | 'trades' | 'assets'>('open');
   const [openOrders, setOpenOrders] = useState<Order[]>([]);
   const [openLoading, setOpenLoading] = useState(false);
@@ -42,19 +43,22 @@ export function useSpotBottomPanel({ symbol, isAuth, ordersVersion }: UseSpotBot
   const [orderHistoryLoading, setOrderHistoryLoading] = useState(false);
   const [orderHistoryLoadMore, setOrderHistoryLoadMore] = useState(false);
   const [trades, setTrades] = useState<Trade[]>([]);
+  const [tradesPage, setTradesPage] = useState(1);
+  const [tradesTotalPages, setTradesTotalPages] = useState(1);
   const [tradesLoading, setTradesLoading] = useState(false);
+  const [tradesLoadMore, setTradesLoadMore] = useState(false);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [cancellingAll, setCancellingAll] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
 
   const fetchOpen = useCallback(async () => {
     if (!isAuth) return;
     setOpenLoading(true);
     try {
-      const raw = await api.get(`/api/v1/spot/orders?status=OPEN&limit=50`);
-      const res = raw as { success?: boolean; data?: { orders?: Order[] } };
-      if (res.success && res.data?.orders) {
-        setOpenOrders(res.data.orders.filter((o) => !symbol || o.market === symbol));
-      }
+      const raw = await api.get(`/api/v1/spot/orders?status=OPEN&limit=50`, { notifyOnError: false });
+      const res = raw as { success?: boolean; data?: { orders?: Order[] }; orders?: Order[] };
+      const orders = (res.success && (res.data?.orders ?? res.orders)) ? (res.data?.orders ?? res.orders ?? []) : [];
+      setOpenOrders(Array.isArray(orders) ? orders : []);
     } catch {
       setOpenOrders([]);
     } finally {
@@ -68,13 +72,12 @@ export function useSpotBottomPanel({ symbol, isAuth, ordersVersion }: UseSpotBot
     else setOrderHistoryLoading(true);
     try {
       const url = `/api/v1/spot/orders?status=HISTORY&limit=30${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
-      const raw = await api.get(url);
-      const res = raw as { success?: boolean; data?: { orders?: Order[]; next_cursor?: string | null } };
-      if (res.success && res.data?.orders) {
-        const list = res.data.orders.filter((o) => !symbol || o.market === symbol);
-        setOrderHistory((prev) => (append ? [...prev, ...list] : list));
-        setOrderHistoryNext(res.data.next_cursor ?? null);
-      }
+      const raw = await api.get(url, { notifyOnError: false });
+      const res = raw as { success?: boolean; data?: { orders?: Order[]; next_cursor?: string | null }; orders?: Order[] };
+      const orders = (res.success && (res.data?.orders ?? res.orders)) ? (res.data?.orders ?? res.orders ?? []) : [];
+      const list = Array.isArray(orders) ? orders.filter((o) => !symbol || o.market === symbol) : [];
+      setOrderHistory((prev) => (append ? [...prev, ...list] : list));
+      setOrderHistoryNext(res.data?.next_cursor ?? null);
     } catch {
       if (!append) setOrderHistory([]);
     } finally {
@@ -83,31 +86,38 @@ export function useSpotBottomPanel({ symbol, isAuth, ordersVersion }: UseSpotBot
     }
   }, [isAuth, symbol]);
 
-  const fetchTrades = useCallback(async (page: number) => {
+  const fetchTrades = useCallback(async (page: number, append: boolean) => {
     if (!isAuth) return;
-    setTradesLoading(true);
+    if (append) setTradesLoadMore(true);
+    else setTradesLoading(true);
     try {
       const raw = await api.get(
-        `/api/v1/spot/trade-history?page=${page}&limit=30${symbol ? `&market=${encodeURIComponent(symbol)}` : ''}`
+        `/api/v1/spot/trade-history?page=${page}&limit=30${symbol ? `&market=${encodeURIComponent(symbol)}` : ''}`,
+        { notifyOnError: false }
       );
-      const res = raw as { success?: boolean; data?: Trade[] };
+      const res = raw as { success?: boolean; data?: Trade[]; pagination?: { page: number; totalPages: number; total: number } };
       if (res.success && Array.isArray(res.data)) {
-        setTrades(res.data);
-      } else {
+        setTrades((prev) => (append ? [...prev, ...res.data!] : res.data!));
+        if (res.pagination) {
+          setTradesTotalPages(res.pagination.totalPages ?? 1);
+          setTradesPage(append ? page : (res.pagination.page ?? 1));
+        }
+      } else if (!append) {
         setTrades([]);
       }
     } catch {
-      setTrades([]);
+      if (!append) setTrades([]);
     } finally {
-      setTradesLoading(false);
+      if (append) setTradesLoadMore(false);
+      else setTradesLoading(false);
     }
   }, [isAuth, symbol]);
 
   useEffect(() => {
     if (tab === 'open') fetchOpen();
     if (tab === 'orders') fetchOrderHistory(null, false);
-    if (tab === 'trades') fetchTrades(1);
-  }, [tab, symbol, ordersVersion, fetchOpen, fetchOrderHistory, fetchTrades]);
+    if (tab === 'trades') fetchTrades(1, false);
+  }, [tab, symbol, ordersVersion, tradesVersion, fetchOpen, fetchOrderHistory, fetchTrades]);
 
   const handleCancel = useCallback(async (orderId: string) => {
     if (!isAuth || cancellingId) return;
@@ -127,6 +137,34 @@ export function useSpotBottomPanel({ symbol, isAuth, ordersVersion }: UseSpotBot
     }
   }, [isAuth, cancellingId]);
 
+  const handleCancelAll = useCallback(async () => {
+    if (!isAuth || !symbol || cancellingAll) return;
+    const forMarket = openOrders.filter((o) => o.market === symbol);
+    if (forMarket.length === 0) return;
+    setCancelError(null);
+    setCancellingAll(true);
+    try {
+      const res = await api.post('/api/v1/spot/orders/cancel-all', { market: symbol });
+      if (res.success) {
+        setOpenOrders((prev) => prev.filter((o) => o.market !== symbol));
+      } else {
+        setCancelError(getMessageFromApiError(res.error) ?? 'Cancel all failed');
+      }
+    } catch {
+      setCancelError('Connection issue. Try again.');
+    } finally {
+      setCancellingAll(false);
+    }
+  }, [isAuth, symbol, openOrders, cancellingAll]);
+
+  const loadMoreTrades = useCallback(() => {
+    const nextPage = tradesPage + 1;
+    if (nextPage <= tradesTotalPages && !tradesLoadMore) {
+      setTradesPage(nextPage);
+      fetchTrades(nextPage, true);
+    }
+  }, [tradesPage, tradesTotalPages, tradesLoadMore, fetchTrades]);
+
   return {
     tab,
     setTab,
@@ -138,11 +176,19 @@ export function useSpotBottomPanel({ symbol, isAuth, ordersVersion }: UseSpotBot
     orderHistoryLoadMore,
     trades,
     tradesLoading,
+    tradesLoadMore,
+    tradesPage,
+    tradesTotalPages,
+    loadMoreTrades,
     cancellingId,
+    cancellingAll,
     cancelError,
     setCancelError,
+    fetchOpen,
     fetchOrderHistory,
     fetchTrades,
     handleCancel,
+    handleCancelAll,
+    openOrdersForMarket: symbol ? openOrders.filter((o) => o.market === symbol) : openOrders,
   };
 }

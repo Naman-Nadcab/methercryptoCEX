@@ -3,915 +3,334 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Eye, EyeOff, Globe, ChevronDown, Users, DollarSign, Coins, ExternalLink, Shield, Smartphone, Mail, Key, Fingerprint, Loader2 } from 'lucide-react';
+import { ExternalLink, Fingerprint, Loader2 } from 'lucide-react';
 import { useAuthStore, type User } from '@/store/auth';
 import { useAuth } from '@/context/AuthContext';
-import { 
-  getPasskeyAssertion,
-  isPlatformAuthenticatorAvailable,
-  isWebAuthnSupported,
-} from '@/lib/webauthn';
+import { getPasskeyAssertion, isPlatformAuthenticatorAvailable, isWebAuthnSupported } from '@/lib/webauthn';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { consumeOAuthRedirect, getStoredRedirect } from '@/lib/oauth';
+import AuthSplitLayout from '@/components/auth/AuthSplitLayout';
 
-type Step = 'identifier' | 'otp' | 'verification';
-type VerificationStep = 'sms' | 'email' | '2fa';
+type Step = 'identifier' | 'otp';
+const API = getApiBaseUrl();
 
-interface VerificationState {
-  token: string;
-  stepsRequired: VerificationStep[];
-  currentStep: number;
-  nextStep: VerificationStep | null;
-  maskedPhone: string | null;
-  maskedEmail: string | null;
+function toUser(d: Record<string, unknown>): User {
+  const hasEmail = d.email != null && String(d.email).length > 0;
+  const hasPhone = d.phone != null && String(d.phone).length > 0;
+  return {
+    id: String(d.id ?? ''),
+    email: d.email != null ? String(d.email) : null,
+    phone: d.phone != null ? String(d.phone) : null,
+    username: d.username != null ? String(d.username) : null,
+    status: (d.status as User['status']) ?? 'active',
+    emailVerified: Boolean(d.emailVerified ?? d.email_verified ?? hasEmail),
+    phoneVerified: Boolean(d.phoneVerified ?? d.phone_verified ?? hasPhone),
+    tierLevel: Number(d.tierLevel ?? d.tier_level ?? 0),
+  };
 }
 
 export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const resetSuccess = searchParams.get('reset') === 'success';
   const { login } = useAuthStore();
   const { setAuthenticated } = useAuth();
+
   const [step, setStep] = useState<Step>('identifier');
   const [identifier, setIdentifier] = useState('');
-  const [identifierType, setIdentifierType] = useState<'email' | 'phone'>('email');
+  const [type, setType] = useState<'email' | 'phone'>('email');
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
-  const [verificationCode, setVerificationCode] = useState(['', '', '', '', '', '']);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(false); // verifying OTP
+  const [sendingOtp, setSendingOtp] = useState(false); // sending OTP (optimistic)
   const [error, setError] = useState('');
   const [countdown, setCountdown] = useState(0);
-  const [verificationState, setVerificationState] = useState<VerificationState | null>(null);
-  const [passkeysAvailable, setPasskeysAvailable] = useState(false);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
-  
+
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
-  const verificationRefs = useRef<(HTMLInputElement | null)[]>([]);
-  const API_URL = getApiBaseUrl();
+  const formRef = useRef<HTMLFormElement>(null);
+  const lastSubmitted = useRef('');
 
-  /** Log and return user-facing message for login network/response errors. */
-  const getLoginErrorMessage = (err: unknown, context: string): string => {
-    if (err instanceof TypeError && err.message === 'Failed to fetch') {
-      return `Cannot reach server at ${API_URL}. Check NEXT_PUBLIC_API_URL or NEXT_PUBLIC_API_BASE_URL and ensure the backend is running.`;
-    }
-    const msg = err instanceof Error ? err.message : String(err);
-    return msg || 'Network error. Please try again.';
-  };
-
-  // Store redirect for OAuth callback (so OAuth can redirect after login)
   useEffect(() => {
-    const redirect = searchParams.get('redirect');
-    if (redirect && redirect.startsWith('/') && typeof sessionStorage !== 'undefined') {
-      sessionStorage.setItem('oauth_redirect', redirect);
-    }
+    const r = searchParams.get('redirect');
+    if (r?.startsWith('/') && typeof sessionStorage !== 'undefined') sessionStorage.setItem('oauth_redirect', r);
   }, [searchParams]);
 
-  // Countdown timer for OTP resend
   useEffect(() => {
     if (countdown > 0) {
-      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
-      return () => clearTimeout(timer);
+      const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
+      return () => clearTimeout(t);
     }
   }, [countdown]);
 
-  // Check if passkeys are available when identifier changes
+  // Prefetch dashboard when on OTP step for instant navigation after verify
   useEffect(() => {
-    const checkPasskeys = async () => {
-      if (!identifier || identifier.length < 5) {
-        setPasskeysAvailable(false);
+    if (step === 'otp') router.prefetch(getStoredRedirect() || '/dashboard');
+  }, [step, router]);
+
+  useEffect(() => {
+    const code = otp.join('');
+    if (step === 'otp' && code.length === 6 && !loading && !sendingOtp && lastSubmitted.current !== code) {
+      lastSubmitted.current = code;
+      formRef.current?.requestSubmit();
+    }
+    if (step !== 'otp' || code.length < 6) lastSubmitted.current = '';
+  }, [otp, step, loading, sendingOtp]);
+
+  const err = (e: unknown) =>
+    e instanceof TypeError && e.message === 'Failed to fetch'
+      ? 'Server unreachable. Check backend is running.'
+      : String(e instanceof Error ? e.message : e);
+
+  const sendOtp = async () => {
+    setError('');
+    setStep('otp');
+    setCountdown(120);
+    setSendingOtp(true);
+    try {
+      const res = await fetch(`${API}/api/v1/auth/send-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier, type, purpose: 'login' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setStep('identifier');
+        setError(typeof data?.error === 'object' ? data.error?.message : data?.error ?? `Failed (${res.status})`);
         return;
       }
-
-      try {
-        const response = await fetch(`${API_URL}/api/v1/auth/login/check-passkeys`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            [identifierType]: identifier,
-          }),
-        });
-
-        const data = await response.json();
-        setPasskeysAvailable(data.success && data.data?.passkeysEnabled);
-      } catch (err) {
-        console.error('[Login] check-passkeys', err);
-        setPasskeysAvailable(false);
+      if (!data?.success) {
+        setStep('identifier');
+        setError(data?.error?.message ?? 'Failed to send code');
+        return;
       }
-    };
-
-    const debounce = setTimeout(checkPasskeys, 500);
-    return () => clearTimeout(debounce);
-  }, [identifier, identifierType, API_URL]);
-
-  // Format countdown display
-  const formatCountdown = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    } catch (e) {
+      setStep('identifier');
+      setError(err(e));
+    } finally {
+      setSendingOtp(false);
+    }
   };
 
-  // Handle Passkey Login
-  const handlePasskeyLogin = async () => {
-    if (!identifier) {
-      setError('Please enter your email or phone first');
-      return;
-    }
-
+  const passkeyLogin = async () => {
+    if (!identifier) return setError('Enter email or phone first');
     setPasskeyLoading(true);
     setError('');
-
     try {
-      // Check WebAuthn support
-      if (!isWebAuthnSupported()) {
-        setError('WebAuthn is not supported in this browser. Please use Chrome or Safari.');
-        setPasskeyLoading(false);
-        return;
-      }
-      
-      // Check platform authenticator
-      const platformAvailable = await isPlatformAuthenticatorAvailable();
-      if (!platformAvailable) {
-        setError('Touch ID / Face ID is not available on this device.');
-        setPasskeyLoading(false);
-        return;
-      }
+      if (!isWebAuthnSupported()) return setError('Use Chrome or Safari');
+      if (!(await isPlatformAuthenticatorAvailable())) return setError('Touch ID / Face ID not available');
 
-      // Step 1: Get authentication options from server
-      const optionsResponse = await fetch(`${API_URL}/api/v1/auth/passkey/authenticate/options`, {
+      const optRes = await fetch(`${API}/api/v1/auth/passkey/authenticate/options`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ [identifierType]: identifier }),
+        body: JSON.stringify({ [type]: identifier }),
       });
-
-      const optionsData = await optionsResponse.json();
-
-      if (!optionsData.success) {
-        setError(optionsData.error?.message || 'Passkeys not enabled for this account');
-        setPasskeyLoading(false);
+      const optData = await optRes.json();
+      if (!optRes.ok || !optData?.data?.allowCredentials?.length) {
+        setError(optData?.error?.message ?? 'Passkey not available');
         return;
       }
 
-      // Validate allowCredentials is present
-      if (!optionsData.data.allowCredentials || optionsData.data.allowCredentials.length === 0) {
-        setError('No passkeys found for this account');
-        setPasskeyLoading(false);
-        return;
-      }
-
-      console.log('[Passkey] Authentication options received, credentials:', optionsData.data.allowCredentials.length);
-
-      // Step 2: Get passkey assertion using NATIVE WebAuthn API
-      // This should NEVER show QR code for same-device authentication
-      const result = await getPasskeyAssertion(optionsData.data);
-
+      const result = await getPasskeyAssertion(optData.data);
       if (!result.success) {
-        setError(result.error?.message || 'Passkey authentication failed');
-        setPasskeyLoading(false);
+        setError(result.error?.message ?? 'Passkey failed');
         return;
       }
 
-      console.log('[Passkey] Assertion received, verifying with server');
-
-      // Step 3: Verify with server
-      const verifyResponse = await fetch(`${API_URL}/api/v1/auth/passkey/authenticate/verify`, {
+      const verifyRes = await fetch(`${API}/api/v1/auth/passkey/authenticate/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          credential: result.credential,
-          challenge: optionsData.data.challenge,
-        }),
+        body: JSON.stringify({ credential: result.credential, challenge: optData.data.challenge }),
       });
-
-      const verifyData = await verifyResponse.json();
-
-      if (verifyData.success) {
-        const user = verifyData.data.user as User;
-        login(user, verifyData.data.accessToken, verifyData.data.refreshToken);
-        setAuthenticated(user);
-        router.push('/dashboard');
-      } else {
-        setError(verifyData.error?.message || 'Passkey verification failed');
+      const verifyData = await verifyRes.json();
+      if (!verifyRes.ok || !verifyData?.data?.user) {
+        setError(verifyData?.error?.message ?? 'Verification failed');
+        return;
       }
-    } catch (err) {
-      console.error('[Login] passkey', err);
-      setError(getLoginErrorMessage(err, 'passkey'));
+
+      const { user: u, accessToken, refreshToken } = verifyData.data;
+      if (u && accessToken && refreshToken) {
+        login(toUser(u), accessToken, refreshToken);
+        setAuthenticated(toUser(u));
+        router.push(consumeOAuthRedirect() || '/dashboard');
+      }
+    } catch (e) {
+      setError(err(e));
     } finally {
       setPasskeyLoading(false);
     }
   };
 
-  // Handle email/phone submission
-  const handleIdentifierSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const verifyOtp = async (code: string) => {
     setLoading(true);
     setError('');
-
     try {
-      const response = await fetch(`${API_URL}/api/v1/auth/send-otp`, {
+      const res = await fetch(`${API}/api/v1/auth/verify-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          identifier,
-          type: identifierType,
-          purpose: 'login',
-        }),
+        body: JSON.stringify({ identifier, otp: code, type, purpose: 'login' }),
       });
-
-      const raw = await response.text();
-      if (!response.ok) {
-        console.error('[Login] send-otp failed', response.status, response.statusText, raw);
-        try {
-          const data = JSON.parse(raw);
-          setError(data.error?.message || `Request failed (${response.status})`);
-        } catch {
-          setError(`Request failed (${response.status}). ${raw.slice(0, 80)}`);
-        }
+      const data = await res.json().catch(() => ({}));
+      const errMsg = typeof data?.error === 'string' ? data.error : data?.error?.message;
+      if (!res.ok) {
+        setError(errMsg ?? `Verification failed (${res.status})`);
         return;
       }
-
-      const data = JSON.parse(raw);
-      if (data.success) {
-        setStep('otp');
-        setCountdown(120);
-      } else {
-        setError(data.error?.message || 'Failed to send verification code');
-      }
-    } catch (err) {
-      console.error('[Login] send-otp', err);
-      setError(getLoginErrorMessage(err, 'send-otp'));
+      if (data?.success && data?.data?.user && data?.data?.accessToken && data?.data?.refreshToken) {
+        const user = toUser(data.data.user);
+        login(user, data.data.accessToken, data.data.refreshToken);
+        setAuthenticated(user);
+        router.replace(consumeOAuthRedirect() || '/dashboard');
+      } else setError('Verification failed');
+    } catch (e) {
+      setError(err(e));
     } finally {
       setLoading(false);
     }
   };
 
-  // Handle OTP input
-  const handleOtpChange = (index: number, value: string, refs: React.MutableRefObject<(HTMLInputElement | null)[]>, setState: React.Dispatch<React.SetStateAction<string[]>>) => {
-    if (value.length > 1) {
-      const digits = value.replace(/\D/g, '').slice(0, 6).split('');
-      setState(prev => {
-        const newOtp = [...prev];
-        digits.forEach((digit, i) => {
-          if (index + i < 6) {
-            newOtp[index + i] = digit;
-          }
-        });
-        return newOtp;
+  const handleOtpChange = (i: number, v: string) => {
+    if (v.length > 1) {
+      const digits = v.replace(/\D/g, '').slice(0, 6).split('');
+      setOtp((p) => {
+        const n = [...p];
+        digits.forEach((d, j) => { if (i + j < 6) n[i + j] = d; });
+        return n;
       });
-      const nextIndex = Math.min(index + digits.length, 5);
-      refs.current[nextIndex]?.focus();
+      otpRefs.current[Math.min(i + digits.length, 5)]?.focus();
     } else {
-      setState(prev => {
-        const newOtp = [...prev];
-        newOtp[index] = value.replace(/\D/g, '');
-        return newOtp;
-      });
-      
-      if (value && index < 5) {
-        refs.current[index + 1]?.focus();
-      }
+      setOtp((p) => { const n = [...p]; n[i] = v.replace(/\D/g, ''); return n; });
+      if (v && i < 5) otpRefs.current[i + 1]?.focus();
     }
   };
 
-  const handleOtpKeyDown = (index: number, e: React.KeyboardEvent, refs: React.MutableRefObject<(HTMLInputElement | null)[]>, state: string[]) => {
-    if (e.key === 'Backspace' && !state[index] && index > 0) {
-      refs.current[index - 1]?.focus();
-    }
-  };
-
-  // Handle OTP verification and login
-  const handleOtpSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const otpCode = otp.join('');
-    if (otpCode.length !== 6) {
-      setError('Please enter a valid 6-digit code');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-
-    try {
-      const response = await fetch(`${API_URL}/api/v1/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          [identifierType]: identifier,
-          otp: otpCode,
-        }),
-      });
-
-      const raw = await response.text();
-      if (!response.ok) {
-        console.error('[Login] login failed', response.status, response.statusText, raw);
-        try {
-          const parsed = JSON.parse(raw);
-          setError(parsed.error?.message || `Login failed (${response.status})`);
-        } catch {
-          setError(`Login failed (${response.status}). ${raw.slice(0, 80)}`);
-        }
-        return;
-      }
-
-      let data: { success?: boolean; data?: { requiresVerification?: boolean; user?: unknown; accessToken?: string; refreshToken?: string; verificationToken?: string; stepsRequired?: string[]; currentStep?: number; nextStep?: string; maskedPhone?: string | null; maskedEmail?: string | null }; error?: { message?: string } };
-      try {
-        data = JSON.parse(raw);
-      } catch {
-        console.error('[Login] login invalid JSON', raw.slice(0, 200));
-        setError('Invalid response from server. Please try again.');
-        return;
-      }
-
-      if (data.success && data.data) {
-        if (data.data.requiresVerification) {
-          // Multi-step verification required
-          setVerificationState({
-            token: data.data.verificationToken!,
-            stepsRequired: (data.data.stepsRequired ?? []) as VerificationStep[],
-            currentStep: data.data.currentStep ?? 0,
-            nextStep: (data.data.nextStep ?? null) as VerificationStep | null,
-            maskedPhone: data.data.maskedPhone ?? null,
-            maskedEmail: data.data.maskedEmail ?? null,
-          });
-          setStep('verification');
-          setVerificationCode(['', '', '', '', '', '']);
-          setCountdown(120);
-        } else if (data.data.user && data.data.accessToken && data.data.refreshToken) {
-          // No additional verification needed
-          const user = data.data.user as User;
-          login(user, data.data.accessToken, data.data.refreshToken);
-          setAuthenticated(user);
-          router.push('/dashboard');
-        } else {
-          setError('Invalid login response. Please try again.');
-        }
-      } else {
-        setError(data.error?.message || 'Login failed');
-      }
-    } catch (err) {
-      console.error('[Login] login', err);
-      setError(getLoginErrorMessage(err, 'login'));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Handle verification step
-  const handleVerificationSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const code = verificationCode.join('');
-    if (code.length !== 6) {
-      setError('Please enter a valid 6-digit code');
-      return;
-    }
-
-    if (!verificationState) return;
-
-    setLoading(true);
-    setError('');
-
-    try {
-      const response = await fetch(`${API_URL}/api/v1/auth/login/verify-step`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          verificationToken: verificationState.token,
-          step: verificationState.nextStep,
-          code,
-        }),
-      });
-
-      const raw = await response.text();
-      if (!response.ok) {
-        console.error('[Login] verify-step failed', response.status, response.statusText, raw);
-        try {
-          const parsed = JSON.parse(raw);
-          setError(parsed.error?.message || `Verification failed (${response.status})`);
-        } catch {
-          setError(`Verification failed (${response.status}). ${raw.slice(0, 80)}`);
-        }
-        return;
-      }
-
-      const data = JSON.parse(raw);
-      if (data.success) {
-        if (data.data.allStepsCompleted) {
-          // All steps completed, login successful
-          const user = data.data.user as User;
-          login(user, data.data.accessToken, data.data.refreshToken);
-          setAuthenticated(user);
-          router.push('/dashboard');
-        } else {
-          // Move to next step
-          setVerificationState(prev => prev ? {
-            ...prev,
-            currentStep: prev.currentStep + 1,
-            nextStep: data.data.nextStep,
-          } : null);
-          setVerificationCode(['', '', '', '', '', '']);
-          setCountdown(120);
-        }
-      } else {
-        setError(data.error?.message || 'Verification failed');
-      }
-    } catch (err) {
-      console.error('[Login] verify-step', err);
-      setError(getLoginErrorMessage(err, 'verify-step'));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Resend OTP
-  const handleResendOtp = async () => {
+  const resend = async () => {
     if (countdown > 0) return;
-
-    setLoading(true);
+    setSendingOtp(true);
     setError('');
-
     try {
-      let response;
-      
-      if (step === 'otp') {
-        // Resend initial OTP
-        response = await fetch(`${API_URL}/api/v1/auth/send-otp`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            identifier,
-            type: identifierType,
-            purpose: 'login',
-          }),
-        });
-      } else if (step === 'verification' && verificationState) {
-        // Resend verification OTP
-        response = await fetch(`${API_URL}/api/v1/auth/login/resend-otp`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            verificationToken: verificationState.token,
-            step: verificationState.nextStep,
-          }),
-        });
-      }
-
-      if (response) {
-        const raw = await response.text();
-        if (!response.ok) {
-          console.error('[Login] resend failed', response.status, response.statusText, raw);
-          try {
-            const parsed = JSON.parse(raw);
-            setError(parsed.error?.message || `Resend failed (${response.status})`);
-          } catch {
-            setError(`Resend failed (${response.status}). ${raw.slice(0, 80)}`);
-          }
-          return;
-        }
-        const data = JSON.parse(raw);
-        if (data.success) {
-          setCountdown(120);
-          if (step === 'otp') {
-            setOtp(['', '', '', '', '', '']);
-          } else {
-            setVerificationCode(['', '', '', '', '', '']);
-          }
-        } else {
-          setError(data.error?.message || 'Failed to resend code');
-        }
-      }
-    } catch (err) {
-      console.error('[Login] resend', err);
-      setError(getLoginErrorMessage(err, 'resend'));
+      const res = await fetch(`${API}/api/v1/auth/send-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier, type, purpose: 'login' }),
+      });
+      const data = await res.json();
+      if (res.ok && data?.success) {
+        setCountdown(120);
+        setOtp(['', '', '', '', '', '']);
+      } else setError(data?.error?.message ?? 'Resend failed');
+    } catch (e) {
+      setError(err(e));
     } finally {
-      setLoading(false);
+      setSendingOtp(false);
     }
   };
 
-  // Get step icon and title
-  const getVerificationStepInfo = (stepType: VerificationStep | null) => {
-    switch (stepType) {
-      case 'sms':
-        return { icon: Smartphone, title: 'SMS Verification', description: 'Enter the code sent to your phone' };
-      case 'email':
-        return { icon: Mail, title: 'Email Verification', description: 'Enter the code sent to your email' };
-      case '2fa':
-        return { icon: Shield, title: 'Two-Factor Authentication', description: 'Enter your authenticator code' };
-      default:
-        return { icon: Key, title: 'Verification', description: 'Complete verification to continue' };
-    }
-  };
+  const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
   return (
-    <div className="min-h-screen flex">
-      {/* Left Side - P2P Banner */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-b from-gray-900 via-gray-900 to-blue-900/30 p-12 flex-col justify-between">
-        <div>
-          <Link href="/" className="text-2xl font-bold text-white">
-            <span className="bg-blue-500 text-white px-2 py-1 rounded mr-1">M</span>
-            Methereum
-          </Link>
+    <AuthSplitLayout>
+      {searchParams.get('reset') === 'success' && (
+        <div className="p-3 mb-5 rounded-xl bg-emerald-500/10 dark:bg-emerald-500/20 border border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-sm">
+          Password reset successful. Log in with your new password.
         </div>
+      )}
 
-        <div className="flex-1 flex flex-col justify-center">
-          <h1 className="text-4xl lg:text-5xl font-light text-blue-400 mb-16">
-            Buy & sell directly with Methereum P2P
-          </h1>
-
-          <div className="grid grid-cols-3 gap-8">
-            <div>
-              <div className="w-12 h-12 rounded-full bg-gray-800 flex items-center justify-center mb-4">
-                <DollarSign className="w-6 h-6 text-blue-400" />
-              </div>
-              <h3 className="text-white font-medium mb-1">Supported fiat</h3>
-              <p className="text-4xl font-bold text-white mb-4">60+</p>
-              <div className="text-gray-400 text-sm space-y-1">
-                <p>40+ Countries</p>
-                <p>100+ Payment methods</p>
-              </div>
-            </div>
-
-            <div>
-              <div className="w-12 h-12 rounded-full bg-gray-800 flex items-center justify-center mb-4">
-                <Users className="w-6 h-6 text-blue-400" />
-              </div>
-              <h3 className="text-white font-medium mb-1">Fee</h3>
-              <p className="text-4xl font-bold text-white mb-4">0</p>
-              <div className="text-gray-400 text-sm space-y-1">
-                <p>0 Transaction fee</p>
-                <p>0 Platform fee</p>
-              </div>
-            </div>
-
-            <div>
-              <div className="w-12 h-12 rounded-full bg-gray-800 flex items-center justify-center mb-4">
-                <Coins className="w-6 h-6 text-blue-400" />
-              </div>
-              <h3 className="text-white font-medium mb-1">Cryptos</h3>
-              <p className="text-4xl font-bold text-white mb-4">300+</p>
-              <div className="text-gray-400 text-sm space-y-1">
-                <p>10k+ Advertisements</p>
-                <p>100k+ Daily orders</p>
-              </div>
-            </div>
+      {step === 'identifier' && (
+        <form onSubmit={(e) => { e.preventDefault(); sendOtp(); }} className="space-y-6">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Welcome back</h1>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Enter your email or mobile to continue</p>
           </div>
-        </div>
 
-        <div className="text-gray-500 text-sm">
-          © 2018-2026 Methereum.com. All rights reserved.
-        </div>
-      </div>
-
-      {/* Right Side - Form */}
-      <div className="flex-1 flex flex-col bg-white">
-        {/* Header */}
-        <div className="flex items-center justify-between p-6">
-          <Link href="/" className="text-2xl font-bold text-gray-900 lg:hidden">
-            <span className="bg-blue-500 text-white px-2 py-1 rounded mr-1">M</span>
-            Methereum
-          </Link>
-          <div className="lg:ml-auto">
-            <button className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
-              <Globe className="w-5 h-5" />
-            </button>
+          {/* Type tabs */}
+          <div className="flex p-1 rounded-xl bg-gray-100 dark:bg-gray-800/80">
+            <button type="button" onClick={() => setType('email')} className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${type === 'email' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'}`}>Email</button>
+            <button type="button" onClick={() => setType('phone')} className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${type === 'phone' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'}`}>Mobile</button>
           </div>
-        </div>
 
-        {/* Form Content */}
-        <div className="flex-1 flex items-center justify-center p-6">
-          <div className="w-full max-w-md">
-            {/* Step 1: Email/Phone Input */}
-            {step === 'identifier' && (
-              <form onSubmit={handleIdentifierSubmit} className="space-y-6">
-                {resetSuccess && (
-                  <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-green-800 dark:text-green-200 text-sm">
-                    Password reset successful. You can now log in with your new password.
-                  </div>
-                )}
-                <div>
-                  <h1 className="text-2xl font-bold text-gray-900 mb-2">Log in to Methereum</h1>
-                  <p className="text-gray-500">Enter your email or phone number</p>
-                </div>
+          <div>
+            <input
+              type={type === 'email' ? 'email' : 'tel'}
+              inputMode={type === 'phone' ? 'numeric' : undefined}
+              value={identifier}
+              onChange={(e) => setIdentifier(type === 'phone' ? e.target.value.replace(/\D/g, '').slice(0, 15) : e.target.value)}
+              placeholder={type === 'email' ? 'Email address' : 'Phone number'}
+              aria-label={type === 'email' ? 'Email address' : 'Phone number'}
+              className="w-full px-4 py-3.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/50 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-shadow"
+              required
+            />
+          </div>
 
-                {/* Tab Switch */}
-                <div className="flex border-b border-gray-200">
-                  <button
-                    type="button"
-                    onClick={() => setIdentifierType('email')}
-                    className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${
-                      identifierType === 'email'
-                        ? 'text-gray-900 border-gray-900'
-                        : 'text-gray-500 border-transparent hover:text-gray-700'
-                    }`}
-                  >
-                    Email
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIdentifierType('phone')}
-                    className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${
-                      identifierType === 'phone'
-                        ? 'text-gray-900 border-gray-900'
-                        : 'text-gray-500 border-transparent hover:text-gray-700'
-                    }`}
-                  >
-                    Mobile
-                  </button>
-                </div>
-
-                {/* Input Field */}
-                <div>
-                  <label htmlFor="login-identifier" className="sr-only">
-                    {identifierType === 'email' ? 'Email address' : 'Mobile number'}
-                  </label>
-                  <input
-                    id="login-identifier"
-                    type={identifierType === 'email' ? 'email' : 'tel'}
-                    inputMode={identifierType === 'phone' ? 'numeric' : undefined}
-                    pattern={identifierType === 'phone' ? '[0-9]*' : undefined}
-                    value={identifier}
-                    onChange={(e) => {
-                      if (identifierType === 'phone') {
-                        setIdentifier(e.target.value.replace(/\D/g, '').slice(0, 15));
-                      } else {
-                        setIdentifier(e.target.value);
-                      }
-                    }}
-                    placeholder={identifierType === 'email' ? 'Email address' : 'Mobile number'}
-                    aria-label={identifierType === 'email' ? 'Email address' : 'Mobile number'}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-gray-900"
-                    required
-                  />
-                </div>
-
-                {/* Passkey Login Option */}
-                {passkeysAvailable && (
-                  <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl border-2 border-blue-300 dark:border-blue-700">
-                    <div className="flex flex-col gap-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-500 rounded-xl flex items-center justify-center shadow-lg">
-                          <Fingerprint className="w-6 h-6 text-white" />
-                        </div>
-                        <div className="flex-1">
-                          <p className="text-sm font-semibold text-blue-900 dark:text-blue-100">Touch ID / Face ID Available</p>
-                          <p className="text-xs text-blue-700 dark:text-blue-300">Login instantly with biometrics</p>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          handlePasskeyLogin();
-                        }}
-                        disabled={passkeyLoading || loading}
-                        className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                      >
-                        {passkeyLoading ? (
-                          <>
-                            <Loader2 className="w-5 h-5 animate-spin" />
-                            Authenticating...
-                          </>
-                        ) : (
-                          <>
-                            <Fingerprint className="w-5 h-5" />
-                            Login with Passkey
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {error && (
-                  <p className="text-red-500 text-sm">{error}</p>
-                )}
-
-                {passkeysAvailable && (
-                  <div className="flex items-center gap-3 text-gray-400 text-sm">
-                    <div className="flex-1 h-px bg-gray-300 dark:bg-gray-700" />
-                    <span>or continue with OTP</span>
-                    <div className="flex-1 h-px bg-gray-300 dark:bg-gray-700" />
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={loading || passkeyLoading || !identifier}
-                  aria-label={loading ? 'Sending verification code' : 'Continue with OTP'}
-                  className="w-full py-3 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-900 dark:text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {loading ? 'Sending...' : 'Continue with OTP'}
+          {identifier.length >= 5 && (
+            <>
+              <div className="rounded-xl p-4 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 border border-blue-200/50 dark:border-blue-700/30">
+                <button type="button" onClick={passkeyLogin} disabled={passkeyLoading || loading} className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold flex items-center justify-center gap-2 disabled:opacity-60 transition-all shadow-lg shadow-blue-500/20">
+                  {passkeyLoading ? <><Loader2 className="w-5 h-5 animate-spin" aria-hidden /> Authenticating</> : <><Fingerprint className="w-5 h-5" aria-hidden /> Login with Passkey</>}
                 </button>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+                <span className="text-xs text-gray-400 dark:text-gray-500 font-medium">or continue with OTP</span>
+                <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+              </div>
+            </>
+          )}
 
-                <p className="text-center text-sm text-gray-500">
-                  <Link href="/forgot-password" className="text-blue-500 hover:underline font-medium">
-                    Forgot password?
-                  </Link>
-                </p>
+          {error && <p className="text-red-500 dark:text-red-400 text-sm rounded-lg bg-red-50 dark:bg-red-950/30 px-3 py-2" role="alert">{error}</p>}
 
-                <p className="text-center text-sm text-gray-500">
-                  Don't have an account?{' '}
-                  <Link href="/signup" className="text-blue-500 hover:underline font-medium">
-                    Sign up
-                  </Link>
-                </p>
-              </form>
-            )}
+          <button type="submit" disabled={sendingOtp || !identifier.trim()} className="w-full py-3.5 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-semibold hover:bg-gray-800 dark:hover:bg-gray-100 disabled:opacity-50 transition-colors">
+            {sendingOtp ? <span className="inline-flex items-center gap-2"><Loader2 className="w-5 h-5 animate-spin" aria-hidden /> Sending code…</span> : 'Continue with OTP'}
+          </button>
 
-            {/* Step 2: OTP Verification */}
-            {step === 'otp' && (
-              <form onSubmit={handleOtpSubmit} className="space-y-6">
-                <div>
-                  <h1 className="text-2xl font-bold text-gray-900 mb-2">Verify your {identifierType}</h1>
-                  <p className="text-gray-500">
-                    A 6-digit code has been sent to:
-                  </p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-gray-900 font-medium">{identifier}</span>
-                    <button
-                      type="button"
-                      onClick={() => setStep('identifier')}
-                      className="text-blue-500 hover:text-blue-700 text-sm flex items-center gap-1"
-                    >
-                      <ExternalLink className="w-3 h-3" />
-                      Modify
-                    </button>
-                  </div>
-                  <p className="text-sm text-gray-500 mt-2">
-                    Your verification code is valid for five (5) minutes.
-                  </p>
-                </div>
+          <p className="text-center text-sm text-gray-500 dark:text-gray-400">
+            <Link href="/forgot-password" className="text-blue-500 dark:text-blue-400 hover:underline font-medium">Forgot password?</Link>
+            {' · '}
+            <Link href="/signup" className="text-blue-500 dark:text-blue-400 hover:underline font-medium">Sign up</Link>
+          </p>
+        </form>
+      )}
 
-                {/* OTP Input Boxes */}
-                <div className="flex gap-3 justify-center" role="group" aria-label="Verification code (6 digits)">
-                  {otp.map((digit, index) => (
-                    <input
-                      key={index}
-                      ref={(el) => { otpRefs.current[index] = el; }}
-                      type="text"
-                      inputMode="numeric"
-                      maxLength={6}
-                      value={digit}
-                      onChange={(e) => handleOtpChange(index, e.target.value, otpRefs, setOtp)}
-                      onKeyDown={(e) => handleOtpKeyDown(index, e, otpRefs, otp)}
-                      aria-label={`Digit ${index + 1} of 6`}
-                      className="w-12 h-14 text-center text-xl font-bold border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-gray-900"
-                    />
-                  ))}
-                </div>
-
-                {error && (
-                  <p className="text-red-500 text-sm text-center">{error}</p>
-                )}
-
-                {/* Resend Section */}
-                <div className="flex items-center justify-between text-sm">
-                  <button
-                    type="button"
-                    onClick={handleResendOtp}
-                    disabled={countdown > 0}
-                    className={`flex items-center gap-1 ${
-                      countdown > 0 ? 'text-gray-400 cursor-not-allowed' : 'text-blue-500 hover:text-blue-700'
-                    }`}
-                  >
-                    <span className="text-blue-500">⏱</span>
-                    Didn't receive {identifierType === 'email' ? 'email' : 'SMS'}
-                  </button>
-                  <span className={countdown > 0 ? 'text-gray-400' : 'text-blue-500'}>
-                    {countdown > 0 ? formatCountdown(countdown) : ''} {countdown === 0 && 'Resend'}
-                  </span>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={loading || otp.join('').length !== 6}
-                  aria-label={loading ? 'Verifying code' : 'Submit verification code'}
-                  className="w-full py-3 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {loading ? 'Verifying...' : 'Continue'}
-                </button>
-              </form>
-            )}
-
-            {/* Step 3: Additional Verification */}
-            {step === 'verification' && verificationState && (
-              <form onSubmit={handleVerificationSubmit} className="space-y-6">
-                {(() => {
-                  const stepInfo = getVerificationStepInfo(verificationState.nextStep);
-                  const StepIcon = stepInfo.icon;
-                  return (
-                    <>
-                      {/* Progress indicator */}
-                      <div className="flex items-center justify-center gap-2 mb-4">
-                        {verificationState.stepsRequired.map((s, i) => (
-                          <div
-                            key={s}
-                            className={`w-3 h-3 rounded-full ${
-                              i < verificationState.currentStep
-                                ? 'bg-green-500'
-                                : i === verificationState.currentStep
-                                ? 'bg-blue-500'
-                                : 'bg-gray-300'
-                            }`}
-                          />
-                        ))}
-                      </div>
-
-                      <div className="text-center">
-                        <div className="w-16 h-16 mx-auto mb-4 bg-blue-100 rounded-full flex items-center justify-center">
-                          <StepIcon className="w-8 h-8 text-blue-600" />
-                        </div>
-                        <h1 className="text-2xl font-bold text-gray-900 mb-2">{stepInfo.title}</h1>
-                        <p className="text-gray-500">{stepInfo.description}</p>
-                        
-                        {verificationState.nextStep === 'sms' && verificationState.maskedPhone && (
-                          <p className="text-gray-700 font-medium mt-2">{verificationState.maskedPhone}</p>
-                        )}
-                        {verificationState.nextStep === 'email' && verificationState.maskedEmail && (
-                          <p className="text-gray-700 font-medium mt-2">{verificationState.maskedEmail}</p>
-                        )}
-                      </div>
-
-                      {/* Verification Code Input */}
-                      <div className="flex gap-3 justify-center" role="group" aria-label="Verification code (6 digits)">
-                        {verificationCode.map((digit, index) => (
-                          <input
-                            key={index}
-                            ref={(el) => { verificationRefs.current[index] = el; }}
-                            type="text"
-                            inputMode="numeric"
-                            maxLength={6}
-                            value={digit}
-                            onChange={(e) => handleOtpChange(index, e.target.value, verificationRefs, setVerificationCode)}
-                            onKeyDown={(e) => handleOtpKeyDown(index, e, verificationRefs, verificationCode)}
-                            aria-label={`Digit ${index + 1} of 6`}
-                            className="w-12 h-14 text-center text-xl font-bold border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-gray-900"
-                          />
-                        ))}
-                      </div>
-
-                      {error && (
-                        <p className="text-red-500 text-sm text-center">{error}</p>
-                      )}
-
-                      {/* Resend for SMS/Email only */}
-                      {verificationState.nextStep !== '2fa' && (
-                        <div className="flex items-center justify-between text-sm">
-                          <button
-                            type="button"
-                            onClick={handleResendOtp}
-                            disabled={countdown > 0}
-                            className={`flex items-center gap-1 ${
-                              countdown > 0 ? 'text-gray-400 cursor-not-allowed' : 'text-blue-500 hover:text-blue-700'
-                            }`}
-                          >
-                            <span className="text-blue-500">⏱</span>
-                            Didn't receive code
-                          </button>
-                          <span className={countdown > 0 ? 'text-gray-400' : 'text-blue-500'}>
-                            {countdown > 0 ? formatCountdown(countdown) : ''} {countdown === 0 && 'Resend'}
-                          </span>
-                        </div>
-                      )}
-
-                      {verificationState.nextStep === '2fa' && (
-                        <p className="text-sm text-gray-500 text-center">
-                          Open your authenticator app and enter the 6-digit code
-                        </p>
-                      )}
-
-                      <button
-                        type="submit"
-                        disabled={loading || verificationCode.join('').length !== 6}
-                        className="w-full py-3 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {loading ? 'Verifying...' : 'Verify & Continue'}
-                      </button>
-
-                      {/* Steps remaining info */}
-                      {verificationState.stepsRequired.length > 1 && (
-                        <p className="text-xs text-gray-400 text-center">
-                          Step {verificationState.currentStep + 1} of {verificationState.stepsRequired.length}
-                        </p>
-                      )}
-                    </>
-                  );
-                })()}
-              </form>
-            )}
-          </div>
-        </div>
-
-        {/* Cookie Banner */}
-        <div className="p-4 bg-gray-50 border-t border-gray-200">
-          <div className="flex items-center justify-between max-w-4xl mx-auto">
-            <p className="text-xs text-gray-500">
-              This website uses cookies to improve mobile app functionality and your in-app experiences. 
-              You may review our <Link href="/cookies" className="text-blue-500 hover:underline">Cookie Policy</Link> and accept the default setting.
+      {step === 'otp' && (
+        <form ref={formRef} onSubmit={(e) => { e.preventDefault(); verifyOtp(otp.join('')); }} className="space-y-6">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Enter verification code</h1>
+            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+              We sent a 6-digit code to <strong className="text-gray-700 dark:text-gray-300">{identifier}</strong>
+              <button type="button" onClick={() => setStep('identifier')} className="ml-2 text-blue-500 dark:text-blue-400 hover:underline inline-flex items-center gap-1 font-medium" aria-label="Change email or phone"><ExternalLink className="w-3.5 h-3.5" /> Change</button>
             </p>
-            <button className="ml-4 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 whitespace-nowrap">
-              Accept All
-            </button>
           </div>
-        </div>
-      </div>
-    </div>
+
+          {/* Connected OTP inputs - Tier 1 style */}
+          <div className="flex gap-1.5 justify-center">
+            {otp.map((d, i) => (
+              <input
+                key={i}
+                ref={(el) => { otpRefs.current[i] = el; }}
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                value={d}
+                onChange={(e) => handleOtpChange(i, e.target.value)}
+                onKeyDown={(e) => e.key === 'Backspace' && !otp[i] && i > 0 && otpRefs.current[i - 1]?.focus()}
+                aria-label={`Digit ${i + 1} of 6`}
+                className="w-11 h-14 sm:w-12 sm:h-14 text-center text-xl font-bold rounded-lg border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/50 text-gray-900 dark:text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+              />
+            ))}
+          </div>
+
+          {error && <p className="text-red-500 dark:text-red-400 text-sm text-center rounded-lg bg-red-50 dark:bg-red-950/30 px-3 py-2" role="alert">{error}</p>}
+
+          <div className="flex justify-between items-center text-sm">
+            <button type="button" onClick={resend} disabled={countdown > 0} className={countdown > 0 ? 'text-gray-400 dark:text-gray-500 cursor-not-allowed' : 'text-blue-500 dark:text-blue-400 hover:underline font-medium'}>
+              Resend code
+            </button>
+            {countdown > 0 && <span className="text-gray-500 dark:text-gray-400 tabular-nums">{fmt(countdown)}</span>}
+          </div>
+
+          <button type="submit" disabled={loading || otp.join('').length !== 6} className="w-full py-3.5 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-semibold disabled:opacity-50 transition-colors">
+            {loading ? <span className="inline-flex items-center gap-2"><Loader2 className="w-5 h-5 animate-spin" aria-hidden /> Verifying…</span> : 'Verify & continue'}
+          </button>
+        </form>
+      )}
+    </AuthSplitLayout>
   );
 }

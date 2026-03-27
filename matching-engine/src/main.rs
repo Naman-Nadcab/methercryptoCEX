@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 mod engine;
 mod orderbook;
+mod recovery;
 mod types;
 
 #[derive(Debug, Deserialize)]
@@ -27,6 +28,7 @@ struct SnapshotQuery {
 #[derive(Debug, Deserialize)]
 struct MatchesQuery {
     since: Option<String>,
+    after_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -45,14 +47,44 @@ struct SnapshotResponse {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+struct EngineMatchEventDto {
+    event_id: usize,
+    symbol: String,
+    price: String,
+    qty: String,
+    taker_order_id: String,
+    maker_order_id: String,
+    taker_user_id: String,
+    maker_user_id: String,
+    taker_side: String,
+    timestamp: u64,
+}
+
+#[derive(Debug, Serialize)]
 struct MatchesResponse {
-    events: Vec<crate::types::MatchEvent>,
-    next_index: usize,
+    last_id: usize,
+    events: Vec<EngineMatchEventDto>,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let engine = Arc::new(Engine::new());
+
+    // Tier-1: restart-safe orderbook recovery from backend
+    let backend_url = std::env::var("ENGINE_BACKEND_URL").ok();
+    if let Some(ref url) = backend_url {
+        let secret = std::env::var("ENGINE_INTERNAL_SECRET").ok();
+        match recovery::rebuild_orderbook_from_backend(&engine, url, secret.as_deref()).await {
+            Ok(()) => eprintln!("[engine] orderbook rebuilt from backend (restart-safe)"),
+            Err(e) => {
+                eprintln!("[engine] FATAL: orderbook rebuild failed: {}", e);
+                eprintln!("[engine] Refusing startup. Fix backend connectivity or set ENGINE_BACKEND_URL=\"\" to skip.");
+                std::process::exit(1);
+            }
+        }
+    }
+
     let app = Router::new()
         .route("/engine/place", post(place))
         .route("/engine/cancel", post(cancel))
@@ -91,14 +123,27 @@ async fn matches(
     State(engine): State<Arc<Engine>>,
     Query(q): Query<MatchesQuery>,
 ) -> Json<MatchesResponse> {
-    let since_index = q
-        .since
+    let after_id = q
+        .after_id
         .as_ref()
+        .or(q.since.as_ref())
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(0);
-    let (events, next_index) = engine.get_match_events(since_index);
-    Json(MatchesResponse {
-        events,
-        next_index,
-    })
+    let (events, last_id) = engine.get_match_events_after(after_id);
+    let dto: Vec<EngineMatchEventDto> = events
+        .into_iter()
+        .map(|(event_id, e)| EngineMatchEventDto {
+            event_id,
+            symbol: e.market,
+            price: e.price.to_string(),
+            qty: e.quantity.to_string(),
+            taker_order_id: e.taker_order_id.to_string(),
+            maker_order_id: e.maker_order_id.to_string(),
+            taker_user_id: e.taker_user_id.to_string(),
+            maker_user_id: e.maker_user_id.to_string(),
+            taker_side: format!("{:?}", e.taker_side).to_lowercase(),
+            timestamp: e.timestamp,
+        })
+        .collect();
+    Json(MatchesResponse { last_id, events: dto })
 }

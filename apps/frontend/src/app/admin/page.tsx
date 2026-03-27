@@ -1,5 +1,7 @@
-import { redirect } from 'next/navigation';
+'use client';
+
+import { RedirectToNewAdmin } from './redirect-to-new-admin';
 
 export default function AdminPage() {
-  redirect('/admin/login');
+  return <RedirectToNewAdmin />;
 }

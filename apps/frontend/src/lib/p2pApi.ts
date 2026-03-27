@@ -157,13 +157,35 @@ export async function createOrder(params: {
   );
 }
 
-export async function confirmPayment(orderId: string, idempotencyKey?: string): Promise<ApiResponse<P2POrderRow>> {
+export async function confirmPayment(orderId: string, idempotencyKey?: string, proofUrl?: string): Promise<ApiResponse<P2POrderRow>> {
   const key = idempotencyKey ?? crypto.randomUUID();
   return api.post<P2POrderRow>(
     `${P2P_PREFIX}/orders/${encodeURIComponent(orderId)}/confirm-payment`,
-    {},
+    proofUrl ? { proof_url: proofUrl } : {},
     { headers: { 'Idempotency-Key': key } }
   );
+}
+
+export async function uploadPaymentProof(orderId: string, file: File): Promise<ApiResponse<{ proof_url: string }>> {
+  const { getApiBaseUrl } = await import('@/lib/getApiUrl');
+  const { useAuthStore } = await import('@/store/auth');
+  const base = getApiBaseUrl() || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:4000');
+  const token = useAuthStore.getState().accessToken;
+  const formData = new FormData();
+  formData.append('file', file);
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(`${base}/api/v1/p2p/orders/${encodeURIComponent(orderId)}/upload-payment-proof`, {
+    method: 'POST',
+    body: formData,
+    headers,
+    credentials: 'include',
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    return { success: false, error: data?.error ?? { code: 'UPLOAD_FAILED', message: 'Upload failed' } };
+  }
+  return { success: true, data: data.data ?? { proof_url: '' } };
 }
 
 export async function releaseOrder(orderId: string, idempotencyKey?: string): Promise<ApiResponse<P2POrderRow>> {

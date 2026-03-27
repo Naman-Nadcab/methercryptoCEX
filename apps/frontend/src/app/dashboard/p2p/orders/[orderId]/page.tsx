@@ -11,6 +11,7 @@ import {
   confirmPayment,
   cancelOrder,
   openDispute,
+  uploadPaymentProof,
   fetchP2POrderMessages,
   sendP2POrderMessage,
   P2P_ORDER_QUERY_KEY,
@@ -57,6 +58,9 @@ export default function P2POrderDetailPage() {
   const [minutesLeft, setMinutesLeft] = useState<number | null>(null);
   const [chatInput, setChatInput] = useState('');
   const [chatSending, setChatSending] = useState(false);
+  const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
+  const [paymentProofUrl, setPaymentProofUrl] = useState<string | null>(null);
+  const [proofUploading, setProofUploading] = useState(false);
   const releaseIdempotencyKeyRef = useRef<string | null>(null);
   const confirmIdempotencyKeyRef = useRef<string | null>(null);
   const cancelIdempotencyKeyRef = useRef<string | null>(null);
@@ -150,10 +154,23 @@ export default function P2POrderDetailPage() {
       confirmIdempotencyKeyRef.current = crypto.randomUUID();
     }
     setConfirmLoading(true);
+    let proofUrl: string | undefined;
+    if (paymentProofFile && !paymentProofUrl) {
+      setProofUploading(true);
+      const uploadRes = await uploadPaymentProof(orderId, paymentProofFile);
+      setProofUploading(false);
+      if (uploadRes.success && uploadRes.data?.proof_url) {
+        proofUrl = uploadRes.data.proof_url;
+      }
+    } else if (paymentProofUrl) {
+      proofUrl = paymentProofUrl;
+    }
     try {
-      const res = await confirmPayment(orderId, confirmIdempotencyKeyRef.current);
+      const res = await confirmPayment(orderId, confirmIdempotencyKeyRef.current, proofUrl);
       if (res.success) {
         confirmIdempotencyKeyRef.current = null;
+        setPaymentProofFile(null);
+        setPaymentProofUrl(null);
         queryClient.invalidateQueries({ queryKey: ['balances'] });
         queryClient.invalidateQueries({ queryKey: P2P_ORDER_QUERY_KEY });
         queryClient.invalidateQueries({ queryKey: [...P2P_ORDER_DETAIL_QUERY_KEY, orderId] });
@@ -363,17 +380,42 @@ export default function P2POrderDetailPage() {
           </div>
         )}
 
+        {canConfirmPayment && (
+          <div className="mt-4 p-4 rounded-xl border border-gray-700 bg-[#181a20]">
+            <p className="text-sm text-gray-400 mb-2">Attach payment proof (optional, PNG/JPEG)</p>
+            <div className="flex flex-wrap gap-2 items-center">
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/jpg"
+                className="text-sm text-gray-400 file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:bg-blue-500/20 file:text-blue-400"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) {
+                    setPaymentProofFile(f);
+                    setPaymentProofUrl(null);
+                  }
+                }}
+              />
+              {paymentProofFile && (
+                <span className="text-xs text-gray-500">
+                  {paymentProofFile.name}
+                  <button type="button" onClick={() => { setPaymentProofFile(null); }} className="ml-1 text-red-400 hover:underline">Remove</button>
+                </span>
+              )}
+            </div>
+          </div>
+        )}
         <div className="mt-6 flex flex-wrap gap-3">
           {canConfirmPayment && (
             <button
               type="button"
-              disabled={confirmLoading}
+              disabled={confirmLoading || proofUploading}
               onClick={handleConfirmPayment}
               aria-busy={confirmLoading}
               className="px-4 py-2.5 rounded-lg bg-blue-500 hover:bg-blue-600 active:scale-[0.98] text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2 transition-colors duration-100"
             >
-              {confirmLoading && <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
-              {confirmLoading ? 'Confirming…' : 'I have paid'}
+              {(confirmLoading || proofUploading) && <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+              {proofUploading ? 'Uploading…' : confirmLoading ? 'Confirming…' : 'I have paid'}
             </button>
           )}
           {canRelease && (

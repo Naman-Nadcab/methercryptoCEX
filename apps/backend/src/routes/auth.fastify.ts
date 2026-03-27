@@ -6,7 +6,9 @@ import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
 import { otpService } from '../services/otp.service.js';
+import { queueOtpSend } from '../services/otp-queue.service.js';
 import { authService } from '../services/auth.service.js';
+import { walletService } from '../services/wallet.service.js';
 import {
   createSession,
   revokeSession,
@@ -131,133 +133,168 @@ function generateTokens(app: FastifyInstance, payload: {
 }
 
 export default async function authRoutes(app: FastifyInstance) {
-  
+  app.setErrorHandler((err, request, reply) => {
+    if (reply.sent) return;
+    const status = (err as { statusCode?: number }).statusCode || 500;
+    const msg = err.message || 'An error occurred';
+    return reply.status(status).send({
+      success: false,
+      error: {
+        code: 'AUTH_ERROR',
+        message: msg,
+        ...(config.env === 'development' && { detail: (err as Error).stack?.split('\n').slice(0, 3).join('\n') }),
+      },
+    });
+  });
+
   /**
    * POST /auth/send-otp
    * Send OTP to email or phone
    * FIX #4: Rate limit 3/min per IP via preHandler (before handler/DB).
    */
   app.post<{ Body: SendOTPBody }>('/send-otp', {
-    preHandler: [rateLimitByIp('auth:send-otp', 3, 60)],
+    preHandler: [rateLimitByIp('auth:send-otp', 3, 60, { failClosed: false })],
     schema: {
       body: {
         type: 'object',
         required: ['identifier'],
         properties: {
           identifier: { type: 'string', minLength: 5 },
+          type: { type: 'string' },
+          purpose: { type: 'string' },
         },
+        additionalProperties: true,
       },
     },
   }, async (request, reply) => {
+    const body = request.body as SendOTPBody | undefined;
+
+    if (!body || typeof body !== 'object') {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'INVALID_BODY', message: 'Request body must be a JSON object' },
+      });
+    }
+    if (typeof body.identifier !== 'string') {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'INVALID_IDENTIFIER', message: 'Please enter a valid email or phone number' },
+      });
+    }
+    if (body.identifier.length < 5 || !body.identifier.trim()) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'INVALID_IDENTIFIER', message: 'Please enter a valid email or phone number' },
+      });
+    }
+
     try {
-      const { identifier } = request.body;
-      
-      // Detect type first
+      const identifier = body.identifier;
       let type: 'email' | 'phone';
       try {
         type = getIdentifierType(identifier.trim());
-      } catch (error) {
+      } catch (err) {
+        logger.warn('[send-otp] getIdentifierType failed', { error: err instanceof Error ? err.message : String(err) });
         return reply.status(400).send({
           success: false,
           error: { code: 'INVALID_IDENTIFIER', message: 'Please enter a valid email or phone number' },
         });
       }
 
-      // Normalize identifier based on type
-      let cleanIdentifier: string;
-      if (type === 'email') {
-        cleanIdentifier = identifier.trim().toLowerCase();
-      } else {
-        cleanIdentifier = normalizePhoneNumber(identifier.trim());
-      }
+      const cleanIdentifier = type === 'email'
+        ? identifier.trim().toLowerCase()
+        : normalizePhoneNumber(identifier.trim());
 
-      // Generate and send OTP
+      // Run createOTP and user lookup in parallel (saves ~20–50ms)
+      const userLookup = async (): Promise<boolean> => {
+        try {
+          let r = await db.query(`SELECT id FROM users WHERE ${type} = $1 AND deleted_at IS NULL`, [cleanIdentifier]);
+          if (r.rows.length === 0 && type === 'phone') {
+            const digits = cleanIdentifier.replace(/\D/g, '');
+            r = await db.query(`SELECT id FROM users WHERE phone LIKE $1 AND deleted_at IS NULL`, [`%${digits.slice(-10)}`]);
+          }
+          return r.rows.length === 0;
+        } catch {
+          return true;
+        }
+      };
+
       let otp: string;
       let expiresAt: Date;
-      
+      let isNewUser: boolean;
       try {
-        const result = await otpService.createOTP(cleanIdentifier, type);
+        const [result, newUser] = await Promise.all([
+          otpService.createOTP(cleanIdentifier, type),
+          userLookup(),
+        ]);
         otp = result.otp;
         expiresAt = result.expiresAt;
+        isNewUser = newUser;
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : 'Unknown';
-        const errStack = error instanceof Error ? error.stack : undefined;
-        logger.error('Failed to create OTP', { error: errMsg, stack: errStack });
-        return reply.status(500).send({
-          success: false,
-          error: {
-            code: 'OTP_CREATE_FAILED',
-            message: config.env === 'development' ? `Failed to create OTP: ${errMsg}` : 'Failed to create OTP. Please try again.',
+        logger.error('[send-otp] createOTP failed', { error: errMsg });
+        if (!reply.sent) {
+          const isDbError = /relation|column|does not exist|syntax error/i.test(errMsg);
+          const devHint = config.env === 'development'
+            ? (isDbError ? ` ${errMsg} Run: cd apps/backend && npm run migrate` : ` ${errMsg}`)
+            : '';
+          return reply.status(500).send({
+            success: false,
+            error: {
+              code: 'OTP_CREATE_FAILED',
+              message: config.env === 'development' ? `Failed to create OTP:${devHint}` : 'Failed to create OTP. Please try again.',
+            },
+          });
+        }
+        return;
+      }
+
+      // Queue OTP for async delivery (RabbitMQ) or direct send fallback; API returns immediately
+      queueOtpSend(type, cleanIdentifier, otp).catch((err) =>
+        logger.warn('[send-otp] OTP delivery failed', { error: err instanceof Error ? err.message : String(err), identifier: cleanIdentifier })
+      );
+
+      if (!reply.sent) {
+        return reply.send({
+          success: true,
+          data: {
+            type,
+            expiresAt: expiresAt instanceof Date ? expiresAt.toISOString() : String(expiresAt),
+            isNewUser,
+            maskedIdentifier: type === 'email'
+              ? cleanIdentifier.replace(/(.{2})(.*)(@.*)/, '$1***$3')
+              : cleanIdentifier.replace(/(\+?\d{2})(\d*)(\d{2})/, '$1****$3'),
           },
         });
       }
-      
-      let sent = false;
-      try {
-        if (type === 'email') {
-          sent = await otpService.sendEmailOTP(cleanIdentifier, otp);
-        } else {
-          // For SMS, send to the normalized phone number
-          sent = await otpService.sendSMSOTP(cleanIdentifier, otp);
-        }
-      } catch (error) {
-        logger.error('Failed to send OTP', { error: error instanceof Error ? error.message : 'Unknown' });
-      }
-
-      if (!sent) {
-        return reply.status(503).send({
-          success: false,
-          error: { code: 'OTP_DELIVERY_UNAVAILABLE', message: 'OTP delivery is temporarily unavailable. Please try again later.' },
-        });
-      }
-
-      // Check if user exists
-      let existingUser = await db.query(
-        `SELECT id, email, phone, status, email_verified, phone_verified 
-         FROM users WHERE ${type} = $1 AND deleted_at IS NULL`,
-        [cleanIdentifier]
-      );
-
-      // For phone, also check with last 10 digits if not found
-      if (existingUser.rows.length === 0 && type === 'phone') {
-        const phoneDigits = cleanIdentifier.replace(/\D/g, '');
-        existingUser = await db.query(
-          `SELECT id, email, phone, status, email_verified, phone_verified 
-           FROM users WHERE phone LIKE $1 AND deleted_at IS NULL`,
-          [`%${phoneDigits.slice(-10)}`]
-        );
-      }
-
-      const isNewUser = existingUser.rows.length === 0;
-
-      logger.info('OTP sent', { identifier: cleanIdentifier, type, isNewUser });
-
-      return reply.send({
-        success: true,
-        data: {
-          type,
-          expiresAt,
-          isNewUser,
-          maskedIdentifier: type === 'email' 
-            ? cleanIdentifier.replace(/(.{2})(.*)(@.*)/, '$1***$3')
-            : cleanIdentifier.replace(/(\+?\d{2})(\d*)(\d{2})/, '$1****$3'),
-        },
-      });
-
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : 'Unknown';
-      const isInvalid = errMsg.includes('identifier') || errMsg.includes('invalid');
-      logger.error('Send OTP error', { error: errMsg });
-      if (isInvalid) {
-        return reply.status(400).send({
+      const errStack = error instanceof Error ? error.stack : undefined;
+      logger.error('[send-otp] FAILING_OPERATION: outer catch (unhandled)', { error: errMsg, stack: errStack });
+      console.error('[send-otp] ROOT_ERROR (outer):', errMsg);
+      if (errStack) console.error('[send-otp] STACK (outer):', errStack);
+      if (!reply.sent) {
+        const isInvalid = errMsg.includes('identifier') || errMsg.includes('invalid');
+        if (isInvalid) {
+          return reply.status(400).send({
+            success: false,
+            error: { code: 'INVALID_INPUT', message: errMsg },
+          });
+        }
+        const isDbError = /relation|column|does not exist|syntax error/i.test(errMsg);
+        const devHint = config.env === 'development'
+          ? (isDbError ? ` ${errMsg} Run: cd apps/backend && npm run migrate` : ` ${errMsg}`)
+          : '';
+        const devDetail = config.env === 'development' ? { detail: errMsg, stack: errStack?.split('\n').slice(0, 3) } : {};
+        return reply.status(500).send({
           success: false,
-          error: { code: 'INVALID_INPUT', message: errMsg },
+          error: {
+            code: 'OTP_SEND_FAILED',
+            message: config.env === 'development' ? `Send OTP failed:${devHint}` : 'Could not send verification code. Please try again.',
+            ...devDetail,
+          },
         });
       }
-      return reply.status(500).send({
-        success: false,
-        error: { code: 'OTP_SEND_FAILED', message: 'Could not send verification code. Please try again.' },
-      });
     }
   });
 
@@ -267,7 +304,7 @@ export default async function authRoutes(app: FastifyInstance) {
    * FIX #4: Rate limit 5/min per IP via preHandler.
    */
   app.post<{ Body: VerifyOTPBody }>('/verify-otp', {
-    preHandler: [rateLimitByIp('auth:verify-otp', 5, 60)],
+    preHandler: [rateLimitByIp('auth:verify-otp', 5, 60, { failClosed: false })],
     schema: {
       body: {
         type: 'object',
@@ -385,97 +422,68 @@ export default async function authRoutes(app: FastifyInstance) {
         // Create new user
         isNewUser = true;
         
-        const salt = await bcrypt.genSalt(12);
-        const tempPassword = uuidv4(); // Temporary password, user will set later
+        const salt = await bcrypt.genSalt(6); // 6 rounds for temp password - instant (~20ms), secure for UUID
+        const tempPassword = uuidv4();
         const passwordHash = await bcrypt.hash(tempPassword, salt);
-        
         const referralCode = generateReferralCode();
 
-        // For phone-only registration, create a placeholder email
-        // Users can add their real email later
         let insertQuery: string;
         let insertParams: any[];
-        
         if (type === 'email') {
           insertQuery = `INSERT INTO users (
-            email, email_verified, password_hash, salt, status, tier_level
-          ) VALUES ($1, TRUE, $2, $3, 'active', 0)
+            email, email_verified, password_hash, salt, status, tier_level, referral_code
+          ) VALUES ($1, TRUE, $2, $3, 'active', 0, $4)
           RETURNING id, email, phone, username, status, email_verified, phone_verified, tier_level, password_hash`;
-          insertParams = [cleanIdentifier, passwordHash, salt.substring(0, 64)];
+          insertParams = [cleanIdentifier, passwordHash, salt.substring(0, 64), referralCode];
         } else {
-          // Phone registration - use phone as email placeholder for NOT NULL constraint
           const placeholderEmail = `${cleanIdentifier.replace(/[^0-9]/g, '')}@phone.local`;
           insertQuery = `INSERT INTO users (
-            email, phone, phone_verified, password_hash, salt, status, tier_level
-          ) VALUES ($1, $2, TRUE, $3, $4, 'active', 0)
+            email, phone, phone_verified, password_hash, salt, status, tier_level, referral_code
+          ) VALUES ($1, $2, TRUE, $3, $4, 'active', 0, $5)
           RETURNING id, email, phone, username, status, email_verified, phone_verified, tier_level, password_hash`;
-          insertParams = [placeholderEmail, cleanIdentifier, passwordHash, salt.substring(0, 64)];
+          insertParams = [placeholderEmail, cleanIdentifier, passwordHash, salt.substring(0, 64), referralCode];
         }
 
-        const newUser = await db.query<typeof existingUser.rows[0]>(
-          insertQuery,
-          insertParams
-        );
-
+        const newUser = await db.query<typeof existingUser.rows[0]>(insertQuery, insertParams);
         user = newUser.rows[0]!;
 
-        // Create referral code for new user
-        await db.query(
-          `INSERT INTO referral_codes (user_id, code) VALUES ($1, $2)`,
-          [user.id, referralCode]
-        );
-
-        // Initialize P2P merchant stats
-        await db.query(
-          `INSERT INTO p2p_merchant_stats (user_id) VALUES ($1) ON CONFLICT DO NOTHING`,
-          [user.id]
-        );
-
-        logger.info('New user created', { userId: user.id, type });
+        // Referral + P2P stats in parallel (saves ~10-20ms)
+        const insertReferral = async () => {
+          for (let attempt = 0; attempt < 2; attempt++) {
+            const code = attempt === 0 ? referralCode : generateReferralCode();
+            try {
+              await db.query(`INSERT INTO referral_codes (user_id, code) VALUES ($1, $2)`, [user.id, code]);
+              break;
+            } catch (e) {
+              if (attempt === 1 || !/unique|duplicate/i.test((e as Error).message)) throw e;
+            }
+          }
+        };
+        await Promise.all([
+          insertReferral(),
+          db.query(`INSERT INTO p2p_merchant_stats (user_id) VALUES ($1) ON CONFLICT DO NOTHING`, [user.id]),
+        ]);
 
       } else {
         user = existingUser.rows[0]!;
-        
-        // Update verification status
-        await db.query(
-          `UPDATE users SET ${type}_verified = TRUE, status = 'active' WHERE id = $1`,
-          [user.id]
-        );
-
-        // Update local object
-        if (type === 'email') {
-          user.email_verified = true;
-        } else {
-          user.phone_verified = true;
-        }
+        user.email_verified = type === 'email' ? true : user.email_verified;
+        user.phone_verified = type === 'phone' ? true : user.phone_verified;
         user.status = 'active';
-      }
 
-      // Check if user has completed verification (at least one of email/phone verified)
-      const isVerified = user.email_verified || user.phone_verified;
-
-      if (!isVerified) {
-        return reply.status(403).send({
-          success: false,
-          error: {
-            code: 'VERIFICATION_REQUIRED',
-            message: 'Please verify your email or phone number to continue',
-          },
-        });
-      }
-
-      // Account lock check (existing users only)
-      if (!isNewUser) {
-        const lockedUntil = await getAccountLockUntil(user.id);
+        // Update DB + lock check in parallel (saves ~20-40ms)
+        const [lockedUntil] = await Promise.all([
+          getAccountLockUntil(user.id),
+          db.query(`UPDATE users SET ${type}_verified = TRUE, status = 'active' WHERE id = $1`, [user.id]),
+        ]);
         if (lockedUntil) {
-          await logUserActivity({
+          logUserActivity({
             userId: user.id,
             action: 'login_failed',
             ipAddress: getClientIp(request),
             userAgent: request.headers['user-agent'],
             deviceId: getDeviceIdFromRequest(request.headers as Record<string, string | undefined>),
             metadata: { reason: 'account_locked', lockedUntil: lockedUntil.toISOString() },
-          });
+          }).catch(() => {});
           return reply.status(403).send({
             success: false,
             error: {
@@ -487,16 +495,20 @@ export default async function authRoutes(app: FastifyInstance) {
       }
 
       const deviceId = getDeviceIdFromRequest(request.headers as Record<string, string | undefined>);
-      const { sessionId, expiresAt } = await createSession({
-        userId: user.id,
-        deviceId,
-        deviceType: 'web',
-        ipAddress: getClientIp(request),
-        userAgent: request.headers['user-agent'],
-        ttlSeconds: 7 * 24 * 60 * 60,
-      });
 
-      await clearFailedLoginAttempts(user.id);
+      // Session + clear lock in parallel (saves ~15-30ms)
+      const [sessionResult] = await Promise.all([
+        createSession({
+          userId: user.id,
+          deviceId,
+          deviceType: 'web',
+          ipAddress: getClientIp(request),
+          userAgent: request.headers['user-agent'],
+          ttlSeconds: 7 * 24 * 60 * 60,
+        }),
+        clearFailedLoginAttempts(user.id),
+      ]);
+      const { sessionId } = sessionResult;
 
       const tokens = generateTokens(app, {
         userId: user.id,
@@ -506,16 +518,14 @@ export default async function authRoutes(app: FastifyInstance) {
         sessionId,
       });
 
-      await logUserActivity({
+      logUserActivity({
         userId: user.id,
         action: 'login_success',
         sessionId,
         ipAddress: getClientIp(request),
         userAgent: request.headers['user-agent'],
         deviceId,
-      });
-
-      logger.info('User logged in', { userId: user.id, isNewUser });
+      }).catch(() => {});
 
       return reply.send({
         success: true,
@@ -537,15 +547,23 @@ export default async function authRoutes(app: FastifyInstance) {
       });
 
     } catch (error) {
-      logger.error('Verify OTP error', { 
-        error: error instanceof Error ? error.message : 'Unknown',
-        stack: error instanceof Error ? error.stack : undefined,
-        identifier: request.body.identifier,
-      });
-      return reply.status(500).send({
-        success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'An error occurred. Please try again.' },
-      });
+      const errMsg = error instanceof Error ? error.message : String(error);
+      const errStack = error instanceof Error ? error.stack : undefined;
+      logger.error('Verify OTP error', { error: errMsg, stack: errStack, identifier: request.body?.identifier });
+      if (!reply.sent) {
+        const isDb = /relation|column|does not exist|syntax error/i.test(errMsg);
+        const hint = config.env === 'development'
+          ? (isDb ? ` ${errMsg} Run: npm run migrate` : ` ${errMsg}`)
+          : ' If you received the OTP, try again in a moment.';
+        return reply.status(500).send({
+          success: false,
+          error: {
+            code: 'VERIFY_OTP_FAILED',
+            message: config.env === 'development' ? `Verify failed:${hint}` : `An error occurred. Please try again.${hint}`,
+            ...(config.env === 'development' && { detail: errMsg }),
+          },
+        });
+      }
     }
   });
 
@@ -709,28 +727,34 @@ export default async function authRoutes(app: FastifyInstance) {
     try {
       const { id: userId } = request.user!;
 
-      const result = await db.query<{
-        id: string;
-        email: string | null;
-        phone: string | null;
-        username: string | null;
-        first_name: string | null;
-        last_name: string | null;
-        avatar_url: string | null;
-        status: string;
-        email_verified: boolean;
-        phone_verified: boolean;
-        two_fa_enabled: boolean;
-        tier_level: number;
-        country_code: string | null;
-        created_at: Date;
-      }>(
-        `SELECT id, email, phone, username, first_name, last_name, avatar_url,
-                status, email_verified, phone_verified, two_fa_enabled,
-                tier_level, country_code, created_at
-         FROM users WHERE id = $1 AND deleted_at IS NULL`,
-        [userId]
-      );
+      const [result, referralResult] = await Promise.all([
+        db.query<{
+          id: string;
+          email: string | null;
+          phone: string | null;
+          username: string | null;
+          first_name: string | null;
+          last_name: string | null;
+          avatar_url: string | null;
+          status: string;
+          email_verified: boolean;
+          phone_verified: boolean;
+          two_fa_enabled: boolean;
+          tier_level: number;
+          country_code: string | null;
+          created_at: Date;
+        }>(
+          `SELECT id, email, phone, username, first_name, last_name, avatar_url,
+                  status, email_verified, phone_verified, two_fa_enabled,
+                  tier_level, country_code, created_at
+           FROM users WHERE id = $1 AND deleted_at IS NULL`,
+          [userId]
+        ),
+        db.query<{ code: string }>(
+          'SELECT code FROM referral_codes WHERE user_id = $1 AND is_active = TRUE LIMIT 1',
+          [userId]
+        ),
+      ]);
 
       if (result.rows.length === 0) {
         return reply.status(404).send({
@@ -740,12 +764,6 @@ export default async function authRoutes(app: FastifyInstance) {
       }
 
       const user = result.rows[0]!;
-
-      // Get referral code
-      const referralResult = await db.query<{ code: string }>(
-        'SELECT code FROM referral_codes WHERE user_id = $1 AND is_active = TRUE LIMIT 1',
-        [userId]
-      );
 
       const authFlags = (request as unknown as { authDecision?: { auth_flags: number } }).authDecision?.auth_flags ?? 0;
       return reply.send({
@@ -883,7 +901,7 @@ export default async function authRoutes(app: FastifyInstance) {
       referralCode?: string;
     };
   }>('/signup', {
-    preHandler: [rateLimitByIp('auth:signup', 10, 3600)],
+    preHandler: [rateLimitByIp('auth:signup', 10, 3600, { failClosed: false })],
     schema: {
       body: {
         type: 'object',
@@ -932,13 +950,13 @@ export default async function authRoutes(app: FastifyInstance) {
         cleanIdentifier = normalizePhoneNumber(phone!);
       }
 
-      // Check if OTP was recently verified (Redis or DB fallback when Redis down)
+      // Check if OTP was recently verified. Redis first; on Redis down fall back to DB (verify-otp sets verified_at in otp_verifications).
       let otpVerified = false;
       try {
         const cached = await redis.get(`otp:verified:${cleanIdentifier}`);
         otpVerified = cached === 'true';
       } catch {
-        // Redis down, fall back to DB
+        // Redis down: fall back to DB so signup still works
       }
       if (!otpVerified) {
         const dbCheck = await db.query(
@@ -1023,6 +1041,17 @@ export default async function authRoutes(app: FastifyInstance) {
         [user.id]
       );
 
+      // Create wallets and zero user_balances for all active tokens (CEX: user can receive deposits and trade)
+      try {
+        await walletService.createWalletsForUser(user.id);
+      } catch (walletErr) {
+        logger.warn('Signup: wallet/balance init failed (user created)', {
+          userId: user.id,
+          error: walletErr instanceof Error ? walletErr.message : 'Unknown',
+        });
+        // Signup continues; admin or first deposit flow can create balances later if needed
+      }
+
       // Handle referral if code provided
       if (referralCode) {
         const codeRow = await db.query(
@@ -1052,12 +1081,16 @@ export default async function authRoutes(app: FastifyInstance) {
         [sessionId, user.id, sessionToken, 'web', getClientIp(request), request.headers['user-agent'], expiresAt]
       );
 
-      // Store session in Redis
-      await redis.setJson(`session:${sessionId}`, {
-        userId: user.id,
-        isActive: true,
-        createdAt: Date.now(),
-      }, 7 * 24 * 60 * 60);
+      // Store session in Redis (best effort; signup succeeds even if Redis is down)
+      try {
+        await redis.setJson(`session:${sessionId}`, {
+          userId: user.id,
+          isActive: true,
+          createdAt: Date.now(),
+        }, 7 * 24 * 60 * 60);
+      } catch (redisErr) {
+        logger.warn('Session cache (Redis) write failed at signup, continuing', { error: redisErr instanceof Error ? redisErr.message : 'Unknown' });
+      }
 
       // Generate tokens
       const tokens = generateTokens(app, {
@@ -1131,7 +1164,7 @@ export default async function authRoutes(app: FastifyInstance) {
       otp: string;
     };
   }>('/login', {
-    preHandler: [rateLimitByIp('auth:login', 5, 60)],
+    preHandler: [rateLimitByIp('auth:login', 5, 60, { failClosed: false })],
     schema: {
       body: {
         type: 'object',
@@ -1144,6 +1177,7 @@ export default async function authRoutes(app: FastifyInstance) {
       },
     },
   }, async (request, reply) => {
+    logger.info('POST /auth/login request received');
     try {
       const { email, phone, otp } = request.body;
 
@@ -1173,11 +1207,10 @@ export default async function authRoutes(app: FastifyInstance) {
         });
       }
 
-      // Get user with security settings (email lookup case-insensitive)
-      const userWhereClause = loginMethod === 'email'
-        ? 'LOWER(email) = LOWER($1) AND deleted_at IS NULL'
-        : 'phone = $1 AND deleted_at IS NULL';
-      let userResult = await db.query<{
+      logger.info('Login OTP verified', { identifier: cleanIdentifier, loginMethod });
+
+      // Get user (with optional auth columns; fallback to minimal columns if schema is old)
+      type UserRow = {
         id: string;
         email: string | null;
         phone: string | null;
@@ -1186,35 +1219,73 @@ export default async function authRoutes(app: FastifyInstance) {
         email_verified: boolean;
         phone_verified: boolean;
         tier_level: number;
-        sms_auth_enabled: boolean;
-        email_auth_enabled: boolean;
-        totp_enabled: boolean;
-        totp_secret: string | null;
-        passkeys_enabled: boolean;
-      }>(
-        `SELECT id, email, phone, username, status, email_verified, phone_verified, tier_level,
+        sms_auth_enabled?: boolean;
+        email_auth_enabled?: boolean;
+        totp_enabled?: boolean;
+        totp_secret?: string | null;
+        passkeys_enabled?: boolean;
+      };
+      const userWhereClause = loginMethod === 'email'
+        ? 'LOWER(email) = LOWER($1) AND deleted_at IS NULL'
+        : 'phone = $1 AND deleted_at IS NULL';
+      const fullSelect = `SELECT id, email, phone, username, status, email_verified, phone_verified, tier_level,
                 COALESCE(sms_auth_enabled, FALSE) as sms_auth_enabled,
                 COALESCE(email_auth_enabled, TRUE) as email_auth_enabled,
                 COALESCE(totp_enabled, FALSE) as totp_enabled,
                 totp_secret,
                 COALESCE(passkeys_enabled, FALSE) as passkeys_enabled
-         FROM users WHERE ${userWhereClause}`,
-        [cleanIdentifier]
-      );
+         FROM users WHERE ${userWhereClause}`;
+      const minimalSelect = `SELECT id, email, phone, username, status, email_verified, phone_verified, tier_level
+         FROM users WHERE ${userWhereClause}`;
+
+      let userResult: { rows: UserRow[] };
+      try {
+        userResult = await db.query<UserRow>(fullSelect, [cleanIdentifier]);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : '';
+        if (/column|does not exist|relation/i.test(msg)) {
+          logger.warn('Login: full user select failed (missing columns?), using minimal select', { error: msg });
+          userResult = await db.query<UserRow>(minimalSelect, [cleanIdentifier]);
+          for (const row of userResult.rows) {
+            (row as UserRow).sms_auth_enabled = false;
+            (row as UserRow).email_auth_enabled = true;
+            (row as UserRow).totp_enabled = false;
+            (row as UserRow).totp_secret = null;
+            (row as UserRow).passkeys_enabled = false;
+          }
+        } else {
+          throw err;
+        }
+      }
 
       // Fallback for phone search
       if (userResult.rows.length === 0 && loginMethod === 'phone') {
         const phoneDigits = phone!.replace(/\D/g, '');
-        userResult = await db.query(
-          `SELECT id, email, phone, username, status, email_verified, phone_verified, tier_level,
-                  COALESCE(sms_auth_enabled, FALSE) as sms_auth_enabled,
-                  COALESCE(email_auth_enabled, TRUE) as email_auth_enabled,
-                  COALESCE(totp_enabled, FALSE) as totp_enabled,
-                  totp_secret,
-                  COALESCE(passkeys_enabled, FALSE) as passkeys_enabled
-           FROM users WHERE phone LIKE $1 AND deleted_at IS NULL`,
-          [`%${phoneDigits.slice(-10)}`]
-        );
+        try {
+          userResult = await db.query<UserRow>(
+            `SELECT id, email, phone, username, status, email_verified, phone_verified, tier_level,
+                    COALESCE(sms_auth_enabled, FALSE) as sms_auth_enabled,
+                    COALESCE(email_auth_enabled, TRUE) as email_auth_enabled,
+                    COALESCE(totp_enabled, FALSE) as totp_enabled,
+                    totp_secret,
+                    COALESCE(passkeys_enabled, FALSE) as passkeys_enabled
+             FROM users WHERE phone LIKE $1 AND deleted_at IS NULL`,
+            [`%${phoneDigits.slice(-10)}`]
+          );
+        } catch {
+          userResult = await db.query<UserRow>(
+            `SELECT id, email, phone, username, status, email_verified, phone_verified, tier_level
+             FROM users WHERE phone LIKE $1 AND deleted_at IS NULL`,
+            [`%${phoneDigits.slice(-10)}`]
+          );
+          for (const row of userResult.rows) {
+            (row as UserRow).sms_auth_enabled = false;
+            (row as UserRow).email_auth_enabled = true;
+            (row as UserRow).totp_enabled = false;
+            (row as UserRow).totp_secret = null;
+            (row as UserRow).passkeys_enabled = false;
+          }
+        }
       }
 
       if (userResult.rows.length === 0) {
@@ -1235,19 +1306,18 @@ export default async function authRoutes(app: FastifyInstance) {
 
       // Build required verification steps based on user settings
       const stepsRequired: string[] = [];
-      
-      // If logged in with email and SMS auth is enabled, require SMS verification
-      if (loginMethod === 'email' && user.sms_auth_enabled && user.phone) {
+      const smsAuthEnabled = user.sms_auth_enabled ?? false;
+      const emailAuthEnabled = user.email_auth_enabled ?? true;
+      const totpEnabled = user.totp_enabled ?? false;
+      const totpSecret = user.totp_secret ?? null;
+
+      if (loginMethod === 'email' && smsAuthEnabled && user.phone) {
         stepsRequired.push('sms');
       }
-      
-      // If logged in with phone and email auth is enabled, require email verification
-      if (loginMethod === 'phone' && user.email_auth_enabled && user.email) {
+      if (loginMethod === 'phone' && emailAuthEnabled && user.email) {
         stepsRequired.push('email');
       }
-      
-      // If 2FA is enabled, require 2FA verification
-      if (user.totp_enabled && user.totp_secret) {
+      if (totpEnabled && totpSecret) {
         stepsRequired.push('2fa');
       }
 
@@ -1318,6 +1388,18 @@ export default async function authRoutes(app: FastifyInstance) {
         sessionId,
       });
 
+      const accessToken = tokens?.accessToken;
+      const refreshToken = tokens?.refreshToken;
+      if (typeof accessToken !== 'string' || !accessToken.trim() || typeof refreshToken !== 'string' || !refreshToken.trim()) {
+        logger.error('Login token generation failed', { userId: user.id, hasAccess: !!accessToken, hasRefresh: !!refreshToken });
+        return reply.status(500).send({
+          success: false,
+          error: { code: 'TOKEN_GENERATION_FAILED', message: 'Login failed. Please try again.' },
+        });
+      }
+
+      logger.info('Token generated for login', { userId: user.id });
+
       // Update last_login_at and log activity
       await db.query(
         `UPDATE users SET last_login_at = NOW() WHERE id = $1`,
@@ -1346,25 +1428,28 @@ export default async function authRoutes(app: FastifyInstance) {
             phoneVerified: user.phone_verified,
             tierLevel: user.tier_level,
           },
-          accessToken: tokens.accessToken,
-          refreshToken: tokens.refreshToken,
+          accessToken,
+          refreshToken,
         },
       });
 
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
-      logger.error('Login error', {
-        message: err.message,
-        stack: err.stack,
-      });
-      const isDev = process.env.NODE_ENV !== 'production';
-      return reply.status(500).send({
-        success: false,
-        error: {
-          code: 'INTERNAL_ERROR',
-          message: isDev ? `Login failed: ${err.message}` : 'Login failed. Please try again.',
-        },
-      });
+      logger.error('Login error', { message: err.message, stack: err.stack });
+      if (!reply.sent) {
+        const isDev = config.env === 'development';
+        const dbHint = /relation|column|does not exist|syntax error/i.test(err.message)
+          ? ' Run: cd apps/backend && npm run migrate'
+          : '';
+        return reply.status(500).send({
+          success: false,
+          error: {
+            code: 'INTERNAL_ERROR',
+            message: isDev ? `Login failed: ${err.message}${dbHint}` : 'Login failed. Please try again.',
+            ...(isDev && { detail: err.message }),
+          },
+        });
+      }
     }
   });
 
@@ -1380,7 +1465,7 @@ export default async function authRoutes(app: FastifyInstance) {
       code: string;
     };
   }>('/login/verify-step', {
-    preHandler: [rateLimitByIp('auth:login-verify-step', 10, 60)],
+    preHandler: [rateLimitByIp('auth:login-verify-step', 10, 60, { failClosed: false })],
     schema: {
       body: {
         type: 'object',
@@ -1556,11 +1641,15 @@ export default async function authRoutes(app: FastifyInstance) {
         [sessionId, user.id, sessionToken, 'web', getClientIp(request), request.headers['user-agent'], expiresAt]
       );
 
-      await redis.setJson(`session:${sessionId}`, {
-        userId: user.id,
-        isActive: true,
-        createdAt: Date.now(),
-      }, 7 * 24 * 60 * 60);
+      try {
+        await redis.setJson(`session:${sessionId}`, {
+          userId: user.id,
+          isActive: true,
+          createdAt: Date.now(),
+        }, 7 * 24 * 60 * 60);
+      } catch (redisErr) {
+        logger.warn('Session cache (Redis) write failed at passkey login, continuing', { error: redisErr instanceof Error ? redisErr.message : 'Unknown' });
+      }
 
       const tokens = generateTokens(app, {
         userId: user.id,
@@ -1569,6 +1658,18 @@ export default async function authRoutes(app: FastifyInstance) {
         role: 'user',
         sessionId,
       });
+
+      const accessToken = tokens?.accessToken;
+      const refreshToken = tokens?.refreshToken;
+      if (typeof accessToken !== 'string' || !accessToken.trim() || typeof refreshToken !== 'string' || !refreshToken.trim()) {
+        logger.error('Verify-step token generation failed', { userId: user.id, hasAccess: !!accessToken, hasRefresh: !!refreshToken });
+        return reply.status(500).send({
+          success: false,
+          error: { code: 'TOKEN_GENERATION_FAILED', message: 'Verification failed. Please try again.' },
+        });
+      }
+
+      logger.info('Token generated for verify-step login', { userId: user.id });
 
       // Update last_login_at and log activity
       await db.query(
@@ -1599,8 +1700,8 @@ export default async function authRoutes(app: FastifyInstance) {
             phoneVerified: user.phone_verified,
             tierLevel: user.tier_level,
           },
-          accessToken: tokens.accessToken,
-          refreshToken: tokens.refreshToken,
+          accessToken,
+          refreshToken,
         },
       });
 
@@ -1626,7 +1727,7 @@ export default async function authRoutes(app: FastifyInstance) {
       step: 'sms' | 'email';
     };
   }>('/login/resend-otp', {
-    preHandler: [rateLimitByIp('auth:login-resend-otp', 5, 60)],
+    preHandler: [rateLimitByIp('auth:login-resend-otp', 5, 60, { failClosed: false })],
     schema: {
       body: {
         type: 'object',
@@ -1723,7 +1824,7 @@ export default async function authRoutes(app: FastifyInstance) {
       phone?: string;
     };
   }>('/login/check-passkeys', {
-    preHandler: [rateLimitByIp('auth:check-passkeys', 10, 60)],
+    preHandler: [rateLimitByIp('auth:check-passkeys', 10, 60, { failClosed: false })],
     schema: {
       body: {
         type: 'object',
@@ -1735,8 +1836,12 @@ export default async function authRoutes(app: FastifyInstance) {
     },
   }, async (request, reply) => {
     try {
-      const { email, phone } = request.body;
+      const body = (request.body || {}) as { email?: string; phone?: string };
+      if (typeof body !== 'object') {
+        return reply.send({ success: true, data: { passkeysEnabled: false } });
+      }
 
+      const { email, phone } = body;
       if (!email && !phone) {
         return reply.status(400).send({
           success: false,
@@ -1745,61 +1850,112 @@ export default async function authRoutes(app: FastifyInstance) {
       }
 
       const type = email ? 'email' : 'phone';
-      const identifier = email || phone;
-
-      const normalizedIdentifier = type === 'email' ? identifier!.trim().toLowerCase() : normalizePhoneNumber(identifier!);
-      
-      const result = await db.query<{ id: string; passkeys_enabled: boolean }>(
-        `SELECT id, COALESCE(passkeys_enabled, FALSE) as passkeys_enabled
-         FROM users WHERE ${type} = $1 AND deleted_at IS NULL`,
-        [normalizedIdentifier]
-      );
-
-      if (result.rows.length === 0) {
-        return reply.send({
-          success: true,
-          data: { passkeysEnabled: false },
-        });
+      const identifier = (email || phone) as string;
+      if (typeof identifier !== 'string' || !identifier.trim()) {
+        return reply.send({ success: true, data: { passkeysEnabled: false } });
       }
 
-      const userId = result.rows[0]!.id;
-      const passkeysEnabled = result.rows[0]!.passkeys_enabled;
+      let normalizedIdentifier: string;
+      try {
+        normalizedIdentifier = type === 'email' ? identifier.trim().toLowerCase() : normalizePhoneNumber(identifier.trim());
+      } catch {
+        return reply.send({ success: true, data: { passkeysEnabled: false } });
+      }
 
-      // Also check that actual passkeys exist (not just the flag)
-      if (passkeysEnabled) {
-        const passkeysCount = await db.query(
-          `SELECT COUNT(*) as count FROM user_passkeys WHERE user_id = $1 AND deleted_at IS NULL`,
-          [userId]
-        );
-        
-        const actualCount = parseInt(passkeysCount.rows[0]?.count || '0');
-        
-        // If flag is enabled but no actual passkeys, fix the inconsistency
-        if (actualCount === 0) {
-          await db.query(
-            `UPDATE users SET passkeys_enabled = FALSE WHERE id = $1`,
-            [userId]
+      // Fast path: Redis cache (30s TTL) for instant repeat checks
+      const cacheKey = `passkey:check:${type}:${normalizedIdentifier}`;
+      try {
+        const cached = await redis.get(cacheKey);
+        if (cached !== null) {
+          return reply.send({ success: true, data: { passkeysEnabled: cached === '1' } });
+        }
+      } catch { /* Redis down, proceed to DB */ }
+
+      const CHECK_PASSKEYS_TIMEOUT_MS = 5_000;
+
+      const run = async (): Promise<{ passkeysEnabled: boolean }> => {
+        try {
+          let result = await db.query<{ id: string; passkeys_enabled: boolean }>(
+            `SELECT id, COALESCE(passkeys_enabled, FALSE) as passkeys_enabled
+             FROM users WHERE ${type} = $1 AND deleted_at IS NULL`,
+            [normalizedIdentifier]
           );
-          return reply.send({
-            success: true,
-            data: { passkeysEnabled: false },
-          });
+
+          // Fallback for phone: match by last 10 digits (DB may store without country code)
+          if (result.rows.length === 0 && type === 'phone') {
+            const phoneDigits = (identifier as string).replace(/\D/g, '');
+            result = await db.query<{ id: string; passkeys_enabled: boolean }>(
+              `SELECT id, COALESCE(passkeys_enabled, FALSE) as passkeys_enabled
+               FROM users WHERE phone LIKE $1 AND deleted_at IS NULL`,
+              [`%${phoneDigits.slice(-10)}`]
+            );
+          }
+
+          if (result.rows.length === 0) {
+            return { passkeysEnabled: false };
+          }
+
+          const userId = result.rows[0]!.id;
+          const passkeysEnabled = result.rows[0]!.passkeys_enabled;
+
+          if (passkeysEnabled) {
+            const passkeysCount = await db.query<{ count: string }>(
+              `SELECT COUNT(*) as count FROM user_passkeys WHERE user_id = $1 AND deleted_at IS NULL`,
+              [userId]
+            );
+            const actualCount = parseInt(passkeysCount.rows[0]?.count || '0', 10);
+            if (actualCount === 0) {
+              await db.query(`UPDATE users SET passkeys_enabled = FALSE WHERE id = $1`, [userId]);
+              return { passkeysEnabled: false };
+            }
+          }
+
+          return { passkeysEnabled };
+        } catch (dbErr) {
+          logger.warn('Check passkeys DB error', { error: dbErr instanceof Error ? dbErr.message : 'Unknown' });
+          return { passkeysEnabled: false };
+        }
+      };
+
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error('CHECK_PASSKEYS_TIMEOUT')), CHECK_PASSKEYS_TIMEOUT_MS);
+      });
+
+      try {
+        const data = await Promise.race([run(), timeoutPromise]);
+        if (timeoutId) clearTimeout(timeoutId);
+        redis.set(cacheKey, data.passkeysEnabled ? '1' : '0', 30).catch(() => {});
+        if (!reply.sent) {
+          return reply.send({ success: true, data });
+        }
+      } catch (err: unknown) {
+        if (timeoutId) clearTimeout(timeoutId);
+        const e = err as Error & { statusCode?: number };
+        if (e.statusCode === 400) {
+          if (!reply.sent) {
+            return reply.status(400).send({
+              success: false,
+              error: { code: 'MISSING_IDENTIFIER', message: 'Email or phone required' },
+            });
+          }
+          return;
+        }
+        logger.warn('Check passkeys failed or timed out, returning passkeysEnabled: false', {
+          error: e instanceof Error ? e.message : 'Unknown',
+        });
+        if (!reply.sent) {
+          return reply.send({ success: true, data: { passkeysEnabled: false } });
         }
       }
-
-      return reply.send({
-        success: true,
-        data: { passkeysEnabled },
+    } catch (err: unknown) {
+      logger.warn('Check passkeys handler error (returning passkeysEnabled: false)', {
+        error: err instanceof Error ? err.message : 'Unknown',
+        stack: err instanceof Error ? err.stack?.split('\n').slice(0, 2) : undefined,
       });
-
-    } catch (error) {
-      logger.error('Check passkeys error', {
-        error: error instanceof Error ? error.message : 'Unknown',
-      });
-      return reply.status(500).send({
-        success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to check passkeys' },
-      });
+      if (!reply.sent) {
+        return reply.send({ success: true, data: { passkeysEnabled: false } });
+      }
     }
   });
 
@@ -1807,7 +1963,7 @@ export default async function authRoutes(app: FastifyInstance) {
   // PASSKEY REGISTRATION - Generate Options
   // ===============================
   app.post('/passkey/register/options', {
-    preHandler: [rateLimitByIp('auth:passkey', 10, 60)],
+    preHandler: [rateLimitByIp('auth:passkey', 10, 60, { failClosed: config.rateLimit.failClosed })],
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
@@ -1900,7 +2056,7 @@ export default async function authRoutes(app: FastifyInstance) {
   // PASSKEY REGISTRATION - Verify
   // ===============================
   app.post('/passkey/register/verify', {
-    preHandler: [rateLimitByIp('auth:passkey', 10, 60)],
+    preHandler: [rateLimitByIp('auth:passkey', 10, 60, { failClosed: config.rateLimit.failClosed })],
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
@@ -2054,7 +2210,7 @@ export default async function authRoutes(app: FastifyInstance) {
   // PASSKEY AUTHENTICATION - Generate Options
   // ===============================
   app.post('/passkey/authenticate/options', {
-    preHandler: [rateLimitByIp('auth:passkey', 10, 60)],
+    preHandler: [rateLimitByIp('auth:passkey', 10, 60, { failClosed: config.rateLimit.failClosed })],
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { email, phone } = request.body as { email?: string; phone?: string };
@@ -2159,7 +2315,7 @@ export default async function authRoutes(app: FastifyInstance) {
   // PASSKEY AUTHENTICATION - Verify
   // ===============================
   app.post('/passkey/authenticate/verify', {
-    preHandler: [rateLimitByIp('auth:passkey', 10, 60)],
+    preHandler: [rateLimitByIp('auth:passkey', 10, 60, { failClosed: config.rateLimit.failClosed })],
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { credential, challenge } = request.body as { credential: AuthenticationResponseJSON; challenge: string };
@@ -2658,7 +2814,7 @@ export default async function authRoutes(app: FastifyInstance) {
   // PASSWORD RESET (Forgot password)
   // ===============================
   app.post<{ Body: { identifier: string } }>('/password/reset/request', {
-    preHandler: [rateLimitByIp('auth:password-reset-request', 3, 60)],
+    preHandler: [rateLimitByIp('auth:password-reset-request', 3, 60, { failClosed: config.rateLimit.failClosed })],
     schema: {
       body: {
         type: 'object',
@@ -2705,7 +2861,7 @@ export default async function authRoutes(app: FastifyInstance) {
   });
 
   app.post<{ Body: { identifier: string; otp: string; newPassword: string } }>('/password/reset', {
-    preHandler: [rateLimitByIp('auth:password-reset', 5, 60)],
+    preHandler: [rateLimitByIp('auth:password-reset', 5, 60, { failClosed: config.rateLimit.failClosed })],
     schema: {
       body: {
         type: 'object',

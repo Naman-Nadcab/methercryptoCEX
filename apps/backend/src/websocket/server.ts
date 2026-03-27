@@ -42,9 +42,9 @@ class WebSocketManager {
    * Initialize WebSocket server
    */
   initialize(server: Server): void {
-    this.wss = new WebSocketServer({ 
+    this.wss = new WebSocketServer({
       server,
-      path: '/ws',
+      path: '/api/v1/spot/ws',
       maxPayload: 1024 * 1024, // 1MB max message size
     });
 
@@ -93,9 +93,10 @@ class WebSocketManager {
       client.lastPing = Date.now();
     });
 
-    // Send welcome message
+    // Send welcome message (consistent format: type, channel?, data, timestamp)
     this.send(client, {
       type: 'connected',
+      channel: undefined,
       data: {
         clientId: client.id,
         authenticated: !!client.userId,
@@ -414,18 +415,19 @@ class WebSocketManager {
   }
 
   /**
-   * Subscribe to Redis pub/sub for cross-instance communication
+   * Subscribe to Redis pub/sub for cross-instance communication.
+   * Use psubscribe for pattern "orderbook:*" so we receive messages for any pair.
    */
   private subscribeToRedisChannels(): void {
-    // Subscribe to orderbook updates
-    redis.subscribe('orderbook:*', (message) => {
+    redis.psubscribe('orderbook:*', (channel, message) => {
       try {
-        const data = JSON.parse(message);
-        // The channel name is embedded in the message from the publisher
-        if (data.pair) {
-          this.broadcast(`orderbook:${data.pair}`, {
+        const data = JSON.parse(message) as { pair?: string; bids?: unknown[]; asks?: unknown[] };
+        const pair = data.pair ?? channel.replace(/^orderbook:/, '');
+        if (pair) {
+          this.broadcast(`orderbook:${pair}`, {
             type: 'orderbook_update',
-            data,
+            channel: `orderbook:${pair}`,
+            data: { pair, bids: data.bids ?? [], asks: data.asks ?? [] },
           });
         }
       } catch (error) {

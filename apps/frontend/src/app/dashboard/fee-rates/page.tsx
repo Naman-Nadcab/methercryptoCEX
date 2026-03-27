@@ -127,13 +127,20 @@ export default function FeeRatesPage() {
         body: JSON.stringify({ enabled: !mntDiscountEnabled }),
       });
       const result = await response.json();
-      
+
+      if (!response.ok) {
+        const msg = response.status === 404
+          ? 'MNT discount is not available yet.'
+          : (result?.error?.message || 'Failed to update MNT discount.');
+        notifyError(msg);
+        return;
+      }
       if (result.success) {
         setMntDiscountEnabled(!mntDiscountEnabled);
       } else {
         notifyError(result.error?.message || 'Failed to update MNT discount.');
       }
-    } catch (error) {
+    } catch {
       notifyError('Failed to update MNT discount. Please try again.');
     }
   };

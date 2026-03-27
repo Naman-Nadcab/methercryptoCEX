@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useAdminAuthStore } from '@/store/admin-auth';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { Wallet, Loader2 } from 'lucide-react';
+import { AdminChartCard, DepositWithdrawChart, TopMarketsChart } from '@/components/admin/charts';
 
 interface Blockchain {
   id: string;
@@ -75,9 +76,26 @@ export default function WalletsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Wallet Management</h1>
-        <p className="text-gray-400 text-sm mt-1">Overview of blockchains, currencies, and balances</p>
+        <h1 className="text-xl font-bold admin-metric-value">Wallet & Treasury</h1>
+        <p className="text-sm admin-metric-label mt-0.5">Deposit monitoring, withdrawal queue, reserve analytics</p>
       </div>
+
+      <section>
+        <h2 className="text-xs font-semibold admin-metric-label uppercase tracking-wider mb-3">
+          Treasury analytics
+        </h2>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <AdminChartCard title="Deposit vs withdrawal" subtitle="7d (k USDT)">
+            <DepositWithdrawChart />
+          </AdminChartCard>
+          <AdminChartCard title="Reserve distribution" subtitle="By asset (volume proxy)">
+            <TopMarketsChart />
+          </AdminChartCard>
+          <AdminChartCard title="Deposit trends" subtitle="7d">
+            <DepositWithdrawChart />
+          </AdminChartCard>
+        </div>
+      </section>
 
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

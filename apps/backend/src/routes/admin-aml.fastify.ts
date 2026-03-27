@@ -284,6 +284,42 @@ export default async function adminAmlRoutes(app: FastifyInstance): Promise<void
   });
 
   // -------------------------------------------------------------------------
+  // POST /admin/aml/reports/generate — generate STR or CTR reports for a period
+  // -------------------------------------------------------------------------
+  app.post<{
+    Body: { reportType: 'STR' | 'CTR'; periodStart: string; periodEnd: string; markAlertsReported?: boolean };
+  }>('/aml/reports/generate', async (request, reply) => {
+    const admin = await getAdminWithPermission(app, request, reply, 'aml:escalate');
+    if (!admin) return;
+
+    try {
+      const { reportType, periodStart, periodEnd, markAlertsReported } = request.body;
+      if (!reportType || !periodStart || !periodEnd || (reportType !== 'STR' && reportType !== 'CTR')) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'reportType (STR|CTR), periodStart, periodEnd required' },
+        });
+      }
+      if (reportType === 'STR') {
+        const { generateSTR } = await import('../services/aml-reporting.service.js');
+        const { reportIds } = await generateSTR({ periodStart, periodEnd, markAlertsReported: !!markAlertsReported });
+        return reply.send({ success: true, data: { reportIds, count: reportIds.length } });
+      }
+      const { generateCTR } = await import('../services/aml-reporting.service.js');
+      const { reportIds } = await generateCTR({ periodStart, periodEnd });
+      return reply.send({ success: true, data: { reportIds, count: reportIds.length } });
+    } catch (error) {
+      logger.error('AML generate reports error', {
+        error: error instanceof Error ? error.message : 'Unknown',
+      });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'GENERATE_REPORTS_ERROR', message: 'Failed to generate STR/CTR reports' },
+      });
+    }
+  });
+
+  // -------------------------------------------------------------------------
   // GET /admin/aml/reports — list STR/CTR reports with pagination (Step 7C)
   // -------------------------------------------------------------------------
   app.get<{
@@ -347,6 +383,74 @@ export default async function adminAmlRoutes(app: FastifyInstance): Promise<void
       return reply.status(500).send({
         success: false,
         error: { code: 'LIST_REPORTS_ERROR', message: 'Failed to list STR/CTR reports' },
+      });
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // GET /admin/aml/reports/export — export STR/CTR as CSV (must be before :id)
+  // -------------------------------------------------------------------------
+  app.get<{
+    Querystring: { format?: string; reportType?: string; status?: string; limit?: string };
+  }>('/aml/reports/export', async (request, reply) => {
+    const admin = await getAdminWithPermission(app, request, reply, 'aml:view');
+    if (!admin) return;
+
+    try {
+      const q = request.query;
+      const conditions: string[] = ['1=1'];
+      const params: unknown[] = [];
+      let i = 1;
+      if (q.reportType === 'STR' || q.reportType === 'CTR') {
+        conditions.push(`report_type = $${i++}`);
+        params.push(q.reportType);
+      }
+      if (q.status === 'pending' || q.status === 'submitted' || q.status === 'acknowledged') {
+        conditions.push(`status = $${i++}`);
+        params.push(q.status);
+      }
+      const where = conditions.join(' AND ');
+      const limit = q.limit != null ? Math.min(5000, Math.max(1, parseInt(q.limit, 10))) : 1000;
+      params.push(limit);
+
+      const rows = await db.query<{
+        id: string;
+        report_type: string;
+        user_id: string | null;
+        period_start: string | null;
+        period_end: string | null;
+        total_amount: string | null;
+        status: string;
+        created_at: string;
+      }>(
+        `SELECT id, report_type, user_id, period_start, period_end, total_amount, status, created_at
+         FROM aml_str_ctr_logs WHERE ${where}
+         ORDER BY created_at DESC
+         LIMIT $${i}`,
+        params
+      );
+
+      const format = (q.format ?? 'csv').toLowerCase();
+      if (format === 'csv') {
+        const headers = ['id', 'report_type', 'user_id', 'period_start', 'period_end', 'total_amount', 'status', 'created_at'];
+        const escape = (v: string | null | undefined) => (v == null ? '' : `"${String(v).replace(/"/g, '""')}"`);
+        const csv = [headers.join(','), ...rows.rows.map((r) => headers.map((h) => escape((r as Record<string, string | null>)[h])).join(','))].join('\n');
+        reply.header('Content-Type', 'text/csv; charset=utf-8');
+        reply.header('Content-Disposition', `attachment; filename="str-ctr-export-${new Date().toISOString().slice(0, 10)}.csv"`);
+        return reply.send(csv);
+      }
+
+      return reply.send({
+        success: true,
+        data: { reports: rows.rows, total: rows.rows.length },
+      });
+    } catch (error) {
+      logger.error('AML export reports error', {
+        error: error instanceof Error ? error.message : 'Unknown',
+      });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'EXPORT_REPORTS_ERROR', message: 'Failed to export STR/CTR reports' },
       });
     }
   });

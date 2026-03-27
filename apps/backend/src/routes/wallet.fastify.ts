@@ -16,6 +16,7 @@ import { getDeviceIdFromRequest, logUserActivity } from '../services/activity-mo
 import { isAddressAllowed } from '../services/withdrawal-whitelist.service.js';
 import { hasActiveCooldown } from '../services/security-cooldown.service.js';
 import { rateLimitByUser } from '../lib/rate-limit-fastify.js';
+import { config } from '../config/index.js';
 import { creditOverdueDepositsForUser, applyBalanceForOneCompletedDeposit } from '../services/deposit-credit.service.js';
 import { recordAndEvaluate } from '../services/aml-transaction-monitor.service.js';
 import { handleWithdrawPreview, type WithdrawPreviewQuerystring } from './wallet-withdraw-preview.js';
@@ -937,17 +938,18 @@ export default async function walletRoutes(app: FastifyInstance) {
     try {
       const userId = request.user!.id;
       const balancesByToken: Record<string, { symbol: string; name: string; funding: string; trading: string; total: string }> = {};
-
+      const { getActiveCurrencyIds } = await import('../lib/active-currencies-cache.js');
+      const currencyIds = await getActiveCurrencyIds();
       const [fundingRows, spotRows, tradingRows, namesResult] = await Promise.all([
-        readUserBalances(userId, 'funding').catch((e) => {
+        readUserBalances(userId, 'funding', currencyIds).catch((e) => {
           logger.warn('Balances by-account: readUserBalances(funding) failed', { userId, err: e instanceof Error ? e.message : String(e) });
           return [] as Awaited<ReturnType<typeof readUserBalances>>;
         }),
-        readUserBalances(userId, 'spot').catch((e) => {
+        readUserBalances(userId, 'spot', currencyIds).catch((e) => {
           logger.warn('Balances by-account: readUserBalances(spot) failed', { userId, err: e instanceof Error ? e.message : String(e) });
           return [] as Awaited<ReturnType<typeof readUserBalances>>;
         }),
-        readUserBalances(userId, 'trading').catch((e) => {
+        readUserBalances(userId, 'trading', currencyIds).catch((e) => {
           logger.warn('Balances by-account: readUserBalances(trading) failed', { userId, err: e instanceof Error ? e.message : String(e) });
           return [] as Awaited<ReturnType<typeof readUserBalances>>;
         }),
@@ -1617,7 +1619,7 @@ export default async function walletRoutes(app: FastifyInstance) {
       internal_user_identifier?: string;
     };
   }>('/withdrawals', {
-    preHandler: [app.authenticate, rateLimitByUser('wallet:withdrawal', 5, 3600)],
+    preHandler: [app.authenticate, rateLimitByUser('wallet:withdrawal', 5, 3600, { failClosed: config.rateLimit.failClosed })],
   }, async (request, reply) => {
     try {
       if (request.user?.allowWithdraw === false) {
@@ -1672,6 +1674,23 @@ export default async function walletRoutes(app: FastifyInstance) {
               message: 'Idempotency-Key was already used with a different request body. Use a new key or the same request body.',
             },
           });
+        }
+        // Verify: refresh status from DB so we return current state
+        try {
+          const verifyRes = await db.query<{ status: string }>(
+            `SELECT status FROM withdrawals WHERE id = $1 AND user_id = $2 LIMIT 1`,
+            [cached.withdrawalId, userId]
+          );
+          if (verifyRes.rows.length > 0) {
+            const currentStatus = verifyRes.rows[0]!.status;
+            const resp = { ...cached.response };
+            if (resp.data && typeof resp.data === 'object' && 'status' in resp.data) {
+              (resp.data as Record<string, unknown>).status = currentStatus;
+            }
+            return reply.status(200).send(resp);
+          }
+        } catch {
+          /* fallback to cached */
         }
         return reply.status(200).send(cached.response);
       }
@@ -2191,6 +2210,30 @@ export default async function walletRoutes(app: FastifyInstance) {
         });
       }
 
+      const userLimitResult2 = await db.query(
+        `SELECT monthly_withdrawal_limit FROM users WHERE id = $1`,
+        [userId]
+      );
+      const monthlyLimit = new Decimal(userLimitResult2.rows[0]?.monthly_withdrawal_limit || '10000000').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+      const monthStart = new Date();
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
+      const monthResult = await db.query<{ total: string }>(`
+        SELECT COALESCE(SUM(amount), 0) as total
+        FROM withdrawals
+        WHERE user_id = $1
+          AND status IN ('pending_approval', 'pending', 'processing', 'completed')
+          AND created_at >= $2
+      `, [userId, monthStart.toISOString()]);
+      const monthUsed = new Decimal(monthResult.rows[0]?.total || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+      if (monthUsed.plus(withdrawAmountDec).gt(monthlyLimit)) {
+        logger.warn('Withdrawal creation failed: LIMIT_EXCEEDED (monthly)', withdrawalLogContext);
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'LIMIT_EXCEEDED', message: 'Monthly withdrawal limit exceeded' }
+        });
+      }
+
       // --- STRICT EXECUTION ORDER (no withdrawal record must exist if any step blocks) ---
       // 1. Risk engine (BLOCK → no DB insert; CHALLENGE → pending_approval)
       // 2. Security cooldown
@@ -2325,9 +2368,37 @@ export default async function walletRoutes(app: FastifyInstance) {
         });
       }
 
+      // 4.5 Sanctions / Travel Rule screening (on-chain only)
+      const { checkSanctions } = await import('../services/sanctions-screening.service.js');
+      const sanctionsResult = await checkSanctions({
+        address: toAddress!,
+        amount: withdrawAmountDec.toString(),
+        asset: token.symbol,
+        userId,
+      });
+      if (!sanctionsResult.allowed) {
+        logger.warn('Withdrawal creation failed: SANCTIONS_BLOCKED', { ...withdrawalLogContext, reason: sanctionsResult.reason });
+        return reply.status(403).send({
+          success: false,
+          error: {
+            code: 'SANCTIONS_BLOCKED',
+            message: sanctionsResult.reason ?? 'Withdrawal blocked by compliance screening.',
+          },
+        });
+      }
+
       // 5. Withdrawal security: 2FA and fund password (user must satisfy when enabled)
       const { verifyUser2FA, userHas2FA, userHasFundPassword, verifyFundPassword } = await import('../lib/totp-verify.js');
       const has2FA = await userHas2FA(userId);
+      const { getTwoFaPolicy } = await import('../services/twofa-enforcement.service.js');
+      const twoFaPolicy = await getTwoFaPolicy();
+      if (twoFaPolicy.require2faWithdrawal && !has2FA) {
+        logger.warn('Withdrawal creation failed: 2FA_REQUIRED_BY_POLICY', withdrawalLogContext);
+        return reply.status(400).send({
+          success: false,
+          error: { code: '2FA_REQUIRED', message: 'Two-factor authentication is required for withdrawals. Please enable 2FA in security settings.' }
+        });
+      }
       if (has2FA) {
         if (!twoFactorCode || typeof twoFactorCode !== 'string') {
           logger.warn('Withdrawal creation failed: 2FA_REQUIRED', withdrawalLogContext);
@@ -2505,6 +2576,11 @@ export default async function walletRoutes(app: FastifyInstance) {
           },
         });
       }
+
+      try {
+        const { publishWithdrawalRequested } = await import('../services/admin-ws.service.js');
+        publishWithdrawalRequested({ id: withdrawal.id, user_id: userId, amount: withdrawAmountDec.toString(), to_address: toAddress ?? undefined });
+      } catch { /* best-effort */ }
 
       // Log activity
       auditLog('withdrawal_request', userId, {
@@ -2801,16 +2877,18 @@ export default async function walletRoutes(app: FastifyInstance) {
         JOIN currencies qc ON mp.quote_currency_id = qc.id
         WHERE UPPER(qc.symbol) = 'USDT'
         ORDER BY UPPER(bc.symbol), mp.price DESC`;
+      const { getActiveCurrencyIds } = await import('../lib/active-currencies-cache.js');
+      const currencyIds = await getActiveCurrencyIds();
       const [fundingResult, spotResult, tradingResult, pricesResult] = await Promise.all([
-        readUserBalances(userId, 'funding').catch((e) => {
+        readUserBalances(userId, 'funding', currencyIds).catch((e) => {
           logger.warn('Balances summary: readUserBalances(funding) failed', { userId, err: e instanceof Error ? e.message : String(e) });
           return [] as Awaited<ReturnType<typeof readUserBalances>>;
         }),
-        readUserBalances(userId, 'spot').catch((e) => {
+        readUserBalances(userId, 'spot', currencyIds).catch((e) => {
           logger.warn('Balances summary: readUserBalances(spot) failed', { userId, err: e instanceof Error ? e.message : String(e) });
           return [] as Awaited<ReturnType<typeof readUserBalances>>;
         }),
-        readUserBalances(userId, 'trading').catch((e) => {
+        readUserBalances(userId, 'trading', currencyIds).catch((e) => {
           logger.warn('Balances summary: readUserBalances(trading) failed', { userId, err: e instanceof Error ? e.message : String(e) });
           return [] as Awaited<ReturnType<typeof readUserBalances>>;
         }),

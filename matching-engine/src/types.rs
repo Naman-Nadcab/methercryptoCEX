@@ -35,11 +35,18 @@ pub struct Order {
     pub created_at: u64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct MatchEvent {
     pub market: Market,
     pub bid_order_id: OrderId,
     pub ask_order_id: OrderId,
+    pub bid_user_id: UserId,
+    pub ask_user_id: UserId,
+    pub taker_order_id: OrderId,
+    pub maker_order_id: OrderId,
+    pub taker_user_id: UserId,
+    pub maker_user_id: UserId,
+    pub taker_side: Side,
     pub price: Price,
     pub quantity: Quantity,
     pub timestamp: u64,

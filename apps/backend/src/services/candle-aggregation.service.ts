@@ -2,6 +2,7 @@
  * Candle aggregation from spot_trades into ohlcv_candles.
  * Deterministic, idempotent (upsert by bucket). Safe to run periodically.
  * Uses Redis lock to prevent duplicate runs across multiple instances.
+ * Scheduled every 2 min in server.ts when runWorkers is true; disable via DISABLE_CANDLE_AGGREGATION=true.
  */
 
 import { db } from '../lib/database.js';
