@@ -37,7 +37,6 @@ const NAV_ITEMS: {
     icon: Wallet,
     active: (p) =>
       p.startsWith('/wallet') ||
-      p.startsWith('/wallet') ||
       p.startsWith('/dashboard/wallet') ||
       p.startsWith('/dashboard/deposit') ||
       p.startsWith('/dashboard/withdraw') ||
@@ -51,13 +50,12 @@ const NAV_ITEMS: {
   },
 ];
 
-/** Fixed bottom tab bar — mobile only; pair main content with `pb-[calc(3.75rem+env(safe-area-inset-bottom,0px))] md:pb-*`. */
 export function MobileBottomNav() {
   const pathname = usePathname() ?? '';
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-[60] border-t border-gray-200 bg-white/95 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur-md dark:border-gray-800 dark:bg-[#181a20]/95 md:hidden"
+      className="fixed bottom-0 left-0 right-0 z-[60] border-t border-border bg-card/95 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur-md md:hidden"
       aria-label="Primary mobile"
     >
       <div className="mx-auto flex h-14 max-w-lg items-stretch justify-around px-1">
@@ -70,8 +68,8 @@ export function MobileBottomNav() {
               className={cn(
                 'flex min-h-[44px] min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1 text-[10px] font-medium transition-colors',
                 isActive
-                  ? 'text-blue-600 dark:text-blue-400'
-                  : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
+                  ? 'text-primary'
+                  : 'text-muted-foreground hover:text-foreground'
               )}
             >
               <Icon className={cn('h-5 w-5 shrink-0', isActive && 'stroke-[2.5]')} aria-hidden />

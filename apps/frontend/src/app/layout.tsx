@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter, Orbitron } from 'next/font/google';
+import { Inter, Orbitron, IBM_Plex_Mono } from 'next/font/google';
 import './globals.css';
 import { Providers } from '@/components/providers';
 import { DockerUserAppHint } from '@/components/DockerUserAppHint';
@@ -21,6 +21,12 @@ const orbitron = Orbitron({
   variable: '--font-orbitron',
 });
 
+const ibmPlexMono = IBM_Plex_Mono({
+  weight: ['400', '500', '600'],
+  subsets: ['latin'],
+  variable: '--font-mono',
+});
+
 export const metadata: Metadata = {
   title: 'CryptoExchange - Trade Crypto with Confidence',
   description: 'Secure and fast cryptocurrency exchange for spot trading and P2P transactions',
@@ -37,7 +43,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.variable} ${orbitron.variable} font-sans antialiased`}>
+      <body className={`${inter.variable} ${orbitron.variable} ${ibmPlexMono.variable} font-sans antialiased`}>
         <Providers>
           <DockerUserAppHint />
           {children}
