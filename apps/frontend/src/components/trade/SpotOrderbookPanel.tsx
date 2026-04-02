@@ -110,8 +110,8 @@ const LevelRow = memo(function LevelRow({
       onClick={onRowSelect ? handleClick : undefined}
       title={tip}
       data-orderbook-row
-      className={`group/level relative w-full cursor-pointer overflow-hidden border-b border-gray-100/90 px-2 font-mono tabular-nums transition-all duration-150 last:border-b-0 hover:bg-gray-100/80 hover:shadow-[inset_0_0_0_1px_rgba(59,130,246,0.22)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/35 dark:border-gray-800/50 dark:hover:bg-gray-800/45 dark:hover:shadow-[inset_0_0_0_1px_rgba(96,165,250,0.28)] ${rowSize} ${
-        emphasize ? 'bg-gray-50/90 dark:bg-gray-900/35' : ''
+      className={`group/level relative w-full cursor-pointer overflow-hidden border-b border-gray-100/90 px-2 font-mono tabular-nums transition-all duration-150 last:border-b-0 hover:bg-gray-100/80 hover:shadow-[inset_0_0_0_1px_rgba(59,130,246,0.22)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/35 dark:border-border/50 dark:hover:bg-accent/45 dark:hover:shadow-[inset_0_0_0_1px_rgba(96,165,250,0.28)] ${rowSize} ${
+        emphasize ? 'bg-gray-50/90 dark:bg-card/35' : ''
       }`}
     >
       <span
@@ -123,7 +123,7 @@ const LevelRow = memo(function LevelRow({
         <span className={`min-w-0 truncate text-left font-semibold ${priceCls} ${emphasize ? 'font-bold' : ''}`}>
           {price}
         </span>
-        <span className="truncate text-right text-gray-800 dark:text-gray-200">{quantity}</span>
+        <span className="truncate text-right text-foreground dark:text-gray-200">{quantity}</span>
         <span className="truncate text-right text-muted-foreground">{total}</span>
       </span>
     </button>
@@ -163,7 +163,7 @@ function SentimentFooter({
     <div className="space-y-1">
       <div className="flex justify-between text-[10px] text-muted-foreground">
         <span className="font-medium text-muted-foreground">Buy / Sell</span>
-        <span className="font-mono text-gray-500">
+        <span className="font-mono text-muted-foreground">
           {formatCompactNumber(buyLiquidity)} / {formatCompactNumber(sellLiquidity)} {quoteAsset}
         </span>
       </div>
@@ -299,14 +299,14 @@ export function SpotOrderbookPanel({
     `min-h-9 flex-1 px-2 py-2 text-[11px] font-bold transition-colors ${
       active
         ? 'border-b-2 border-blue-600 text-blue-700 dark:border-blue-400 dark:text-blue-300'
-        : 'border-b-2 border-transparent text-gray-500 hover:text-gray-800 dark:text-gray-500 dark:hover:text-gray-200'
+        : 'border-b-2 border-transparent text-muted-foreground hover:text-foreground dark:text-muted-foreground dark:hover:text-gray-200'
     }`;
 
   const iconToggle = (active: boolean) =>
     `flex h-7 w-7 shrink-0 items-center justify-center rounded border transition-colors ${
       active
         ? 'border-blue-500/70 bg-blue-50 text-blue-700 dark:border-blue-400/80 dark:bg-blue-950/50 dark:text-blue-300'
-        : 'border-gray-200 bg-card text-gray-500 hover:border-gray-300 hover:text-gray-800 dark:border-gray-700 dark:bg-background dark:text-gray-400 dark:hover:border-gray-600'
+        : 'border-border bg-card text-muted-foreground hover:border-border hover:text-foreground dark:border-border dark:bg-background dark:text-muted-foreground dark:hover:border-gray-600'
     }`;
 
   const midPriceClass =
@@ -325,7 +325,7 @@ export function SpotOrderbookPanel({
 
   const renderAsks = (variant: 'book' | 'ladder' = 'book') =>
     bookView !== 'bids' && askRows.length > 0 ? (
-      <div className="border-b border-dashed border-gray-200/80 dark:border-gray-800/60">
+      <div className="border-b border-dashed border-gray-200/80 dark:border-border/60">
         {askRows.map((row, i) => {
           const ascIndex = askRowsAsc.length - 1 - i;
           const tot = askTotalsAsc[ascIndex] ?? 0;
@@ -359,7 +359,7 @@ export function SpotOrderbookPanel({
         ≈{formatValueFixedTrim(lastDisplay, effectivePricePrecision)} {quoteAsset}
       </p>
       {(spreadAbs > 0 || spreadBps > 0) && (
-        <p className="text-[10px] font-mono tabular-nums text-gray-500 dark:text-gray-600">
+        <p className="text-[10px] font-mono tabular-nums text-muted-foreground dark:text-muted-foreground">
           Spread {spreadAbs > 0 ? formatFixedTrim(spreadAbs, Math.min(6, effectivePricePrecision)) : '—'}
           {spreadPctMid > 0 ? ` (${spreadPctMid >= 0.0001 ? spreadPctMid.toFixed(3) : '<0.001'}%)` : ''}
           {spreadBps >= 0.01 ? ` · ${spreadBps.toFixed(1)} bps` : ''}
@@ -369,7 +369,7 @@ export function SpotOrderbookPanel({
   );
 
   const renderMid = () => (
-    <div className="border-y border-gray-200/90 bg-gray-100/50 px-2 py-1.5 dark:border-gray-800/90 dark:bg-gray-900/50">
+    <div className="border-y border-gray-200/90 bg-gray-100/50 px-2 py-1.5 dark:border-border/90 dark:bg-card/50">
       {onPriceClick && lastDisplay ? (
         <button
           type="button"
@@ -436,7 +436,7 @@ export function SpotOrderbookPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-card text-[11px] dark:bg-card">
-      <div className="flex flex-shrink-0 border-b border-gray-200/90 dark:border-gray-800/90">
+      <div className="flex flex-shrink-0 border-b border-gray-200/90 dark:border-border/90">
         <button type="button" onClick={() => setTab('orderbook')} className={tabBtn(tab === 'orderbook')}>
           Order Book
         </button>
@@ -449,7 +449,7 @@ export function SpotOrderbookPanel({
       </div>
 
       {tab === 'ladder' && (
-        <div className="flex flex-shrink-0 items-center justify-between gap-2 border-b border-gray-200/90 px-2 py-1.5 dark:border-gray-800/90">
+        <div className="flex flex-shrink-0 items-center justify-between gap-2 border-b border-gray-200/90 px-2 py-1.5 dark:border-border/90">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             DOM · click row to set price
           </p>
@@ -457,7 +457,7 @@ export function SpotOrderbookPanel({
             value={depthLimit}
             onChange={(e) => setDepthLimit(Number(e.target.value) as (typeof DEPTH_OPTIONS)[number])}
             title="Rows per side"
-            className="h-7 min-w-[3rem] cursor-pointer rounded border border-gray-200 bg-card px-1.5 text-[10px] font-bold text-gray-900 dark:border-gray-700 dark:bg-background dark:text-white"
+            className="h-7 min-w-[3rem] cursor-pointer rounded border border-border bg-card px-1.5 text-[10px] font-bold text-foreground dark:border-border dark:bg-background dark:text-foreground"
           >
             {DEPTH_OPTIONS.map((d) => (
               <option key={d} value={d}>
@@ -469,7 +469,7 @@ export function SpotOrderbookPanel({
       )}
 
       {tab === 'orderbook' && (
-        <div className="flex flex-shrink-0 items-center gap-2 border-b border-gray-200/90 px-2 py-1.5 dark:border-gray-800/90">
+        <div className="flex flex-shrink-0 items-center gap-2 border-b border-gray-200/90 px-2 py-1.5 dark:border-border/90">
           <div className="flex items-center gap-1" role="group" aria-label="Order book view">
             <button
               type="button"
@@ -509,7 +509,7 @@ export function SpotOrderbookPanel({
               value={effectivePricePrecision}
               onChange={(e) => setDisplayPricePrecision(Number(e.target.value))}
               title="Price grouping"
-              className="h-7 min-w-[5rem] cursor-pointer rounded border border-gray-200 bg-card px-1.5 text-[10px] font-mono font-semibold text-gray-900 dark:border-gray-700 dark:bg-background dark:text-white"
+              className="h-7 min-w-[5rem] cursor-pointer rounded border border-border bg-card px-1.5 text-[10px] font-mono font-semibold text-foreground dark:border-border dark:bg-background dark:text-foreground"
             >
               {tickOptions.map((p) => (
                 <option key={p} value={p}>
@@ -521,7 +521,7 @@ export function SpotOrderbookPanel({
               value={depthLimit}
               onChange={(e) => setDepthLimit(Number(e.target.value) as (typeof DEPTH_OPTIONS)[number])}
               title="Rows per side"
-              className="h-7 min-w-[3rem] cursor-pointer rounded border border-gray-200 bg-card px-1.5 text-[10px] font-bold text-gray-900 dark:border-gray-700 dark:bg-background dark:text-white"
+              className="h-7 min-w-[3rem] cursor-pointer rounded border border-border bg-card px-1.5 text-[10px] font-bold text-foreground dark:border-border dark:bg-background dark:text-foreground"
             >
               {DEPTH_OPTIONS.map((d) => (
                 <option key={d} value={d}>
@@ -535,7 +535,7 @@ export function SpotOrderbookPanel({
 
       {tab === 'ladder' ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="border-b border-gray-200/90 bg-background/80 px-2 py-1 dark:border-gray-800/90 dark:bg-gray-900/40">
+          <div className="border-b border-gray-200/90 bg-background/80 px-2 py-1 dark:border-border/90 dark:bg-card/40">
             <div className={`${COL_GRID} font-mono text-[10px] font-bold uppercase tracking-wide text-muted-foreground`}>
               <span className="text-left">Asks ↑ · Price({quoteAsset})</span>
               <span className="text-right">Qty({baseAsset})</span>
@@ -561,7 +561,7 @@ export function SpotOrderbookPanel({
         </div>
       ) : tab === 'trades' ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="border-b border-gray-200/90 bg-background/80 px-2 py-1 dark:border-gray-800/90 dark:bg-gray-900/40">
+          <div className="border-b border-gray-200/90 bg-background/80 px-2 py-1 dark:border-border/90 dark:bg-card/40">
             <div className={`${COL_GRID} font-mono text-[10px] font-bold uppercase tracking-wide text-muted-foreground`}>
               <span className="text-left">Price({quoteAsset})</span>
               <span className="text-right">Qty({baseAsset})</span>
@@ -579,7 +579,7 @@ export function SpotOrderbookPanel({
                 const priceCls = t.side === 'buy' ? 'text-price-up' : 'text-price-down';
                 const row = (
                   <div
-                    className={`${COL_GRID} items-center border-b border-gray-100 px-1.5 py-px font-mono tabular-nums dark:border-gray-800/50`}
+                    className={`${COL_GRID} items-center border-b border-border px-1.5 py-px font-mono tabular-nums dark:border-border/50`}
                   >
                     <span
                       className={`min-w-0 truncate text-left font-semibold ${priceCls}`}
@@ -587,7 +587,7 @@ export function SpotOrderbookPanel({
                     >
                       {formatValueFixedTrim(t.price, pricePrecision)}
                     </span>
-                    <span className="truncate text-right text-gray-800 dark:text-gray-200">
+                    <span className="truncate text-right text-foreground dark:text-gray-200">
                       {formatValueFixedTrim(t.quantity, qtyPrecision)}
                     </span>
                     <span className="text-right text-[10px] text-muted-foreground">{formatTradeTime(t.time)}</span>
@@ -611,7 +611,7 @@ export function SpotOrderbookPanel({
         </div>
       ) : (
         <>
-          <div className="border-b border-gray-200/90 bg-background/80 px-2 py-1 dark:border-gray-800/90 dark:bg-gray-900/40">
+          <div className="border-b border-gray-200/90 bg-background/80 px-2 py-1 dark:border-border/90 dark:bg-card/40">
             <div className={`${COL_GRID} items-center font-mono text-[10px] font-bold uppercase tracking-wide text-muted-foreground`}>
               <span className="text-left">Price({quoteAsset})</span>
               <span className="text-right">Qty({baseAsset})</span>
@@ -639,7 +639,7 @@ export function SpotOrderbookPanel({
               )}
             </div>
 
-            <div className="flex-shrink-0 border-t border-gray-200/90 px-2 py-1.5 dark:border-gray-800/90">
+            <div className="flex-shrink-0 border-t border-gray-200/90 px-2 py-1.5 dark:border-border/90">
               <SentimentFooter
                 buyPct={buyPct}
                 sellPct={sellPct}

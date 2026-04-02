@@ -132,7 +132,7 @@ export default function AssetSymbolPage() {
       <div className="p-6">
         <Link
           href="/wallet"
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-gray-900 dark:hover:text-white mb-4"
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground dark:hover:text-white mb-4"
         >
           <ArrowLeft className="w-4 h-4" /> Back to Assets
         </Link>
@@ -160,7 +160,7 @@ export default function AssetSymbolPage() {
       <div className="flex items-center gap-4">
         <Link
           href="/wallet"
-          className="inline-flex items-center gap-1 text-sm text-gray-400 hover:text-white transition-colors"
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-white transition-colors"
         >
           <ArrowLeft className="w-4 h-4" /> Back
         </Link>
@@ -168,9 +168,9 @@ export default function AssetSymbolPage() {
       </div>
 
       {/* Balance card — header row (title + actions) + metrics */}
-      <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-card/5 p-5 space-y-4 transition-all duration-200 ease-out hover:bg-background/80 dark:hover:bg-card/[0.07] hover:border-gray-300 dark:hover:border-white/20">
+      <div className="rounded-xl border border-border dark:border-white/10 bg-card dark:bg-card/5 p-5 space-y-4 transition-all duration-200 ease-out hover:bg-background/80 dark:hover:bg-card/[0.07] hover:border-border dark:hover:border-white/20">
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <span className="text-xs text-gray-500 dark:text-white/50 uppercase tracking-wide">{normalizedSymbol} Wallet</span>
+          <span className="text-xs text-muted-foreground dark:text-foreground/50 uppercase tracking-wide">{normalizedSymbol} Wallet</span>
           <div className="flex justify-center gap-3 pt-2">
             <Link
               href={`/wallet/deposit/crypto?coin=${encodeURIComponent(normalizedSymbol)}`}
@@ -180,51 +180,51 @@ export default function AssetSymbolPage() {
             </Link>
             <Link
               href={`/wallet/withdraw/crypto?coin=${encodeURIComponent(normalizedSymbol)}`}
-              className="inline-flex items-center gap-2 h-9 px-4 rounded-xl text-sm font-medium bg-gray-100 hover:bg-accent dark:hover:bg-gray-700 text-foreground transition-transform duration-100 active:scale-[0.97]"
+              className="inline-flex items-center gap-2 h-9 px-4 rounded-xl text-sm font-medium bg-accent hover:bg-accent dark:hover:bg-accent text-foreground transition-transform duration-100 active:scale-[0.97]"
             >
               <Upload className="w-4 h-4" /> Withdraw
             </Link>
           </div>
         </div>
-        <div className="flex flex-col sm:flex-row sm:divide-x sm:divide-gray-200 dark:sm:divide-white/10">
+        <div className="flex flex-col sm:flex-row sm:divide-x sm:divide-border dark:sm:divide-white/10">
           <div className="flex-1 py-2 sm:py-0 sm:px-4 first:sm:pl-0">
-            <p className="text-xs text-gray-500 dark:text-white/50 uppercase tracking-wide">Total balance</p>
+            <p className="text-xs text-muted-foreground dark:text-foreground/50 uppercase tracking-wide">Total balance</p>
             <p className="mt-1 text-xl font-semibold text-foreground"><span className="tabular-nums tracking-tight transition-all duration-300">{total}</span></p>
-            <p className="text-xs text-gray-400 dark:text-white/40">{normalizedSymbol}</p>
+            <p className="text-xs text-muted-foreground dark:text-foreground/40">{normalizedSymbol}</p>
           </div>
           <div className="flex-1 py-2 sm:py-0 sm:px-4">
-            <p className="text-xs text-gray-500 dark:text-white/50 uppercase tracking-wide inline-flex items-center gap-1">Available balance
+            <p className="text-xs text-muted-foreground dark:text-foreground/50 uppercase tracking-wide inline-flex items-center gap-1">Available balance
               <Tooltip>
-                <TooltipTrigger asChild><HelpCircle className="w-3.5 h-3.5 text-gray-400 cursor-help" /></TooltipTrigger>
+                <TooltipTrigger asChild><HelpCircle className="w-3.5 h-3.5 text-muted-foreground cursor-help" /></TooltipTrigger>
                 <TooltipContent>Amount you can use for trading, transfers, and withdrawals.</TooltipContent>
               </Tooltip>
             </p>
             <p className="mt-1 text-xl font-semibold text-foreground"><span className="tabular-nums tracking-tight transition-all duration-300">{available}</span></p>
-            <p className="text-xs text-gray-400 dark:text-white/40">{normalizedSymbol}</p>
+            <p className="text-xs text-muted-foreground dark:text-foreground/40">{normalizedSymbol}</p>
           </div>
           <div className="flex-1 py-2 sm:py-0 sm:px-4">
-            <p className="text-xs text-gray-500 dark:text-white/50 uppercase tracking-wide inline-flex items-center gap-1">Locked
+            <p className="text-xs text-muted-foreground dark:text-foreground/50 uppercase tracking-wide inline-flex items-center gap-1">Locked
               <Tooltip>
-                <TooltipTrigger asChild><HelpCircle className="w-3.5 h-3.5 text-gray-400 cursor-help" /></TooltipTrigger>
+                <TooltipTrigger asChild><HelpCircle className="w-3.5 h-3.5 text-muted-foreground cursor-help" /></TooltipTrigger>
                 <TooltipContent>Locked balance is reserved for open orders. Released when orders fill or are cancelled.</TooltipContent>
               </Tooltip>
             </p>
             <p className="mt-1 text-xl font-semibold text-foreground"><span className="tabular-nums tracking-tight transition-all duration-300">{locked}</span></p>
-            <p className="text-xs text-gray-400 dark:text-white/40">{normalizedSymbol}</p>
+            <p className="text-xs text-muted-foreground dark:text-foreground/40">{normalizedSymbol}</p>
           </div>
         </div>
       </div>
 
       {/* History panel + table */}
-      <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-card/5 overflow-hidden p-5 space-y-4 transition-all duration-200 ease-out hover:bg-background/80 dark:hover:bg-card/[0.07] hover:border-gray-300 dark:hover:border-white/20">
+      <div className="rounded-xl border border-border dark:border-white/10 bg-card dark:bg-card/5 overflow-hidden p-5 space-y-4 transition-all duration-200 ease-out hover:bg-background/80 dark:hover:bg-card/[0.07] hover:border-border dark:hover:border-white/20">
         <div className="flex items-center gap-2">
-          <FileText className="w-4 h-4 text-gray-500 dark:text-white/40" />
+          <FileText className="w-4 h-4 text-muted-foreground dark:text-foreground/40" />
           <h2 className="text-sm font-medium text-foreground">History</h2>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
-              <tr className="text-left text-xs text-gray-500 dark:text-white/40 uppercase tracking-wide border-b border-gray-200 dark:border-white/10">
+              <tr className="text-left text-xs text-muted-foreground dark:text-foreground/40 uppercase tracking-wide border-b border-border dark:border-white/10">
                 <th className="py-2 px-4 font-medium">Type</th>
                 <th className="py-2 px-4 font-medium">Amount</th>
                 <th className="py-2 px-4 font-medium">Status</th>
@@ -234,19 +234,19 @@ export default function AssetSymbolPage() {
             <tbody>
               {filteredHistory.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="py-6 text-center text-gray-500 dark:text-white/40 text-xs">
+                  <td colSpan={4} className="py-6 text-center text-muted-foreground dark:text-foreground/40 text-xs">
                     No {normalizedSymbol} transactions yet
                   </td>
                 </tr>
               ) : (
                 filteredHistory.map((t) => (
-                  <tr key={t.id} className="border-b border-gray-100 dark:border-white/5 last:border-0 hover:bg-gray-50 dark:hover:bg-card/[0.06] transition-colors duration-150 cursor-pointer">
+                  <tr key={t.id} className="border-b border-border dark:border-white/5 last:border-0 hover:bg-muted dark:hover:bg-card/[0.06] transition-colors duration-150 cursor-pointer">
                     <td className="py-2 px-4 font-medium text-foreground capitalize">{t.type}</td>
                     <td className="py-2 px-4 tabular-nums text-foreground/90">
                       {t.type === 'deposit' ? '+' : t.type === 'withdrawal' ? '-' : ''}{t.amount}
                     </td>
-                    <td className="py-2 px-4 text-gray-600 dark:text-white/70">{t.status}</td>
-                    <td className="py-2 px-4 tabular-nums text-gray-500 dark:text-white/70">{t.created_at ? new Date(t.created_at).toLocaleString() : '—'}</td>
+                    <td className="py-2 px-4 text-muted-foreground dark:text-foreground/70">{t.status}</td>
+                    <td className="py-2 px-4 tabular-nums text-muted-foreground dark:text-foreground/70">{t.created_at ? new Date(t.created_at).toLocaleString() : '—'}</td>
                   </tr>
                 ))
               )}

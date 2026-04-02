@@ -72,12 +72,12 @@ function TakeOrderModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog">
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-gray-200 bg-card p-5 dark:border-gray-800 dark:bg-card">
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-border bg-card p-5 dark:border-border dark:bg-card">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-foreground">
             {side === 'sell' ? 'Buy' : 'Sell'} {ad.crypto_symbol}
           </h2>
-          <button type="button" onClick={onClose} className="rounded p-1 text-gray-500 hover:bg-accent">
+          <button type="button" onClick={onClose} className="rounded p-1 text-muted-foreground hover:bg-accent">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -89,7 +89,7 @@ function TakeOrderModal({
         <input
           value={qty}
           onChange={(e) => setQty(e.target.value)}
-          className="mb-4 w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm dark:border-gray-700 dark:bg-background dark:text-white"
+          className="mb-4 w-full rounded-lg border border-border px-3 py-2 font-mono text-sm dark:border-border dark:bg-background dark:text-foreground"
         />
         <label className="mb-2 block text-xs font-medium text-foreground/80">Your payment method</label>
         {pmLoading ? (
@@ -108,7 +108,7 @@ function TakeOrderModal({
           <select
             value={pmId}
             onChange={(e) => setPmId(e.target.value)}
-            className="mb-4 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-background dark:text-white"
+            className="mb-4 w-full rounded-lg border border-border px-3 py-2 text-sm dark:border-border dark:bg-background dark:text-foreground"
           >
             <option value="">Select…</option>
             {selectable.map((m: P2PPaymentMethodRow) => (

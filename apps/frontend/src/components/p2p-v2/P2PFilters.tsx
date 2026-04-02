@@ -25,15 +25,15 @@ type Props = {
 
 export function P2PFilters({ value, onChange }: Props) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-card p-4 dark:border-gray-800 dark:bg-card">
+    <div className="rounded-xl border border-border bg-card p-4 dark:border-border dark:bg-card">
       <div className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
-        <Filter className="h-4 w-4 text-gray-500" />
+        <Filter className="h-4 w-4 text-muted-foreground" />
         Filters
       </div>
       <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end">
         <div>
           <p className="mb-1 text-xs text-muted-foreground">Side</p>
-          <div className="inline-flex rounded-lg border border-gray-200 p-0.5 dark:border-gray-700">
+          <div className="inline-flex rounded-lg border border-border p-0.5 dark:border-border">
             {(['buy', 'sell'] as const).map((s) => (
               <button
                 key={s}
@@ -42,7 +42,7 @@ export function P2PFilters({ value, onChange }: Props) {
                 className={`rounded-md px-3 py-1.5 text-xs font-medium capitalize ${
                   value.side === s
                     ? 'bg-blue-600 text-white'
-                    : 'text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800'
+                    : 'text-muted-foreground hover:bg-muted dark:text-foreground/80 dark:hover:bg-accent'
                 }`}
               >
                 {s}
@@ -55,7 +55,7 @@ export function P2PFilters({ value, onChange }: Props) {
           <select
             value={value.crypto}
             onChange={(e) => onChange({ ...value, crypto: e.target.value })}
-            className="h-9 rounded-lg border border-gray-200 bg-card px-2 text-sm dark:border-gray-700 dark:bg-background dark:text-white"
+            className="h-9 rounded-lg border border-border bg-card px-2 text-sm dark:border-border dark:bg-background dark:text-foreground"
           >
             {CRYPTOS.map((c) => (
               <option key={c} value={c}>
@@ -69,7 +69,7 @@ export function P2PFilters({ value, onChange }: Props) {
           <select
             value={value.fiat}
             onChange={(e) => onChange({ ...value, fiat: e.target.value })}
-            className="h-9 rounded-lg border border-gray-200 bg-card px-2 text-sm dark:border-gray-700 dark:bg-background dark:text-white"
+            className="h-9 rounded-lg border border-border bg-card px-2 text-sm dark:border-border dark:bg-background dark:text-foreground"
           >
             {FIATS.map((f) => (
               <option key={f} value={f}>
@@ -83,7 +83,7 @@ export function P2PFilters({ value, onChange }: Props) {
           <select
             value={value.paymentCode}
             onChange={(e) => onChange({ ...value, paymentCode: e.target.value })}
-            className="h-9 rounded-lg border border-gray-200 bg-card px-2 text-sm dark:border-gray-700 dark:bg-background dark:text-white"
+            className="h-9 rounded-lg border border-border bg-card px-2 text-sm dark:border-border dark:bg-background dark:text-foreground"
           >
             {PAYMENT_FILTERS.map((p) => (
               <option key={p.value || 'all'} value={p.value}>

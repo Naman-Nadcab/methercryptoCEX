@@ -91,7 +91,7 @@ function PaymentProofViewer({ orderId, paymentProofUrl }: { orderId: string; pay
           type="button"
           onClick={() => void loadSecure()}
           disabled={loading}
-          className="inline-flex items-center gap-2 text-sm text-blue-600 hover:underline disabled:opacity-50 dark:text-blue-400"
+          className="inline-flex items-center gap-2 text-sm text-primary hover:underline disabled:opacity-50 dark:text-blue-400"
           aria-busy={loading}
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
@@ -114,7 +114,7 @@ function PaymentProofViewer({ orderId, paymentProofUrl }: { orderId: string; pay
       href={legacyHref}
       target="_blank"
       rel="noopener noreferrer"
-      className="text-sm text-blue-600 hover:underline dark:text-blue-400"
+      className="text-sm text-primary hover:underline dark:text-blue-400"
     >
       Open image
     </a>
@@ -140,7 +140,7 @@ function verificationBadge(pvs: string | null | undefined): { label: string; cla
         className: 'bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-200',
       };
     default:
-      return { label: String(pvs), className: 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200' };
+      return { label: String(pvs), className: 'bg-accent text-foreground dark:bg-accent dark:text-gray-200' };
   }
 }
 
@@ -151,11 +151,11 @@ export function P2POrderSummary({ order, isBuyer }: Props) {
   const isSeller = !isBuyer;
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-card p-4 dark:border-gray-800 dark:bg-card">
+    <div className="rounded-xl border border-border bg-card p-4 dark:border-border dark:bg-card">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold text-foreground">Order summary</h2>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-200">
+          <span className="rounded-full bg-accent px-2.5 py-0.5 text-xs font-medium text-foreground/80 dark:bg-accent dark:text-gray-200">
             {statusLabel(order.status)}
           </span>
           {vBadge && (

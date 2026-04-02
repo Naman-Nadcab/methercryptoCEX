@@ -28,7 +28,7 @@ function P2PAdsLoadingSkeleton() {
         {Array.from({ length: 4 }).map((_, i) => (
           <div
             key={i}
-            className="rounded-xl border border-gray-200 bg-card p-4 dark:border-gray-800 dark:bg-card"
+            className="rounded-xl border border-border bg-card p-4 dark:border-border dark:bg-card"
           >
             <div className="flex justify-between gap-2">
               <Skeleton className="h-4 w-32" />
@@ -41,9 +41,9 @@ function P2PAdsLoadingSkeleton() {
           </div>
         ))}
       </div>
-      <div className="hidden overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-card md:block">
+      <div className="hidden overflow-hidden rounded-xl border border-border bg-card dark:border-border dark:bg-card md:block">
         <table className="w-full min-w-[720px] text-left text-sm">
-          <thead className="border-b border-gray-200 bg-gray-50 text-xs font-medium text-gray-500 dark:border-gray-800 dark:bg-gray-900/50 dark:text-gray-400">
+          <thead className="border-b border-border bg-muted text-xs font-medium text-muted-foreground dark:border-border dark:bg-card/50 dark:text-muted-foreground">
             <tr>
               <th className="px-4 py-3">Advertiser</th>
               <th className="px-4 py-3">Side</th>
@@ -131,7 +131,7 @@ export function P2PAdsTable({
 
   if (filtered.length === 0) {
     return (
-      <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-card">
+      <div className="rounded-xl border border-border bg-card dark:border-border dark:bg-card">
         <EmptyState
           icon={Store}
           title="No ads match your filters"
@@ -164,13 +164,13 @@ export function P2PAdsTable({
           return (
             <div
               key={ad.id}
-              className="rounded-xl border border-gray-200 bg-card p-4 shadow-sm dark:border-gray-800 dark:bg-card"
+              className="rounded-xl border border-border bg-card p-4 shadow-sm dark:border-border dark:bg-card"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <P2PMerchantCard ad={ad} fiat={ad.fiat_currency || fiat} />
                 </div>
-                <span className="shrink-0 rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium capitalize text-gray-800 dark:bg-gray-800 dark:text-gray-200">
+                <span className="shrink-0 rounded-full bg-accent px-2.5 py-1 text-xs font-medium capitalize text-foreground dark:bg-accent dark:text-gray-200">
                   {side}
                 </span>
               </div>
@@ -180,7 +180,7 @@ export function P2PAdsTable({
                   <span className="font-mono font-medium text-foreground">
                     {sym}
                     {price}
-                    <span className="ml-1 text-xs font-normal text-gray-500">/{ad.crypto_symbol}</span>
+                    <span className="ml-1 text-xs font-normal text-muted-foreground">/{ad.crypto_symbol}</span>
                   </span>
                 </div>
                 <div className="flex justify-between gap-2">
@@ -199,7 +199,7 @@ export function P2PAdsTable({
                 </div>
                 <div className="flex flex-col gap-1">
                   <span className="text-muted-foreground">Payment methods</span>
-                  <span className="break-words text-xs leading-relaxed text-gray-800 dark:text-gray-200">{payments}</span>
+                  <span className="break-words text-xs leading-relaxed text-foreground dark:text-gray-200">{payments}</span>
                 </div>
               </div>
               <button
@@ -218,10 +218,10 @@ export function P2PAdsTable({
       </div>
 
       {/* Desktop: table */}
-      <div className="hidden overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-card md:block">
+      <div className="hidden overflow-hidden rounded-xl border border-border bg-card dark:border-border dark:bg-card md:block">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] text-left text-sm">
-            <thead className="border-b border-gray-200 bg-gray-50 text-xs font-medium text-gray-500 dark:border-gray-800 dark:bg-gray-900/50 dark:text-gray-400">
+            <thead className="border-b border-border bg-muted text-xs font-medium text-muted-foreground dark:border-border dark:bg-card/50 dark:text-muted-foreground">
               <tr>
                 <th className="px-4 py-3">Advertiser</th>
                 <th className="px-4 py-3">Side</th>

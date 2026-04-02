@@ -182,7 +182,7 @@ export default function SpotOrdersViewPage() {
                       const canCancel = ['OPEN', 'PARTIALLY_FILLED', 'PENDING_TRIGGER'].includes(o.status);
                       const displayStatus = o.status === 'PENDING_TRIGGER' ? 'Pending Trigger' : o.status;
                       return (
-                    <tr key={o.id} className={`border-b border-border transition-colors duration-100 hover:bg-gray-50 dark:hover:bg-card/5 ${cancellingOrderId === o.id ? 'opacity-75 bg-gray-50 dark:bg-card/5' : ''}`}>
+                    <tr key={o.id} className={`border-b border-border transition-colors duration-100 hover:bg-muted dark:hover:bg-card/5 ${cancellingOrderId === o.id ? 'opacity-75 bg-muted dark:bg-card/5' : ''}`}>
                       <td className="py-2 px-2 font-medium text-foreground tabular-nums">{o.market}</td>
                       <td className="py-2 px-2 tabular-nums">
                         <span className={o.side === 'buy' ? 'text-buy' : 'text-destructive'}>{o.side}</span>
@@ -251,7 +251,7 @@ export default function SpotOrdersViewPage() {
                   </td></tr>
                 ) : (
                   historyOrders.map((o) => (
-                      <tr key={o.id} className="border-b border-border transition-colors duration-100 hover:bg-gray-50 dark:hover:bg-card/5">
+                      <tr key={o.id} className="border-b border-border transition-colors duration-100 hover:bg-muted dark:hover:bg-card/5">
                         <td className="py-2 px-2 font-medium text-foreground tabular-nums">{o.market}</td>
                         <td className="py-2 px-2 tabular-nums">
                           <span className={o.side === 'buy' ? 'text-buy' : 'text-destructive'}>{o.side}</span>
@@ -272,7 +272,7 @@ export default function SpotOrdersViewPage() {
                       type="button"
                       onClick={() => fetchHistoryOrders(historyNextCursor, true)}
                       disabled={historyLoadMore}
-                      className="py-2 px-4 rounded-lg bg-accent text-foreground/80 text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 flex items-center gap-2"
+                      className="py-2 px-4 rounded-lg bg-accent text-foreground/80 text-sm font-medium hover:bg-accent dark:hover:bg-gray-600 disabled:opacity-50 flex items-center gap-2"
                     >
                       {historyLoadMore ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                       Load more

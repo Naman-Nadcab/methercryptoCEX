@@ -79,13 +79,13 @@ function PmInner() {
     <div className="mx-auto max-w-lg space-y-6">
       <h1 className="text-xl font-semibold text-foreground">Payment methods</h1>
 
-      <div className="rounded-xl border border-gray-200 bg-card p-4 dark:border-gray-800 dark:bg-card">
+      <div className="rounded-xl border border-border bg-card p-4 dark:border-border dark:bg-card">
         <h2 className="mb-3 text-sm font-medium text-foreground">Add method</h2>
-        <label className="text-xs text-gray-500">Type</label>
+        <label className="text-xs text-muted-foreground">Type</label>
         <select
           value={platformId}
           onChange={(e) => setPlatformId(e.target.value)}
-          className="mb-2 mt-1 w-full rounded border border-gray-200 px-2 py-2 text-sm dark:border-gray-700 dark:bg-background dark:text-white"
+          className="mb-2 mt-1 w-full rounded border border-border px-2 py-2 text-sm dark:border-border dark:bg-background dark:text-foreground"
         >
           <option value="">Select…</option>
           {platform.map((p) => (
@@ -94,13 +94,13 @@ function PmInner() {
             </option>
           ))}
         </select>
-        <label className="text-xs text-gray-500">Display name</label>
+        <label className="text-xs text-muted-foreground">Display name</label>
         <input
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
           className="mb-2 mt-1 w-full rounded border px-2 py-2 text-sm dark:bg-background"
         />
-        <label className="text-xs text-gray-500">Details (JSON)</label>
+        <label className="text-xs text-muted-foreground">Details (JSON)</label>
         <textarea
           value={detailsJson}
           onChange={(e) => setDetailsJson(e.target.value)}
@@ -128,7 +128,7 @@ function PmInner() {
             {Array.from({ length: 4 }).map((_, i) => (
               <div
                 key={i}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-200 bg-card p-3 dark:border-gray-800 dark:bg-card"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card p-3 dark:border-border dark:bg-card"
               >
                 <div className="space-y-2">
                   <Skeleton className="h-4 w-40" />
@@ -142,11 +142,11 @@ function PmInner() {
         {!isLoading && list.map((m) => (
           <div
             key={m.id}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-200 bg-card p-3 dark:border-gray-800 dark:bg-card"
+            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card p-3 dark:border-border dark:bg-card"
           >
             <div>
               <p className="text-sm font-medium text-foreground">{m.display_name || m.method_name}</p>
-              <p className="text-xs text-gray-500">{m.method_code}</p>
+              <p className="text-xs text-muted-foreground">{m.method_code}</p>
             </div>
             <div className="flex gap-2">
               <button

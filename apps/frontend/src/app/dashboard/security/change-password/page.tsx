@@ -129,7 +129,7 @@ export default function ChangePasswordPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+        <Loader2 className="w-8 h-8 text-primary animate-spin" />
       </div>
     );
   }
@@ -138,7 +138,7 @@ export default function ChangePasswordPage() {
     <div className="p-4 lg:p-6 max-w-2xl mx-auto">
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm text-muted-foreground mb-6">
-        <Link href="/dashboard/security" className="hover:text-blue-500">
+        <Link href="/dashboard/security" className="hover:text-primary">
           Security
         </Link>
         <ChevronRight className="w-4 h-4" />
@@ -179,7 +179,7 @@ export default function ChangePasswordPage() {
                   <button
                     type="button"
                     onClick={() => setShowOld(!showOld)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-muted-foreground"
                   >
                     {showOld ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                   </button>
@@ -204,7 +204,7 @@ export default function ChangePasswordPage() {
                 <button
                   type="button"
                   onClick={() => setShowNew(!showNew)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-muted-foreground"
                 >
                   {showNew ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
@@ -213,7 +213,7 @@ export default function ChangePasswordPage() {
               {/* Password Requirements */}
               {newPassword && (
                 <div className="mt-3 space-y-1">
-                  <div className={`flex items-center gap-2 text-xs ${validations.minLength ? 'text-green-500' : 'text-gray-400'}`}>
+                  <div className={`flex items-center gap-2 text-xs ${validations.minLength ? 'text-green-500' : 'text-muted-foreground'}`}>
                     {validations.minLength ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
                     At least 8 characters
                   </div>
@@ -221,15 +221,15 @@ export default function ChangePasswordPage() {
                     {validations.maxLength ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
                     Maximum 30 characters
                   </div>
-                  <div className={`flex items-center gap-2 text-xs ${validations.hasUppercase ? 'text-green-500' : 'text-gray-400'}`}>
+                  <div className={`flex items-center gap-2 text-xs ${validations.hasUppercase ? 'text-green-500' : 'text-muted-foreground'}`}>
                     {validations.hasUppercase ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
                     At least one uppercase letter
                   </div>
-                  <div className={`flex items-center gap-2 text-xs ${validations.hasLowercase ? 'text-green-500' : 'text-gray-400'}`}>
+                  <div className={`flex items-center gap-2 text-xs ${validations.hasLowercase ? 'text-green-500' : 'text-muted-foreground'}`}>
                     {validations.hasLowercase ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
                     At least one lowercase letter
                   </div>
-                  <div className={`flex items-center gap-2 text-xs ${validations.hasNumber ? 'text-green-500' : 'text-gray-400'}`}>
+                  <div className={`flex items-center gap-2 text-xs ${validations.hasNumber ? 'text-green-500' : 'text-muted-foreground'}`}>
                     {validations.hasNumber ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
                     At least one number
                   </div>
@@ -260,7 +260,7 @@ export default function ChangePasswordPage() {
                 <button
                   type="button"
                   onClick={() => setShowConfirm(!showConfirm)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-muted-foreground"
                 >
                   {showConfirm ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>

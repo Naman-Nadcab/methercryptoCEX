@@ -59,7 +59,7 @@ function MyAdsInner() {
           {Array.from({ length: 3 }).map((_, i) => (
             <div
               key={i}
-              className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-card p-4 dark:border-gray-800 dark:bg-card"
+              className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4 dark:border-border dark:bg-card"
             >
               <Skeleton className="h-5 w-44" />
               <Skeleton className="h-4 w-full max-w-md" />
@@ -81,14 +81,14 @@ function MyAdsInner() {
           return (
             <div
               key={id}
-              className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-card p-4 dark:border-gray-800 dark:bg-card"
+              className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4 dark:border-border dark:bg-card"
             >
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="font-mono text-sm text-foreground">
                     {sym} / {fiat} · {price}
                   </p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-muted-foreground">
                     {String(r.type ?? r.ad_type ?? '')} · {st}
                   </p>
                 </div>
@@ -104,7 +104,7 @@ function MyAdsInner() {
                       remarks: String(r.remarks ?? ''),
                     });
                   }}
-                  className="rounded border border-gray-300 px-3 py-1.5 text-xs dark:border-gray-600"
+                  className="rounded border border-border px-3 py-1.5 text-xs dark:border-gray-600"
                 >
                   Edit
                 </button>
@@ -138,7 +138,7 @@ function MyAdsInner() {
               </div>
               </div>
               {editing === id && (
-                <div className="grid gap-2 border-t border-gray-100 pt-3 dark:border-gray-800">
+                <div className="grid gap-2 border-t border-border pt-3 dark:border-border">
                   <input
                     placeholder="Price"
                     value={ep.price}
@@ -181,7 +181,7 @@ function MyAdsInner() {
                     >
                       Save
                     </button>
-                    <button type="button" onClick={() => setEditing(null)} className="text-xs text-gray-500">
+                    <button type="button" onClick={() => setEditing(null)} className="text-xs text-muted-foreground">
                       Cancel
                     </button>
                   </div>
@@ -194,7 +194,7 @@ function MyAdsInner() {
       )}
 
       {!isLoading && rows.length === 0 && (
-        <p className="text-sm text-gray-500">No ads yet. Create one to start trading.</p>
+        <p className="text-sm text-muted-foreground">No ads yet. Create one to start trading.</p>
       )}
     </div>
   );

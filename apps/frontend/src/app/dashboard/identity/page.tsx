@@ -176,7 +176,7 @@ export default function IdentityVerificationPage() {
               <span className="bg-primary text-primary-foreground px-2 py-1 rounded mr-1">M</span>
               Methereum
             </Link>
-            <span className="text-gray-400">|</span>
+            <span className="text-muted-foreground">|</span>
             <h1 className="text-lg font-medium text-foreground">Identity Verification</h1>
           </div>
         </header>
@@ -242,7 +242,7 @@ export default function IdentityVerificationPage() {
               <span className="bg-primary text-primary-foreground px-2 py-1 rounded mr-1">M</span>
               Methereum
             </Link>
-            <span className="text-gray-400">|</span>
+            <span className="text-muted-foreground">|</span>
             <h1 className="text-lg font-medium text-foreground">Identity Verification</h1>
           </div>
         </header>
@@ -283,21 +283,21 @@ export default function IdentityVerificationPage() {
             <span className="bg-primary text-primary-foreground px-2 py-1 rounded mr-1">M</span>
             Methereum
           </Link>
-          <span className="text-gray-400">|</span>
+          <span className="text-muted-foreground">|</span>
           <h1 className="text-lg font-medium text-foreground">Identity Verification</h1>
         </div>
         <div className="flex items-center gap-4">
           <Link
             href="/dashboard/help#business"
-            className="flex items-center gap-2 text-muted-foreground hover:text-gray-900 dark:hover:text-white"
+            className="flex items-center gap-2 text-muted-foreground hover:text-foreground dark:hover:text-white"
           >
             <Building2 className="w-4 h-4" />
             Business Verification
           </Link>
-          <button className="p-2 text-muted-foreground hover:text-gray-900 dark:hover:text-white">
+          <button className="p-2 text-muted-foreground hover:text-foreground dark:hover:text-white">
             <HelpCircle className="w-5 h-5" />
           </button>
-          <button className="p-2 text-muted-foreground hover:text-gray-900 dark:hover:text-white">
+          <button className="p-2 text-muted-foreground hover:text-foreground dark:hover:text-white">
             <Globe className="w-5 h-5" />
           </button>
         </div>
@@ -318,13 +318,13 @@ export default function IdentityVerificationPage() {
             <div className="relative">
               <button
                 onClick={() => setShowCountryDropdown(!showCountryDropdown)}
-                className="w-full flex items-center justify-between px-4 py-3 bg-muted border border-border rounded-xl text-left hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
+                className="w-full flex items-center justify-between px-4 py-3 bg-muted border border-border rounded-xl text-left hover:border-border dark:hover:border-gray-600 transition-colors"
               >
                 <div className="flex items-center gap-3">
                   <span className="text-2xl">{selectedCountry.flag}</span>
                   <span className="text-foreground font-medium">{selectedCountry.name}</span>
                 </div>
-                <div className="flex items-center gap-2 text-gray-500">
+                <div className="flex items-center gap-2 text-muted-foreground">
                   <Globe className="w-4 h-4" />
                   <span className="text-sm">Location</span>
                   <ChevronDown className={`w-4 h-4 transition-transform ${showCountryDropdown ? 'rotate-180' : ''}`} />
@@ -374,7 +374,7 @@ export default function IdentityVerificationPage() {
                 className={`w-full flex items-center gap-4 px-4 py-4 border-2 rounded-xl transition-colors ${
                   selectedDocument === quickVerification.id || !selectedDocument
                     ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                    : 'border-border hover:border-gray-300 dark:hover:border-gray-600'
+                    : 'border-border hover:border-border dark:hover:border-gray-600'
                 }`}
               >
                 <div className="w-12 h-12 bg-accent rounded-lg flex items-center justify-center">
@@ -383,7 +383,7 @@ export default function IdentityVerificationPage() {
                 <span className="text-foreground font-medium flex-1 text-left">
                   {quickVerification.name}
                 </span>
-                <span className="px-3 py-1 bg-blue-500 text-gray-900 text-xs font-semibold rounded-full">
+                <span className="px-3 py-1 bg-primary text-foreground text-xs font-semibold rounded-full">
                   Recommended
                 </span>
               </button>
@@ -394,7 +394,7 @@ export default function IdentityVerificationPage() {
           <div className="mb-8">
             <button
               onClick={() => setShowOtherDocuments(!showOtherDocuments)}
-              className="flex items-center gap-2 text-muted-foreground hover:text-gray-900 dark:hover:text-white"
+              className="flex items-center gap-2 text-muted-foreground hover:text-foreground dark:hover:text-white"
             >
               No {quickVerification?.name}? Use other documents.
               <ChevronDown className={`w-4 h-4 transition-transform ${showOtherDocuments ? 'rotate-180' : ''}`} />
@@ -409,7 +409,7 @@ export default function IdentityVerificationPage() {
                     className={`w-full flex items-center gap-4 px-4 py-3 border-2 rounded-xl transition-colors ${
                       selectedDocument === doc.id
                         ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                        : 'border-border hover:border-gray-300 dark:hover:border-gray-600'
+                        : 'border-border hover:border-border dark:hover:border-gray-600'
                     }`}
                   >
                     <span className="text-xl">{doc.icon}</span>
@@ -454,8 +454,8 @@ export default function IdentityVerificationPage() {
       <footer className="py-6 text-center text-sm text-muted-foreground">
         <p>© 2018-2026 Methereum.com. All rights reserved.</p>
         <div className="mt-2 flex items-center justify-center gap-4">
-          <Link href="/terms" className="hover:text-gray-900 dark:hover:text-white">Terms of Service</Link>
-          <Link href="/privacy" className="hover:text-gray-900 dark:hover:text-white">Privacy Policy</Link>
+          <Link href="/terms" className="hover:text-foreground dark:hover:text-white">Terms of Service</Link>
+          <Link href="/privacy" className="hover:text-foreground dark:hover:text-white">Privacy Policy</Link>
         </div>
       </footer>
 
@@ -469,7 +469,7 @@ export default function IdentityVerificationPage() {
                 onClick={() => setShowDigiLocker(false)}
                 className="p-1 hover:bg-accent rounded-full transition-colors"
               >
-                <X className="w-5 h-5 text-gray-500" />
+                <X className="w-5 h-5 text-muted-foreground" />
               </button>
             </div>
 
@@ -503,10 +503,10 @@ export default function IdentityVerificationPage() {
                 <div className="border border-border rounded-xl overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-3 bg-muted">
                     <div className="flex items-center gap-2">
-                      <ChevronDown className="w-4 h-4 text-gray-500" />
+                      <ChevronDown className="w-4 h-4 text-muted-foreground" />
                       <span className="text-foreground/80 font-medium">Issued Documents (3)</span>
                     </div>
-                    <button className="text-blue-500 text-sm font-medium">Select all</button>
+                    <button className="text-primary text-sm font-medium">Select all</button>
                   </div>
                   
                   <div className="divide-y divide-border">
@@ -516,19 +516,19 @@ export default function IdentityVerificationPage() {
                         type="checkbox"
                         checked={digiLockerConsent.aadhaar}
                         onChange={(e) => setDigiLockerConsent({ ...digiLockerConsent, aadhaar: e.target.checked })}
-                        className="w-5 h-5 text-green-500 rounded border-gray-300 focus:ring-green-500"
+                        className="w-5 h-5 text-green-500 rounded border-border focus:ring-green-500"
                       />
                     </label>
                     <label className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-accent">
                       <div>
                         <span className="text-foreground">Driving License</span>
-                        <span className="text-gray-400 text-sm ml-2">(can be accessed)</span>
+                        <span className="text-muted-foreground text-sm ml-2">(can be accessed)</span>
                       </div>
                       <input
                         type="checkbox"
                         checked={digiLockerConsent.drivingLicense}
                         onChange={(e) => setDigiLockerConsent({ ...digiLockerConsent, drivingLicense: e.target.checked })}
-                        className="w-5 h-5 text-green-500 rounded border-gray-300 focus:ring-green-500"
+                        className="w-5 h-5 text-green-500 rounded border-border focus:ring-green-500"
                       />
                     </label>
                     <label className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-accent">
@@ -537,7 +537,7 @@ export default function IdentityVerificationPage() {
                         type="checkbox"
                         checked={digiLockerConsent.pan}
                         onChange={(e) => setDigiLockerConsent({ ...digiLockerConsent, pan: e.target.checked })}
-                        className="w-5 h-5 text-green-500 rounded border-gray-300 focus:ring-green-500"
+                        className="w-5 h-5 text-green-500 rounded border-border focus:ring-green-500"
                       />
                     </label>
                   </div>

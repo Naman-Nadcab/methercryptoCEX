@@ -215,7 +215,7 @@ export default function TransferPage() {
           <div className="flex items-center justify-between mb-6">
             <div>
               <h1 className="text-2xl font-bold text-foreground">Internal Transfer</h1>
-              <p className="text-sm text-gray-500 mt-1">Transfer assets between your accounts instantly and free</p>
+              <p className="text-sm text-muted-foreground mt-1">Transfer assets between your accounts instantly and free</p>
             </div>
             <Link
               href="/wallet/history?tab=transfer"
@@ -235,7 +235,7 @@ export default function TransferPage() {
                   <div className="flex items-center gap-4">
                     {/* From Account */}
                     <div className="flex-1">
-                      <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">From</label>
+                      <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">From</label>
                       <div className="relative">
                         <button
                           onClick={() => {
@@ -243,14 +243,14 @@ export default function TransferPage() {
                             setShowToDropdown(false);
                             setShowCoinDropdown(false);
                           }}
-                          className="w-full flex items-center gap-3 px-4 py-4 bg-gray-50 dark:bg-[#2b2f36] border border-border rounded-xl hover:border-blue-400 dark:hover:border-blue-500 transition-colors"
+                          className="w-full flex items-center gap-3 px-4 py-4 bg-muted dark:bg-[#2b2f36] border border-border rounded-xl hover:border-blue-400 dark:hover:border-blue-500 transition-colors"
                         >
                           {getAccountIcon(fromAccount)}
                           <div className="flex-1 text-left">
                             <p className="text-foreground font-semibold">{getAccountLabel(fromAccount)}</p>
-                            <p className="text-xs text-gray-500">Available for transfer</p>
+                            <p className="text-xs text-muted-foreground">Available for transfer</p>
                           </div>
-                          <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${showFromDropdown ? 'rotate-180' : ''}`} />
+                          <ChevronDown className={`w-5 h-5 text-muted-foreground transition-transform ${showFromDropdown ? 'rotate-180' : ''}`} />
                         </button>
                         {showFromDropdown && (
                           <div className="absolute top-full left-0 right-0 mt-2 bg-card border border-border rounded-xl shadow-2xl z-20 overflow-hidden">
@@ -269,7 +269,7 @@ export default function TransferPage() {
                                   account === fromAccount
                                     ? 'bg-blue-50 dark:bg-blue-900/30 text-primary'
                                     : account === toAccount
-                                    ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
+                                    ? 'text-gray-300 dark:text-muted-foreground cursor-not-allowed'
                                     : 'text-foreground/80 hover:bg-accent'
                                 }`}
                               >
@@ -287,12 +287,12 @@ export default function TransferPage() {
                       onClick={handleSwapAccounts}
                       className="mt-6 p-3 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-800/30 rounded-xl transition-colors border border-blue-200 dark:border-blue-700"
                     >
-                      <ArrowLeftRight className="w-5 h-5 text-blue-500" />
+                      <ArrowLeftRight className="w-5 h-5 text-primary" />
                     </button>
 
                     {/* To Account */}
                     <div className="flex-1">
-                      <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">To</label>
+                      <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">To</label>
                       <div className="relative">
                         <button
                           onClick={() => {
@@ -300,14 +300,14 @@ export default function TransferPage() {
                             setShowFromDropdown(false);
                             setShowCoinDropdown(false);
                           }}
-                          className="w-full flex items-center gap-3 px-4 py-4 bg-gray-50 dark:bg-[#2b2f36] border border-border rounded-xl hover:border-blue-400 dark:hover:border-blue-500 transition-colors"
+                          className="w-full flex items-center gap-3 px-4 py-4 bg-muted dark:bg-[#2b2f36] border border-border rounded-xl hover:border-blue-400 dark:hover:border-blue-500 transition-colors"
                         >
                           {getAccountIcon(toAccount)}
                           <div className="flex-1 text-left">
                             <p className="text-foreground font-semibold">{getAccountLabel(toAccount)}</p>
-                            <p className="text-xs text-gray-500">Receive assets</p>
+                            <p className="text-xs text-muted-foreground">Receive assets</p>
                           </div>
-                          <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${showToDropdown ? 'rotate-180' : ''}`} />
+                          <ChevronDown className={`w-5 h-5 text-muted-foreground transition-transform ${showToDropdown ? 'rotate-180' : ''}`} />
                         </button>
                         {showToDropdown && (
                           <div className="absolute top-full left-0 right-0 mt-2 bg-card border border-border rounded-xl shadow-2xl z-20 overflow-hidden">
@@ -325,7 +325,7 @@ export default function TransferPage() {
                                   account === toAccount
                                     ? 'bg-blue-50 dark:bg-blue-900/30 text-primary'
                                     : account === fromAccount
-                                    ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
+                                    ? 'text-gray-300 dark:text-muted-foreground cursor-not-allowed'
                                     : 'text-foreground/80 hover:bg-accent'
                                 }`}
                               >
@@ -342,7 +342,7 @@ export default function TransferPage() {
 
                 {/* Coin Selection */}
                 <div className="mb-6">
-                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Coin</label>
+                  <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Coin</label>
                   <div className="relative">
                     <button
                       onClick={() => {
@@ -350,7 +350,7 @@ export default function TransferPage() {
                         setShowFromDropdown(false);
                         setShowToDropdown(false);
                       }}
-                      className="w-full flex items-center justify-between px-4 py-4 bg-gray-50 dark:bg-[#2b2f36] border border-border rounded-xl hover:border-blue-400 dark:hover:border-blue-500 transition-colors"
+                      className="w-full flex items-center justify-between px-4 py-4 bg-muted dark:bg-[#2b2f36] border border-border rounded-xl hover:border-blue-400 dark:hover:border-blue-500 transition-colors"
                     >
                       <div className="flex items-center gap-3">
                         {selectedToken ? (
@@ -371,43 +371,43 @@ export default function TransferPage() {
                             )}
                             <div className="text-left">
                               <p className="text-foreground font-semibold">{selectedToken.symbol}</p>
-                              <p className="text-xs text-gray-500">{selectedToken.name}</p>
+                              <p className="text-xs text-muted-foreground">{selectedToken.name}</p>
                             </div>
                           </>
                         ) : (
                           <>
                             <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center">
-                              <Search className="w-4 h-4 text-gray-400" />
+                              <Search className="w-4 h-4 text-muted-foreground" />
                             </div>
-                            <span className="text-gray-400">Select coin</span>
+                            <span className="text-muted-foreground">Select coin</span>
                           </>
                         )}
                       </div>
-                      <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${showCoinDropdown ? 'rotate-180' : ''}`} />
+                      <ChevronDown className={`w-5 h-5 text-muted-foreground transition-transform ${showCoinDropdown ? 'rotate-180' : ''}`} />
                     </button>
 
                     {showCoinDropdown && (
                       <div className="absolute top-full left-0 right-0 mt-2 bg-card border border-border rounded-xl shadow-2xl z-20 overflow-hidden">
                         <div className="p-3 border-b border-border">
                           <div className="relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                             <input
                               type="text"
                               placeholder="Search coins..."
                               value={searchQuery}
                               onChange={(e) => setSearchQuery(e.target.value)}
-                              className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] border-0 rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:ring-2 focus:ring-primary outline-none"
+                              className="w-full pl-10 pr-4 py-2.5 bg-muted dark:bg-[#2b2f36] border-0 rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:ring-2 focus:ring-primary outline-none"
                             />
                           </div>
                         </div>
                         <div className="max-h-64 overflow-y-auto">
                           {loading ? (
                             <div className="flex items-center justify-center gap-2 p-8">
-                              <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
-                              <span className="text-sm text-gray-500">Loading...</span>
+                              <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                              <span className="text-sm text-muted-foreground">Loading...</span>
                             </div>
                           ) : filteredTokens.length === 0 ? (
-                            <div className="p-8 text-center text-sm text-gray-500">No coins found</div>
+                            <div className="p-8 text-center text-sm text-muted-foreground">No coins found</div>
                           ) : (
                             filteredTokens.slice(0, 50).map((token) => (
                               <button
@@ -440,10 +440,10 @@ export default function TransferPage() {
                                   )}
                                   <div className="text-left">
                                     <p className="font-medium text-foreground">{token.symbol}</p>
-                                    <p className="text-xs text-gray-500">{token.name}</p>
+                                    <p className="text-xs text-muted-foreground">{token.name}</p>
                                   </div>
                                 </div>
-                                <span className="text-sm text-gray-500">{parseFloat(token.availableBalance ?? '0').toFixed(6)}</span>
+                                <span className="text-sm text-muted-foreground">{parseFloat(token.availableBalance ?? '0').toFixed(6)}</span>
                               </button>
                             ))
                           )}
@@ -454,8 +454,8 @@ export default function TransferPage() {
                 </div>
 
                 {/* Transferable Amount */}
-                <div className="flex items-center justify-between text-sm py-3 px-4 bg-gray-50 dark:bg-[#2b2f36] rounded-xl mb-6">
-                  <span className="text-gray-500">Transferable Amount</span>
+                <div className="flex items-center justify-between text-sm py-3 px-4 bg-muted dark:bg-[#2b2f36] rounded-xl mb-6">
+                  <span className="text-muted-foreground">Transferable Amount</span>
                   <span className="font-semibold text-foreground">
                     {selectedToken
                       ? `${parseFloat(selectedToken.availableBalance ?? '0').toFixed(6)} ${selectedToken.symbol}`
@@ -466,7 +466,7 @@ export default function TransferPage() {
                 {/* Amount Input */}
                 {selectedToken && (
                   <div className="mb-6">
-                    <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Amount</label>
+                    <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Amount</label>
                     <div className="relative">
                       <input
                         type="text"
@@ -479,7 +479,7 @@ export default function TransferPage() {
                           }
                         }}
                         placeholder="Enter amount"
-                        className="w-full px-4 py-4 pr-24 bg-gray-50 dark:bg-[#2b2f36] border border-border rounded-xl text-lg font-semibold text-foreground placeholder:text-muted-foreground focus:border-blue-500 focus:ring-1 focus:ring-primary/20 outline-none transition-all"
+                        className="w-full px-4 py-4 pr-24 bg-muted dark:bg-[#2b2f36] border border-border rounded-xl text-lg font-semibold text-foreground placeholder:text-muted-foreground focus:border-blue-500 focus:ring-1 focus:ring-primary/20 outline-none transition-all"
                       />
                       <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
                         <button
@@ -488,7 +488,7 @@ export default function TransferPage() {
                         >
                           MAX
                         </button>
-                        <span className="text-sm font-medium text-gray-500 border-l border-gray-300 dark:border-gray-600 pl-2">
+                        <span className="text-sm font-medium text-muted-foreground border-l border-border dark:border-gray-600 pl-2">
                           {selectedToken.symbol}
                         </span>
                       </div>
@@ -534,7 +534,7 @@ export default function TransferPage() {
                   className={`w-full py-4 rounded-xl font-semibold transition-all ${
                     selectedToken && amount && !submitting
                       ? 'bg-primary hover:bg-primary/85 text-white shadow-lg shadow-blue-500/25'
-                      : 'bg-accent text-gray-400 cursor-not-allowed'
+                      : 'bg-accent text-muted-foreground cursor-not-allowed'
                   }`}
                 >
                   {submitting ? (
@@ -559,7 +559,7 @@ export default function TransferPage() {
                   </div>
                   <div>
                     <h3 className="font-semibold text-foreground">Internal Transfer</h3>
-                    <p className="text-xs text-gray-500">Quick & Free</p>
+                    <p className="text-xs text-muted-foreground">Quick & Free</p>
                   </div>
                 </div>
                 <ul className="space-y-3 text-sm">
@@ -584,33 +584,33 @@ export default function TransferPage() {
                 <div className="space-y-2">
                   <Link
                     href="/wallet/deposit/crypto"
-                    className="flex items-center justify-between p-3 bg-gray-50 dark:bg-[#2b2f36] rounded-xl hover:bg-accent transition-colors"
+                    className="flex items-center justify-between p-3 bg-muted dark:bg-[#2b2f36] rounded-xl hover:bg-accent transition-colors"
                   >
                     <div className="flex items-center gap-3">
-                      <TrendingUp className="w-5 h-5 text-blue-500" />
+                      <TrendingUp className="w-5 h-5 text-primary" />
                       <span className="text-sm font-medium text-foreground/80">Deposit Crypto</span>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-gray-400" />
+                    <ChevronRight className="w-4 h-4 text-muted-foreground" />
                   </Link>
                   <Link
                     href="/wallet/withdraw/crypto"
-                    className="flex items-center justify-between p-3 bg-gray-50 dark:bg-[#2b2f36] rounded-xl hover:bg-accent transition-colors"
+                    className="flex items-center justify-between p-3 bg-muted dark:bg-[#2b2f36] rounded-xl hover:bg-accent transition-colors"
                   >
                     <div className="flex items-center gap-3">
-                      <Send className="w-5 h-5 text-blue-500" />
+                      <Send className="w-5 h-5 text-primary" />
                       <span className="text-sm font-medium text-foreground/80">Withdraw Crypto</span>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-gray-400" />
+                    <ChevronRight className="w-4 h-4 text-muted-foreground" />
                   </Link>
                   <Link
                     href="/wallet/convert"
-                    className="flex items-center justify-between p-3 bg-gray-50 dark:bg-[#2b2f36] rounded-xl hover:bg-accent transition-colors"
+                    className="flex items-center justify-between p-3 bg-muted dark:bg-[#2b2f36] rounded-xl hover:bg-accent transition-colors"
                   >
                     <div className="flex items-center gap-3">
-                      <ArrowRight className="w-5 h-5 text-blue-500" />
+                      <ArrowRight className="w-5 h-5 text-primary" />
                       <span className="text-sm font-medium text-foreground/80">Convert Assets</span>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-gray-400" />
+                    <ChevronRight className="w-4 h-4 text-muted-foreground" />
                   </Link>
                 </div>
               </div>
@@ -632,7 +632,7 @@ export default function TransferPage() {
               </div>
 
               <div className="bg-card rounded-xl border border-border overflow-hidden">
-                <div className="grid grid-cols-6 gap-4 px-6 py-4 bg-background border-b border-border text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                <div className="grid grid-cols-6 gap-4 px-6 py-4 bg-background border-b border-border text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                   <span>Coin</span>
                   <span>From</span>
                   <span>To</span>
@@ -650,7 +650,7 @@ export default function TransferPage() {
                       <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-buy w-fit">
                         {transfer.status}
                       </span>
-                      <span className="text-gray-500 text-xs">
+                      <span className="text-muted-foreground text-xs">
                         {new Date(transfer.created_at).toLocaleDateString()}
                       </span>
                     </div>

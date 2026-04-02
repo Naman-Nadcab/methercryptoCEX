@@ -70,7 +70,7 @@ export function PortfolioAllocationChart({ items, size = 180 }: PortfolioAllocat
       {paths.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-8 text-center">
           <div className="w-24 h-24 rounded-full border-2 border-dashed border-border flex items-center justify-center mb-3">
-            <span className="text-xs text-gray-400">No assets</span>
+            <span className="text-xs text-muted-foreground">No assets</span>
           </div>
           <p className="text-sm text-muted-foreground">Deposit to see allocation</p>
         </div>

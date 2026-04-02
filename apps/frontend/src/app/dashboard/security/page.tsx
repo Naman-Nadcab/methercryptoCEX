@@ -73,7 +73,7 @@ const Modal = ({ show, onClose, title, children }: {
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <h3 className="text-lg font-bold text-foreground">{title}</h3>
           <button onClick={onClose} className="p-2 hover:bg-accent rounded-xl transition-colors">
-            <X className="w-5 h-5 text-gray-500" />
+            <X className="w-5 h-5 text-muted-foreground" />
           </button>
         </div>
         <div className="p-6">{children}</div>
@@ -132,7 +132,7 @@ const SecurityRow = ({
     </div>
     <div className="flex items-center gap-4 ml-16 lg:ml-0">
       {loading ? (
-        <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+        <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
       ) : (
         <>
           {status && (
@@ -200,12 +200,12 @@ const SecurityRow = ({
 
 // Toggle Switch Component
 const ToggleSwitch = ({ enabled, onChange, loading }: { enabled: boolean; onChange: () => void; loading?: boolean }) => {
-  if (loading) return <Loader2 className="w-5 h-5 animate-spin text-gray-400" />;
+  if (loading) return <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />;
   return (
     <button
       onClick={onChange}
       className={`relative w-14 h-8 rounded-full transition-colors ${
-        enabled ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
+        enabled ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-600'
       }`}
     >
       <span
@@ -1608,7 +1608,7 @@ export default function SecurityPage() {
         >
           <SecurityRow
             icon={Lock}
-            iconBg="bg-accent text-gray-500"
+            iconBg="bg-accent text-muted-foreground"
             title="Login Password"
             description="Used for account login"
             status="Set up"
@@ -1628,9 +1628,9 @@ export default function SecurityPage() {
         >
           <SecurityRow
             icon={Mail}
-            iconBg="bg-accent text-gray-500"
+            iconBg="bg-accent text-muted-foreground"
             title="Email Authentication"
-            description={<>For login, withdrawal, and security verification. <span className="text-blue-500 cursor-pointer hover:underline">Unlink</span></>}
+            description={<>For login, withdrawal, and security verification. <span className="text-primary cursor-pointer hover:underline">Unlink</span></>}
             status="Verified"
             statusColor="text-green-500"
             statusValue={maskEmail(user?.email || '')}
@@ -1639,11 +1639,11 @@ export default function SecurityPage() {
           />
           <SecurityRow
             icon={Smartphone}
-            iconBg={userPhone && smsAuthEnabled ? "bg-green-100 dark:bg-green-900/30 text-green-600" : "bg-accent text-gray-500"}
+            iconBg={userPhone && smsAuthEnabled ? "bg-green-100 dark:bg-green-900/30 text-green-600" : "bg-accent text-muted-foreground"}
             title="SMS Authentication"
             description="For login, password reset, and security settings"
             status={userPhone ? (smsAuthEnabled ? 'ON' : 'OFF') : 'Not Configured'}
-            statusColor={userPhone ? (smsAuthEnabled ? 'text-green-500' : 'text-orange-500') : 'text-gray-400'}
+            statusColor={userPhone ? (smsAuthEnabled ? 'text-green-500' : 'text-orange-500') : 'text-muted-foreground'}
             statusValue={userPhone ? maskPhone(userPhone) : undefined}
             loading={loadingPhone}
             actionLabel={userPhone ? 'Change' : 'Settings'}
@@ -1655,11 +1655,11 @@ export default function SecurityPage() {
           />
           <SecurityRow
             icon={Shield}
-            iconBg="bg-accent text-gray-500"
+            iconBg="bg-accent text-muted-foreground"
             title="Google 2FA"
             description="Most secure verification for sensitive operations"
             status={user2faEnabled ? 'Enabled' : 'Not Configured'}
-            statusColor={user2faEnabled ? 'text-green-500' : 'text-gray-400'}
+            statusColor={user2faEnabled ? 'text-green-500' : 'text-muted-foreground'}
             loading={loadingGoogle2fa}
             actionLabel={user2faEnabled ? 'Disable' : 'Settings'}
             actionVariant={user2faEnabled ? 'danger' : 'primary'}
@@ -1677,11 +1677,11 @@ export default function SecurityPage() {
         >
           <SecurityRow
             icon={Fingerprint}
-            iconBg="bg-accent text-gray-500"
+            iconBg="bg-accent text-muted-foreground"
             title="Passkeys (Touch ID / Face ID)"
             description="Use biometrics for fast and secure login"
             status={passkeysCount > 0 ? `${passkeysCount} Registered` : 'Not Configured'}
-            statusColor={passkeysCount > 0 ? 'text-green-500' : 'text-gray-400'}
+            statusColor={passkeysCount > 0 ? 'text-green-500' : 'text-muted-foreground'}
             loading={loadingPasskeys}
             actionLabel="Settings"
             actionVariant={passkeysCount > 0 ? 'default' : 'primary'}
@@ -1689,11 +1689,11 @@ export default function SecurityPage() {
           />
           <SecurityRow
             icon={KeyRound}
-            iconBg="bg-accent text-gray-500"
+            iconBg="bg-accent text-muted-foreground"
             title="Fund Password"
             description="Required for withdrawal, P2P trading, and other sensitive operations"
             status={hasFundPassword ? 'Set up' : 'Not Configured'}
-            statusColor={hasFundPassword ? 'text-green-500' : 'text-gray-400'}
+            statusColor={hasFundPassword ? 'text-green-500' : 'text-muted-foreground'}
             loading={loadingFundPassword}
             actionLabel={hasFundPassword ? 'Change' : 'Settings'}
             actionVariant={hasFundPassword ? 'default' : 'primary'}
@@ -1701,11 +1701,11 @@ export default function SecurityPage() {
           />
           <SecurityRow
             icon={BadgeCheck}
-            iconBg="bg-accent text-gray-500"
+            iconBg="bg-accent text-muted-foreground"
             title="Anti-Phishing Code"
             description="This code appears in all official emails to prevent phishing"
             status={antiPhishingCode ? 'Set up' : 'Not Configured'}
-            statusColor={antiPhishingCode ? 'text-green-500' : 'text-gray-400'}
+            statusColor={antiPhishingCode ? 'text-green-500' : 'text-muted-foreground'}
             statusValue={antiPhishingCode || undefined}
             loading={loadingAntiPhishing}
             actionLabel={antiPhishingCode ? 'Change' : 'Settings'}
@@ -1725,7 +1725,7 @@ export default function SecurityPage() {
           <div className="flex flex-col lg:flex-row lg:items-center justify-between p-5 hover:bg-accent/30 transition-colors gap-4">
             <div className="flex items-start lg:items-center gap-4">
               <div className="w-12 h-12 bg-accent rounded-xl flex items-center justify-center flex-shrink-0">
-                <ShieldCheck className="w-6 h-6 text-gray-500" />
+                <ShieldCheck className="w-6 h-6 text-muted-foreground" />
               </div>
               <div>
                 <h3 className="font-semibold text-foreground">Withdrawal Address Whitelist</h3>
@@ -1735,7 +1735,7 @@ export default function SecurityPage() {
               </div>
             </div>
             <div className="flex items-center gap-4 ml-16 lg:ml-0">
-              <span className={`flex items-center gap-2 text-sm font-medium ${withdrawalWhitelist ? 'text-green-500' : 'text-gray-400'}`}>
+              <span className={`flex items-center gap-2 text-sm font-medium ${withdrawalWhitelist ? 'text-green-500' : 'text-muted-foreground'}`}>
                 <span className={`w-2 h-2 rounded-full ${withdrawalWhitelist ? 'bg-green-500' : 'bg-gray-400'}`}></span>
                 {withdrawalWhitelist ? 'Enabled' : 'Disabled'}
               </span>
@@ -1746,18 +1746,18 @@ export default function SecurityPage() {
           <div className="flex flex-col lg:flex-row lg:items-center justify-between p-5 hover:bg-accent/30 transition-colors gap-4">
             <div className="flex items-start lg:items-center gap-4">
               <div className="w-12 h-12 bg-accent rounded-xl flex items-center justify-center flex-shrink-0">
-                <BookOpen className="w-6 h-6 text-gray-500" />
+                <BookOpen className="w-6 h-6 text-muted-foreground" />
               </div>
               <div>
                 <h3 className="font-semibold text-foreground">Withdraw via Address Book</h3>
                 <p className="text-sm text-muted-foreground mt-1">
                   Only withdraw to saved addresses.{' '}
-                  <Link href="/dashboard/address-book" className="text-blue-500 hover:underline">Manage Addresses</Link>
+                  <Link href="/dashboard/address-book" className="text-primary hover:underline">Manage Addresses</Link>
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-4 ml-16 lg:ml-0">
-              <span className={`flex items-center gap-2 text-sm font-medium ${withdrawViaAddressBook ? 'text-green-500' : 'text-gray-400'}`}>
+              <span className={`flex items-center gap-2 text-sm font-medium ${withdrawViaAddressBook ? 'text-green-500' : 'text-muted-foreground'}`}>
                 <span className={`w-2 h-2 rounded-full ${withdrawViaAddressBook ? 'bg-green-500' : 'bg-gray-400'}`}></span>
                 {withdrawViaAddressBook ? 'Enabled' : 'Disabled'}
               </span>
@@ -1767,17 +1767,17 @@ export default function SecurityPage() {
 
           <SecurityRow
             icon={MapPin}
-            iconBg="bg-accent text-gray-400"
+            iconBg="bg-accent text-muted-foreground"
             title="New Address Withdrawal Lock"
             description="Disable withdrawals to newly saved addresses for 24 hours"
             status="Coming Soon"
-            statusColor="text-gray-400"
+            statusColor="text-muted-foreground"
             actionLabel="Settings"
           />
 
           <SecurityRow
             icon={Coins}
-            iconBg="bg-accent text-gray-500"
+            iconBg="bg-accent text-muted-foreground"
             title="Manage Withdrawal Limits"
             description="Configure daily and monthly withdrawal limits"
             actionLabel="Manage"
@@ -1792,7 +1792,7 @@ export default function SecurityPage() {
       <Modal show={showEmailOtpModal} onClose={() => setShowEmailOtpModal(false)} title="Email Verification">
         <div className="text-center mb-6">
           <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
-            <Mail className="w-8 h-8 text-blue-500" />
+            <Mail className="w-8 h-8 text-primary" />
           </div>
           <p className="text-muted-foreground">
             Enter the 6-digit code sent to <span className="font-medium text-foreground">{maskEmail(user?.email || '')}</span>
@@ -1825,9 +1825,9 @@ export default function SecurityPage() {
         </div>
         <div className="flex justify-center mt-4">
           {emailOtpTimer > 0 ? (
-            <span className="text-sm text-gray-500">Resend in {emailOtpTimer}s</span>
+            <span className="text-sm text-muted-foreground">Resend in {emailOtpTimer}s</span>
           ) : (
-            <button onClick={sendEmailOtp} disabled={sendingEmailOtp} className="text-sm text-blue-500 hover:underline">
+            <button onClick={sendEmailOtp} disabled={sendingEmailOtp} className="text-sm text-primary hover:underline">
               {sendingEmailOtp ? 'Sending...' : 'Resend Code'}
             </button>
           )}
@@ -1846,7 +1846,7 @@ export default function SecurityPage() {
       <Modal show={showPhoneInputModal} onClose={() => setShowPhoneInputModal(false)} title="Add Phone Number">
         <div className="text-center mb-6">
           <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
-            <Smartphone className="w-8 h-8 text-blue-500" />
+            <Smartphone className="w-8 h-8 text-primary" />
           </div>
           <p className="text-muted-foreground">Enter your phone number for SMS authentication</p>
         </div>
@@ -1877,7 +1877,7 @@ export default function SecurityPage() {
                   >
                     <span>{country.flag}</span>
                     <span className="flex-1 text-left">{country.name}</span>
-                    <span className="text-gray-500">{country.code}</span>
+                    <span className="text-muted-foreground">{country.code}</span>
                   </button>
                 ))}
               </div>
@@ -1905,11 +1905,11 @@ export default function SecurityPage() {
         <div className="relative h-32 bg-accent rounded-xl mb-6 overflow-hidden">
           <div className="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-purple-500/20" />
           <div
-            className="absolute top-1/2 -translate-y-1/2 w-12 h-12 bg-blue-500 rounded-lg transition-all"
+            className="absolute top-1/2 -translate-y-1/2 w-12 h-12 bg-primary rounded-lg transition-all"
             style={{ left: `${captchaTarget}%`, marginLeft: '-24px', opacity: 0.5 }}
           />
           <div
-            className="absolute top-1/2 -translate-y-1/2 w-12 h-12 bg-blue-500 rounded-lg shadow-lg transition-all"
+            className="absolute top-1/2 -translate-y-1/2 w-12 h-12 bg-primary rounded-lg shadow-lg transition-all"
             style={{ left: `${captchaPosition}%`, marginLeft: '-24px' }}
           />
         </div>
@@ -1923,11 +1923,11 @@ export default function SecurityPage() {
           onTouchEnd={() => { setDragging(false); verifyCaptcha(); }}
           onTouchMove={handleCaptchaDrag}
         >
-          <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-sm">
+          <div className="absolute inset-0 flex items-center justify-center text-muted-foreground text-sm">
             Drag the slider to match the position
           </div>
           <div
-            className="absolute top-1 bottom-1 w-12 bg-blue-500 rounded-lg flex items-center justify-center transition-all"
+            className="absolute top-1 bottom-1 w-12 bg-primary rounded-lg flex items-center justify-center transition-all"
             style={{ left: `calc(${captchaPosition}% - 24px)` }}
           >
             <ChevronRight className="w-6 h-6 text-white" />
@@ -1944,7 +1944,7 @@ export default function SecurityPage() {
       <Modal show={showPhoneOtpModal} onClose={() => setShowPhoneOtpModal(false)} title="Phone Verification">
         <div className="text-center mb-6">
           <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
-            <Smartphone className="w-8 h-8 text-blue-500" />
+            <Smartphone className="w-8 h-8 text-primary" />
           </div>
           <p className="text-muted-foreground">
             Enter the code sent to <span className="font-medium text-foreground">{selectedCountry.code}{phoneNumber}</span>
@@ -1977,9 +1977,9 @@ export default function SecurityPage() {
         </div>
         <div className="flex justify-center mt-4">
           {phoneOtpTimer > 0 ? (
-            <span className="text-sm text-gray-500">Resend in {phoneOtpTimer}s</span>
+            <span className="text-sm text-muted-foreground">Resend in {phoneOtpTimer}s</span>
           ) : (
-            <button onClick={sendPhoneOtp} disabled={sendingPhoneOtp} className="text-sm text-blue-500 hover:underline">
+            <button onClick={sendPhoneOtp} disabled={sendingPhoneOtp} className="text-sm text-primary hover:underline">
               {sendingPhoneOtp ? 'Sending...' : 'Resend Code'}
             </button>
           )}
@@ -2029,9 +2029,9 @@ export default function SecurityPage() {
         </div>
         <div className="flex justify-center mt-4">
           {google2faEmailOtpTimer > 0 ? (
-            <span className="text-sm text-gray-500">Resend in {google2faEmailOtpTimer}s</span>
+            <span className="text-sm text-muted-foreground">Resend in {google2faEmailOtpTimer}s</span>
           ) : (
-            <button onClick={sendGoogle2faEmailOtp} disabled={sendingGoogle2faEmailOtp} className="text-sm text-blue-500 hover:underline">
+            <button onClick={sendGoogle2faEmailOtp} disabled={sendingGoogle2faEmailOtp} className="text-sm text-primary hover:underline">
               {sendingGoogle2faEmailOtp ? 'Sending...' : 'Resend Code'}
             </button>
           )}
@@ -2056,14 +2056,14 @@ export default function SecurityPage() {
             )}
           </div>
           <div className="p-4 bg-muted rounded-xl">
-            <p className="text-xs text-gray-500 mb-2">Or enter this key manually:</p>
+            <p className="text-xs text-muted-foreground mb-2">Or enter this key manually:</p>
             <div className="flex items-center gap-2">
               <code className="flex-1 text-sm font-mono text-foreground break-all">{google2faSecret}</code>
               <button
                 onClick={() => navigator.clipboard.writeText(google2faSecret)}
                 className="p-2 hover:bg-accent rounded-lg"
               >
-                <Copy className="w-4 h-4 text-gray-500" />
+                <Copy className="w-4 h-4 text-muted-foreground" />
               </button>
             </div>
           </div>
@@ -2131,7 +2131,7 @@ export default function SecurityPage() {
               <button
                 type="button"
                 onClick={() => setShowDisablePassword(!showDisablePassword)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-muted-foreground"
               >
                 {showDisablePassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
@@ -2182,7 +2182,7 @@ export default function SecurityPage() {
               <button
                 type="button"
                 onClick={() => setShowFundPasswordInput(!showFundPasswordInput)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400"
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground"
               >
                 {showFundPasswordInput ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
@@ -2201,7 +2201,7 @@ export default function SecurityPage() {
               <button
                 type="button"
                 onClick={() => setShowConfirmFundPasswordInput(!showConfirmFundPasswordInput)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400"
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground"
               >
                 {showConfirmFundPasswordInput ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
@@ -2265,7 +2265,7 @@ export default function SecurityPage() {
       <Modal show={showAntiPhishingModal} onClose={() => setShowAntiPhishingModal(false)} title={isChangingAntiPhishing ? 'Change Anti-Phishing Code' : 'Set Anti-Phishing Code'}>
         <div className="text-center mb-6">
           <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
-            <BadgeCheck className="w-8 h-8 text-blue-500" />
+            <BadgeCheck className="w-8 h-8 text-primary" />
           </div>
           <p className="text-muted-foreground">
             This code will appear in all official emails from Methereum
@@ -2360,7 +2360,7 @@ export default function SecurityPage() {
       <Modal show={showAddressBookModal} onClose={() => setShowAddressBookModal(false)} title="Enable Address Book Restriction">
         <div className="text-center mb-6">
           <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
-            <BookOpen className="w-8 h-8 text-blue-500" />
+            <BookOpen className="w-8 h-8 text-primary" />
           </div>
           <h3 className="text-lg font-semibold text-foreground mb-2">Restrict Withdrawals</h3>
           <p className="text-muted-foreground">
@@ -2392,7 +2392,7 @@ export default function SecurityPage() {
             <>
               <div className="text-center">
                 <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
-                  <Mail className="w-8 h-8 text-blue-500" />
+                  <Mail className="w-8 h-8 text-primary" />
                 </div>
                 <p className="text-muted-foreground">Enter your new email address</p>
               </div>
@@ -2448,9 +2448,9 @@ export default function SecurityPage() {
               </div>
               <div className="flex justify-center">
                 {emailChangeOtpTimer > 0 ? (
-                  <span className="text-sm text-gray-500">Resend in {emailChangeOtpTimer}s</span>
+                  <span className="text-sm text-muted-foreground">Resend in {emailChangeOtpTimer}s</span>
                 ) : (
-                  <button onClick={sendEmailChangeOtp} disabled={sendingEmailChangeOtp} className="text-sm text-blue-500 hover:underline">
+                  <button onClick={sendEmailChangeOtp} disabled={sendingEmailChangeOtp} className="text-sm text-primary hover:underline">
                     {sendingEmailChangeOtp ? 'Sending...' : 'Resend Code'}
                   </button>
                 )}
@@ -2475,7 +2475,7 @@ export default function SecurityPage() {
             <>
               <div className="text-center">
                 <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
-                  <Smartphone className="w-8 h-8 text-blue-500" />
+                  <Smartphone className="w-8 h-8 text-primary" />
                 </div>
                 <p className="text-muted-foreground">Enter the code sent to your current phone <span className="font-medium text-foreground">{maskPhone(userPhone || '')}</span></p>
               </div>
@@ -2506,9 +2506,9 @@ export default function SecurityPage() {
               </div>
               <div className="flex justify-center">
                 {smsChangeOtpTimer > 0 ? (
-                  <span className="text-sm text-gray-500">Resend in {smsChangeOtpTimer}s</span>
+                  <span className="text-sm text-muted-foreground">Resend in {smsChangeOtpTimer}s</span>
                 ) : (
-                  <button onClick={sendCurrentPhoneOtp} disabled={sendingSmsChangeOtp} className="text-sm text-blue-500 hover:underline">
+                  <button onClick={sendCurrentPhoneOtp} disabled={sendingSmsChangeOtp} className="text-sm text-primary hover:underline">
                     {sendingSmsChangeOtp ? 'Sending...' : 'Resend Code'}
                   </button>
                 )}
@@ -2539,7 +2539,7 @@ export default function SecurityPage() {
                   >
                     <span>{selectedCountry?.flag}</span>
                     <span className="text-foreground">{selectedCountry?.code}</span>
-                    <ChevronDown className="w-4 h-4 text-gray-400" />
+                    <ChevronDown className="w-4 h-4 text-muted-foreground" />
                   </button>
                   {showCountryDropdown && (
                     <div className="absolute top-full mt-1 w-48 bg-card border border-border rounded-xl shadow-lg z-10 max-h-48 overflow-auto">
@@ -2551,7 +2551,7 @@ export default function SecurityPage() {
                         >
                           <span>{country.flag}</span>
                           <span className="text-foreground">{country.name}</span>
-                          <span className="text-gray-500 ml-auto">{country.code}</span>
+                          <span className="text-muted-foreground ml-auto">{country.code}</span>
                         </button>
                       ))}
                     </div>
@@ -2610,9 +2610,9 @@ export default function SecurityPage() {
               </div>
               <div className="flex justify-center">
                 {smsChangeOtpTimer > 0 ? (
-                  <span className="text-sm text-gray-500">Resend in {smsChangeOtpTimer}s</span>
+                  <span className="text-sm text-muted-foreground">Resend in {smsChangeOtpTimer}s</span>
                 ) : (
-                  <button onClick={sendNewPhoneOtp} disabled={sendingSmsChangeOtp} className="text-sm text-blue-500 hover:underline">
+                  <button onClick={sendNewPhoneOtp} disabled={sendingSmsChangeOtp} className="text-sm text-primary hover:underline">
                     {sendingSmsChangeOtp ? 'Sending...' : 'Resend Code'}
                   </button>
                 )}
@@ -2651,7 +2651,7 @@ export default function SecurityPage() {
               <button
                 type="button"
                 onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-muted-foreground"
               >
                 {showCurrentPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
@@ -2667,7 +2667,7 @@ export default function SecurityPage() {
               <button
                 type="button"
                 onClick={() => setShowNewPassword(!showNewPassword)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-muted-foreground"
               >
                 {showNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
@@ -2683,7 +2683,7 @@ export default function SecurityPage() {
               <button
                 type="button"
                 onClick={() => setShowConfirmNewPassword(!showConfirmNewPassword)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-muted-foreground"
               >
                 {showConfirmNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
@@ -2776,7 +2776,7 @@ export default function SecurityPage() {
               <button
                 onClick={registerPasskey}
                 disabled={registeringPasskey}
-                className="w-full py-3 border-2 border-dashed border-gray-300 dark:border-gray-600 text-muted-foreground font-medium rounded-xl hover:border-blue-500 hover:text-blue-500 transition-all flex items-center justify-center gap-2"
+                className="w-full py-3 border-2 border-dashed border-border dark:border-gray-600 text-muted-foreground font-medium rounded-xl hover:border-blue-500 hover:text-primary transition-all flex items-center justify-center gap-2"
               >
                 {registeringPasskey ? (
                   <>

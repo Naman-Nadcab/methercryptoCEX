@@ -222,7 +222,7 @@ export default function AccountInfoPage() {
                       {maskEmail(user?.email || '')}
                     </span>
                     <button className="p-1.5 hover:bg-accent rounded-lg transition-colors">
-                      <Edit3 className="w-4 h-4 text-gray-400" />
+                      <Edit3 className="w-4 h-4 text-muted-foreground" />
                     </button>
                   </div>
 
@@ -240,14 +240,14 @@ export default function AccountInfoPage() {
                         {copiedUID ? (
                           <Check className="w-4 h-4 text-green-500" />
                         ) : (
-                          <Copy className="w-4 h-4 text-gray-400" />
+                          <Copy className="w-4 h-4 text-muted-foreground" />
                         )}
                       </button>
                     </div>
 
                     {/* Last Login */}
                     <div className="flex items-center gap-2">
-                      <Monitor className="w-4 h-4 text-gray-400" />
+                      <Monitor className="w-4 h-4 text-muted-foreground" />
                       <span className="text-sm text-muted-foreground">Last login:</span>
                       <span className="text-sm text-foreground">
                         {loading ? 'Loading...' : formatDate(profileData?.last_login_at)}
@@ -351,7 +351,7 @@ export default function AccountInfoPage() {
               statusColor={
                 kycDisplay.color === 'green' ? 'text-green-500' : 
                 kycDisplay.color === 'yellow' ? 'text-yellow-500' : 
-                kycDisplay.color === 'red' ? 'text-red-500' : 'text-gray-400'
+                kycDisplay.color === 'red' ? 'text-red-500' : 'text-muted-foreground'
               }
               actionLabel={profileData?.kycStatus === 'approved' ? 'View' : 'Verify Now'}
               actionVariant={profileData?.kycStatus === 'approved' ? 'default' : 'primary'}
@@ -377,7 +377,7 @@ export default function AccountInfoPage() {
               title="Link Account"
               description="Connect social accounts for quick login"
               status="Not Configured"
-              statusColor="text-gray-400"
+              statusColor="text-muted-foreground"
               actionLabel="Settings"
               actionVariant="primary"
             />

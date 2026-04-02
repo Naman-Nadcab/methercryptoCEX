@@ -103,17 +103,17 @@ export function P2PChat({ orderId, enabled }: Props) {
 
   if (!enabled) {
     return (
-      <div className="rounded-xl border border-gray-200 bg-card p-4 text-sm text-gray-500 dark:border-gray-800 dark:bg-card">
+      <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground dark:border-border dark:bg-card">
         Chat is available when the order is open.
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-card">
-      <div className="flex items-center justify-between border-b border-gray-200 px-4 py-2 text-sm font-medium text-gray-900 dark:border-gray-800 dark:text-white">
+    <div className="flex flex-col rounded-xl border border-border bg-card dark:border-border dark:bg-card">
+      <div className="flex items-center justify-between border-b border-border px-4 py-2 text-sm font-medium text-foreground dark:border-border dark:text-foreground">
         <span>Order chat</span>
-        <span className="text-[10px] font-normal text-gray-400">
+        <span className="text-[10px] font-normal text-muted-foreground">
           {wsConnected ? 'Live' : 'Reconnecting…'}
         </span>
       </div>
@@ -130,29 +130,29 @@ export function P2PChat({ orderId, enabled }: Props) {
         )}
         <ul className="space-y-2">
           {messages.map((m) => (
-            <li key={m.id} className="rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-900/50">
+            <li key={m.id} className="rounded-lg bg-muted px-3 py-2 dark:bg-card/50">
               <div className="flex flex-wrap items-baseline justify-between gap-1">
                 <span className="text-xs font-medium text-primary">
                   {m.senderUsername ?? m.senderId.slice(0, 8)}
                 </span>
-                <time className="text-[10px] text-gray-400" dateTime={m.createdAt}>
+                <time className="text-[10px] text-muted-foreground" dateTime={m.createdAt}>
                   {new Date(m.createdAt).toLocaleString()}
                 </time>
               </div>
-              <p className="mt-1 whitespace-pre-wrap text-gray-800 dark:text-gray-200">{m.message}</p>
+              <p className="mt-1 whitespace-pre-wrap text-foreground dark:text-gray-200">{m.message}</p>
             </li>
           ))}
         </ul>
         <div ref={endRef} />
       </div>
-      <form onSubmit={submit} className="flex gap-2 border-t border-gray-200 p-3 dark:border-gray-800">
+      <form onSubmit={submit} className="flex gap-2 border-t border-border p-3 dark:border-border">
         <input
           type="text"
           value={text}
           onChange={(e) => onChangeText(e.target.value)}
           maxLength={2000}
           placeholder="Type a message…"
-          className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-card px-3 py-2 text-sm dark:border-gray-700 dark:bg-background dark:text-white"
+          className="min-w-0 flex-1 rounded-lg border border-border bg-card px-3 py-2 text-sm dark:border-border dark:bg-background dark:text-foreground"
         />
         <button
           type="submit"

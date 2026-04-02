@@ -16,7 +16,7 @@ export interface ReferralLeaderboardProps {
 
 function RankIcon({ rank }: { rank: number }) {
   if (rank === 1) return <Trophy className="w-5 h-5 text-amber-500" />;
-  if (rank === 2) return <Medal className="w-5 h-5 text-gray-400" />;
+  if (rank === 2) return <Medal className="w-5 h-5 text-muted-foreground" />;
   if (rank === 3) return <Award className="w-5 h-5 text-amber-700" />;
   return (
     <span className="w-6 h-6 rounded-full bg-accent flex items-center justify-center text-xs font-semibold text-muted-foreground">
@@ -62,7 +62,7 @@ export function ReferralLeaderboard({ entries = [], loading = false }: ReferralL
               list.map((row) => (
                 <tr
                   key={row.rank}
-                  className="border-b border-border last:border-0 hover:bg-gray-50 dark:hover:bg-card/[0.04] transition-colors"
+                  className="border-b border-border last:border-0 hover:bg-muted dark:hover:bg-card/[0.04] transition-colors"
                 >
                   <td className="py-3 px-4">
                     <div className="flex items-center gap-2">

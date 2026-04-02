@@ -252,12 +252,12 @@ export default function AddBatchesPage() {
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-sm mb-6">
           <span 
-            className="text-muted-foreground hover:text-blue-500 cursor-pointer"
+            className="text-muted-foreground hover:text-primary cursor-pointer"
             onClick={() => router.push('/dashboard/address-book')}
           >
             Address Book
           </span>
-          <ChevronRight className="w-4 h-4 text-gray-400" />
+          <ChevronRight className="w-4 h-4 text-muted-foreground" />
           <span className="text-foreground font-medium">Add in Batches</span>
         </div>
 
@@ -275,7 +275,7 @@ export default function AddBatchesPage() {
               className={`pb-4 text-base font-medium border-b-2 transition-colors ${
                 activeTab === 'onchain'
                   ? 'border-blue-500 text-foreground'
-                  : 'border-transparent text-muted-foreground hover:text-gray-700'
+                  : 'border-transparent text-muted-foreground hover:text-foreground/80'
               }`}
             >
               On-Chain Withdrawal Address
@@ -285,7 +285,7 @@ export default function AddBatchesPage() {
               className={`pb-4 text-base font-medium border-b-2 transition-colors ${
                 activeTab === 'internal'
                   ? 'border-blue-500 text-foreground'
-                  : 'border-transparent text-muted-foreground hover:text-gray-700'
+                  : 'border-transparent text-muted-foreground hover:text-foreground/80'
               }`}
             >
               Internal Transfer Address
@@ -340,7 +340,7 @@ export default function AddBatchesPage() {
                           <option key={asset.id} value={asset.symbol}>{asset.symbol}</option>
                         ))}
                       </select>
-                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
                     </div>
 
                     {/* Chain Type Dropdown */}
@@ -355,7 +355,7 @@ export default function AddBatchesPage() {
                           <option key={chain.id} value={chain.name}>{chain.name}</option>
                         ))}
                       </select>
-                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
                     </div>
 
                     {/* Address Input */}
@@ -396,7 +396,7 @@ export default function AddBatchesPage() {
                       <button
                         onClick={() => removeOnchainRow(addr.id)}
                         disabled={onchainAddresses.length === 1}
-                        className="p-2 text-gray-400 hover:text-red-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                        className="p-2 text-muted-foreground hover:text-red-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                       >
                         <Trash2 className="w-5 h-5" />
                       </button>
@@ -408,7 +408,7 @@ export default function AddBatchesPage() {
               {/* Add Button */}
               <button
                 onClick={addOnchainRow}
-                className="flex items-center gap-2 px-6 py-2.5 border border-gray-300 dark:border-gray-600 text-foreground/80 rounded-lg hover:bg-accent transition-colors mt-4"
+                className="flex items-center gap-2 px-6 py-2.5 border border-border dark:border-gray-600 text-foreground/80 rounded-lg hover:bg-accent transition-colors mt-4"
               >
                 <Plus className="w-4 h-4" />
                 Add
@@ -457,7 +457,7 @@ export default function AddBatchesPage() {
                         <option value="mobile">Mobile</option>
                         <option value="uid">UID</option>
                       </select>
-                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
                     </div>
 
                     {/* Recipient Input */}
@@ -474,7 +474,7 @@ export default function AddBatchesPage() {
                                 <option key={c.code} value={c.code}>{c.code}</option>
                               ))}
                             </select>
-                            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" />
+                            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
                           </div>
                           <input
                             type="text"
@@ -511,7 +511,7 @@ export default function AddBatchesPage() {
                       <button
                         onClick={() => removeInternalRow(addr.id)}
                         disabled={internalAddresses.length === 1}
-                        className="p-2 text-gray-400 hover:text-red-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                        className="p-2 text-muted-foreground hover:text-red-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                       >
                         <Trash2 className="w-5 h-5" />
                       </button>
@@ -523,7 +523,7 @@ export default function AddBatchesPage() {
               {/* Add Button */}
               <button
                 onClick={addInternalRow}
-                className="flex items-center gap-2 px-6 py-2.5 border border-gray-300 dark:border-gray-600 text-foreground/80 rounded-lg hover:bg-accent transition-colors mt-4"
+                className="flex items-center gap-2 px-6 py-2.5 border border-border dark:border-gray-600 text-foreground/80 rounded-lg hover:bg-accent transition-colors mt-4"
               >
                 <Plus className="w-4 h-4" />
                 Add
@@ -540,7 +540,7 @@ export default function AddBatchesPage() {
                   type="checkbox"
                   checked={saveAsUniversal}
                   onChange={e => setSaveAsUniversal(e.target.checked)}
-                  className="mt-1 w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-500 focus:ring-primary"
+                  className="mt-1 w-4 h-4 rounded border-border dark:border-gray-600 text-primary focus:ring-primary"
                 />
                 <span className="text-sm text-foreground/80">
                   The above wallet addresses have been saved as Universal Wallet Address, enabling withdrawals of multiple coins.
@@ -554,11 +554,11 @@ export default function AddBatchesPage() {
                 type="checkbox"
                 checked={noVerificationRequired}
                 onChange={e => setNoVerificationRequired(e.target.checked)}
-                className="mt-1 w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-500 focus:ring-primary"
+                className="mt-1 w-4 h-4 rounded border-border dark:border-gray-600 text-primary focus:ring-primary"
               />
               <span className="text-sm text-foreground/80 flex items-center gap-1">
                 No withdrawal security verification required for above wallet addresses in future transactions.
-                <HelpCircle className="w-4 h-4 text-gray-400" />
+                <HelpCircle className="w-4 h-4 text-muted-foreground" />
               </span>
             </label>
           </div>

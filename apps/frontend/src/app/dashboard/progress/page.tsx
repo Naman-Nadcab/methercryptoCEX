@@ -135,7 +135,7 @@ export default function ProgressPage() {
             <span className="text-sm">Pending</span>
           </div>
           <div className="flex items-center gap-2 px-4 py-2 rounded-xl border border-border">
-            <FileText className="w-5 h-5 text-gray-500" />
+            <FileText className="w-5 h-5 text-muted-foreground" />
             <span className="font-semibold">{counts.total}</span>
             <span className="text-sm">Total steps</span>
           </div>
@@ -153,7 +153,7 @@ export default function ProgressPage() {
               <h2 className="font-semibold text-foreground">
                 {CATEGORY_LABELS[category]}
               </h2>
-              <span className="text-sm text-gray-500">
+              <span className="text-sm text-muted-foreground">
                 {steps.filter((s) => s.status === 'done').length} / {steps.length}
               </span>
             </div>
@@ -176,14 +176,14 @@ export default function ProgressPage() {
         </Link>
         <Link
           href="/trade/spot"
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-blue-600"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/85"
         >
           Spot Trading
           <ChevronRight className="w-4 h-4" />
         </Link>
         <Link
           href="/p2p"
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-blue-600"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/85"
         >
           P2P Trading
           <ChevronRight className="w-4 h-4" />

@@ -5,13 +5,13 @@ import { ArrowLeft } from 'lucide-react';
 
 export default function PrivacyPolicyPage() {
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+    <div className="min-h-screen bg-muted dark:bg-background">
       {/* Header */}
-      <header className="sticky top-0 z-10 bg-card/80 dark:bg-gray-900/80 backdrop-blur-lg border-b border-border">
+      <header className="sticky top-0 z-10 bg-card/80 dark:bg-card/80 backdrop-blur-lg border-b border-border">
         <div className="max-w-4xl mx-auto px-6 py-4">
           <Link
             href="/signup"
-            className="inline-flex items-center gap-2 text-muted-foreground hover:text-gray-900 dark:hover:text-white transition-colors"
+            className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground dark:hover:text-white transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
             <span>Back</span>
@@ -27,7 +27,7 @@ export default function PrivacyPolicyPage() {
             <h1 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
               Privacy Policy
             </h1>
-            <p className="text-gray-500">
+            <p className="text-muted-foreground">
               Last updated: January 30, 2026
             </p>
           </div>
@@ -48,7 +48,7 @@ export default function PrivacyPolicyPage() {
                 2. Information We Collect
               </h2>
               
-              <h3 className="text-lg font-medium text-gray-800 dark:text-gray-200 mb-3 mt-6">
+              <h3 className="text-lg font-medium text-foreground dark:text-gray-200 mb-3 mt-6">
                 2.1 Personal Information
               </h3>
               <p className="text-muted-foreground leading-relaxed mb-4">
@@ -64,7 +64,7 @@ export default function PrivacyPolicyPage() {
                 <li>Financial information, including bank account details</li>
               </ul>
 
-              <h3 className="text-lg font-medium text-gray-800 dark:text-gray-200 mb-3 mt-6">
+              <h3 className="text-lg font-medium text-foreground dark:text-gray-200 mb-3 mt-6">
                 2.2 Technical Information
               </h3>
               <p className="text-muted-foreground leading-relaxed mb-4">
@@ -78,7 +78,7 @@ export default function PrivacyPolicyPage() {
                 <li>Location data (if permitted)</li>
               </ul>
 
-              <h3 className="text-lg font-medium text-gray-800 dark:text-gray-200 mb-3 mt-6">
+              <h3 className="text-lg font-medium text-foreground dark:text-gray-200 mb-3 mt-6">
                 2.3 Transaction Information
               </h3>
               <ul className="list-disc list-inside text-muted-foreground space-y-2 ml-4">

@@ -243,8 +243,8 @@ export default function LoginPage() {
 
           {/* Type tabs */}
           <div className="flex p-1 rounded-xl bg-accent/80">
-            <button type="button" onClick={() => setType('email')} className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${type === 'email' ? 'bg-white dark:bg-gray-700 text-foreground shadow-sm' : 'text-muted-foreground hover:text-gray-700 dark:hover:text-gray-300'}`}>Email</button>
-            <button type="button" onClick={() => setType('phone')} className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${type === 'phone' ? 'bg-white dark:bg-gray-700 text-foreground shadow-sm' : 'text-muted-foreground hover:text-gray-700 dark:hover:text-gray-300'}`}>Mobile</button>
+            <button type="button" onClick={() => setType('email')} className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${type === 'email' ? 'bg-card dark:bg-accent text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'}`}>Email</button>
+            <button type="button" onClick={() => setType('phone')} className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${type === 'phone' ? 'bg-card dark:bg-accent text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'}`}>Mobile</button>
           </div>
 
           <div>
@@ -277,7 +277,7 @@ export default function LoginPage() {
 
           {error && <p className="text-destructive text-sm rounded-lg bg-red-50 dark:bg-red-950/30 px-3 py-2" role="alert">{error}</p>}
 
-          <button type="submit" disabled={sendingOtp || !identifier.trim()} className="w-full py-3.5 rounded-xl bg-gray-900 dark:bg-card text-white dark:text-gray-900 font-semibold hover:bg-gray-800 dark:hover:bg-gray-100 disabled:opacity-50 transition-colors">
+          <button type="submit" disabled={sendingOtp || !identifier.trim()} className="w-full py-3.5 rounded-xl bg-gray-900 dark:bg-card text-white dark:text-foreground font-semibold hover:bg-gray-800 dark:hover:bg-accent disabled:opacity-50 transition-colors">
             {sendingOtp ? <span className="inline-flex items-center gap-2"><Loader2 className="w-5 h-5 animate-spin" aria-hidden /> Sending code…</span> : 'Continue with OTP'}
           </button>
 

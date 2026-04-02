@@ -201,7 +201,7 @@ export default function HomePage() {
       <header className="fixed top-0 left-0 right-0 z-50 border-b border-border bg-card/80 dark:bg-background/90 backdrop-blur-md">
         <div className="container mx-auto flex h-14 items-center justify-between px-4 lg:px-6">
           <Link href={ROUTES.home} className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-blue-500 flex items-center justify-center">
+            <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
               <span className="text-white font-bold text-sm">M</span>
             </div>
             <span className="text-lg font-bold text-foreground hidden sm:inline">Methereum</span>
@@ -212,7 +212,7 @@ export default function HomePage() {
               <Link
                 key={link.href}
                 href={link.href}
-                className="px-3 py-2 text-sm font-medium text-muted-foreground hover:text-gray-900 dark:hover:text-white rounded-lg hover:bg-gray-100 dark:hover:bg-[#181a20] transition-colors"
+                className="px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground dark:hover:text-white rounded-lg hover:bg-accent dark:hover:bg-[#181a20] transition-colors"
               >
                 {link.label}
               </Link>
@@ -223,7 +223,7 @@ export default function HomePage() {
             <ThemeToggle variant="icon" size="sm" />
             <Link
               href={ROUTES.login}
-              className="text-sm font-medium text-foreground/80 hover:text-foreground px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-[#181a20] transition-colors"
+              className="text-sm font-medium text-foreground/80 hover:text-foreground px-3 py-2 rounded-lg hover:bg-accent dark:hover:bg-[#181a20] transition-colors"
             >
               Log In
             </Link>
@@ -256,7 +256,7 @@ export default function HomePage() {
               </Link>
               <Link
                 href={ROUTES.markets}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-foreground/80 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-[#181a20] transition-colors"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-foreground/80 border border-border dark:border-gray-600 hover:bg-muted dark:hover:bg-[#181a20] transition-colors"
               >
                 View Markets
               </Link>
@@ -272,7 +272,7 @@ export default function HomePage() {
                 ))}
               </div>
             ) : tickersError ? (
-              <div className="rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50/80 dark:bg-amber-950/20 p-4 text-sm text-gray-800 dark:text-gray-200">
+              <div className="rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50/80 dark:bg-amber-950/20 p-4 text-sm text-foreground dark:text-gray-200">
                 <p>{tickersError}</p>
                 <button
                   type="button"
@@ -286,7 +286,7 @@ export default function HomePage() {
             ) : tickers.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 No live prices available.{' '}
-                <Link href={ROUTES.markets} className="text-blue-500 hover:underline">
+                <Link href={ROUTES.markets} className="text-primary hover:underline">
                   Browse markets
                 </Link>
               </p>
@@ -302,7 +302,7 @@ export default function HomePage() {
                       className="flex items-center justify-between rounded-xl bg-card border border-border p-4 hover:border-blue-500/30 dark:hover:border-blue-500/30 transition-colors"
                     >
                       <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-lg bg-gray-100 dark:bg-background flex items-center justify-center overflow-hidden">
+                        <div className="w-8 h-8 rounded-lg bg-accent dark:bg-background flex items-center justify-center overflow-hidden">
                           <Image
                             src={logoUrl(t.base_symbol)}
                             alt=""
@@ -358,7 +358,7 @@ export default function HomePage() {
             ) : spotSummary.preview.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 No active spot markets.{' '}
-                <Link href={ROUTES.markets} className="text-blue-500 hover:underline">
+                <Link href={ROUTES.markets} className="text-primary hover:underline">
                   Check status
                 </Link>
               </p>
@@ -367,7 +367,7 @@ export default function HomePage() {
                 <Link
                   key={m.symbol}
                   href={tradeSpotWithSymbol(m.symbol)}
-                  className="w-28 h-20 rounded-xl bg-background border border-border flex items-center justify-center text-sm font-semibold text-gray-800 dark:text-gray-200 hover:border-blue-500/50 hover:bg-blue-50/50 dark:hover:bg-blue-500/10 transition-colors"
+                  className="w-28 h-20 rounded-xl bg-background border border-border flex items-center justify-center text-sm font-semibold text-foreground dark:text-gray-200 hover:border-blue-500/50 hover:bg-blue-50/50 dark:hover:bg-blue-500/10 transition-colors"
                 >
                   {m.base_asset}/{m.quote_asset}
                 </Link>
@@ -431,7 +431,7 @@ export default function HomePage() {
           {spotSummary.loading ? (
             <div className="mt-6 space-y-3">
               <div className="h-10 w-56 bg-accent rounded animate-pulse" />
-              <div className="h-4 w-72 bg-gray-100 dark:bg-gray-900 rounded animate-pulse" />
+              <div className="h-4 w-72 bg-accent dark:bg-card rounded animate-pulse" />
             </div>
           ) : spotSummary.error ? (
             <div className="mt-6 text-sm text-muted-foreground">
@@ -439,7 +439,7 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={() => spotSummary.retry()}
-                className="ml-3 text-blue-500 hover:underline inline-flex items-center gap-1"
+                className="ml-3 text-primary hover:underline inline-flex items-center gap-1"
               >
                 <RefreshCw className="h-3.5 w-3.5" aria-hidden />
                 Retry
@@ -503,7 +503,7 @@ export default function HomePage() {
                 className="rounded-xl bg-card border border-border p-6"
               >
                 <div className="w-10 h-10 rounded-lg bg-blue-500/10 dark:bg-blue-500/20 flex items-center justify-center">
-                  <item.icon className="w-5 h-5 text-blue-500" />
+                  <item.icon className="w-5 h-5 text-primary" />
                 </div>
                 <h3 className="mt-3 font-semibold text-foreground">{item.title}</h3>
                 <p className="mt-1 text-sm text-muted-foreground">{item.desc}</p>
@@ -514,7 +514,7 @@ export default function HomePage() {
       </section>
 
       {/* CTA */}
-      <section className="py-16 px-4 lg:px-6 bg-gray-100 dark:bg-card border-t border-border">
+      <section className="py-16 px-4 lg:px-6 bg-accent dark:bg-card border-t border-border">
         <div className="container mx-auto text-center">
           <h2 className="text-2xl font-bold text-foreground">
             Ready to start trading?
@@ -531,7 +531,7 @@ export default function HomePage() {
             </Link>
             <Link
               href={ROUTES.login}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-foreground/80 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-[#0b0e11] transition-colors"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-foreground/80 border border-border dark:border-gray-600 hover:bg-muted dark:hover:bg-[#0b0e11] transition-colors"
             >
               Log In
             </Link>
@@ -540,12 +540,12 @@ export default function HomePage() {
       </section>
 
       {/* Footer */}
-      <footer className="py-12 px-4 lg:px-6 border-t border-border bg-white dark:bg-background">
+      <footer className="py-12 px-4 lg:px-6 border-t border-border bg-card dark:bg-background">
         <div className="container mx-auto">
           <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-8">
             <div>
               <Link href={ROUTES.home} className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-blue-500 flex items-center justify-center">
+                <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
                   <span className="text-white font-bold text-sm">M</span>
                 </div>
                 <span className="text-lg font-bold text-foreground">Methereum</span>
@@ -557,7 +557,7 @@ export default function HomePage() {
                 <ul className="space-y-2">
                   {FOOTER_PRODUCTS(spotHref).map((link) => (
                     <li key={link.href}>
-                      <Link href={link.href} className="text-sm text-muted-foreground hover:text-gray-900 dark:hover:text-white transition-colors">
+                      <Link href={link.href} className="text-sm text-muted-foreground hover:text-foreground dark:hover:text-white transition-colors">
                         {link.label}
                       </Link>
                     </li>
@@ -569,7 +569,7 @@ export default function HomePage() {
                 <ul className="space-y-2">
                   {FOOTER_SUPPORT.map((link) => (
                     <li key={link.href}>
-                      <Link href={link.href} className="text-sm text-muted-foreground hover:text-gray-900 dark:hover:text-white transition-colors">
+                      <Link href={link.href} className="text-sm text-muted-foreground hover:text-foreground dark:hover:text-white transition-colors">
                         {link.label}
                       </Link>
                     </li>
@@ -581,7 +581,7 @@ export default function HomePage() {
                 <ul className="space-y-2">
                   {FOOTER_LEGAL.map((link) => (
                     <li key={link.label}>
-                      <Link href={link.href} className="text-sm text-muted-foreground hover:text-gray-900 dark:hover:text-white transition-colors">
+                      <Link href={link.href} className="text-sm text-muted-foreground hover:text-foreground dark:hover:text-white transition-colors">
                         {link.label}
                       </Link>
                     </li>

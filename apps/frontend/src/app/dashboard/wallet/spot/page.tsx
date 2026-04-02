@@ -99,7 +99,7 @@ export default function SpotWalletPage() {
               </tr>
             ) : (
               balances.map((row) => (
-                <tr key={row.asset} className="border-b border-border hover:bg-gray-50 dark:hover:bg-card/5 transition-colors duration-100">
+                <tr key={row.asset} className="border-b border-border hover:bg-muted dark:hover:bg-card/5 transition-colors duration-100">
                   <td className="py-3 px-4 font-medium text-foreground">{row.asset}</td>
                   <td className="py-3 px-4 font-mono tabular-nums text-foreground">{formatBalance(row.balance)}</td>
                   <td className="py-3 px-4 font-mono tabular-nums text-foreground/80">{formatBalance(row.available_balance)}</td>

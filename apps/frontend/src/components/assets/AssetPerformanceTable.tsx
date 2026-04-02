@@ -62,7 +62,7 @@ export function AssetPerformanceTable({ rows, showBalance }: AssetPerformanceTab
                         router.push(`/wallet/${encodeURIComponent(row.symbol)}`);
                       }
                     }}
-                    className="border-b border-border last:border-0 cursor-pointer hover:bg-gray-50 dark:hover:bg-card/[0.04] transition-colors"
+                    className="border-b border-border last:border-0 cursor-pointer hover:bg-muted dark:hover:bg-card/[0.04] transition-colors"
                   >
                     <td className="py-3 px-4 font-medium text-foreground">{row.symbol}</td>
                     <td className="py-3 px-4 text-right tabular-nums text-foreground/80">
@@ -83,7 +83,7 @@ export function AssetPerformanceTable({ rows, showBalance }: AssetPerformanceTab
                       )}
                     </td>
                     <td className="py-3 px-4 text-right tabular-nums text-foreground/80 font-medium">
-                      {showBalance ? row.valueUsd : '****'} <span className="text-gray-500 text-xs">USD</span>
+                      {showBalance ? row.valueUsd : '****'} <span className="text-muted-foreground text-xs">USD</span>
                     </td>
                   </tr>
                 );

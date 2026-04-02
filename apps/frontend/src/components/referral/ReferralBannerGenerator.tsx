@@ -125,7 +125,7 @@ export function ReferralBannerGenerator({
             key={format}
             type="button"
             onClick={() => handleDownload(format)}
-            className="flex flex-col items-center gap-3 p-4 rounded-xl border border-border hover:border-blue-400 dark:hover:border-blue-500 hover:bg-gray-50 dark:hover:bg-card/[0.04] transition-all group"
+            className="flex flex-col items-center gap-3 p-4 rounded-xl border border-border hover:border-blue-400 dark:hover:border-blue-500 hover:bg-muted dark:hover:bg-card/[0.04] transition-all group"
           >
             <div className="w-12 h-12 rounded-xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center group-hover:bg-blue-200 dark:group-hover:bg-blue-900/50 transition-colors">
               <Icon className="w-6 h-6 text-primary" />

@@ -63,10 +63,10 @@ export default function AuthStatsPanel() {
               <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-600/20 to-blue-600/20 border border-purple-500/20 flex items-center justify-center text-purple-400">
                 {stat.icon}
               </div>
-              <p className="text-gray-400 text-sm">{stat.label}</p>
+              <p className="text-muted-foreground text-sm">{stat.label}</p>
               <p className="text-4xl font-bold text-white">{stat.value}</p>
               {stat.subLabel && (
-                <p className="text-gray-500 text-sm">{stat.subLabel}</p>
+                <p className="text-muted-foreground text-sm">{stat.subLabel}</p>
               )}
             </div>
           ))}
@@ -77,7 +77,7 @@ export default function AuthStatsPanel() {
           {additionalStats.map((item, index) => (
             <div key={index} className="flex items-center gap-2">
               <span className="text-2xl font-bold text-white">{item.value}</span>
-              <span className="text-gray-500 text-sm">{item.label}</span>
+              <span className="text-muted-foreground text-sm">{item.label}</span>
             </div>
           ))}
         </div>

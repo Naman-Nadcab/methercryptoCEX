@@ -533,7 +533,7 @@ export default function AddressBookPage() {
   };
 
   return (
-    <div className="p-4 lg:p-6 bg-white dark:bg-background min-h-full">
+    <div className="p-4 lg:p-6 bg-card dark:bg-background min-h-full">
       <div className="max-w-7xl mx-auto">
         {/* Title and Buttons Row */}
         <div className="flex items-start justify-between mb-6">
@@ -548,8 +548,8 @@ export default function AddressBookPage() {
               <div className="flex items-center gap-3">
                 <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
                   withdrawViaAddressBook 
-                    ? 'border-blue-500 bg-blue-500' 
-                    : 'border-gray-300 dark:border-gray-500'
+                    ? 'border-blue-500 bg-primary' 
+                    : 'border-border dark:border-gray-500'
                 }`}>
                   {withdrawViaAddressBook && (
                     <div className="w-2 h-2 rounded-full bg-card" />
@@ -562,8 +562,8 @@ export default function AddressBookPage() {
               <div className="flex items-center gap-3">
                 <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
                   newAddressLock 
-                    ? 'border-blue-500 bg-blue-500' 
-                    : 'border-gray-300 dark:border-gray-500'
+                    ? 'border-blue-500 bg-primary' 
+                    : 'border-border dark:border-gray-500'
                 }`}>
                   {newAddressLock && (
                     <div className="w-2 h-2 rounded-full bg-card" />
@@ -594,7 +594,7 @@ export default function AddressBookPage() {
             </button>
             <button 
               onClick={() => router.push('/dashboard/address-book/add-batches')}
-              className="px-6 py-3 border border-gray-300 dark:border-gray-600 text-foreground/80 rounded-lg hover:bg-accent transition-colors font-medium"
+              className="px-6 py-3 border border-border dark:border-gray-600 text-foreground/80 rounded-lg hover:bg-accent transition-colors font-medium"
             >
               Add in Batches
             </button>
@@ -611,13 +611,13 @@ export default function AddressBookPage() {
                 setShowTypeDropdown(!showTypeDropdown);
                 setShowAssetDropdown(false);
               }}
-              className="flex items-center justify-between gap-4 px-4 py-3 bg-card border border-border rounded-lg text-foreground min-w-[180px] hover:border-gray-300 dark:hover:border-gray-600"
+              className="flex items-center justify-between gap-4 px-4 py-3 bg-card border border-border rounded-lg text-foreground min-w-[180px] hover:border-border dark:hover:border-gray-600"
             >
               <span>{typeOptions.find(t => t.value === typeFilter)?.label || 'All'}</span>
               {showTypeDropdown ? (
-                <ChevronUp className="w-4 h-4 text-gray-400" />
+                <ChevronUp className="w-4 h-4 text-muted-foreground" />
               ) : (
-                <ChevronDown className="w-4 h-4 text-gray-400" />
+                <ChevronDown className="w-4 h-4 text-muted-foreground" />
               )}
             </button>
             
@@ -632,7 +632,7 @@ export default function AddressBookPage() {
                     }}
                     className={`w-full text-left px-4 py-3 hover:bg-accent text-sm transition-colors ${
                       typeFilter === option.value 
-                        ? 'text-blue-500 bg-blue-50 dark:bg-blue-900/20' 
+                        ? 'text-primary bg-blue-50 dark:bg-blue-900/20' 
                         : 'text-foreground'
                     }`}
                   >
@@ -651,7 +651,7 @@ export default function AddressBookPage() {
                 setShowAssetDropdown(!showAssetDropdown);
                 setShowTypeDropdown(false);
               }}
-              className="flex items-center justify-between gap-4 px-4 py-3 bg-card border border-border rounded-lg text-foreground min-w-[140px] hover:border-gray-300 dark:hover:border-gray-600"
+              className="flex items-center justify-between gap-4 px-4 py-3 bg-card border border-border rounded-lg text-foreground min-w-[140px] hover:border-border dark:hover:border-gray-600"
             >
               <div className="flex items-center gap-2">
                 {assetFilter !== 'All' && (
@@ -671,9 +671,9 @@ export default function AddressBookPage() {
                 <span>{assetFilter}</span>
               </div>
               {showAssetDropdown ? (
-                <ChevronUp className="w-4 h-4 text-gray-400" />
+                <ChevronUp className="w-4 h-4 text-muted-foreground" />
               ) : (
-                <ChevronDown className="w-4 h-4 text-gray-400" />
+                <ChevronDown className="w-4 h-4 text-muted-foreground" />
               )}
             </button>
             
@@ -682,14 +682,14 @@ export default function AddressBookPage() {
                 {/* Search Input */}
                 <div className="p-2 border-b border-border">
                   <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <input
                       type="text"
                       value={assetSearchQuery}
                       onChange={e => setAssetSearchQuery(e.target.value)}
                       placeholder="Search..."
                       autoFocus
-                      className="w-full pl-9 pr-3 py-2 bg-gray-50 dark:bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground text-sm outline-none focus:border-blue-500"
+                      className="w-full pl-9 pr-3 py-2 bg-muted dark:bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground text-sm outline-none focus:border-blue-500"
                     />
                   </div>
                 </div>
@@ -705,7 +705,7 @@ export default function AddressBookPage() {
                     }}
                     className={`w-full text-left px-4 py-3 hover:bg-accent text-sm transition-colors flex items-center gap-2 ${
                       assetFilter === 'All' 
-                        ? 'text-blue-500 bg-blue-50 dark:bg-blue-900/20' 
+                        ? 'text-primary bg-blue-50 dark:bg-blue-900/20' 
                         : 'text-foreground'
                     }`}
                   >
@@ -715,10 +715,10 @@ export default function AddressBookPage() {
                   {/* Asset Options */}
                   {loadingAssets ? (
                     <div className="px-4 py-3 text-center">
-                      <Loader2 className="w-5 h-5 animate-spin mx-auto text-gray-400" />
+                      <Loader2 className="w-5 h-5 animate-spin mx-auto text-muted-foreground" />
                     </div>
                   ) : filteredAssets.length === 0 ? (
-                    <div className="px-4 py-3 text-center text-gray-400 text-sm">
+                    <div className="px-4 py-3 text-center text-muted-foreground text-sm">
                       No assets found
                     </div>
                   ) : (
@@ -732,7 +732,7 @@ export default function AddressBookPage() {
                         }}
                         className={`w-full text-left px-4 py-3 hover:bg-accent text-sm transition-colors flex items-center gap-3 ${
                           assetFilter === asset.symbol 
-                            ? 'text-blue-500 bg-blue-50 dark:bg-blue-900/20' 
+                            ? 'text-primary bg-blue-50 dark:bg-blue-900/20' 
                             : 'text-foreground'
                         }`}
                       >
@@ -767,12 +767,12 @@ export default function AddressBookPage() {
                 onChange={e => setSearchQuery(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleSearch()}
                 placeholder="Enter the address or add a note..."
-                className="px-4 py-3 bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground w-[300px] outline-none focus:border-blue-500 hover:border-gray-300 dark:hover:border-gray-600"
+                className="px-4 py-3 bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground w-[300px] outline-none focus:border-blue-500 hover:border-border dark:hover:border-gray-600"
               />
               <button 
                 onClick={handleSearch}
                 disabled={searching}
-                className="px-6 py-3 border border-gray-300 dark:border-gray-600 text-foreground/80 rounded-lg hover:bg-accent transition-colors font-medium"
+                className="px-6 py-3 border border-border dark:border-gray-600 text-foreground/80 rounded-lg hover:bg-accent transition-colors font-medium"
               >
                 {searching ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Search'}
               </button>
@@ -786,7 +786,7 @@ export default function AddressBookPage() {
             onClick={handleWhitelistToggle}
             disabled={togglingWhitelist}
             className={`relative w-12 h-7 rounded-full transition-colors ${
-              withdrawalWhitelist ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
+              withdrawalWhitelist ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-600'
             }`}
           >
             <span
@@ -816,7 +816,7 @@ export default function AddressBookPage() {
               {loading ? (
                 <tr>
                   <td colSpan={7} className="text-center py-20">
-                    <Loader2 className="w-8 h-8 animate-spin mx-auto text-gray-400" />
+                    <Loader2 className="w-8 h-8 animate-spin mx-auto text-muted-foreground" />
                   </td>
                 </tr>
               ) : filteredAddresses.length === 0 ? (
@@ -846,7 +846,7 @@ export default function AddressBookPage() {
                 </tr>
               ) : (
                 filteredAddresses.map(addr => (
-                  <tr key={addr.id} className="border-b border-gray-50 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-[#1e2329]/50 bg-card">
+                  <tr key={addr.id} className="border-b border-gray-50 dark:border-border hover:bg-muted dark:hover:bg-[#1e2329]/50 bg-card">
                     <td className="py-4 px-6">
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 relative flex-shrink-0 bg-accent rounded-full overflow-hidden">
@@ -907,7 +907,7 @@ export default function AddressBookPage() {
                     setWhitelistGoogle2faCode('');
                     setWhitelistEmailOtpTimer(0);
                   }} 
-                  className="text-gray-400 hover:text-gray-600"
+                  className="text-muted-foreground hover:text-muted-foreground"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -925,12 +925,12 @@ export default function AddressBookPage() {
                     value={whitelistEmailOtp}
                     onChange={e => setWhitelistEmailOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     placeholder="Please enter the email verification code"
-                    className="flex-1 px-4 py-3 bg-gray-50 dark:bg-card border border-border rounded-lg text-foreground focus:border-blue-500 focus:ring-2 focus:ring-primary/20 outline-none text-sm"
+                    className="flex-1 px-4 py-3 bg-muted dark:bg-card border border-border rounded-lg text-foreground focus:border-blue-500 focus:ring-2 focus:ring-primary/20 outline-none text-sm"
                   />
                   <button
                     onClick={sendWhitelistEmailOtp}
                     disabled={sendingWhitelistOtp || whitelistEmailOtpTimer > 0}
-                    className="px-4 py-3 text-sm font-medium text-primary hover:text-primary/85 disabled:text-gray-400 whitespace-nowrap"
+                    className="px-4 py-3 text-sm font-medium text-primary hover:text-primary/85 disabled:text-muted-foreground whitespace-nowrap"
                   >
                     {sendingWhitelistOtp ? 'Sending...' : whitelistEmailOtpTimer > 0 ? `${whitelistEmailOtpTimer}s` : 'Send Verification Code'}
                   </button>
@@ -948,11 +948,11 @@ export default function AddressBookPage() {
                   value={whitelistGoogle2faCode}
                   onChange={e => setWhitelistGoogle2faCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                   placeholder="Please enter the Google Authenticator code"
-                  className="w-full px-4 py-3 bg-gray-50 dark:bg-card border border-border rounded-lg text-foreground focus:border-blue-500 focus:ring-2 focus:ring-primary/20 outline-none"
+                  className="w-full px-4 py-3 bg-muted dark:bg-card border border-border rounded-lg text-foreground focus:border-blue-500 focus:ring-2 focus:ring-primary/20 outline-none"
                   disabled={!user2faEnabled}
                 />
                 {!user2faEnabled && (
-                  <p className="text-xs text-gray-400 mt-1">Google 2FA is not enabled</p>
+                  <p className="text-xs text-muted-foreground mt-1">Google 2FA is not enabled</p>
                 )}
               </div>
 
@@ -973,7 +973,7 @@ export default function AddressBookPage() {
               </button>
 
               {/* Help Link */}
-              <p className="text-center text-sm text-blue-500 hover:underline cursor-pointer mt-4">
+              <p className="text-center text-sm text-primary hover:underline cursor-pointer mt-4">
                 Having problems with verification?
               </p>
             </div>
@@ -994,7 +994,7 @@ export default function AddressBookPage() {
                     setShowAddModal(false);
                     resetAddForm();
                   }} 
-                  className="text-gray-400 hover:text-gray-600"
+                  className="text-muted-foreground hover:text-muted-foreground"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -1017,7 +1017,7 @@ export default function AddressBookPage() {
                   className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
                     addModalTab === 'onchain'
                       ? 'border-blue-500 text-foreground'
-                      : 'border-transparent text-muted-foreground hover:text-gray-700'
+                      : 'border-transparent text-muted-foreground hover:text-foreground/80'
                   }`}
                 >
                   On-chain Withdrawal
@@ -1027,7 +1027,7 @@ export default function AddressBookPage() {
                   className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
                     addModalTab === 'internal'
                       ? 'border-blue-500 text-foreground'
-                      : 'border-transparent text-muted-foreground hover:text-gray-700'
+                      : 'border-transparent text-muted-foreground hover:text-foreground/80'
                   }`}
                 >
                   Internal Transfer
@@ -1040,8 +1040,8 @@ export default function AddressBookPage() {
                   {/* Save as Universal Wallet Address */}
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-muted-foreground">Save as Universal Wallet Address</span>
-                    <div className="w-4 h-4 rounded-full border border-gray-300 flex items-center justify-center cursor-help">
-                      <span className="text-xs text-gray-400">?</span>
+                    <div className="w-4 h-4 rounded-full border border-border flex items-center justify-center cursor-help">
+                      <span className="text-xs text-muted-foreground">?</span>
                     </div>
                   </div>
 
@@ -1055,7 +1055,7 @@ export default function AddressBookPage() {
                       <option value="regular">Regular Wallet Address</option>
                       <option value="universal">Universal Wallet Address</option>
                     </select>
-                    <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                    <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
                   </div>
 
                   {/* Assets */}
@@ -1072,7 +1072,7 @@ export default function AddressBookPage() {
                           <option key={asset.id} value={asset.symbol}>{asset.symbol}</option>
                         ))}
                       </select>
-                      <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                      <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
                     </div>
                   </div>
 
@@ -1102,7 +1102,7 @@ export default function AddressBookPage() {
                           <option key={network} value={network}>{network}</option>
                         ))}
                       </select>
-                      <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                      <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
                     </div>
                   </div>
 
@@ -1171,7 +1171,7 @@ export default function AddressBookPage() {
                             className="flex items-center gap-2 px-4 py-3 bg-card border border-border rounded-lg text-foreground min-w-[100px]"
                           >
                             <span>{selectedCountryCode}</span>
-                            <ChevronDown className="w-4 h-4 text-gray-400" />
+                            <ChevronDown className="w-4 h-4 text-muted-foreground" />
                           </button>
                           
                           {showCountryDropdown && (
@@ -1185,13 +1185,13 @@ export default function AddressBookPage() {
                                   }}
                                   className={`w-full text-left px-4 py-2.5 hover:bg-accent text-sm flex items-center gap-2 ${
                                     selectedCountryCode === country.code 
-                                      ? 'text-blue-500 bg-blue-50 dark:bg-blue-900/20' 
+                                      ? 'text-primary bg-blue-50 dark:bg-blue-900/20' 
                                       : 'text-foreground'
                                   }`}
                                 >
                                   <span>{country.flag}</span>
                                   <span>{country.code}</span>
-                                  <span className="text-gray-400 text-xs">{country.name}</span>
+                                  <span className="text-muted-foreground text-xs">{country.name}</span>
                                 </button>
                               ))}
                             </div>
@@ -1237,14 +1237,14 @@ export default function AddressBookPage() {
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-foreground/80">No verification needed for this address next time</span>
-                    <div className="w-4 h-4 rounded-full border border-gray-300 flex items-center justify-center cursor-help">
-                      <span className="text-xs text-gray-400">?</span>
+                    <div className="w-4 h-4 rounded-full border border-border flex items-center justify-center cursor-help">
+                      <span className="text-xs text-muted-foreground">?</span>
                     </div>
                   </div>
                   <button
                     onClick={() => setNoVerificationNeeded(!noVerificationNeeded)}
                     className={`relative w-11 h-6 rounded-full transition-colors ${
-                      noVerificationNeeded ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
+                      noVerificationNeeded ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-600'
                     }`}
                   >
                     <span

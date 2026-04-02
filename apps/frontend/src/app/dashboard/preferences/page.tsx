@@ -196,7 +196,7 @@ export default function PreferencesPage() {
     <button
       onClick={() => onChange(!checked)}
       className={`relative w-12 h-7 rounded-full transition-all duration-300 ${
-        checked ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
+        checked ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-600'
       }`}
     >
       <span
@@ -204,7 +204,7 @@ export default function PreferencesPage() {
           checked ? 'translate-x-5' : 'translate-x-0'
         }`}
       >
-        {isSaving && <Loader2 className="w-3 h-3 animate-spin text-blue-500" />}
+        {isSaving && <Loader2 className="w-3 h-3 animate-spin text-primary" />}
       </span>
     </button>
   );
@@ -219,7 +219,7 @@ export default function PreferencesPage() {
       <div
         onClick={(e) => { e.preventDefault(); onChange(!checked); }}
         className={`w-5 h-5 rounded-md flex items-center justify-center border-2 transition-all duration-200 ${
-          checked ? 'bg-blue-500 border-blue-500' : 'border-gray-300 dark:border-gray-600'
+          checked ? 'bg-primary border-blue-500' : 'border-border dark:border-gray-600'
         }`}
       >
         {isSaving ? (
@@ -243,14 +243,14 @@ export default function PreferencesPage() {
       className={`w-full p-4 rounded-xl border-2 text-left transition-all ${
         checked 
           ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
-          : 'border-border hover:border-gray-300 dark:hover:border-gray-600'
+          : 'border-border hover:border-border dark:hover:border-gray-600'
       }`}
     >
       <div className="flex items-start gap-3">
         <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
-          checked ? 'border-blue-500' : 'border-gray-300 dark:border-gray-600'
+          checked ? 'border-blue-500' : 'border-border dark:border-gray-600'
         }`}>
-          {checked && <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />}
+          {checked && <div className="w-2.5 h-2.5 rounded-full bg-primary" />}
         </div>
         <div className="flex-1">
           <span className={`font-medium ${checked ? 'text-blue-700 dark:text-blue-400' : 'text-foreground'}`}>{label}</span>
@@ -281,7 +281,7 @@ export default function PreferencesPage() {
           <span className="text-sm font-medium text-foreground">{label}</span>
           {description && (
             <div className="group relative">
-              <Info className="w-4 h-4 text-gray-400 cursor-help" />
+              <Info className="w-4 h-4 text-muted-foreground cursor-help" />
               <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
                 {description}
               </div>
@@ -319,7 +319,7 @@ export default function PreferencesPage() {
                 className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium text-sm transition-all ${
                   activeTab === tab.id
                     ? 'bg-primary text-primary-foreground shadow-lg shadow-blue-500/25'
-                    : 'text-muted-foreground hover:text-gray-900 dark:hover:text-white hover:bg-accent'
+                    : 'text-muted-foreground hover:text-foreground dark:hover:text-white hover:bg-accent'
                 }`}
               >
                 <Icon className="w-4 h-4" />
@@ -332,8 +332,8 @@ export default function PreferencesPage() {
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <div className="text-center">
-              <Loader2 className="w-10 h-10 animate-spin text-blue-500 mx-auto mb-4" />
-              <p className="text-gray-500">Loading preferences...</p>
+              <Loader2 className="w-10 h-10 animate-spin text-primary mx-auto mb-4" />
+              <p className="text-muted-foreground">Loading preferences...</p>
             </div>
           </div>
         ) : (
@@ -378,7 +378,7 @@ export default function PreferencesPage() {
                             </span>
                           </div>
                         </div>
-                        <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform duration-200 ${showCurrencyDropdown ? 'rotate-180' : ''}`} />
+                        <ChevronDown className={`w-5 h-5 text-muted-foreground transition-transform duration-200 ${showCurrencyDropdown ? 'rotate-180' : ''}`} />
                       </button>
                       
                       {showCurrencyDropdown && (
@@ -404,7 +404,7 @@ export default function PreferencesPage() {
                                   <div className="text-sm text-muted-foreground">{currency.name}</div>
                                 </div>
                                 {settings.equivalentCurrency === currency.value && (
-                                  <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
+                                  <div className="w-6 h-6 bg-primary rounded-full flex items-center justify-center">
                                     <Check className="w-4 h-4 text-white" />
                                   </div>
                                 )}
@@ -448,7 +448,7 @@ export default function PreferencesPage() {
                           <span className="font-semibold text-foreground">
                             {priceChangeOptions.find(o => o.value === settings.priceChangeReference)?.label || 'Last 24 hours'}
                           </span>
-                          <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform duration-200 ${showPriceChangeDropdown ? 'rotate-180' : ''}`} />
+                          <ChevronDown className={`w-5 h-5 text-muted-foreground transition-transform duration-200 ${showPriceChangeDropdown ? 'rotate-180' : ''}`} />
                         </button>
                         
                         {showPriceChangeDropdown && (
@@ -469,7 +469,7 @@ export default function PreferencesPage() {
                               >
                                 <span className="font-semibold text-foreground">{option.label}</span>
                                 {settings.priceChangeReference === option.value && (
-                                  <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
+                                  <div className="w-6 h-6 bg-primary rounded-full flex items-center justify-center">
                                     <Check className="w-4 h-4 text-white" />
                                   </div>
                                 )}
@@ -574,7 +574,7 @@ export default function PreferencesPage() {
                             {languages.find(l => l.value === settings.notificationLanguage)?.label || 'English'}
                           </span>
                         </div>
-                        <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform duration-200 ${showLanguageDropdown ? 'rotate-180' : ''}`} />
+                        <ChevronDown className={`w-5 h-5 text-muted-foreground transition-transform duration-200 ${showLanguageDropdown ? 'rotate-180' : ''}`} />
                       </button>
                       
                       {showLanguageDropdown && (
@@ -597,7 +597,7 @@ export default function PreferencesPage() {
                                 <span className="text-2xl">{lang.flag}</span>
                                 <span className="flex-1 font-semibold text-foreground">{lang.label}</span>
                                 {settings.notificationLanguage === lang.value && (
-                                  <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
+                                  <div className="w-6 h-6 bg-primary rounded-full flex items-center justify-center">
                                     <Check className="w-4 h-4 text-white" />
                                   </div>
                                 )}
@@ -694,7 +694,7 @@ export default function PreferencesPage() {
                       </div>
                     </div>
                     <div className={`w-8 h-8 rounded-lg bg-accent flex items-center justify-center transition-transform ${eventsRemindersExpanded ? '' : '-rotate-180'}`}>
-                      <ChevronUp className="w-5 h-5 text-gray-500" />
+                      <ChevronUp className="w-5 h-5 text-muted-foreground" />
                     </div>
                   </button>
                   
@@ -730,7 +730,7 @@ export default function PreferencesPage() {
                       </div>
                     </div>
                     <div className={`w-8 h-8 rounded-lg bg-accent flex items-center justify-center transition-transform ${generalAnnouncementExpanded ? '' : '-rotate-180'}`}>
-                      <ChevronUp className="w-5 h-5 text-gray-500" />
+                      <ChevronUp className="w-5 h-5 text-muted-foreground" />
                     </div>
                   </button>
                   

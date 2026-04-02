@@ -458,12 +458,12 @@ export default function ReferralProgramPage() {
                 </div>
                 <div>
                   <p className="font-semibold text-foreground">Tiered Commissions</p>
-                  <p className="text-gray-500 text-sm">More referrals = Higher rate</p>
+                  <p className="text-muted-foreground text-sm">More referrals = Higher rate</p>
                 </div>
               </div>
               
               <p className="text-4xl font-bold text-foreground mb-2">Up to 30%</p>
-              <p className="text-gray-500 text-sm mb-4">Commission on trading fees</p>
+              <p className="text-muted-foreground text-sm mb-4">Commission on trading fees</p>
               
               {/* Chart */}
               <div className={`flex items-end justify-center transition-all duration-500 ease-in-out
@@ -471,17 +471,17 @@ export default function ReferralProgramPage() {
                 <div className="flex flex-col items-center">
                   <div className={`bg-accent rounded-t-lg transition-all duration-500 ease-in-out
                     ${activeCard === 'commissions' ? 'w-16 h-[60px]' : 'w-10 h-[40px]'}`} />
-                  <span className="text-xs text-gray-500 mt-2 font-medium">20%</span>
+                  <span className="text-xs text-muted-foreground mt-2 font-medium">20%</span>
                 </div>
                 <div className="flex flex-col items-center">
                   <div className={`bg-gray-300 dark:bg-gray-600 rounded-t-lg transition-all duration-500 ease-in-out
                     ${activeCard === 'commissions' ? 'w-16 h-[80px]' : 'w-10 h-[55px]'}`} />
-                  <span className="text-xs text-gray-500 mt-2 font-medium">25%</span>
+                  <span className="text-xs text-muted-foreground mt-2 font-medium">25%</span>
                 </div>
                 <div className="flex flex-col items-center">
-                  <div className={`bg-blue-500 rounded-t-lg transition-all duration-500 ease-in-out
+                  <div className={`bg-primary rounded-t-lg transition-all duration-500 ease-in-out
                     ${activeCard === 'commissions' ? 'w-16 h-[100px]' : 'w-10 h-[70px]'}`} />
-                  <span className="text-xs text-blue-500 mt-2 font-semibold">30%</span>
+                  <span className="text-xs text-primary mt-2 font-semibold">30%</span>
                 </div>
               </div>
             </div>
@@ -496,9 +496,9 @@ export default function ReferralProgramPage() {
             <div className="bg-card rounded-xl p-6 border border-border hover:shadow-xl transition-shadow">
               <div className="flex items-start justify-between mb-4">
                 <div>
-                  <span className="text-xs font-medium text-blue-500 bg-blue-50 dark:bg-blue-900/30 px-2 py-1 rounded">Up to</span>
+                  <span className="text-xs font-medium text-primary bg-blue-50 dark:bg-blue-900/30 px-2 py-1 rounded">Up to</span>
                   <p className="text-4xl font-bold text-foreground mt-2">$3</p>
-                  <p className="text-gray-500 text-sm">Per Referred User</p>
+                  <p className="text-muted-foreground text-sm">Per Referred User</p>
                 </div>
                 <div className="w-16 h-16 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-xl flex items-center justify-center shadow-lg shadow-yellow-500/30">
                   <Coins className="w-8 h-8 text-white" />
@@ -511,9 +511,9 @@ export default function ReferralProgramPage() {
             <div className="bg-card rounded-xl p-6 border border-border hover:shadow-xl transition-shadow">
               <div className="flex items-start justify-between mb-4">
                 <div>
-                  <span className="text-xs font-medium text-blue-500 bg-blue-50 dark:bg-blue-900/30 px-2 py-1 rounded">Up to</span>
+                  <span className="text-xs font-medium text-primary bg-blue-50 dark:bg-blue-900/30 px-2 py-1 rounded">Up to</span>
                   <p className="text-4xl font-bold text-foreground mt-2">$20</p>
-                  <p className="text-gray-500 text-sm">Per Referred User</p>
+                  <p className="text-muted-foreground text-sm">Per Referred User</p>
                 </div>
                 <div className="w-16 h-16 bg-gradient-to-br from-gray-600 to-gray-800 rounded-xl flex items-center justify-center shadow-lg shadow-gray-500/30">
                   <CreditCard className="w-8 h-8 text-white" />
@@ -526,9 +526,9 @@ export default function ReferralProgramPage() {
             <div className="bg-card rounded-xl p-6 border border-border hover:shadow-xl transition-shadow">
               <div className="flex items-start justify-between mb-4">
                 <div>
-                  <span className="text-xs font-medium text-blue-500 bg-blue-50 dark:bg-blue-900/30 px-2 py-1 rounded">Up to</span>
+                  <span className="text-xs font-medium text-primary bg-blue-50 dark:bg-blue-900/30 px-2 py-1 rounded">Up to</span>
                   <p className="text-4xl font-bold text-foreground mt-2">$665</p>
-                  <p className="text-gray-500 text-sm">Per Referred User</p>
+                  <p className="text-muted-foreground text-sm">Per Referred User</p>
                 </div>
                 <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-700 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/30">
                   <TrendingUp className="w-8 h-8 text-white" />
@@ -643,7 +643,7 @@ export default function ReferralProgramPage() {
         </div>
 
         {/* Terms */}
-        <div className="bg-gray-50 dark:bg-card rounded-xl p-6 border border-border">
+        <div className="bg-muted dark:bg-card rounded-xl p-6 border border-border">
           <h3 className="font-bold text-foreground mb-4">Terms & Conditions</h3>
           <div className="text-sm text-muted-foreground space-y-2">
             <p>• Referral rewards are subject to verification and may take up to 48 hours to process.</p>
@@ -669,7 +669,7 @@ export default function ReferralProgramPage() {
                 onClick={() => setShowInviteModal(false)}
                 className="p-2 hover:bg-gray-700 rounded-xl transition-colors"
               >
-                <X className="w-6 h-6 text-gray-400" />
+                <X className="w-6 h-6 text-muted-foreground" />
               </button>
             </div>
 
@@ -685,7 +685,7 @@ export default function ReferralProgramPage() {
 
                     <div className="relative z-10">
                       <div className="flex items-center gap-2 mb-6">
-                        <div className="w-10 h-10 bg-blue-500 rounded-xl flex items-center justify-center shadow-lg">
+                        <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center shadow-lg">
                           <span className="text-white font-bold text-lg">M</span>
                         </div>
                         <span className="text-white font-bold text-xl">Methereum</span>
@@ -707,8 +707,8 @@ export default function ReferralProgramPage() {
                         <p className="text-white font-bold">Code: {referralCode}</p>
                       </div>
                       <div className="w-16 h-16 bg-card rounded-lg p-1">
-                        <div className="w-full h-full bg-gray-200 rounded flex items-center justify-center">
-                          <span className="text-[8px] text-gray-500">QR</span>
+                        <div className="w-full h-full bg-accent rounded flex items-center justify-center">
+                          <span className="text-[8px] text-muted-foreground">QR</span>
                         </div>
                       </div>
                     </div>
@@ -727,7 +727,7 @@ export default function ReferralProgramPage() {
                     <button
                       key={i}
                       onClick={() => setCurrentSlide(i)}
-                      className={`w-2 h-2 rounded-full transition-all ${currentSlide === i ? 'bg-blue-500 w-6' : 'bg-gray-600'}`}
+                      className={`w-2 h-2 rounded-full transition-all ${currentSlide === i ? 'bg-primary w-6' : 'bg-gray-600'}`}
                     />
                   ))}
                 </div>
@@ -736,17 +736,17 @@ export default function ReferralProgramPage() {
               {/* Right - Share Options */}
               <div className="flex-1 space-y-6">
                 <div>
-                  <label className="block text-gray-400 text-sm mb-2">Referral Code</label>
+                  <label className="block text-muted-foreground text-sm mb-2">Referral Code</label>
                   <div className="flex items-center bg-gray-800 rounded-xl overflow-hidden">
                     <input type="text" value={referralCode} readOnly className="flex-1 bg-transparent px-4 py-3.5 text-white font-bold font-mono outline-none" />
                     <button onClick={copyModalCode} className="p-3.5 hover:bg-gray-700 transition-colors">
-                      {modalCopiedCode ? <Check className="w-5 h-5 text-green-500" /> : <Copy className="w-5 h-5 text-gray-400" />}
+                      {modalCopiedCode ? <Check className="w-5 h-5 text-green-500" /> : <Copy className="w-5 h-5 text-muted-foreground" />}
                     </button>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-gray-400 text-sm mb-2">Customize your message</label>
+                  <label className="block text-muted-foreground text-sm mb-2">Customize your message</label>
                   <textarea
                     defaultValue={customText}
                     className="w-full h-28 bg-gray-800 rounded-xl px-4 py-3 text-gray-300 text-sm outline-none resize-none focus:ring-2 focus:ring-primary"
@@ -767,7 +767,7 @@ export default function ReferralProgramPage() {
                       <div className={`w-12 h-12 ${item.color} hover:opacity-80 rounded-full flex items-center justify-center transition-all`}>
                         <Icon className="w-5 h-5 text-white" />
                       </div>
-                      <span className="text-xs text-gray-400 group-hover:text-white">{item.label}</span>
+                      <span className="text-xs text-muted-foreground group-hover:text-white">{item.label}</span>
                     </button>
                     );
                   })}
@@ -791,7 +791,7 @@ export default function ReferralProgramPage() {
                           <Icon className="w-5 h-5 text-white" />
                         )}
                       </div>
-                      <span className="text-xs text-gray-400 group-hover:text-white">{item.label}</span>
+                      <span className="text-xs text-muted-foreground group-hover:text-white">{item.label}</span>
                     </button>
                     );
                   })}

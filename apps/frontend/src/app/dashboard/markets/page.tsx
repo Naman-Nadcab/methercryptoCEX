@@ -66,7 +66,7 @@ function MarketsTableSkeleton() {
   return (
     <table className="w-full text-sm">
       <thead>
-        <tr className="border-b border-white/10 text-left text-xs text-gray-500 uppercase tracking-wider">
+        <tr className="border-b border-white/10 text-left text-xs text-muted-foreground uppercase tracking-wider">
           <th className="py-3 px-3 font-medium">Pair</th>
           <th className="py-3 px-3 font-medium text-right">Last Price</th>
           <th className="py-3 px-3 font-medium text-right">24h Change</th>
@@ -118,13 +118,13 @@ function SortableTh({
         <button
           type="button"
           onClick={() => onSort(sortKey)}
-          className="inline-flex items-center gap-1 rounded text-xs uppercase tracking-wider text-gray-500 transition-colors duration-200 hover:text-gray-300 focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
+          className="inline-flex items-center gap-1 rounded text-xs uppercase tracking-wider text-muted-foreground transition-colors duration-200 hover:text-gray-300 focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30"
           aria-label={`Sort by ${label}`}
         >
           {label}
           <Icon className="h-3 w-3 opacity-70" aria-hidden />
         </button>
-        <InfoTooltip content={tooltip} className="text-gray-500" />
+        <InfoTooltip content={tooltip} className="text-muted-foreground" />
       </div>
     </th>
   );
@@ -347,7 +347,7 @@ export default function MarketsPage() {
           ) : (
               <table className="w-full text-sm min-w-[640px]">
                 <thead>
-                  <tr className="border-b border-white/10 text-left text-xs text-gray-500 uppercase tracking-wider">
+                  <tr className="border-b border-white/10 text-left text-xs text-muted-foreground uppercase tracking-wider">
                     <SortableTh
                       label="Pair"
                       sortKey="pair"
@@ -401,7 +401,7 @@ export default function MarketsPage() {
                       align="right"
                       tooltip={TOOLTIP_QUOTE_VOLUME_24H}
                     />
-                    <th className="py-3 px-3 font-medium text-right text-xs uppercase tracking-wider text-gray-500">
+                    <th className="py-3 px-3 font-medium text-right text-xs uppercase tracking-wider text-muted-foreground">
                       Action
                     </th>
                   </tr>
@@ -444,8 +444,8 @@ function MarketsRow({
       : changeTone === 'down'
         ? 'text-red-500'
         : changeTone === 'flat'
-          ? 'text-gray-400'
-          : 'text-gray-500';
+          ? 'text-muted-foreground'
+          : 'text-muted-foreground';
 
   const lastText = lastOk ? fmtPriceValue(ticker!.last_price) : null;
   const highText = fmtPriceValue(ticker?.high_24h ?? null);
@@ -457,7 +457,7 @@ function MarketsRow({
 
   const lastCellClass =
     lastText == null
-      ? 'text-gray-500'
+      ? 'text-muted-foreground'
       : priceFlash === 'up'
         ? 'text-emerald-400'
         : priceFlash === 'down'

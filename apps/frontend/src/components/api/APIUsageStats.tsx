@@ -70,7 +70,7 @@ export function APIUsageStats({
             <div className="mt-1 w-full bg-accent rounded-full h-1.5">
               <div
                 className={`h-1.5 rounded-full transition-all ${
-                  ratePercent >= 90 ? 'bg-red-500' : ratePercent >= 70 ? 'bg-amber-500' : 'bg-blue-500'
+                  ratePercent >= 90 ? 'bg-red-500' : ratePercent >= 70 ? 'bg-amber-500' : 'bg-primary'
                 }`}
                 style={{ width: `${ratePercent}%` }}
               />

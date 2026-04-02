@@ -121,7 +121,7 @@ export default function PnlAnalysisPage() {
             <div className="flex items-center gap-4">
               <h1 className="text-2xl font-bold text-foreground">P&L Analysis</h1>
               <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800/30">
-                <BarChart3 className="w-4 h-4 text-blue-500" />
+                <BarChart3 className="w-4 h-4 text-primary" />
                 <span className="text-sm text-primary font-medium">Performance Tracking</span>
               </div>
             </div>
@@ -136,13 +136,13 @@ export default function PnlAnalysisPage() {
 
           {/* Tabs */}
           <div className="bg-card rounded-xl border border-border mb-6">
-            <div className="flex gap-1 p-1.5 bg-gray-100 dark:bg-[#2b2f36] m-4 rounded-xl w-fit">
+            <div className="flex gap-1 p-1.5 bg-accent dark:bg-[#2b2f36] m-4 rounded-xl w-fit">
               <button
                 onClick={() => setActiveTab('assets')}
                 className={`px-6 py-2.5 text-sm font-medium rounded-lg transition-all ${
                   activeTab === 'assets'
                     ? 'bg-card text-primary shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                    : 'text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'
                 }`}
               >
                 Assets
@@ -152,7 +152,7 @@ export default function PnlAnalysisPage() {
                 className={`px-6 py-2.5 text-sm font-medium rounded-lg transition-all ${
                   activeTab === 'spot'
                     ? 'bg-card text-primary shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                    : 'text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'
                 }`}
               >
                 Spot
@@ -165,16 +165,16 @@ export default function PnlAnalysisPage() {
                 <div className="flex items-center gap-4">
                   {/* Symbol Dropdown */}
                   <div className="relative">
-                    <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Symbol</p>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Symbol</p>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         setShowSymbolDropdown(!showSymbolDropdown);
                       }}
-                      className="flex items-center justify-between gap-8 px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] rounded-xl text-sm text-foreground min-w-[180px] border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
+                      className="flex items-center justify-between gap-8 px-4 py-2.5 bg-muted dark:bg-[#2b2f36] rounded-xl text-sm text-foreground min-w-[180px] border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
                     >
                       <div className="flex items-center gap-2">
-                        <Filter className="w-4 h-4 text-gray-400" />
+                        <Filter className="w-4 h-4 text-muted-foreground" />
                         <span>{selectedSymbol === 'all' ? 'All Symbols' : selectedSymbol}</span>
                       </div>
                       <ChevronDown className={`w-4 h-4 transition-transform ${showSymbolDropdown ? 'rotate-180' : ''}`} />
@@ -204,7 +204,7 @@ export default function PnlAnalysisPage() {
 
                   {/* Time Period */}
                   <div>
-                    <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Time Period</p>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Time Period</p>
                     <div className="flex gap-2">
                       {timePeriods.map((period) => (
                         <button
@@ -213,7 +213,7 @@ export default function PnlAnalysisPage() {
                           className={`px-4 py-2.5 text-sm font-medium rounded-xl transition-all ${
                             timePeriod === period.id
                               ? 'bg-primary text-primary-foreground shadow-lg shadow-blue-500/25'
-                              : 'bg-gray-50 dark:bg-[#2b2f36] text-muted-foreground border border-border hover:border-blue-300 dark:hover:border-blue-600'
+                              : 'bg-muted dark:bg-[#2b2f36] text-muted-foreground border border-border hover:border-blue-300 dark:hover:border-blue-600'
                           }`}
                         >
                           {period.id === 'custom' && <Calendar className="w-4 h-4 inline mr-1" />}
@@ -242,9 +242,9 @@ export default function PnlAnalysisPage() {
                   }
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-gray-500">Total P&L</p>
+                  <p className="text-sm font-medium text-muted-foreground">Total P&L</p>
                   <p className={`text-3xl font-bold ${summary.totalPnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                    {summary.totalPnl >= 0 ? '+' : ''}{formatNumber(summary.totalPnl)} <span className="text-base font-normal text-gray-500">USD</span>
+                    {summary.totalPnl >= 0 ? '+' : ''}{formatNumber(summary.totalPnl)} <span className="text-base font-normal text-muted-foreground">USD</span>
                   </p>
                 </div>
               </div>
@@ -255,9 +255,9 @@ export default function PnlAnalysisPage() {
                   <BarChart3 className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-gray-500">Total Filled Value</p>
-                  <p className="text-3xl font-bold text-blue-500">
-                    {formatNumber(summary.totalFilledValue)} <span className="text-base font-normal text-gray-500">USD</span>
+                  <p className="text-sm font-medium text-muted-foreground">Total Filled Value</p>
+                  <p className="text-3xl font-bold text-primary">
+                    {formatNumber(summary.totalFilledValue)} <span className="text-base font-normal text-muted-foreground">USD</span>
                   </p>
                 </div>
               </div>
@@ -272,16 +272,16 @@ export default function PnlAnalysisPage() {
                 <h3 className="font-semibold text-foreground text-lg">Filled Value Trend</h3>
                 <div className="flex items-center gap-4">
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <div className="w-3 h-3 rounded bg-blue-500" />
-                    <span className="text-xs text-gray-500">Total</span>
+                    <div className="w-3 h-3 rounded bg-primary" />
+                    <span className="text-xs text-muted-foreground">Total</span>
                   </label>
                   <label className="flex items-center gap-2 cursor-pointer">
                     <div className="w-3 h-3 rounded bg-green-500" />
-                    <span className="text-xs text-gray-500">Buy</span>
+                    <span className="text-xs text-muted-foreground">Buy</span>
                   </label>
                   <label className="flex items-center gap-2 cursor-pointer">
                     <div className="w-3 h-3 rounded bg-red-500" />
-                    <span className="text-xs text-gray-500">Sell</span>
+                    <span className="text-xs text-muted-foreground">Sell</span>
                   </label>
                 </div>
               </div>
@@ -289,7 +289,7 @@ export default function PnlAnalysisPage() {
               {/* Chart */}
               <div className="relative h-64">
                 {/* Y-axis labels */}
-                <div className="absolute left-0 top-0 bottom-8 w-10 flex flex-col justify-between text-xs text-gray-400">
+                <div className="absolute left-0 top-0 bottom-8 w-10 flex flex-col justify-between text-xs text-muted-foreground">
                   <span>1.0</span>
                   <span>0.8</span>
                   <span>0.6</span>
@@ -334,7 +334,7 @@ export default function PnlAnalysisPage() {
                   </svg>
 
                   {/* X-axis labels */}
-                  <div className="absolute bottom-0 left-0 right-0 flex justify-between text-xs text-gray-400 pt-2">
+                  <div className="absolute bottom-0 left-0 right-0 flex justify-between text-xs text-muted-foreground pt-2">
                     {chartData.filter((_, i) => i % Math.ceil(chartData.length / 6) === 0).map((d, i) => (
                       <span key={i}>{d.date.slice(5)}</span>
                     ))}
@@ -348,7 +348,7 @@ export default function PnlAnalysisPage() {
               <h3 className="font-semibold text-foreground text-lg mb-6">P&L Ranking</h3>
               
               {/* Table Header */}
-              <div className="flex justify-between text-xs font-semibold text-gray-400 uppercase mb-4 pb-3 border-b border-border">
+              <div className="flex justify-between text-xs font-semibold text-muted-foreground uppercase mb-4 pb-3 border-b border-border">
                 <span>Symbol</span>
                 <span>P&L</span>
               </div>
@@ -356,15 +356,15 @@ export default function PnlAnalysisPage() {
               {/* Table Body */}
               {loading ? (
                 <div className="flex flex-col items-center justify-center py-12">
-                  <RefreshCw className="w-8 h-8 text-blue-500 animate-spin mb-3" />
-                  <p className="text-sm text-gray-500">Loading rankings...</p>
+                  <RefreshCw className="w-8 h-8 text-primary animate-spin mb-3" />
+                  <p className="text-sm text-muted-foreground">Loading rankings...</p>
                 </div>
               ) : pnlData.length > 0 ? (
                 <div className="space-y-3">
                   {pnlData.map((item, i) => (
-                    <div key={i} className="flex items-center justify-between py-3 px-4 bg-gray-50 dark:bg-[#2b2f36] rounded-xl hover:bg-accent/50 transition-colors">
+                    <div key={i} className="flex items-center justify-between py-3 px-4 bg-muted dark:bg-[#2b2f36] rounded-xl hover:bg-accent/50 transition-colors">
                       <div className="flex items-center gap-3">
-                        <span className="w-6 h-6 rounded-lg bg-accent flex items-center justify-center text-xs font-semibold text-gray-500">
+                        <span className="w-6 h-6 rounded-lg bg-accent flex items-center justify-center text-xs font-semibold text-muted-foreground">
                           {i + 1}
                         </span>
                         <span className="font-medium text-foreground">{item.symbol}</span>
@@ -384,10 +384,10 @@ export default function PnlAnalysisPage() {
               ) : (
                 <div className="flex flex-col items-center justify-center py-12">
                   <div className="w-20 h-20 bg-accent rounded-xl flex items-center justify-center mb-4">
-                    <BarChart3 className="w-10 h-10 text-gray-300 dark:text-gray-600" />
+                    <BarChart3 className="w-10 h-10 text-gray-300 dark:text-muted-foreground" />
                   </div>
-                  <p className="text-gray-500 font-medium">No trading data yet</p>
-                  <p className="text-sm text-gray-400 mt-1">Start trading to see your P&L</p>
+                  <p className="text-muted-foreground font-medium">No trading data yet</p>
+                  <p className="text-sm text-muted-foreground mt-1">Start trading to see your P&L</p>
                   <Link
                     href="/trade/spot"
                     className="mt-4 px-6 py-2.5 bg-primary hover:bg-primary/85 text-white font-medium text-sm rounded-xl transition-colors"

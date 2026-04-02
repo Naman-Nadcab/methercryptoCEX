@@ -188,7 +188,7 @@ export default function SignupPage() {
       {/* Step progress */}
       <div className="flex gap-2 mb-6">
         {steps.map((s, i) => (
-          <div key={s} className={`flex-1 h-1 rounded-full transition-colors ${i <= stepIndex ? 'bg-blue-500' : 'bg-accent'}`} aria-hidden />
+          <div key={s} className={`flex-1 h-1 rounded-full transition-colors ${i <= stepIndex ? 'bg-primary' : 'bg-accent'}`} aria-hidden />
         ))}
       </div>
 
@@ -199,8 +199,8 @@ export default function SignupPage() {
             <p className="mt-1 text-sm text-muted-foreground">Get started with Google, email, or mobile</p>
           </div>
 
-          <label className="flex items-start gap-3 cursor-pointer p-4 rounded-xl border border-border bg-gray-50/50 dark:bg-gray-800/30 hover:bg-accent/50 transition-colors">
-            <input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} className="mt-0.5 w-4 h-4 text-blue-500 rounded border-gray-300" aria-label="Accept terms and privacy" />
+          <label className="flex items-start gap-3 cursor-pointer p-4 rounded-xl border border-border bg-gray-50/50 dark:bg-accent/30 hover:bg-accent/50 transition-colors">
+            <input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} className="mt-0.5 w-4 h-4 text-primary rounded border-border" aria-label="Accept terms and privacy" />
             <span className="text-sm text-muted-foreground">
               I agree to <Link href="/terms" className="text-primary hover:underline">Terms</Link> and <Link href="/privacy" className="text-primary hover:underline">Privacy Policy</Link>
             </span>
@@ -221,11 +221,11 @@ export default function SignupPage() {
 
           <div className="grid grid-cols-2 gap-3">
             <button type="button" onClick={() => { setStep('email'); setIdType('email'); setError(''); }} disabled={!terms} className="py-4 px-4 rounded-xl border-2 border-border flex flex-col items-center justify-center gap-2 hover:border-blue-500/50 hover:bg-blue-50/30 dark:hover:bg-blue-950/20 disabled:opacity-50 transition-all group">
-              <Mail className="w-6 h-6 text-muted-foreground group-hover:text-blue-500" />
+              <Mail className="w-6 h-6 text-muted-foreground group-hover:text-primary" />
               <span className="text-sm font-medium text-foreground/80">Email</span>
             </button>
             <button type="button" onClick={() => { setStep('email'); setIdType('phone'); setError(''); }} disabled={!terms} className="py-4 px-4 rounded-xl border-2 border-border flex flex-col items-center justify-center gap-2 hover:border-blue-500/50 hover:bg-blue-50/30 dark:hover:bg-blue-950/20 disabled:opacity-50 transition-all group">
-              <Smartphone className="w-6 h-6 text-muted-foreground group-hover:text-blue-500" />
+              <Smartphone className="w-6 h-6 text-muted-foreground group-hover:text-primary" />
               <span className="text-sm font-medium text-foreground/80">Mobile</span>
             </button>
           </div>
@@ -301,7 +301,7 @@ export default function SignupPage() {
 
           <div className="relative">
             <input type={showPass ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" aria-label="Password" className="w-full px-4 py-3.5 pr-14 rounded-xl border border-border bg-card/50 text-foreground placeholder:text-muted-foreground dark:placeholder:text-muted-foreground focus:ring-2 focus:ring-primary outline-none" required />
-            <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium hover:text-gray-700 dark:hover:text-gray-200" aria-label={showPass ? 'Hide password' : 'Show password'}>{showPass ? 'Hide' : 'Show'}</button>
+            <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium hover:text-foreground/80 dark:hover:text-gray-200" aria-label={showPass ? 'Hide password' : 'Show password'}>{showPass ? 'Hide' : 'Show'}</button>
           </div>
 
           {/* Password strength indicator */}

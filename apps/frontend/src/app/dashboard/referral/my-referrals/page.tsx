@@ -91,10 +91,10 @@ export default function MyReferralsPage() {
       <div className="max-w-5xl mx-auto px-4 lg:px-8 py-6">
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-sm mb-6">
-          <Link href="/dashboard/referral" className="text-muted-foreground hover:text-gray-900 dark:hover:text-white">
+          <Link href="/dashboard/referral" className="text-muted-foreground hover:text-foreground dark:hover:text-white">
             Referral Program
           </Link>
-          <span className="text-gray-400 dark:text-gray-600">{'\u003e'}</span>
+          <span className="text-muted-foreground dark:text-muted-foreground">{'\u003e'}</span>
           <span className="text-primary">My Referrals</span>
         </div>
 
@@ -103,7 +103,7 @@ export default function MyReferralsPage() {
         
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+            <Loader2 className="w-8 h-8 text-primary animate-spin" />
           </div>
         ) : fetchError ? (
           <div className="rounded-xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 p-4 mb-6">
@@ -113,7 +113,7 @@ export default function MyReferralsPage() {
         ) : (
         <div>
         {/* Overview Card */}
-        <div className="bg-card rounded-xl p-5 mb-6 border border-gray-200 dark:border-transparent">
+        <div className="bg-card rounded-xl p-5 mb-6 border border-border dark:border-transparent">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between">
             <div>
               <div className="flex items-center gap-1 text-muted-foreground text-sm mb-2">
@@ -152,7 +152,7 @@ export default function MyReferralsPage() {
               className={`text-sm font-medium pb-2 border-b-2 transition-colors ${
                 signupTab === tab.id
                   ? 'text-foreground border-blue-500'
-                  : 'text-muted-foreground border-transparent hover:text-gray-700 dark:hover:text-gray-300'
+                  : 'text-muted-foreground border-transparent hover:text-foreground/80 dark:hover:text-gray-300'
               }`}
             >
               {tab.label}
@@ -164,7 +164,7 @@ export default function MyReferralsPage() {
         {signupTab === 'signups' && (
           <>
             {/* Commission Rate Card */}
-            <div className="bg-card rounded-xl p-5 mb-4 border border-gray-200 dark:border-transparent">
+            <div className="bg-card rounded-xl p-5 mb-4 border border-border dark:border-transparent">
               <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <div className="flex items-center gap-1 text-muted-foreground text-sm mb-2">
@@ -182,7 +182,7 @@ export default function MyReferralsPage() {
                   <p className="text-muted-foreground text-sm mb-2">Withdrawable Balance</p>
                   <div className="flex items-center gap-3">
                     <p className="text-xl font-semibold text-foreground">{Number.isFinite(totalEarnings) ? totalEarnings.toFixed(2) : '0.00'} <span className="text-sm text-muted-foreground">USDT</span></p>
-                    <button className="px-4 py-1.5 bg-transparent border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-white text-sm rounded-lg hover:bg-accent transition-colors">
+                    <button className="px-4 py-1.5 bg-transparent border border-border dark:border-gray-600 text-foreground/80 dark:text-foreground text-sm rounded-lg hover:bg-accent transition-colors">
                       Withdraw
                     </button>
                   </div>
@@ -193,7 +193,7 @@ export default function MyReferralsPage() {
             {/* Bonus Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
               {/* Total Bonus */}
-              <div className="bg-card rounded-xl p-5 flex items-center justify-between border border-gray-200 dark:border-transparent">
+              <div className="bg-card rounded-xl p-5 flex items-center justify-between border border-border dark:border-transparent">
                 <div>
                   <p className="text-muted-foreground text-sm mb-2">Total Bonus</p>
                   <p className="text-2xl font-bold text-foreground">{Number.isFinite(totalEarnings) ? totalEarnings.toFixed(2) : '0.00'} <span className="text-sm text-muted-foreground">USDT</span></p>
@@ -202,7 +202,7 @@ export default function MyReferralsPage() {
               </div>
 
               {/* Mystery Box */}
-              <div className="bg-card rounded-xl p-5 flex items-center justify-between border border-gray-200 dark:border-transparent">
+              <div className="bg-card rounded-xl p-5 flex items-center justify-between border border-border dark:border-transparent">
                 <div>
                   <p className="text-muted-foreground text-sm mb-2">Mystery Box</p>
                   <div className="flex items-center gap-2">
@@ -226,7 +226,7 @@ export default function MyReferralsPage() {
                   className={`px-4 py-2 text-sm rounded-lg transition-colors ${
                     historyTab === tab.id
                       ? 'bg-accent text-foreground'
-                      : 'bg-gray-100 dark:bg-card text-muted-foreground hover:text-gray-700 dark:hover:text-white'
+                      : 'bg-accent dark:bg-card text-muted-foreground hover:text-foreground/80 dark:hover:text-white'
                   }`}
                 >
                   {tab.label}
@@ -243,7 +243,7 @@ export default function MyReferralsPage() {
                   className={`text-sm pb-2 transition-colors ${
                     spotTab === tab.id
                       ? 'text-foreground border-b-2 border-gray-900 dark:border-white -mb-[10px]'
-                      : 'text-muted-foreground hover:text-gray-700 dark:hover:text-gray-300'
+                      : 'text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'
                   }`}
                 >
                   {tab.label}
@@ -253,11 +253,11 @@ export default function MyReferralsPage() {
 
             {/* Date Range Filter */}
             <div className="flex items-center gap-2 mb-6">
-              <div className="flex items-center bg-gray-100 dark:bg-card rounded-lg px-3 py-2 text-sm text-muted-foreground">
+              <div className="flex items-center bg-accent dark:bg-card rounded-lg px-3 py-2 text-sm text-muted-foreground">
                 <span>2026-01-01</span>
                 <span className="mx-2 text-muted-foreground">~</span>
                 <span>2026-01-30</span>
-                <Calendar className="w-4 h-4 ml-2 text-gray-400" />
+                <Calendar className="w-4 h-4 ml-2 text-muted-foreground" />
               </div>
             </div>
 
@@ -279,7 +279,7 @@ export default function MyReferralsPage() {
         {signupTab === 'fiat' && (
           <>
             {/* Fiat Stats Card */}
-            <div className="bg-card rounded-xl p-5 mb-8 border border-gray-200 dark:border-transparent">
+            <div className="bg-card rounded-xl p-5 mb-8 border border-border dark:border-transparent">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div>
                   <p className="text-muted-foreground text-sm mb-2">Total Rewards</p>
@@ -325,7 +325,7 @@ export default function MyReferralsPage() {
         {signupTab === 'card' && (
           <>
             {/* Card Stats */}
-            <div className="bg-card rounded-xl p-5 mb-8 border border-gray-200 dark:border-transparent">
+            <div className="bg-card rounded-xl p-5 mb-8 border border-border dark:border-transparent">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <p className="text-muted-foreground text-sm mb-2">Commissions</p>
@@ -358,7 +358,7 @@ export default function MyReferralsPage() {
         {signupTab === 'earn' && (
           <>
             {/* Earn Stats Card */}
-            <div className="bg-card rounded-xl p-5 mb-8 border border-gray-200 dark:border-transparent">
+            <div className="bg-card rounded-xl p-5 mb-8 border border-border dark:border-transparent">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <p className="text-muted-foreground text-sm mb-2">Total Rewards</p>
@@ -397,7 +397,7 @@ export default function MyReferralsPage() {
         <h2 className="text-xl font-semibold text-foreground mb-4 mt-8">Referral History</h2>
         
         {/* Stats Card */}
-        <div className="bg-card rounded-xl p-5 mb-4 border border-gray-200 dark:border-transparent">
+        <div className="bg-card rounded-xl p-5 mb-4 border border-border dark:border-transparent">
           <div className="flex items-center gap-12">
             <div>
               <p className="text-muted-foreground text-sm mb-2">Total Friends</p>
@@ -415,7 +415,7 @@ export default function MyReferralsPage() {
 
         {/* Referrals table or empty */}
         {referrals.length > 0 ? (
-          <div className="bg-card rounded-xl border border-gray-200 dark:border-transparent overflow-hidden mb-8">
+          <div className="bg-card rounded-xl border border-border dark:border-transparent overflow-hidden mb-8">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-border">
@@ -435,7 +435,7 @@ export default function MyReferralsPage() {
                       <span className={`text-xs px-2 py-1 rounded ${r.status === 'active' ? 'bg-green-500/20 text-green-500' : 'bg-amber-500/20 text-amber-500'}`}>{r.status}</span>
                     </td>
                     <td className="px-6 py-3 text-buy">${(Number(r.total_commission_earned) || 0).toFixed(2)}</td>
-                    <td className="px-6 py-3 text-gray-500 text-sm">{new Date(r.created_at).toLocaleDateString()}</td>
+                    <td className="px-6 py-3 text-muted-foreground text-sm">{new Date(r.created_at).toLocaleDateString()}</td>
                   </tr>
                 ))}
               </tbody>
@@ -453,7 +453,7 @@ export default function MyReferralsPage() {
         {historyTab === 'commission' && recentCommissions.length > 0 && (
           <div className="mt-6">
             <h3 className="text-lg font-semibold text-foreground mb-3">Recent commission history</h3>
-            <div className="bg-card rounded-xl border border-gray-200 dark:border-transparent overflow-hidden">
+            <div className="bg-card rounded-xl border border-border dark:border-transparent overflow-hidden">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-border">
@@ -467,7 +467,7 @@ export default function MyReferralsPage() {
                     <tr key={i} className="border-b border-border/50">
                       <td className="px-6 py-3 text-foreground">{c.source_type}</td>
                       <td className="px-6 py-3 text-buy">{c.commission_amount} {c.commission_currency}</td>
-                      <td className="px-6 py-3 text-gray-500 text-sm">{new Date(c.created_at).toLocaleString()}</td>
+                      <td className="px-6 py-3 text-muted-foreground text-sm">{new Date(c.created_at).toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -485,13 +485,13 @@ export default function MyReferralsPage() {
       </button>
 
       {/* Footer */}
-      <footer className="bg-white dark:bg-background border-t border-border py-12 px-4 lg:px-8 mt-8">
+      <footer className="bg-card dark:bg-background border-t border-border py-12 px-4 lg:px-8 mt-8">
         <div className="max-w-5xl mx-auto">
           <div className="grid grid-cols-2 md:grid-cols-5 gap-8 mb-8">
             {/* Logo and Social */}
             <div className="col-span-2 md:col-span-1">
               <div className="flex items-center gap-2 mb-4">
-                <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
+                <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
                   <span className="text-white font-bold">M</span>
                 </div>
                 <span className="text-xl font-bold text-foreground">Methereum</span>
@@ -512,16 +512,16 @@ export default function MyReferralsPage() {
             <div>
               <h4 className="font-semibold mb-3 text-foreground">About</h4>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">About Methereum</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Meet Mantle</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Press Room</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Communities</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Announcements</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Risk Disclosure</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Whistleblower Channel</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Careers</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Islamic Account</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Fees & Transactions Overview</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">About Methereum</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Meet Mantle</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Press Room</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Communities</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Announcements</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Risk Disclosure</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Whistleblower Channel</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Careers</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Islamic Account</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Fees & Transactions Overview</li>
               </ul>
             </div>
 
@@ -529,14 +529,14 @@ export default function MyReferralsPage() {
             <div>
               <h4 className="font-semibold mb-3 text-foreground">Services</h4>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">One-Click Buy</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">P2P Trading (0 Fees)</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">VIP Program</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Referral Program</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Institutional Services</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Listing Application</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Tax API</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Audit</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">One-Click Buy</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">P2P Trading (0 Fees)</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">VIP Program</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Referral Program</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Institutional Services</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Listing Application</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Tax API</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Audit</li>
               </ul>
             </div>
 
@@ -544,14 +544,14 @@ export default function MyReferralsPage() {
             <div>
               <h4 className="font-semibold mb-3 text-foreground">Support</h4>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Submit a Request</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Help Center</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Support Hub</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">User Feedback</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Methereum Learn</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Trading Fee</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">API</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Authenticity Check</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Submit a Request</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Help Center</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Support Hub</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">User Feedback</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Methereum Learn</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Trading Fee</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">API</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Authenticity Check</li>
               </ul>
             </div>
 
@@ -559,21 +559,21 @@ export default function MyReferralsPage() {
             <div>
               <h4 className="font-semibold mb-3 text-foreground">Products</h4>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Trade</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">P2P</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Earn</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Launchpad</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Methereum Card</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">TradingView</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Trade</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">P2P</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Earn</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Launchpad</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Methereum Card</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">TradingView</li>
               </ul>
             </div>
           </div>
 
           {/* Copyright */}
-          <div className="pt-6 border-t border-border flex flex-wrap items-center justify-center gap-4 text-sm text-gray-500">
+          <div className="pt-6 border-t border-border flex flex-wrap items-center justify-center gap-4 text-sm text-muted-foreground">
             <span>© 2018-2026 Methereum.com. All rights reserved.</span>
-            <Link href="/terms" className="hover:text-gray-900 dark:hover:text-white">Terms of Service</Link>
-            <Link href="/privacy" className="hover:text-gray-900 dark:hover:text-white">Privacy Terms</Link>
+            <Link href="/terms" className="hover:text-foreground dark:hover:text-white">Terms of Service</Link>
+            <Link href="/privacy" className="hover:text-foreground dark:hover:text-white">Privacy Terms</Link>
           </div>
         </div>
       </footer>

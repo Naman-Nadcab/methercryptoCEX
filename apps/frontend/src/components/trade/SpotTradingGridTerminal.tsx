@@ -562,7 +562,7 @@ export function SpotTradingGridTerminal(props: SpotTradingGridTerminalProps) {
   const takerFee = selectedMarket?.taker_fee ? parseFloat(selectedMarket.taker_fee) : 0.001;
 
   return (
-    <div className="flex h-screen w-full flex-col overflow-hidden bg-gray-50 text-gray-900 dark:bg-background dark:text-gray-100">
+    <div className="flex h-screen w-full flex-col overflow-hidden bg-muted text-foreground dark:bg-background dark:text-gray-100">
       {liteMode && (
         <div
           className="flex flex-shrink-0 items-center gap-2 border-b border-amber-500/40 bg-amber-500/12 px-4 py-1.5 text-xs font-semibold text-amber-950 dark:bg-amber-950/35 dark:text-amber-50"
@@ -618,7 +618,7 @@ export function SpotTradingGridTerminal(props: SpotTradingGridTerminalProps) {
             'lg:grid-rows-[1fr_minmax(220px,auto)]',
           ].join(' ')}
         >
-          <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-gray-200/90 bg-card shadow-sm dark:border-gray-800/90 dark:bg-card dark:shadow-none md:col-span-1 lg:col-start-1 lg:row-start-1">
+          <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-gray-200/90 bg-card shadow-sm dark:border-border/90 dark:bg-card dark:shadow-none md:col-span-1 lg:col-start-1 lg:row-start-1">
             <SpotPairHeaderSection
               embedded
               symbol={symbol}
@@ -648,7 +648,7 @@ export function SpotTradingGridTerminal(props: SpotTradingGridTerminalProps) {
           </div>
 
           <div className="flex min-h-0 flex-col md:col-start-1 md:row-start-2 lg:contents">
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200/90 bg-card shadow-sm dark:border-gray-800/90 dark:bg-card dark:shadow-none lg:col-start-2 lg:row-start-1 lg:h-full lg:min-h-0">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200/90 bg-card shadow-sm dark:border-border/90 dark:bg-card dark:shadow-none lg:col-start-2 lg:row-start-1 lg:h-full lg:min-h-0">
               <SpotOrderbookSection
                 quoteAsset={quoteAsset}
                 baseAsset={baseAsset}
@@ -659,13 +659,13 @@ export function SpotTradingGridTerminal(props: SpotTradingGridTerminalProps) {
             </div>
             <div
               id="spot-terminal-activity"
-              className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200/90 bg-card shadow-sm dark:border-gray-800/90 dark:bg-card dark:shadow-none lg:col-span-2 lg:col-start-1 lg:row-start-2 scroll-mt-4"
+              className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200/90 bg-card shadow-sm dark:border-border/90 dark:bg-card dark:shadow-none lg:col-span-2 lg:col-start-1 lg:row-start-2 scroll-mt-4"
             >
               <SpotBottomPanel symbol={symbol} isAuth={isAuth} ordersVersion={ordersVersion} tradesVersion={tradesVersion} />
             </div>
           </div>
 
-          <div className="flex min-h-0 min-w-0 flex-col gap-2 rounded-lg border border-gray-200/90 bg-card shadow-sm dark:border-gray-800/90 dark:bg-card dark:shadow-none md:col-start-2 md:row-start-1 md:row-span-2 lg:col-start-3 lg:row-start-1 lg:row-span-2">
+          <div className="flex min-h-0 min-w-0 flex-col gap-2 rounded-lg border border-gray-200/90 bg-card shadow-sm dark:border-border/90 dark:bg-card dark:shadow-none md:col-start-2 md:row-start-1 md:row-span-2 lg:col-start-3 lg:row-start-1 lg:row-span-2">
             <div className="min-h-0 shrink-0 overflow-hidden px-2 pt-2">
               <SpotPositionPanel
                 symbol={symbol}

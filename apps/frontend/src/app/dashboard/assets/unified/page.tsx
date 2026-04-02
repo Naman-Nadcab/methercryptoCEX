@@ -81,11 +81,11 @@ export default function UnifiedTradingPage() {
                           <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-semibold ${
                             step.active 
                               ? 'bg-primary text-primary-foreground' 
-                              : 'bg-accent text-gray-400'
+                              : 'bg-accent text-muted-foreground'
                           }`}>
                             {step.num}
                           </div>
-                          <span className={`text-sm ${step.active ? 'text-primary font-medium' : 'text-gray-400'}`}>
+                          <span className={`text-sm ${step.active ? 'text-primary font-medium' : 'text-muted-foreground'}`}>
                             {step.title}
                           </span>
                           {i < guideSteps.length - 1 && <ChevronRight className="w-4 h-4 text-gray-300" />}
@@ -111,13 +111,13 @@ export default function UnifiedTradingPage() {
                 <h1 className="text-2xl font-bold text-foreground">Unified Trading</h1>
                 <button
                   onClick={() => setShowBalance(!showBalance)}
-                  className="p-2 text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+                  className="p-2 text-muted-foreground hover:text-primary hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
                 >
                   {showBalance ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
                 </button>
               </div>
               <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800/30">
-                <BarChart3 className="w-4 h-4 text-blue-500" />
+                <BarChart3 className="w-4 h-4 text-primary" />
                 <span className="text-sm text-primary font-medium">Spot Trading</span>
               </div>
             </div>
@@ -163,14 +163,14 @@ export default function UnifiedTradingPage() {
                     <Wallet className="w-5 h-5 text-white" />
                   </div>
                   <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium text-gray-500">Total Equity</p>
+                    <p className="text-sm font-medium text-muted-foreground">Total Equity</p>
                     <Link href="/wallet/pnl" className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-primary text-xs rounded-lg flex items-center gap-1 hover:bg-blue-200 dark:hover:bg-blue-800/40 transition-colors">
                       <TrendingUp className="w-3 h-3" /> P&L
                     </Link>
                   </div>
                 </div>
                 <p className="text-3xl font-bold text-foreground">
-                  {showBalance ? formatNumber(totalEquity.usd) : '******'} <span className="text-sm font-normal text-gray-500">USD</span>
+                  {showBalance ? formatNumber(totalEquity.usd) : '******'} <span className="text-sm font-normal text-muted-foreground">USD</span>
                 </p>
               </div>
               <div className="border-l border-border pl-8">
@@ -178,10 +178,10 @@ export default function UnifiedTradingPage() {
                   <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center">
                     <Activity className="w-5 h-5 text-white" />
                   </div>
-                  <p className="text-sm font-medium text-gray-500">Available Balance</p>
+                  <p className="text-sm font-medium text-muted-foreground">Available Balance</p>
                 </div>
                 <p className="text-3xl font-bold text-foreground">
-                  {showBalance ? formatNumber(availableBalance.usd) : '******'} <span className="text-sm font-normal text-gray-500">USD</span>
+                  {showBalance ? formatNumber(availableBalance.usd) : '******'} <span className="text-sm font-normal text-muted-foreground">USD</span>
                 </p>
               </div>
               <div className="border-l border-border pl-8">
@@ -189,10 +189,10 @@ export default function UnifiedTradingPage() {
                   <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
                     <TrendingUp className="w-5 h-5 text-white" />
                   </div>
-                  <p className="text-sm font-medium text-gray-500">Unrealized P&L</p>
+                  <p className="text-sm font-medium text-muted-foreground">Unrealized P&L</p>
                 </div>
                 <p className="text-3xl font-bold text-foreground">
-                  {showBalance ? formatNumber(unrealizedPnl.usd) : '******'} <span className="text-sm font-normal text-gray-500">USD</span>
+                  {showBalance ? formatNumber(unrealizedPnl.usd) : '******'} <span className="text-sm font-normal text-muted-foreground">USD</span>
                 </p>
               </div>
             </div>
@@ -204,21 +204,21 @@ export default function UnifiedTradingPage() {
             <div className="flex items-center justify-between p-4 border-b border-border">
               <div className="flex items-center gap-4">
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <input
                     type="text"
                     placeholder="Search coin..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:ring-2 focus:ring-primary focus:border-transparent w-64"
+                    className="pl-10 pr-4 py-2.5 bg-muted dark:bg-[#2b2f36] border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:ring-2 focus:ring-primary focus:border-transparent w-64"
                   />
                 </div>
-                <label className="flex items-center gap-2.5 cursor-pointer px-3 py-2 bg-gray-50 dark:bg-[#2b2f36] rounded-xl border border-border">
+                <label className="flex items-center gap-2.5 cursor-pointer px-3 py-2 bg-muted dark:bg-[#2b2f36] rounded-xl border border-border">
                   <input
                     type="checkbox"
                     checked={hideSmallBalances}
                     onChange={(e) => setHideSmallBalances(e.target.checked)}
-                    className="w-4 h-4 rounded border-gray-300 text-blue-500 focus:ring-primary"
+                    className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
                   />
                   <span className="text-sm text-muted-foreground">Hide small balances</span>
                 </label>
@@ -233,14 +233,14 @@ export default function UnifiedTradingPage() {
 
               {/* Savings Promo */}
               <div className="flex items-center gap-3 px-4 py-2.5 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl border border-blue-100 dark:border-blue-800/30">
-                <div className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center">
+                <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
                   <Sparkles className="w-4 h-4 text-white" />
                 </div>
                 <div className="text-sm">
                   <span className="text-foreground/80">Savings USDT </span>
                   <span className="text-green-500 font-semibold">6.14%</span>
                 </div>
-                <ChevronRight className="w-4 h-4 text-blue-500" />
+                <ChevronRight className="w-4 h-4 text-primary" />
               </div>
             </div>
 
@@ -248,12 +248,12 @@ export default function UnifiedTradingPage() {
             <table className="w-full">
               <thead>
                 <tr className="bg-background">
-                  <th className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Currency</th>
-                  <th className="text-right px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Total Balance</th>
-                  <th className="text-right px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Available Balance</th>
-                  <th className="text-right px-6 py-4 text-xs font-semibold text-gray-500 uppercase">In Orders</th>
-                  <th className="text-right px-6 py-4 text-xs font-semibold text-gray-500 uppercase">USD Value</th>
-                  <th className="text-right px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Action</th>
+                  <th className="text-left px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">Currency</th>
+                  <th className="text-right px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">Total Balance</th>
+                  <th className="text-right px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">Available Balance</th>
+                  <th className="text-right px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">In Orders</th>
+                  <th className="text-right px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">USD Value</th>
+                  <th className="text-right px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -261,8 +261,8 @@ export default function UnifiedTradingPage() {
                   <tr>
                     <td colSpan={6} className="py-16 text-center">
                       <div className="flex flex-col items-center">
-                        <RefreshCw className="w-8 h-8 text-blue-500 animate-spin mb-3" />
-                        <p className="text-sm text-gray-500">Loading balances...</p>
+                        <RefreshCw className="w-8 h-8 text-primary animate-spin mb-3" />
+                        <p className="text-sm text-muted-foreground">Loading balances...</p>
                       </div>
                     </td>
                   </tr>
@@ -286,7 +286,7 @@ export default function UnifiedTradingPage() {
                           </div>
                           <div>
                             <span className="font-semibold text-foreground">{balance.symbol}</span>
-                            <p className="text-xs text-gray-500 mt-0.5">{balance.name}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">{balance.name}</p>
                           </div>
                         </div>
                       </td>
@@ -317,10 +317,10 @@ export default function UnifiedTradingPage() {
                     <td colSpan={6} className="py-20 text-center">
                       <div className="flex flex-col items-center">
                         <div className="w-20 h-20 bg-accent rounded-xl flex items-center justify-center mb-4">
-                          <Wallet className="w-10 h-10 text-gray-300 dark:text-gray-600" />
+                          <Wallet className="w-10 h-10 text-gray-300 dark:text-muted-foreground" />
                         </div>
-                        <p className="text-gray-500 font-medium">No assets found</p>
-                        <p className="text-sm text-gray-400 mt-1">Transfer funds to start trading</p>
+                        <p className="text-muted-foreground font-medium">No assets found</p>
+                        <p className="text-sm text-muted-foreground mt-1">Transfer funds to start trading</p>
                         <Link
                           href="/wallet/transfer"
                           className="mt-4 px-6 py-2.5 bg-primary hover:bg-primary/85 text-white font-medium text-sm rounded-xl transition-colors inline-block"

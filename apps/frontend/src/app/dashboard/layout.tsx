@@ -294,7 +294,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   </Link>
                   <p className="px-3 py-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mt-1">Don&apos;t have crypto</p>
                   <Link href={walletPath.convert} className="flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-accent rounded-lg" onClick={() => setActiveDropdown(null)}>
-                    <div className="w-8 h-8 bg-blue-500/10 rounded-lg flex items-center justify-center"><CreditCard className="w-4 h-4 text-blue-500" /></div>
+                    <div className="w-8 h-8 bg-blue-500/10 rounded-lg flex items-center justify-center"><CreditCard className="w-4 h-4 text-primary" /></div>
                     <div><p className="font-medium text-foreground">Buy with INR</p><p className="text-xs text-muted-foreground">Buy with card or bank transfer</p></div>
                   </Link>
                 </div>

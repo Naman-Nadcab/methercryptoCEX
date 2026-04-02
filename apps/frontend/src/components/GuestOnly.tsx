@@ -37,7 +37,7 @@ export default function GuestOnly({ children }: { children: React.ReactNode }) {
 
   if (isAuthenticated) {
     return (
-      <div className="flex min-h-[30vh] items-center justify-center bg-gray-50 p-6 text-center text-sm text-gray-600 dark:bg-background dark:text-gray-400">
+      <div className="flex min-h-[30vh] items-center justify-center bg-muted p-6 text-center text-sm text-muted-foreground dark:bg-background dark:text-muted-foreground">
         Taking you to the app…
       </div>
     );

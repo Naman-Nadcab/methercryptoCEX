@@ -48,19 +48,19 @@ export default function IdentityVerificationSuccessPage() {
           {/* Benefits */}
           <div className="bg-muted rounded-xl p-6 mb-8 text-left">
             <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2">
-              <Gift className="w-5 h-5 text-blue-500" />
+              <Gift className="w-5 h-5 text-primary" />
               Your Rewards
             </h3>
             <ul className="space-y-3">
               <li className="flex items-center gap-3 text-muted-foreground">
                 <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
-                  <span className="text-blue-600">💰</span>
+                  <span className="text-primary">💰</span>
                 </div>
                 <span>$20 USDT bonus credited to your account</span>
               </li>
               <li className="flex items-center gap-3 text-muted-foreground">
                 <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
-                  <Shield className="w-4 h-4 text-blue-600" />
+                  <Shield className="w-4 h-4 text-primary" />
                 </div>
                 <span>Increased withdrawal limits</span>
               </li>
@@ -90,7 +90,7 @@ export default function IdentityVerificationSuccessPage() {
             </Link>
           </div>
 
-          <p className="mt-6 text-sm text-gray-400">
+          <p className="mt-6 text-sm text-muted-foreground">
             Redirecting to dashboard in 5 seconds...
           </p>
         </div>

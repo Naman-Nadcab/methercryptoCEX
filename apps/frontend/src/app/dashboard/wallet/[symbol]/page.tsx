@@ -91,7 +91,7 @@ export default function WalletSymbolPage() {
       <div className="p-6 max-w-2xl">
         <Link
           href="/wallet"
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-gray-900 dark:hover:text-white mb-4"
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground dark:hover:text-white mb-4"
         >
           <ArrowLeft className="w-4 h-4" /> Back to Assets
         </Link>
@@ -118,7 +118,7 @@ export default function WalletSymbolPage() {
       <div className="flex items-center gap-4 mb-6">
         <Link
           href="/wallet"
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-gray-900 dark:hover:text-white"
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground dark:hover:text-white"
         >
           <ArrowLeft className="w-4 h-4" /> Back
         </Link>

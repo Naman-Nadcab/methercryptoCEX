@@ -270,12 +270,12 @@ export default function WithdrawalLimitsPage() {
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-sm mb-6">
           <span 
-            className="text-muted-foreground hover:text-blue-500 cursor-pointer"
+            className="text-muted-foreground hover:text-primary cursor-pointer"
             onClick={() => router.push('/dashboard/security')}
           >
             Security
           </span>
-          <ChevronRight className="w-4 h-4 text-gray-400" />
+          <ChevronRight className="w-4 h-4 text-muted-foreground" />
           <span className="text-foreground font-medium">Manage Crypto Withdrawal Limits</span>
         </div>
 
@@ -424,7 +424,7 @@ export default function WithdrawalLimitsPage() {
               </h2>
               <button
                 onClick={closeModal}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                className="text-muted-foreground hover:text-muted-foreground dark:hover:text-gray-300"
               >
                 <X className="w-6 h-6" />
               </button>
@@ -437,9 +437,9 @@ export default function WithdrawalLimitsPage() {
                 <div className="flex items-center gap-2 mb-3">
                   <button onClick={() => setSmsCheckbox(!smsCheckbox)}>
                     {smsCheckbox ? (
-                      <CheckSquare className="w-5 h-5 text-gray-400" />
+                      <CheckSquare className="w-5 h-5 text-muted-foreground" />
                     ) : (
-                      <Square className="w-5 h-5 text-gray-400" />
+                      <Square className="w-5 h-5 text-muted-foreground" />
                     )}
                   </button>
                   <span className="text-sm text-muted-foreground">
@@ -452,12 +452,12 @@ export default function WithdrawalLimitsPage() {
                     value={smsOtp}
                     onChange={e => setSmsOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     placeholder="Please enter the SMS verification code"
-                    className="w-full px-4 py-3 pr-40 bg-gray-50 dark:bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground outline-none focus:border-blue-500"
+                    className="w-full px-4 py-3 pr-40 bg-muted dark:bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground outline-none focus:border-blue-500"
                   />
                   <button
                     onClick={sendSmsOtp}
                     disabled={smsOtpTimer > 0 || sendingSmsOtp}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 text-primary hover:text-primary/85 disabled:text-gray-400 font-medium text-sm"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 text-primary hover:text-primary/85 disabled:text-muted-foreground font-medium text-sm"
                   >
                     {sendingSmsOtp ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
@@ -474,7 +474,7 @@ export default function WithdrawalLimitsPage() {
               {user2faEnabled && (
                 <div>
                   <div className="flex items-center gap-2 mb-3">
-                    <svg className="w-5 h-5 text-gray-400" viewBox="0 0 24 24" fill="currentColor">
+                    <svg className="w-5 h-5 text-muted-foreground" viewBox="0 0 24 24" fill="currentColor">
                       <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
                     </svg>
                     <span className="text-sm text-muted-foreground">Google 2FA Code</span>
@@ -484,7 +484,7 @@ export default function WithdrawalLimitsPage() {
                     value={google2faCode}
                     onChange={e => setGoogle2faCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     placeholder="Please enter the Google Authenticator code"
-                    className="w-full px-4 py-3 bg-gray-50 dark:bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground outline-none focus:border-blue-500"
+                    className="w-full px-4 py-3 bg-muted dark:bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground outline-none focus:border-blue-500"
                   />
                 </div>
               )}

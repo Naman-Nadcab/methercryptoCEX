@@ -130,14 +130,14 @@ function CreateApiKeyContent() {
             
             <div className="space-y-4 text-left">
               <div className="p-4 bg-muted rounded-xl">
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">API Key</label>
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">API Key</label>
                 <div className="flex items-center gap-2 mt-2">
                   <code className="flex-1 text-sm font-mono text-foreground break-all">{createdKey.apiKey}</code>
                   <button
                     onClick={() => copyToClipboard(createdKey.apiKey, 'apiKey')}
                     className="p-2 hover:bg-accent rounded-lg transition-colors"
                   >
-                    {copiedKey === 'apiKey' ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4 text-gray-400" />}
+                    {copiedKey === 'apiKey' ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4 text-muted-foreground" />}
                   </button>
                 </div>
               </div>
@@ -185,14 +185,14 @@ function CreateApiKeyContent() {
       className={`w-full p-4 rounded-xl border-2 text-left transition-all ${
         checked 
           ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
-          : 'border-border hover:border-gray-300 dark:hover:border-gray-600'
+          : 'border-border hover:border-border dark:hover:border-gray-600'
       }`}
     >
       <div className="flex items-start gap-3">
         <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
-          checked ? 'border-blue-500' : 'border-gray-300 dark:border-gray-600'
+          checked ? 'border-blue-500' : 'border-border dark:border-gray-600'
         }`}>
-          {checked && <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />}
+          {checked && <div className="w-2.5 h-2.5 rounded-full bg-primary" />}
         </div>
         <div className="flex-1">
           <div className="flex items-center gap-2">
@@ -220,7 +220,7 @@ function CreateApiKeyContent() {
       <div
         onClick={() => !disabled && onChange()}
         className={`w-5 h-5 rounded-md flex items-center justify-center border-2 transition-colors flex-shrink-0 mt-0.5 ${
-          checked ? 'bg-blue-500 border-blue-500' : 'border-gray-300 dark:border-gray-600'
+          checked ? 'bg-primary border-blue-500' : 'border-border dark:border-gray-600'
         }`}
       >
         {checked && <Check className="w-3 h-3 text-white" />}
@@ -241,11 +241,11 @@ function CreateApiKeyContent() {
         <div className="flex items-center gap-2 text-sm mb-6">
           <button 
             onClick={() => router.push('/dashboard/api')}
-            className="text-muted-foreground hover:text-blue-500 transition-colors"
+            className="text-muted-foreground hover:text-primary transition-colors"
           >
             API
           </button>
-          <ChevronRight className="w-4 h-4 text-gray-400" />
+          <ChevronRight className="w-4 h-4 text-muted-foreground" />
           <span className="text-foreground font-medium">Create New Key</span>
         </div>
 
@@ -383,7 +383,7 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
                     rows={3}
                     className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-foreground placeholder:text-muted-foreground outline-none focus:border-blue-500 focus:ring-2 focus:ring-primary/20 resize-none font-mono text-sm"
                   />
-                  <p className="text-xs text-gray-500 mt-2">Up to 100 IP addresses allowed</p>
+                  <p className="text-xs text-muted-foreground mt-2">Up to 100 IP addresses allowed</p>
                 </div>
               )}
             </div>
@@ -510,10 +510,10 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
                   />
                   <div className="py-3 px-4 rounded-lg opacity-50">
                     <div className="flex items-start gap-3">
-                      <div className="w-5 h-5 rounded-md border-2 border-gray-300 dark:border-gray-600 flex-shrink-0 mt-0.5" />
+                      <div className="w-5 h-5 rounded-md border-2 border-border dark:border-gray-600 flex-shrink-0 mt-0.5" />
                       <div>
-                        <span className="text-sm font-medium text-gray-500">Withdrawal</span>
-                        <p className="text-xs text-gray-400 mt-0.5">Not available for read-only keys</p>
+                        <span className="text-sm font-medium text-muted-foreground">Withdrawal</span>
+                        <p className="text-xs text-muted-foreground mt-0.5">Not available for read-only keys</p>
                       </div>
                     </div>
                   </div>
@@ -561,7 +561,7 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
             </button>
             <button
               onClick={() => router.push('/dashboard/api')}
-              className="px-8 py-4 text-muted-foreground hover:text-gray-900 dark:hover:text-white font-medium transition-colors"
+              className="px-8 py-4 text-muted-foreground hover:text-foreground dark:hover:text-white font-medium transition-colors"
             >
               Cancel
             </button>
@@ -577,8 +577,8 @@ export default function CreateApiKeyPage() {
     <Suspense fallback={
       <div className="flex items-center justify-center min-h-screen bg-background">
         <div className="text-center">
-          <Loader2 className="w-10 h-10 animate-spin text-blue-500 mx-auto mb-4" />
-          <p className="text-gray-500">Loading...</p>
+          <Loader2 className="w-10 h-10 animate-spin text-primary mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading...</p>
         </div>
       </div>
     }>

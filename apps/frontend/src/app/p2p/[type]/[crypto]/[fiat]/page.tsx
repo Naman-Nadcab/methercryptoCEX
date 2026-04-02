@@ -14,7 +14,7 @@ export default function P2PLegacyRedirect() {
   }, [router, type, crypto, fiat]);
   return (
     <div className="min-h-screen bg-[#0b0e11] flex items-center justify-center">
-      <p className="text-gray-500">Redirecting to P2P...</p>
+      <p className="text-muted-foreground">Redirecting to P2P...</p>
     </div>
   );
 }

@@ -69,7 +69,7 @@ export default function AppleCallbackPage() {
               <span className="text-red-500 text-2xl">!</span>
             </div>
             <p className="text-white text-lg">{error}</p>
-            <p className="text-gray-500 text-sm">Redirecting to login...</p>
+            <p className="text-muted-foreground text-sm">Redirecting to login...</p>
           </div>
         ) : (
           <div className="space-y-4">

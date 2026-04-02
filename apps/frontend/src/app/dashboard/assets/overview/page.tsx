@@ -177,7 +177,7 @@ export default function AssetsOverviewPage() {
               <h1 className="text-2xl font-bold text-foreground">Assets Overview</h1>
               <button
                 onClick={() => setShowBalance(!showBalance)}
-                className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-accent rounded-lg transition-colors"
+                className="p-2 text-muted-foreground hover:text-muted-foreground dark:hover:text-gray-300 hover:bg-accent rounded-lg transition-colors"
               >
                 {showBalance ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
               </button>
@@ -194,21 +194,21 @@ export default function AssetsOverviewPage() {
               </Link>
               <Link
                 href="/wallet/withdraw/crypto"
-                className="flex items-center gap-2 px-5 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-xl border border-border hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
+                className="flex items-center gap-2 px-5 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-xl border border-border hover:border-border dark:hover:border-gray-600 transition-colors"
               >
                 <Upload className="w-4 h-4" />
                 Withdraw
               </Link>
               <Link
                 href="/wallet/transfer"
-                className="flex items-center gap-2 px-5 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-xl border border-border hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
+                className="flex items-center gap-2 px-5 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-xl border border-border hover:border-border dark:hover:border-gray-600 transition-colors"
               >
                 <ArrowLeftRight className="w-4 h-4" />
                 Transfer
               </Link>
               <Link
                 href="/wallet/convert"
-                className="flex items-center gap-2 px-5 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-xl border border-border hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
+                className="flex items-center gap-2 px-5 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-xl border border-border hover:border-border dark:hover:border-gray-600 transition-colors"
               >
                 <RefreshCw className="w-4 h-4" />
                 Convert
@@ -283,7 +283,7 @@ export default function AssetsOverviewPage() {
                 className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === 'account'
                     ? 'border-blue-500 text-primary'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                    : 'border-transparent text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'
                 }`}
               >
                 Account
@@ -293,14 +293,14 @@ export default function AssetsOverviewPage() {
                 className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === 'asset'
                     ? 'border-blue-500 text-primary'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                    : 'border-transparent text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'
                 }`}
               >
                 Asset
               </button>
             </div>
 
-            <div className="flex items-center gap-1 bg-gray-100 dark:bg-[#2b2f36] rounded-xl p-1">
+            <div className="flex items-center gap-1 bg-accent dark:bg-[#2b2f36] rounded-xl p-1">
               {timePeriods.map((period) => (
                 <button
                   key={period}
@@ -308,7 +308,7 @@ export default function AssetsOverviewPage() {
                   className={`px-4 py-2 text-xs font-medium rounded-lg transition-all ${
                     timePeriod === period
                       ? 'bg-card text-foreground shadow-sm'
-                      : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                      : 'text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'
                   }`}
                 >
                   {period}
@@ -344,16 +344,16 @@ export default function AssetsOverviewPage() {
                       </div>
                       <div className="flex items-center gap-1">
                         <Link href="/wallet/deposit/crypto" className="p-2 hover:bg-accent rounded-lg transition-colors" title="Deposit">
-                          <Download className="w-4 h-4 text-gray-400 hover:text-blue-500" />
+                          <Download className="w-4 h-4 text-muted-foreground hover:text-primary" />
                         </Link>
                         <Link href="/wallet/withdraw/crypto" className="p-2 hover:bg-accent rounded-lg transition-colors" title="Withdraw">
-                          <Upload className="w-4 h-4 text-gray-400 hover:text-blue-500" />
+                          <Upload className="w-4 h-4 text-muted-foreground hover:text-primary" />
                         </Link>
                         <Link href="/wallet/transfer" className="p-2 hover:bg-accent rounded-lg transition-colors" title="Transfer">
-                          <ArrowLeftRight className="w-4 h-4 text-gray-400 hover:text-blue-500" />
+                          <ArrowLeftRight className="w-4 h-4 text-muted-foreground hover:text-primary" />
                         </Link>
                         <Link href="/wallet/convert" className="p-2 hover:bg-accent rounded-lg transition-colors" title="Convert">
-                          <RefreshCw className="w-4 h-4 text-gray-400 hover:text-blue-500" />
+                          <RefreshCw className="w-4 h-4 text-muted-foreground hover:text-primary" />
                         </Link>
                       </div>
                     </div>
@@ -381,13 +381,13 @@ export default function AssetsOverviewPage() {
                       </div>
                       <div className="flex items-center gap-1">
                         <Link href="/wallet/deposit/crypto" className="p-2 hover:bg-accent rounded-lg transition-colors" title="Deposit">
-                          <Download className="w-4 h-4 text-gray-400 hover:text-blue-500" />
+                          <Download className="w-4 h-4 text-muted-foreground hover:text-primary" />
                         </Link>
                         <Link href="/wallet/transfer" className="p-2 hover:bg-accent rounded-lg transition-colors" title="Transfer">
-                          <ArrowLeftRight className="w-4 h-4 text-gray-400 hover:text-blue-500" />
+                          <ArrowLeftRight className="w-4 h-4 text-muted-foreground hover:text-primary" />
                         </Link>
                         <Link href="/wallet/convert" className="p-2 hover:bg-accent rounded-lg transition-colors" title="Convert">
-                          <RefreshCw className="w-4 h-4 text-gray-400 hover:text-blue-500" />
+                          <RefreshCw className="w-4 h-4 text-muted-foreground hover:text-primary" />
                         </Link>
                       </div>
                     </div>
@@ -415,12 +415,12 @@ export default function AssetsOverviewPage() {
                 </p>
                 <p className="text-sm text-muted-foreground mt-2">
                   Historical balance charts are not shown here. Use{' '}
-                  <Link href="/wallet/history" className="text-blue-500 hover:underline">
+                  <Link href="/wallet/history" className="text-primary hover:underline">
                     transaction history
                   </Link>{' '}
                   for past activity.
                 </p>
-                <p className="text-xs text-gray-400 text-right mt-4">
+                <p className="text-xs text-muted-foreground text-right mt-4">
                   Last updated: {lastUpdated ? new Date(lastUpdated).toLocaleString() : '—'}
                 </p>
               </div>
@@ -456,7 +456,7 @@ export default function AssetsOverviewPage() {
                           </div>
                           <div>
                             <p className="text-sm font-medium text-foreground capitalize">{tx.type}</p>
-                            <p className="text-xs text-gray-500">{tx.symbol}</p>
+                            <p className="text-xs text-muted-foreground">{tx.symbol}</p>
                           </div>
                         </div>
                         <div className="text-right">
@@ -465,7 +465,7 @@ export default function AssetsOverviewPage() {
                           }`}>
                             {tx.type === 'deposit' ? '+' : '-'}{tx.amount}
                           </p>
-                          <p className="text-xs text-gray-500">{new Date(tx.created_at).toLocaleDateString()}</p>
+                          <p className="text-xs text-muted-foreground">{new Date(tx.created_at).toLocaleDateString()}</p>
                         </div>
                       </div>
                     ))}
@@ -473,7 +473,7 @@ export default function AssetsOverviewPage() {
                 ) : (
                   <div className="flex flex-col items-center justify-center py-12 text-center">
                     <div className="w-16 h-16 bg-accent rounded-full flex items-center justify-center mb-4">
-                      <FileText className="w-8 h-8 text-gray-400" />
+                      <FileText className="w-8 h-8 text-muted-foreground" />
                     </div>
                     <p className="text-muted-foreground">No recent history found.</p>
                   </div>
@@ -499,7 +499,7 @@ export default function AssetsOverviewPage() {
               />
               <div>
               <h3 className="text-sm font-medium text-muted-foreground mb-4">Which coins do I own?</h3>
-              <div className="bg-card rounded-lg border border-border overflow-hidden transition-all duration-200 ease-out hover:border-gray-300 dark:hover:border-white/20">
+              <div className="bg-card rounded-lg border border-border overflow-hidden transition-all duration-200 ease-out hover:border-border dark:hover:border-white/20">
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
@@ -509,7 +509,7 @@ export default function AssetsOverviewPage() {
                         <th className="py-3 px-4 font-medium uppercase tracking-wide">
                           <span className="inline-flex items-center gap-1">Available
                             <Tooltip>
-                              <TooltipTrigger asChild><HelpCircle className="w-3.5 h-3.5 text-gray-400 cursor-help" /></TooltipTrigger>
+                              <TooltipTrigger asChild><HelpCircle className="w-3.5 h-3.5 text-muted-foreground cursor-help" /></TooltipTrigger>
                               <TooltipContent>Amount you can use for trading, transfers, and withdrawals.</TooltipContent>
                             </Tooltip>
                           </span>
@@ -517,7 +517,7 @@ export default function AssetsOverviewPage() {
                         <th className="py-3 px-4 font-medium uppercase tracking-wide">
                           <span className="inline-flex items-center gap-1">Locked
                             <Tooltip>
-                              <TooltipTrigger asChild><HelpCircle className="w-3.5 h-3.5 text-gray-400 cursor-help" /></TooltipTrigger>
+                              <TooltipTrigger asChild><HelpCircle className="w-3.5 h-3.5 text-muted-foreground cursor-help" /></TooltipTrigger>
                               <TooltipContent>Reserved for open orders. Released when orders fill or are cancelled.</TooltipContent>
                             </Tooltip>
                           </span>
@@ -550,7 +550,7 @@ export default function AssetsOverviewPage() {
                             role="button"
                             tabIndex={0}
                             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); router.push(`/wallet/${encodeURIComponent(row.symbol)}`); } }}
-                            className="border-b border-border last:border-0 cursor-pointer hover:bg-gray-50 dark:hover:bg-card/[0.06] transition-colors duration-150"
+                            className="border-b border-border last:border-0 cursor-pointer hover:bg-muted dark:hover:bg-card/[0.06] transition-colors duration-150"
                           >
                             <td className="py-3 px-4 font-medium text-foreground">{row.symbol}</td>
                             <td className="py-3 px-4 tabular-nums text-foreground/80">{row.total_balance}</td>

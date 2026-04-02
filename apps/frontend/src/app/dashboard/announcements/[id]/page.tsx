@@ -41,7 +41,7 @@ export default function AnnouncementDetailPage() {
   if (loading) {
     return (
       <div className="p-4 lg:p-8 max-w-3xl mx-auto flex items-center justify-center min-h-[40vh]">
-        <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+        <Loader2 className="w-8 h-8 text-primary animate-spin" />
       </div>
     );
   }
@@ -61,7 +61,7 @@ export default function AnnouncementDetailPage() {
     <div className="p-4 lg:p-8 max-w-3xl mx-auto">
       <Link
         href="/dashboard/announcements"
-        className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-gray-900 dark:hover:text-white mb-6"
+        className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground dark:hover:text-white mb-6"
       >
         <ArrowLeft className="w-4 h-4" /> Back to announcements
       </Link>

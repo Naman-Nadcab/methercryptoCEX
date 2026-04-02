@@ -199,7 +199,7 @@ export default function FeeRatesPage() {
     <button
       onClick={onChange}
       className={`relative w-12 h-6 rounded-full transition-colors ${
-        enabled ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
+        enabled ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-600'
       }`}
     >
       <span
@@ -216,7 +216,7 @@ export default function FeeRatesPage() {
     return (
       <div className="w-full bg-accent rounded-full h-1.5 mt-2">
         <div
-          className="bg-blue-500 h-1.5 rounded-full transition-all"
+          className="bg-primary h-1.5 rounded-full transition-all"
           style={{ width: `${percentage}%` }}
         />
       </div>
@@ -267,25 +267,25 @@ export default function FeeRatesPage() {
                   <Award className="w-8 h-8 text-white dark:text-blue-400" />
                 </div>
                 <div>
-                  <p className="text-sm text-blue-100 dark:text-gray-400">My Fee Level</p>
+                  <p className="text-sm text-blue-100 dark:text-muted-foreground">My Fee Level</p>
                   <h2 className="text-2xl font-bold text-white">{feeData.vipLevelName}</h2>
                 </div>
               </div>
             </div>
 
             {/* Tabs */}
-            <div className="flex gap-6 mt-6 border-b border-white/20 dark:border-gray-700">
+            <div className="flex gap-6 mt-6 border-b border-white/20 dark:border-border">
               <button
                 onClick={() => setActiveTab('trading')}
                 className={`pb-3 text-sm font-medium transition-colors relative ${
                   activeTab === 'trading'
                     ? 'text-white'
-                    : 'text-blue-200 dark:text-gray-400 hover:text-white dark:hover:text-gray-300'
+                    : 'text-blue-200 dark:text-muted-foreground hover:text-white dark:hover:text-gray-300'
                 }`}
               >
                 Trading Fees
                 {activeTab === 'trading' && (
-                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-white dark:bg-blue-500" />
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-card dark:bg-primary" />
                 )}
               </button>
               <button
@@ -293,12 +293,12 @@ export default function FeeRatesPage() {
                 className={`pb-3 text-sm font-medium transition-colors relative ${
                   activeTab === 'interest'
                     ? 'text-white'
-                    : 'text-blue-200 dark:text-gray-400 hover:text-white dark:hover:text-gray-300'
+                    : 'text-blue-200 dark:text-muted-foreground hover:text-white dark:hover:text-gray-300'
                 }`}
               >
                 Interest Rates
                 {activeTab === 'interest' && (
-                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-white dark:bg-blue-500" />
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-card dark:bg-primary" />
                 )}
               </button>
             </div>
@@ -307,7 +307,7 @@ export default function FeeRatesPage() {
           {/* Tab Content */}
           {loading ? (
             <div className="flex items-center justify-center py-20">
-              <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
             </div>
           ) : activeTab === 'trading' ? (
             <div className="px-6 lg:px-8 pb-8">
@@ -414,7 +414,7 @@ export default function FeeRatesPage() {
                         { asset: 'ETH', hourly: 0.000208, daily: 0.005, annual: 1.825 },
                         { asset: 'USDC', hourly: 0.000417, daily: 0.01, annual: 3.65 },
                       ].map((row) => (
-                        <tr key={row.asset} className="border-b border-gray-50 dark:border-gray-800/50">
+                        <tr key={row.asset} className="border-b border-gray-50 dark:border-border/50">
                           <td className="py-4 font-medium text-foreground">{row.asset}</td>
                           <td className="py-4 text-right text-muted-foreground">{row.hourly.toFixed(6)}%</td>
                           <td className="py-4 text-right text-muted-foreground">{row.daily.toFixed(4)}%</td>
@@ -425,7 +425,7 @@ export default function FeeRatesPage() {
                   </table>
                 </div>
 
-                <p className="text-xs text-gray-400 mt-4">
+                <p className="text-xs text-muted-foreground mt-4">
                   * Interest rates are subject to change based on market conditions. Higher VIP levels receive preferential rates.
                 </p>
               </div>
@@ -437,7 +437,7 @@ export default function FeeRatesPage() {
         <div className="mb-8">
           <div className="flex items-center gap-2 mb-3">
             <h2 className="text-2xl font-bold text-foreground">Enjoy Even Lower Fees</h2>
-            <HelpCircle className="w-5 h-5 text-gray-400" />
+            <HelpCircle className="w-5 h-5 text-muted-foreground" />
           </div>
           <p className="text-muted-foreground">
             Meet any of the following requirements to level up to{' '}
@@ -454,7 +454,7 @@ export default function FeeRatesPage() {
                   <h3 className="text-sm font-medium text-foreground pr-6">{req.title}</h3>
                   {req.helpText && (
                     <div className="group relative">
-                      <HelpCircle className="w-4 h-4 text-gray-400 cursor-help" />
+                      <HelpCircle className="w-4 h-4 text-muted-foreground cursor-help" />
                       <div className="hidden group-hover:block absolute right-0 top-6 w-48 p-2 bg-gray-900 text-white text-xs rounded-lg z-10">
                         {req.helpText}
                       </div>
@@ -479,7 +479,7 @@ export default function FeeRatesPage() {
               {/* OR Badge */}
               {index < vipRequirements.length - 1 && (
                 <div className="hidden md:flex absolute -right-2 top-1/2 -translate-y-1/2 z-10">
-                  <span className="px-2 py-1 bg-accent text-gray-500 text-xs font-medium rounded">
+                  <span className="px-2 py-1 bg-accent text-muted-foreground text-xs font-medium rounded">
                     OR
                   </span>
                 </div>
@@ -491,16 +491,16 @@ export default function FeeRatesPage() {
         {/* Footer */}
         <div className="border-t border-border pt-8">
           <div className="flex flex-wrap items-center justify-center gap-6 text-sm text-muted-foreground">
-            <Link href="/markets" className="hover:text-gray-900 dark:hover:text-white">
+            <Link href="/markets" className="hover:text-foreground dark:hover:text-white">
               Market Overview
             </Link>
-            <Link href="/dashboard/fee-rates" className="hover:text-gray-900 dark:hover:text-white">
+            <Link href="/dashboard/fee-rates" className="hover:text-foreground dark:hover:text-white">
               Trading Fee
             </Link>
-            <Link href="/dashboard/api" className="hover:text-gray-900 dark:hover:text-white">
+            <Link href="/dashboard/api" className="hover:text-foreground dark:hover:text-white">
               API
             </Link>
-            <Link href="/dashboard/help" className="hover:text-gray-900 dark:hover:text-white">
+            <Link href="/dashboard/help" className="hover:text-foreground dark:hover:text-white">
               Help Center
             </Link>
             <span>© 2024 Methereum</span>

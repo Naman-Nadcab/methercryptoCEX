@@ -44,12 +44,12 @@ export function PortfolioChangeCard({
       ) : (
         <>
           <h2 className="text-4xl font-bold text-foreground tabular-nums">
-            {showBalance ? formatNumber(totalUsd) : '******'} <span className="text-xl font-normal text-gray-500">USD</span>
+            {showBalance ? formatNumber(totalUsd) : '******'} <span className="text-xl font-normal text-muted-foreground">USD</span>
           </h2>
           <p className="text-base text-muted-foreground mt-1">
             ≈ {showBalance ? formatNumber(totalBtc, 8) : '********'} BTC
           </p>
-          <div className="flex flex-wrap items-center gap-4 mt-4 pt-4 border-t border-gray-100 dark:border-[rgba(255,255,255,0.05)]">
+          <div className="flex flex-wrap items-center gap-4 mt-4 pt-4 border-t border-border dark:border-[rgba(255,255,255,0.05)]">
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground uppercase tracking-wider">24h Change</span>
               {isZero ? (

@@ -44,7 +44,7 @@ export default function AnnouncementsListPage() {
 
       {loading ? (
         <div className="flex items-center justify-center py-16">
-          <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+          <Loader2 className="w-8 h-8 text-primary animate-spin" />
         </div>
       ) : list.length === 0 ? (
         <EmptyState
@@ -77,7 +77,7 @@ export default function AnnouncementsListPage() {
                     <span className="text-xs text-muted-foreground">
                       {a.published_at ? new Date(a.published_at).toLocaleDateString() : new Date(a.created_at).toLocaleDateString()}
                     </span>
-                    <ChevronRight className="w-5 h-5 text-gray-400" />
+                    <ChevronRight className="w-5 h-5 text-muted-foreground" />
                   </div>
                 </div>
               </Link>

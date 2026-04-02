@@ -377,9 +377,9 @@ export default function DepositCryptoPage() {
     switch (status) {
       case 'completed': return 'text-green-500';
       case 'confirming': return 'text-yellow-500';
-      case 'pending': return 'text-blue-500';
+      case 'pending': return 'text-primary';
       case 'failed': return 'text-red-500';
-      default: return 'text-gray-500';
+      default: return 'text-muted-foreground';
     }
   };
 
@@ -453,13 +453,13 @@ export default function DepositCryptoPage() {
                         </div>
                         <div>
                           <span className="font-medium text-foreground">{selectedToken.symbol}</span>
-                          <span className="text-sm text-gray-500 ml-2">{selectedToken.name}</span>
+                          <span className="text-sm text-muted-foreground ml-2">{selectedToken.name}</span>
                         </div>
                       </div>
                     ) : (
-                      <span className="text-gray-400">Please Select</span>
+                      <span className="text-muted-foreground">Please Select</span>
                     )}
-                    <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${showTokenDropdown ? 'rotate-180' : ''}`} />
+                    <ChevronDown className={`w-5 h-5 text-muted-foreground transition-transform ${showTokenDropdown ? 'rotate-180' : ''}`} />
                   </button>
 
                   {showTokenDropdown && (
@@ -467,7 +467,7 @@ export default function DepositCryptoPage() {
                       {/* Search */}
                       <div className="p-3 border-b border-border">
                         <div className="flex items-center gap-2 px-3 py-2 bg-background rounded-lg">
-                          <Search className="w-4 h-4 text-gray-400" />
+                          <Search className="w-4 h-4 text-muted-foreground" />
                           <input
                             type="text"
                             value={tokenSearch}
@@ -483,7 +483,7 @@ export default function DepositCryptoPage() {
                       <div className="max-h-72 overflow-y-auto">
                         {loading ? (
                           <div className="flex justify-center py-8">
-                            <RefreshCw className="w-6 h-6 text-blue-500 animate-spin" />
+                            <RefreshCw className="w-6 h-6 text-primary animate-spin" />
                           </div>
                         ) : filteredTokens.length > 0 ? (
                           filteredTokens.map((token) => (
@@ -506,12 +506,12 @@ export default function DepositCryptoPage() {
                               </div>
                               <div className="flex-1 text-left">
                                 <p className="font-medium text-foreground">{token.symbol}</p>
-                                <p className="text-xs text-gray-500">{token.name}</p>
+                                <p className="text-xs text-muted-foreground">{token.name}</p>
                               </div>
                             </button>
                           ))
                         ) : (
-                          <div className="py-8 text-center text-gray-400">No tokens found</div>
+                          <div className="py-8 text-center text-muted-foreground">No tokens found</div>
                         )}
                       </div>
                     </div>
@@ -530,7 +530,7 @@ export default function DepositCryptoPage() {
                         className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-colors ${
                           selectedToken?.symbol.toUpperCase() === symbol
                             ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500 text-primary'
-                            : 'bg-white dark:bg-background border-border text-foreground/80 hover:border-blue-500 dark:hover:border-blue-500'
+                            : 'bg-card dark:bg-background border-border text-foreground/80 hover:border-blue-500 dark:hover:border-blue-500'
                         }`}
                       >
                         <div className="w-5 h-5 rounded-full overflow-hidden bg-accent">
@@ -555,8 +555,8 @@ export default function DepositCryptoPage() {
               {/* Step 2: Choose Chain (filtered by selected asset) */}
               <div className="mb-6">
                 <div className="flex items-center gap-2 mb-3">
-                  <span className={`w-6 h-6 rounded-full text-white text-sm flex items-center justify-center font-medium ${selectedToken ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}>2</span>
-                  <span className={`font-medium ${selectedToken ? 'text-foreground' : 'text-gray-400'}`}>Choose a Chain</span>
+                  <span className={`w-6 h-6 rounded-full text-white text-sm flex items-center justify-center font-medium ${selectedToken ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-600'}`}>2</span>
+                  <span className={`font-medium ${selectedToken ? 'text-foreground' : 'text-muted-foreground'}`}>Choose a Chain</span>
                 </div>
                 {selectedToken && (
                   <p className="text-xs text-muted-foreground mb-2">Chains that support {selectedToken.symbol}</p>
@@ -587,16 +587,16 @@ export default function DepositCryptoPage() {
                         <span className="font-medium text-foreground">{selectedChain.name}</span>
                       </div>
                     ) : (
-                      <span className="text-gray-400">Select chain</span>
+                      <span className="text-muted-foreground">Select chain</span>
                     )}
-                    <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${showChainDropdown ? 'rotate-180' : ''}`} />
+                    <ChevronDown className={`w-5 h-5 text-muted-foreground transition-transform ${showChainDropdown ? 'rotate-180' : ''}`} />
                   </button>
 
                   {showChainDropdown && (
                     <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-card border border-border rounded-lg shadow-xl overflow-hidden">
                       {chainsLoading ? (
                         <div className="flex justify-center py-6">
-                          <RefreshCw className="w-5 h-5 text-blue-500 animate-spin" />
+                          <RefreshCw className="w-5 h-5 text-primary animate-spin" />
                         </div>
                       ) : chainsError ? (
                         <div className="py-6 px-4 text-center">
@@ -628,11 +628,11 @@ export default function DepositCryptoPage() {
                                 <span className="text-xs px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-primary rounded">EVM</span>
                               )}
                             </div>
-                            <span className="text-xs text-gray-500">{chain.confirmations_required} block confirms</span>
+                            <span className="text-xs text-muted-foreground">{chain.confirmations_required} block confirms</span>
                           </button>
                         ))
                       ) : (
-                        <div className="py-6 text-center text-gray-400">No chains available. Run backend migrations if the database is empty.</div>
+                        <div className="py-6 text-center text-muted-foreground">No chains available. Run backend migrations if the database is empty.</div>
                       )}
                     </div>
                   )}
@@ -642,13 +642,13 @@ export default function DepositCryptoPage() {
               {/* Step 3: Confirm Deposit Details */}
               <div>
                 <div className="flex items-center gap-2 mb-3">
-                  <span className={`w-6 h-6 rounded-full text-white text-sm flex items-center justify-center font-medium ${selectedChain ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}>3</span>
-                  <span className={`font-medium ${selectedChain ? 'text-foreground' : 'text-gray-400'}`}>Confirm deposit details</span>
+                  <span className={`w-6 h-6 rounded-full text-white text-sm flex items-center justify-center font-medium ${selectedChain ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-600'}`}>3</span>
+                  <span className={`font-medium ${selectedChain ? 'text-foreground' : 'text-muted-foreground'}`}>Confirm deposit details</span>
                 </div>
 
                 {addressLoading ? (
                   <div className="flex items-center justify-center py-12">
-                    <RefreshCw className="w-6 h-6 text-blue-500 animate-spin" />
+                    <RefreshCw className="w-6 h-6 text-primary animate-spin" />
                   </div>
                 ) : addressError ? (
                   <div className="rounded-lg p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
@@ -691,7 +691,7 @@ export default function DepositCryptoPage() {
                           {copied ? (
                             <Check className="w-5 h-5 text-green-500" />
                           ) : (
-                            <Copy className="w-5 h-5 text-gray-400" />
+                            <Copy className="w-5 h-5 text-muted-foreground" />
                           )}
                         </button>
                       </div>
@@ -707,7 +707,7 @@ export default function DepositCryptoPage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="text-center py-8 text-gray-400">
+                  <div className="text-center py-8 text-muted-foreground">
                     {selectedChain ? 'Loading deposit address…' : 'Select a coin and chain to see the deposit address'}
                   </div>
                 )}
@@ -717,30 +717,30 @@ export default function DepositCryptoPage() {
 
           {/* Right Section - FAQ */}
           <div className="lg:col-span-1">
-            <div className="bg-card rounded-xl p-6 border border-gray-200 dark:border-transparent">
+            <div className="bg-card rounded-xl p-6 border border-border dark:border-transparent">
               <h3 className="text-lg font-semibold text-foreground mb-4">FAQ</h3>
               
               <ul className="space-y-3">
                 <li>
-                  <Link href="/dashboard/help#deposit-how-to" className="text-sm text-muted-foreground hover:text-blue-500 dark:hover:text-blue-400 flex items-start gap-1">
+                  <Link href="/dashboard/help#deposit-how-to" className="text-sm text-muted-foreground hover:text-primary dark:hover:text-blue-400 flex items-start gap-1">
                     <span className="mt-1">•</span>
                     <span>How to Make a Deposit</span>
                   </Link>
                 </li>
                 <li>
-                  <Link href="/dashboard/help#deposit-recovery" className="text-sm text-muted-foreground hover:text-blue-500 dark:hover:text-blue-400 flex items-start gap-1">
+                  <Link href="/dashboard/help#deposit-recovery" className="text-sm text-muted-foreground hover:text-primary dark:hover:text-blue-400 flex items-start gap-1">
                     <span className="mt-1">•</span>
                     <span>Unsupported Deposit Recovery Procedure Rules</span>
                   </Link>
                 </li>
                 <li>
-                  <Link href="/dashboard/help#deposit-faq" className="text-sm text-muted-foreground hover:text-blue-500 dark:hover:text-blue-400 flex items-start gap-1">
+                  <Link href="/dashboard/help#deposit-faq" className="text-sm text-muted-foreground hover:text-primary dark:hover:text-blue-400 flex items-start gap-1">
                     <span className="mt-1">•</span>
                     <span>FAQ — Crypto Deposit</span>
                   </Link>
                 </li>
                 <li>
-                  <Link href="/dashboard/help#deposit-memo" className="text-sm text-muted-foreground hover:text-blue-500 dark:hover:text-blue-400 flex items-start gap-1">
+                  <Link href="/dashboard/help#deposit-memo" className="text-sm text-muted-foreground hover:text-primary dark:hover:text-blue-400 flex items-start gap-1">
                     <span className="mt-1">•</span>
                     <span>How to Recover a Deposit with Wrong or Missing Tag/Memo</span>
                   </Link>
@@ -776,7 +776,7 @@ export default function DepositCryptoPage() {
             </button>
           </div>
 
-          <div className="bg-card rounded-xl border border-gray-200 dark:border-transparent overflow-hidden">
+          <div className="bg-card rounded-xl border border-border dark:border-transparent overflow-hidden">
             {/* Table Header */}
             <div className="grid grid-cols-7 gap-4 px-4 py-3 bg-background border-b border-border text-sm text-muted-foreground">
               <span>Coin</span>
@@ -804,7 +804,7 @@ export default function DepositCryptoPage() {
                     <span className="text-muted-foreground">
                       {deposit.tx_hash ? (
                         deposit.explorer_url ? (
-                          <a href={deposit.explorer_url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline truncate block">
+                          <a href={deposit.explorer_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate block">
                             {deposit.tx_hash.slice(0, 8)}...
                           </a>
                         ) : (
@@ -828,7 +828,7 @@ export default function DepositCryptoPage() {
                 <div className="w-20 h-20 mb-4 flex items-center justify-center">
                   <div className="text-6xl">📋</div>
                 </div>
-                <p className="text-gray-400">No records found</p>
+                <p className="text-muted-foreground">No records found</p>
               </div>
             )}
           </div>
@@ -860,7 +860,7 @@ export default function DepositCryptoPage() {
                 onClick={() => setShowKycModal(false)}
                 className="p-1 hover:bg-accent rounded-full transition-colors"
               >
-                <X className="w-5 h-5 text-gray-500" />
+                <X className="w-5 h-5 text-muted-foreground" />
               </button>
             </div>
 
@@ -868,7 +868,7 @@ export default function DepositCryptoPage() {
             <div className="px-8 pb-8 text-center">
               {/* Icon */}
               <div className="w-20 h-20 mx-auto mb-6 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
-                <Shield className="w-10 h-10 text-blue-500" />
+                <Shield className="w-10 h-10 text-primary" />
               </div>
 
               {/* Title */}
@@ -888,11 +888,11 @@ export default function DepositCryptoPage() {
               <div className="mt-6 mb-6 text-left bg-background rounded-lg p-4">
                 <ul className="space-y-3">
                   <li className="flex items-center gap-3 text-foreground/80">
-                    <Upload className="w-5 h-5 text-blue-500" />
+                    <Upload className="w-5 h-5 text-primary" />
                     <span>Upload ID card</span>
                   </li>
                   <li className="flex items-center gap-3 text-foreground/80">
-                    <Camera className="w-5 h-5 text-blue-500" />
+                    <Camera className="w-5 h-5 text-primary" />
                     <span>Upload a Selfie</span>
                   </li>
                 </ul>

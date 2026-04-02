@@ -76,10 +76,10 @@ export default function DataExportPage() {
         }}
         className="w-full max-w-xs px-4 py-3.5 bg-muted border border-border rounded-xl text-left flex items-center justify-between hover:border-blue-500 transition-colors"
       >
-        <span className={value ? 'text-foreground font-medium' : 'text-gray-400'}>
+        <span className={value ? 'text-foreground font-medium' : 'text-muted-foreground'}>
           {value ? options.find(o => o.value === value)?.label : 'Please select'}
         </span>
-        <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`w-5 h-5 text-muted-foreground transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
       
       {isOpen && (
@@ -96,7 +96,7 @@ export default function DataExportPage() {
               }`}
             >
               <span className="font-medium text-foreground">{option.label}</span>
-              {value === option.value && <Check className="w-5 h-5 text-blue-500" />}
+              {value === option.value && <Check className="w-5 h-5 text-primary" />}
             </button>
           ))}
         </div>
@@ -115,18 +115,18 @@ export default function DataExportPage() {
       className={`flex-1 p-4 rounded-xl border-2 text-left transition-all ${
         checked 
           ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
-          : 'border-border hover:border-gray-300 dark:hover:border-gray-600'
+          : 'border-border hover:border-border dark:hover:border-gray-600'
       }`}
     >
       <div className="flex items-center gap-3">
         <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-          checked ? 'border-blue-500' : 'border-gray-300 dark:border-gray-600'
+          checked ? 'border-blue-500' : 'border-border dark:border-gray-600'
         }`}>
-          {checked && <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />}
+          {checked && <div className="w-2.5 h-2.5 rounded-full bg-primary" />}
         </div>
         <div>
           <span className={`font-medium ${checked ? 'text-blue-700 dark:text-blue-400' : 'text-foreground'}`}>{label}</span>
-          {description && <p className="text-xs text-gray-500 mt-0.5">{description}</p>}
+          {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
         </div>
       </div>
     </button>
@@ -159,7 +159,7 @@ export default function DataExportPage() {
                 className={`flex items-center gap-2 px-5 py-3 rounded-xl font-medium text-sm transition-all ${
                   activeTab === tab.id
                     ? 'bg-primary text-primary-foreground shadow-lg shadow-blue-500/25'
-                    : 'text-muted-foreground hover:text-gray-900 dark:hover:text-white hover:bg-accent'
+                    : 'text-muted-foreground hover:text-foreground dark:hover:text-white hover:bg-accent'
                 }`}
               >
                 <Icon className="w-4 h-4" />
@@ -185,7 +185,7 @@ export default function DataExportPage() {
             {/* Info Box */}
             <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/50 rounded-xl mb-6">
               <div className="flex items-start gap-3">
-                <Info className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
+                <Info className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
                 <div className="text-sm text-muted-foreground space-y-1">
                   {activeTab === 'account' ? (
                     <>
@@ -323,7 +323,7 @@ export default function DataExportPage() {
                             className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-foreground outline-none focus:border-blue-500"
                           />
                         </div>
-                        <span className="text-gray-400">→</span>
+                        <span className="text-muted-foreground">→</span>
                         <div className="relative flex-1">
                           <input
                             type="date"
@@ -343,7 +343,7 @@ export default function DataExportPage() {
                       <div
                         onClick={() => setIncludeLegalName(!includeLegalName)}
                         className={`w-5 h-5 rounded-md flex items-center justify-center border-2 transition-all ${
-                          includeLegalName ? 'bg-blue-500 border-blue-500' : 'border-gray-300 dark:border-gray-600'
+                          includeLegalName ? 'bg-primary border-blue-500' : 'border-border dark:border-gray-600'
                         }`}
                       >
                         {includeLegalName && <Check className="w-3 h-3 text-white" />}
@@ -375,7 +375,7 @@ export default function DataExportPage() {
                 </button>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Clock className="w-4 h-4" />
-                  <span><span className="font-semibold text-blue-500">50</span> exports remaining this month</span>
+                  <span><span className="font-semibold text-primary">50</span> exports remaining this month</span>
                 </div>
               </div>
             </div>

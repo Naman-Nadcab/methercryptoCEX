@@ -5,12 +5,12 @@ import { ArrowLeft } from 'lucide-react';
 
 export default function CookiePolicyPage() {
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      <header className="sticky top-0 z-10 bg-card/80 dark:bg-gray-900/80 backdrop-blur-lg border-b border-border">
+    <div className="min-h-screen bg-muted dark:bg-background">
+      <header className="sticky top-0 z-10 bg-card/80 dark:bg-card/80 backdrop-blur-lg border-b border-border">
         <div className="max-w-4xl mx-auto px-6 py-4">
           <Link
             href="/login"
-            className="inline-flex items-center gap-2 text-muted-foreground hover:text-gray-900 dark:hover:text-white transition-colors"
+            className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground dark:hover:text-white transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
             <span>Back</span>
@@ -24,7 +24,7 @@ export default function CookiePolicyPage() {
             <h1 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
               Cookie Policy
             </h1>
-            <p className="text-gray-500">Last updated: February 2026</p>
+            <p className="text-muted-foreground">Last updated: February 2026</p>
           </div>
 
           <div className="prose prose-gray dark:prose-invert max-w-none space-y-6">
@@ -58,7 +58,7 @@ export default function CookiePolicyPage() {
             <section>
               <h2 className="text-xl font-semibold text-foreground mb-3">4. Contact</h2>
               <p className="text-muted-foreground leading-relaxed">
-                For questions about this Cookie Policy, see our <Link href="/privacy" className="text-blue-500 hover:underline">Privacy Policy</Link> and <Link href="/terms" className="text-blue-500 hover:underline">Terms of Service</Link>.
+                For questions about this Cookie Policy, see our <Link href="/privacy" className="text-primary hover:underline">Privacy Policy</Link> and <Link href="/terms" className="text-primary hover:underline">Terms of Service</Link>.
               </p>
             </section>
           </div>

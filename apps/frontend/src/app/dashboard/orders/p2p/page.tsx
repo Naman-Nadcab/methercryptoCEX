@@ -35,7 +35,7 @@ export default function P2POrdersViewPage() {
       <div className="bg-card/50 border border-border rounded-xl overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+            <Loader2 className="w-6 h-6 text-primary animate-spin" />
           </div>
         ) : orders.length === 0 ? (
           <EmptyState

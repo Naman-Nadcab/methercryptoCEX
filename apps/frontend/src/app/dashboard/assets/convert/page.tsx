@@ -390,7 +390,7 @@ export default function ConvertPage() {
           <div className="flex items-center justify-between mb-8">
             <div>
               <h1 className="text-2xl font-bold text-foreground">Convert</h1>
-              <p className="text-sm text-gray-500 mt-1">Zero fees | Real-time swap | Multi-asset support</p>
+              <p className="text-sm text-muted-foreground mt-1">Zero fees | Real-time swap | Multi-asset support</p>
             </div>
             <div className="flex items-center gap-3">
               <button
@@ -409,7 +409,7 @@ export default function ConvertPage() {
               </Link>
               <Link
                 href="/wallet/transfer"
-                className="flex items-center gap-2 px-4 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-lg border border-border hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
+                className="flex items-center gap-2 px-4 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-lg border border-border hover:border-border dark:hover:border-gray-600 transition-colors"
               >
                 <ArrowLeftRight className="w-4 h-4" />
                 Transfer
@@ -426,7 +426,7 @@ export default function ConvertPage() {
                   
                   <div className="grid grid-cols-2 gap-8">
                     <div>
-                      <p className="text-sm text-gray-500 mb-4">Trending</p>
+                      <p className="text-sm text-muted-foreground mb-4">Trending</p>
                       <div className="space-y-3">
                         {trendingPrices.map((item, index) => (
                           <div key={index} className="flex items-center justify-between">
@@ -450,7 +450,7 @@ export default function ConvertPage() {
                     </div>
 
                     <div>
-                      <p className="text-sm text-gray-500 mb-4">Newly listed</p>
+                      <p className="text-sm text-muted-foreground mb-4">Newly listed</p>
                       <div className="space-y-3">
                         {newlyListedPrices.map((item, index) => (
                           <div key={index} className="flex items-center justify-between">
@@ -474,7 +474,7 @@ export default function ConvertPage() {
                     </div>
                   </div>
 
-                  <p className="text-xs text-gray-400 mt-6">
+                  <p className="text-xs text-muted-foreground mt-6">
                     ⓘ The market data is for reference only. Final price is based on the executed quote.
                   </p>
                 </div>
@@ -509,7 +509,7 @@ export default function ConvertPage() {
                         className={`px-3 py-1.5 text-xs rounded-lg transition-colors ${
                           period === '24H' 
                             ? 'bg-primary text-primary-foreground' 
-                            : 'text-gray-500 hover:bg-accent'
+                            : 'text-muted-foreground hover:bg-accent'
                         }`}
                       >
                         {period}
@@ -528,10 +528,10 @@ export default function ConvertPage() {
                             24h: {parseFloat(marketPrices.find(m => m.base_symbol === fromCurrency.symbol && m.quote_symbol === toCurrency.symbol)?.change_24h_percent || '0').toFixed(2)}%
                           </p>
                         )}
-                        <p className="text-xs text-gray-500 mt-2">Live rate from spot market</p>
+                        <p className="text-xs text-muted-foreground mt-2">Live rate from spot market</p>
                       </div>
                     ) : (
-                      <div className="text-center text-gray-500">
+                      <div className="text-center text-muted-foreground">
                         <TrendingUp className="w-12 h-12 mx-auto mb-2 opacity-30" />
                         <p className="text-sm">Select currencies to see live rate</p>
                       </div>
@@ -544,13 +544,13 @@ export default function ConvertPage() {
             {/* Right Side - Conversion Form */}
             <div className="bg-card rounded-lg p-6 border border-border">
               {/* Tab Selector */}
-              <div className="flex mb-6 bg-gray-100 dark:bg-[#2b2f36] rounded-lg p-1">
+              <div className="flex mb-6 bg-accent dark:bg-[#2b2f36] rounded-lg p-1">
                 <button
                   onClick={() => setActiveTab('instant')}
                   className={`flex-1 py-3 text-center font-medium rounded-lg transition-all ${
                     activeTab === 'instant'
                       ? 'bg-card text-primary shadow-sm'
-                      : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                      : 'text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'
                   }`}
                 >
                   Instant
@@ -560,7 +560,7 @@ export default function ConvertPage() {
                   className={`flex-1 py-3 text-center font-medium rounded-lg transition-all ${
                     activeTab === 'limit'
                       ? 'bg-card text-primary shadow-sm'
-                      : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                      : 'text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'
                   }`}
                 >
                   Limit
@@ -569,7 +569,7 @@ export default function ConvertPage() {
 
               {/* Account Type Selector */}
               <div className="flex items-center gap-2 mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800/30">
-                <Wallet className="w-4 h-4 text-blue-500" />
+                <Wallet className="w-4 h-4 text-primary" />
                 <select
                   value={accountType}
                   onChange={(e) => setAccountType(e.target.value as 'funding' | 'trading')}
@@ -585,14 +585,14 @@ export default function ConvertPage() {
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-medium text-foreground/80">From</span>
                   <div className="flex items-center gap-2 text-sm">
-                    <span className="text-gray-500">Available: {(() => { const n = parseFloat(getAvailableBalance()); return Number.isFinite(n) ? n.toFixed(6) : '0.000000'; })()} {fromCurrency?.symbol ?? ''}</span>
+                    <span className="text-muted-foreground">Available: {(() => { const n = parseFloat(getAvailableBalance()); return Number.isFinite(n) ? n.toFixed(6) : '0.000000'; })()} {fromCurrency?.symbol ?? ''}</span>
                     <Link href="/wallet/deposit/crypto" className="text-primary hover:text-primary/85 font-medium">Deposit</Link>
                     <Link href="/wallet/transfer" className="text-primary hover:text-primary/85 font-medium">
                       Transfer
                     </Link>
                   </div>
                 </div>
-                <div className="flex items-center gap-3 p-4 bg-gray-50 dark:bg-[#2b2f36] rounded-lg border border-border">
+                <div className="flex items-center gap-3 p-4 bg-muted dark:bg-[#2b2f36] rounded-lg border border-border">
                   <div className="relative">
                     <button
                       onClick={() => { setShowFromDropdown(!showFromDropdown); setShowToDropdown(false); }}
@@ -602,23 +602,23 @@ export default function ConvertPage() {
                         <Image src={fromCurrency.logo_url} alt={fromCurrency.symbol} width={24} height={24} className="rounded-full" unoptimized />
                       )}
                       <span className="font-medium text-foreground">{fromCurrency?.symbol || 'Select'}</span>
-                      <ChevronDown className="w-4 h-4 text-gray-400" />
+                      <ChevronDown className="w-4 h-4 text-muted-foreground" />
                     </button>
                     {fromCurrency && (
-                      <p className="text-xs text-gray-500 mt-1 ml-1">{fromCurrency.name}</p>
+                      <p className="text-xs text-muted-foreground mt-1 ml-1">{fromCurrency.name}</p>
                     )}
 
                     {showFromDropdown && (
                       <div className="absolute top-full left-0 mt-2 w-64 bg-card rounded-lg shadow-2xl border border-border z-50 overflow-hidden">
                         <div className="p-3 border-b border-border">
                           <div className="relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                             <input
                               type="text"
                               placeholder="Search coin..."
                               value={searchQuery}
                               onChange={(e) => setSearchQuery(e.target.value)}
-                              className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-[#2b2f36] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                              className="w-full pl-10 pr-4 py-2 bg-muted dark:bg-[#2b2f36] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                             />
                           </div>
                         </div>
@@ -638,7 +638,7 @@ export default function ConvertPage() {
                               )}
                               <div className="text-left">
                                 <p className="font-medium text-foreground">{currency.symbol}</p>
-                                <p className="text-xs text-gray-500">{currency.name}</p>
+                                <p className="text-xs text-muted-foreground">{currency.name}</p>
                               </div>
                             </button>
                           ))}
@@ -668,7 +668,7 @@ export default function ConvertPage() {
                   onClick={handleSwapCurrencies}
                   className="p-3 rounded-full bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-800/30 transition-colors border border-blue-200 dark:border-blue-700"
                 >
-                  <ArrowUpDown className="w-5 h-5 text-blue-500" />
+                  <ArrowUpDown className="w-5 h-5 text-primary" />
                 </button>
               </div>
 
@@ -677,7 +677,7 @@ export default function ConvertPage() {
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-medium text-foreground/80">To</span>
                 </div>
-                <div className="flex items-center gap-3 p-4 bg-gray-50 dark:bg-[#2b2f36] rounded-lg border border-border">
+                <div className="flex items-center gap-3 p-4 bg-muted dark:bg-[#2b2f36] rounded-lg border border-border">
                   <div className="relative">
                     <button
                       onClick={() => { setShowToDropdown(!showToDropdown); setShowFromDropdown(false); }}
@@ -687,23 +687,23 @@ export default function ConvertPage() {
                         <Image src={toCurrency.logo_url} alt={toCurrency.symbol} width={24} height={24} className="rounded-full" unoptimized />
                       )}
                       <span className="font-medium text-foreground">{toCurrency?.symbol || 'Select'}</span>
-                      <ChevronDown className="w-4 h-4 text-gray-400" />
+                      <ChevronDown className="w-4 h-4 text-muted-foreground" />
                     </button>
                     {toCurrency && (
-                      <p className="text-xs text-gray-500 mt-1 ml-1">{toCurrency.name}</p>
+                      <p className="text-xs text-muted-foreground mt-1 ml-1">{toCurrency.name}</p>
                     )}
 
                     {showToDropdown && (
                       <div className="absolute top-full left-0 mt-2 w-64 bg-card rounded-lg shadow-2xl border border-border z-50 overflow-hidden">
                         <div className="p-3 border-b border-border">
                           <div className="relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                             <input
                               type="text"
                               placeholder="Search coin..."
                               value={searchQuery}
                               onChange={(e) => setSearchQuery(e.target.value)}
-                              className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-[#2b2f36] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                              className="w-full pl-10 pr-4 py-2 bg-muted dark:bg-[#2b2f36] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                             />
                           </div>
                         </div>
@@ -723,7 +723,7 @@ export default function ConvertPage() {
                               )}
                               <div className="text-left">
                                 <p className="font-medium text-foreground">{currency.symbol}</p>
-                                <p className="text-xs text-gray-500">{currency.name}</p>
+                                <p className="text-xs text-muted-foreground">{currency.name}</p>
                               </div>
                             </button>
                           ))}
@@ -756,7 +756,7 @@ export default function ConvertPage() {
                       className="text-right text-xl font-bold text-foreground bg-transparent focus:outline-none w-32"
                     />
                   </div>
-                  <div className="flex items-center justify-between text-xs text-gray-500 mb-4">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground mb-4">
                     <span>Market price {conversionRate?.toLocaleString()}</span>
                   </div>
                   <div className="flex gap-2">
@@ -787,13 +787,13 @@ export default function ConvertPage() {
               )}
 
               {/* Transaction Info */}
-              <div className="space-y-3 mb-6 p-4 bg-gray-50 dark:bg-[#2b2f36] rounded-lg">
+              <div className="space-y-3 mb-6 p-4 bg-muted dark:bg-[#2b2f36] rounded-lg">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-500">Transaction Fees</span>
+                  <span className="text-muted-foreground">Transaction Fees</span>
                   <span className="text-green-500 font-semibold">0 Fee</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-500">{activeTab === 'limit' ? 'Receivables' : 'You get'}</span>
+                  <span className="text-muted-foreground">{activeTab === 'limit' ? 'Receivables' : 'You get'}</span>
                   <span className="text-foreground font-semibold">
                     {toAmount ? `${parseFloat(toAmount).toFixed(6)}` : '--'} {toCurrency?.symbol}
                   </span>
@@ -820,7 +820,7 @@ export default function ConvertPage() {
                 onClick={handleConvert}
                 disabled={converting || !fromAmount || !fromCurrency || !toCurrency}
                 aria-busy={converting}
-                className={`w-full py-4 bg-primary hover:bg-primary/85 disabled:bg-gray-200 dark:disabled:bg-gray-800 disabled:text-gray-400 text-white font-semibold rounded-lg transition-all duration-150 active:scale-[0.98] shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 disabled:shadow-none flex items-center justify-center gap-2 ${converting ? 'opacity-90' : ''}`}
+                className={`w-full py-4 bg-primary hover:bg-primary/85 disabled:bg-accent dark:disabled:bg-gray-800 disabled:text-muted-foreground text-white font-semibold rounded-lg transition-all duration-150 active:scale-[0.98] shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 disabled:shadow-none flex items-center justify-center gap-2 ${converting ? 'opacity-90' : ''}`}
               >
                 {converting ? (
                   <>
@@ -857,7 +857,7 @@ export default function ConvertPage() {
                   <tbody>
                     {activeOrders.length > 0 ? (
                       activeOrders.map((order) => (
-                        <tr key={order.id} className="border-b border-border transition-colors duration-100 hover:bg-gray-50 dark:hover:bg-card/5">
+                        <tr key={order.id} className="border-b border-border transition-colors duration-100 hover:bg-muted dark:hover:bg-card/5">
                           <td className="py-2 px-2 tabular-nums">
                             <div className="flex items-center gap-2">
                               {order.from_logo && (
@@ -897,9 +897,9 @@ export default function ConvertPage() {
                         <td colSpan={9} className="py-8 text-center">
                           <div className="flex flex-col items-center">
                             <div className="w-16 h-16 bg-accent rounded-full flex items-center justify-center mb-4">
-                              <History className="w-8 h-8 text-gray-400" />
+                              <History className="w-8 h-8 text-muted-foreground" />
                             </div>
-                            <p className="text-gray-500">No active orders yet</p>
+                            <p className="text-muted-foreground">No active orders yet</p>
                           </div>
                         </td>
                       </tr>
@@ -924,7 +924,7 @@ export default function ConvertPage() {
                     <span className="text-foreground font-medium">
                       {index + 1}. {item.question}
                     </span>
-                    <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${expandedFaq === index ? 'rotate-180' : ''}`} />
+                    <ChevronDown className={`w-5 h-5 text-muted-foreground transition-transform ${expandedFaq === index ? 'rotate-180' : ''}`} />
                   </button>
                   {expandedFaq === index && (
                     <p className="mt-3 text-muted-foreground text-sm pl-4">
@@ -949,13 +949,13 @@ export default function ConvertPage() {
             <div className="flex items-center justify-between p-6 border-b border-border">
               <h2 className="text-xl font-semibold text-foreground">Conversion History</h2>
               <button onClick={() => setShowHistory(false)} className="p-2 hover:bg-accent rounded-lg">
-                <X className="w-5 h-5 text-gray-500" />
+                <X className="w-5 h-5 text-muted-foreground" />
               </button>
             </div>
             <div className="p-6 overflow-y-auto max-h-[60vh]">
               {historyLoading ? (
                 <div className="flex items-center justify-center py-12">
-                  <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+                  <Loader2 className="w-8 h-8 animate-spin text-primary" />
                 </div>
               ) : history.length > 0 ? (
                 <table className="w-full text-xs">
@@ -971,7 +971,7 @@ export default function ConvertPage() {
                   </thead>
                   <tbody>
                     {history.map((item) => (
-                      <tr key={item.id} className="border-b border-border transition-colors duration-100 hover:bg-gray-50 dark:hover:bg-card/5">
+                      <tr key={item.id} className="border-b border-border transition-colors duration-100 hover:bg-muted dark:hover:bg-card/5">
                         <td className="py-2 px-2 capitalize">{item.conversion_type}</td>
                         <td className="py-2 px-2 tabular-nums">
                           <div className="flex items-center gap-2">
@@ -994,7 +994,7 @@ export default function ConvertPage() {
                           <span className={`px-2 py-1 rounded text-xs font-medium ${
                             item.status === 'completed' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
                             item.status === 'pending' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
-                            item.status === 'cancelled' ? 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400' :
+                            item.status === 'cancelled' ? 'bg-accent text-foreground/80 dark:bg-accent dark:text-muted-foreground' :
                             'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
                           }`}>
                             {item.status}
@@ -1010,7 +1010,7 @@ export default function ConvertPage() {
               ) : (
                 <div className="text-center py-8">
                   <History className="w-12 h-12 mx-auto text-gray-300 mb-4" />
-                  <p className="text-gray-500 text-xs">No conversion history yet</p>
+                  <p className="text-muted-foreground text-xs">No conversion history yet</p>
                 </div>
               )}
             </div>

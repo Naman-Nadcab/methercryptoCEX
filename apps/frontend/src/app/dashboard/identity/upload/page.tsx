@@ -130,7 +130,7 @@ function DocumentUploadContent() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+    <div className="min-h-screen bg-muted dark:bg-background">
       {/* Header */}
       <header className="bg-card border-b border-border px-6 py-4">
         <div className="max-w-2xl mx-auto flex items-center gap-4">
@@ -144,7 +144,7 @@ function DocumentUploadContent() {
             <h1 className="text-lg font-semibold text-foreground">
               Upload {documentLabels[documentType] || 'Document'}
             </h1>
-            <p className="text-sm text-gray-500">Step {['front', 'back', 'selfie', 'review'].indexOf(step) + 1} of {needsBackImage ? 4 : 3}</p>
+            <p className="text-sm text-muted-foreground">Step {['front', 'back', 'selfie', 'review'].indexOf(step) + 1} of {needsBackImage ? 4 : 3}</p>
           </div>
         </div>
       </header>
@@ -160,7 +160,7 @@ function DocumentUploadContent() {
                 key={s}
                 className={`flex-1 h-1 rounded-full ${
                   ['front', ...(needsBackImage ? ['back'] : []), 'selfie', 'review'].indexOf(step) >= i
-                    ? 'bg-blue-500'
+                    ? 'bg-primary'
                     : 'bg-accent'
                 }`}
               />
@@ -188,7 +188,7 @@ function DocumentUploadContent() {
 
               <div
                 onClick={() => frontInputRef.current?.click()}
-                className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-12 text-center cursor-pointer hover:border-blue-500 transition-colors"
+                className="border-2 border-dashed border-border dark:border-gray-600 rounded-xl p-12 text-center cursor-pointer hover:border-blue-500 transition-colors"
               >
                 {frontPreview ? (
                   <div className="relative">
@@ -206,9 +206,9 @@ function DocumentUploadContent() {
                   </div>
                 ) : (
                   <>
-                    <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                    <Upload className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
                     <p className="text-muted-foreground">Click to upload or drag and drop</p>
-                    <p className="text-sm text-gray-400 mt-1">PNG, JPG up to 10MB</p>
+                    <p className="text-sm text-muted-foreground mt-1">PNG, JPG up to 10MB</p>
                   </>
                 )}
               </div>
@@ -244,7 +244,7 @@ function DocumentUploadContent() {
 
               <div
                 onClick={() => backInputRef.current?.click()}
-                className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-12 text-center cursor-pointer hover:border-blue-500 transition-colors"
+                className="border-2 border-dashed border-border dark:border-gray-600 rounded-xl p-12 text-center cursor-pointer hover:border-blue-500 transition-colors"
               >
                 {backPreview ? (
                   <div className="relative">
@@ -262,9 +262,9 @@ function DocumentUploadContent() {
                   </div>
                 ) : (
                   <>
-                    <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                    <Upload className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
                     <p className="text-muted-foreground">Click to upload or drag and drop</p>
-                    <p className="text-sm text-gray-400 mt-1">PNG, JPG up to 10MB</p>
+                    <p className="text-sm text-muted-foreground mt-1">PNG, JPG up to 10MB</p>
                   </>
                 )}
               </div>
@@ -308,7 +308,7 @@ function DocumentUploadContent() {
 
               <div
                 onClick={() => selfieInputRef.current?.click()}
-                className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-12 text-center cursor-pointer hover:border-blue-500 transition-colors"
+                className="border-2 border-dashed border-border dark:border-gray-600 rounded-xl p-12 text-center cursor-pointer hover:border-blue-500 transition-colors"
               >
                 {selfiePreview ? (
                   <div className="relative">
@@ -327,7 +327,7 @@ function DocumentUploadContent() {
                 ) : (
                   <>
                     <div className="w-24 h-24 rounded-full bg-accent mx-auto mb-4 flex items-center justify-center">
-                      <Camera className="w-10 h-10 text-gray-400" />
+                      <Camera className="w-10 h-10 text-muted-foreground" />
                     </div>
                     <p className="text-muted-foreground">Click to take or upload a selfie</p>
                   </>
@@ -385,7 +385,7 @@ function DocumentUploadContent() {
                   </div>
                   <button
                     onClick={() => setStep('front')}
-                    className="text-blue-500 text-sm hover:underline"
+                    className="text-primary text-sm hover:underline"
                   >
                     Change
                   </button>
@@ -402,7 +402,7 @@ function DocumentUploadContent() {
                     </div>
                     <button
                       onClick={() => setStep('back')}
-                      className="text-blue-500 text-sm hover:underline"
+                      className="text-primary text-sm hover:underline"
                     >
                       Change
                     </button>
@@ -420,7 +420,7 @@ function DocumentUploadContent() {
                     </div>
                     <button
                       onClick={() => setStep('selfie')}
-                      className="text-blue-500 text-sm hover:underline"
+                      className="text-primary text-sm hover:underline"
                     >
                       Change
                     </button>
@@ -457,7 +457,7 @@ function DocumentUploadContent() {
         {/* Tips */}
         <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl">
           <h3 className="font-medium text-blue-800 dark:text-blue-400 mb-2">Tips for a successful verification</h3>
-          <ul className="text-sm text-blue-700 dark:text-blue-500 space-y-1">
+          <ul className="text-sm text-blue-700 dark:text-primary space-y-1">
             <li>• Make sure the document is fully visible and not cut off</li>
             <li>• Avoid glare and ensure good lighting</li>
             <li>• All text should be clearly readable</li>
@@ -472,8 +472,8 @@ function DocumentUploadContent() {
 export default function DocumentUploadPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+      <div className="min-h-screen bg-muted dark:bg-background flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     }>
       <DocumentUploadContent />

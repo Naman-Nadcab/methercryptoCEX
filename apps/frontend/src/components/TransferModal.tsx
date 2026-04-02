@@ -216,7 +216,7 @@ export default function TransferModal({
             onClick={onClose}
             className="p-1.5 hover:bg-accent rounded-lg transition-colors"
           >
-            <X className="w-5 h-5 text-gray-400" />
+            <X className="w-5 h-5 text-muted-foreground" />
           </button>
         </div>
 
@@ -226,7 +226,7 @@ export default function TransferModal({
           <div className="flex items-center gap-3">
             {/* From Account */}
             <div className="flex-1">
-              <label className="block text-xs text-gray-500 mb-1.5">From</label>
+              <label className="block text-xs text-muted-foreground mb-1.5">From</label>
               <div className="relative">
                 <button
                   onClick={() => {
@@ -234,13 +234,13 @@ export default function TransferModal({
                     setShowToDropdown(false);
                     setShowCoinDropdown(false);
                   }}
-                  className="w-full flex items-center gap-2 px-3 py-2.5 bg-gray-50 dark:bg-[#2b2f36] border border-border rounded-xl hover:border-blue-400 transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-2.5 bg-muted dark:bg-[#2b2f36] border border-border rounded-xl hover:border-blue-400 transition-colors"
                 >
                   {getAccountIcon(fromAccount)}
                   <span className="text-foreground font-medium text-sm flex-1 text-left truncate">
                     {getAccountLabel(fromAccount)}
                   </span>
-                  <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform flex-shrink-0 ${showFromDropdown ? 'rotate-180' : ''}`} />
+                  <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform flex-shrink-0 ${showFromDropdown ? 'rotate-180' : ''}`} />
                 </button>
                 {showFromDropdown && (
                   <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-xl shadow-xl z-20 overflow-hidden">
@@ -256,9 +256,9 @@ export default function TransferModal({
                         disabled={account === toAccount}
                         className={`w-full flex items-center gap-2 px-3 py-2.5 text-left text-sm transition-colors ${
                           account === fromAccount
-                            ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600'
+                            ? 'bg-blue-50 dark:bg-blue-900/30 text-primary'
                             : account === toAccount
-                            ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
+                            ? 'text-gray-300 dark:text-muted-foreground cursor-not-allowed'
                             : 'text-foreground/80 hover:bg-accent'
                         }`}
                       >
@@ -274,14 +274,14 @@ export default function TransferModal({
             {/* Swap Button */}
             <button
               onClick={handleSwapAccounts}
-              className="mt-5 p-2 text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+              className="mt-5 p-2 text-muted-foreground hover:text-primary hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
             >
               <ArrowLeftRight className="w-5 h-5" />
             </button>
 
             {/* To Account */}
             <div className="flex-1">
-              <label className="block text-xs text-gray-500 mb-1.5">To</label>
+              <label className="block text-xs text-muted-foreground mb-1.5">To</label>
               <div className="relative">
                 <button
                   onClick={() => {
@@ -289,13 +289,13 @@ export default function TransferModal({
                     setShowFromDropdown(false);
                     setShowCoinDropdown(false);
                   }}
-                  className="w-full flex items-center gap-2 px-3 py-2.5 bg-gray-50 dark:bg-[#2b2f36] border border-border rounded-xl hover:border-blue-400 transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-2.5 bg-muted dark:bg-[#2b2f36] border border-border rounded-xl hover:border-blue-400 transition-colors"
                 >
                   {getAccountIcon(toAccount)}
                   <span className="text-foreground font-medium text-sm flex-1 text-left truncate">
                     {getAccountLabel(toAccount)}
                   </span>
-                  <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform flex-shrink-0 ${showToDropdown ? 'rotate-180' : ''}`} />
+                  <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform flex-shrink-0 ${showToDropdown ? 'rotate-180' : ''}`} />
                 </button>
                 {showToDropdown && (
                   <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-xl shadow-xl z-20 overflow-hidden">
@@ -311,9 +311,9 @@ export default function TransferModal({
                         disabled={account === fromAccount}
                         className={`w-full flex items-center gap-2 px-3 py-2.5 text-left text-sm transition-colors ${
                           account === toAccount
-                            ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600'
+                            ? 'bg-blue-50 dark:bg-blue-900/30 text-primary'
                             : account === fromAccount
-                            ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
+                            ? 'text-gray-300 dark:text-muted-foreground cursor-not-allowed'
                             : 'text-foreground/80 hover:bg-accent'
                         }`}
                       >
@@ -329,7 +329,7 @@ export default function TransferModal({
 
           {/* Coin Selection */}
           <div>
-            <label className="block text-xs text-gray-500 mb-1.5">Coin</label>
+            <label className="block text-xs text-muted-foreground mb-1.5">Coin</label>
             <div className="relative">
               <button
                 onClick={() => {
@@ -337,7 +337,7 @@ export default function TransferModal({
                   setShowFromDropdown(false);
                   setShowToDropdown(false);
                 }}
-                className="w-full flex items-center justify-between px-3 py-2.5 bg-gray-50 dark:bg-[#2b2f36] border border-border rounded-xl hover:border-blue-400 transition-colors"
+                className="w-full flex items-center justify-between px-3 py-2.5 bg-muted dark:bg-[#2b2f36] border border-border rounded-xl hover:border-blue-400 transition-colors"
               >
                 <div className="flex items-center gap-2">
                   {selectedToken ? (
@@ -361,10 +361,10 @@ export default function TransferModal({
                       <span className="text-foreground font-medium text-sm">{selectedToken.symbol}</span>
                     </>
                   ) : (
-                    <span className="text-gray-400 text-sm">Select coin</span>
+                    <span className="text-muted-foreground text-sm">Select coin</span>
                   )}
                 </div>
-                <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showCoinDropdown ? 'rotate-180' : ''}`} />
+                <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${showCoinDropdown ? 'rotate-180' : ''}`} />
               </button>
 
               {showCoinDropdown && (
@@ -372,13 +372,13 @@ export default function TransferModal({
                   {/* Search */}
                   <div className="p-2 border-b border-border">
                     <div className="relative">
-                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                       <input
                         type="text"
                         placeholder="Search coin..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full pl-8 pr-3 py-2 bg-gray-50 dark:bg-[#2b2f36] border-0 rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:ring-2 focus:ring-primary outline-none"
+                        className="w-full pl-8 pr-3 py-2 bg-muted dark:bg-[#2b2f36] border-0 rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:ring-2 focus:ring-primary outline-none"
                       />
                     </div>
                   </div>
@@ -386,11 +386,11 @@ export default function TransferModal({
                   <div className="max-h-48 overflow-y-auto">
                     {loading ? (
                       <div className="flex items-center justify-center gap-2 p-6">
-                        <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
-                        <span className="text-sm text-gray-500">Loading...</span>
+                        <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                        <span className="text-sm text-muted-foreground">Loading...</span>
                       </div>
                     ) : filteredTokens.length === 0 ? (
-                      <div className="p-6 text-center text-sm text-gray-500">No coins found</div>
+                      <div className="p-6 text-center text-sm text-muted-foreground">No coins found</div>
                     ) : (
                       filteredTokens.slice(0, 50).map((token) => (
                         <button
@@ -425,10 +425,10 @@ export default function TransferModal({
                             )}
                             <div className="text-left">
                               <p className="text-sm font-medium text-foreground">{token.symbol}</p>
-                              <p className="text-xs text-gray-500 truncate max-w-[120px]">{token.name}</p>
+                              <p className="text-xs text-muted-foreground truncate max-w-[120px]">{token.name}</p>
                             </div>
                           </div>
-                          <span className="text-xs text-gray-500">
+                          <span className="text-xs text-muted-foreground">
                             {parseFloat(token.availableBalance).toFixed(4)}
                           </span>
                         </button>
@@ -442,7 +442,7 @@ export default function TransferModal({
 
           {/* Transferable Amount Info */}
           <div className="flex items-center justify-between text-sm py-1">
-            <span className="text-gray-500">Transferable Amount</span>
+            <span className="text-muted-foreground">Transferable Amount</span>
             <span className="text-foreground font-medium">
               {selectedToken ? `${parseFloat(selectedToken.availableBalance).toFixed(4)} ${selectedToken.symbol}` : '0.0000 USDT'}
             </span>
@@ -463,7 +463,7 @@ export default function TransferModal({
                     }
                   }}
                   placeholder="Enter amount"
-                  className="w-full px-3 py-3 pr-24 bg-gray-50 dark:bg-[#2b2f36] border border-border rounded-xl text-foreground placeholder:text-muted-foreground focus:border-blue-500 focus:ring-1 focus:ring-primary/20 outline-none transition-all"
+                  className="w-full px-3 py-3 pr-24 bg-muted dark:bg-[#2b2f36] border border-border rounded-xl text-foreground placeholder:text-muted-foreground focus:border-blue-500 focus:ring-1 focus:ring-primary/20 outline-none transition-all"
                 />
                 <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
                   <button
@@ -472,7 +472,7 @@ export default function TransferModal({
                   >
                     All
                   </button>
-                  <span className="text-sm text-gray-500">{selectedToken.symbol}</span>
+                  <span className="text-sm text-muted-foreground">{selectedToken.symbol}</span>
                 </div>
               </div>
             </div>
@@ -500,7 +500,7 @@ export default function TransferModal({
             disabled={!selectedToken || !amount || submitting || success}
             className={`w-full py-3 rounded-lg font-medium text-sm transition-all active:scale-[0.98] ${
               !selectedToken || !amount || submitting || success
-                ? 'bg-accent text-gray-400 cursor-not-allowed'
+                ? 'bg-accent text-muted-foreground cursor-not-allowed'
                 : 'bg-primary hover:bg-primary/85 text-white'
             }`}
           >

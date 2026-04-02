@@ -38,7 +38,7 @@ export function DashboardPageShell({
           <nav aria-label="Breadcrumb" className="mb-3 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
             <Link
               href={ROUTES.home}
-              className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-accent hover:text-gray-900 dark:hover:text-white transition-colors"
+              className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-accent hover:text-foreground dark:hover:text-white transition-colors"
             >
               <Home className="w-3.5 h-3.5 opacity-80" aria-hidden />
               <span>Home</span>
@@ -47,7 +47,7 @@ export function DashboardPageShell({
               const isLast = i === crumbs.length - 1;
               return (
                 <span key={`${c.label}-${i}`} className="inline-flex items-center gap-1.5">
-                  <ChevronRight className="w-3.5 h-3.5 text-gray-400 dark:text-gray-600 shrink-0" aria-hidden />
+                  <ChevronRight className="w-3.5 h-3.5 text-muted-foreground dark:text-muted-foreground shrink-0" aria-hidden />
                   {isLast || !c.href ? (
                     <span
                       className={
@@ -62,7 +62,7 @@ export function DashboardPageShell({
                   ) : (
                     <Link
                       href={c.href}
-                      className="rounded-md px-1.5 py-0.5 hover:bg-accent hover:text-gray-900 dark:hover:text-white transition-colors"
+                      className="rounded-md px-1.5 py-0.5 hover:bg-accent hover:text-foreground dark:hover:text-white transition-colors"
                     >
                       {c.label}
                     </Link>

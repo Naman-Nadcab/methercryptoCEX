@@ -70,7 +70,7 @@ export default function HelpPage() {
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
       <div className="flex items-center gap-2 mb-8">
-        <HelpCircle className="w-8 h-8 text-blue-500" />
+        <HelpCircle className="w-8 h-8 text-primary" />
         <h1 className="text-2xl font-semibold text-foreground">Help Center</h1>
       </div>
       <div className="space-y-6">

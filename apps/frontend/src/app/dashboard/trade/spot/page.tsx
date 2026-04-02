@@ -340,7 +340,7 @@ export default function SpotTradePage() {
             (orderType === 'stop_limit' && ((!stopPrice.trim() || parseFloat(stopPrice) <= 0) || (!price.trim() || parseFloat(price) <= 0)))
           }
           aria-busy={submitting}
-          className="w-full py-2.5 rounded-lg font-medium bg-primary text-primary-foreground hover:bg-blue-600 hover:brightness-110 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 min-w-[120px] transition-transform duration-75 active:scale-[0.97] active:brightness-110"
+          className="w-full py-2.5 rounded-lg font-medium bg-primary text-primary-foreground hover:bg-primary/85 hover:brightness-110 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 min-w-[120px] transition-transform duration-75 active:scale-[0.97] active:brightness-110"
         >
           {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
           Place Order
@@ -380,14 +380,14 @@ export default function SpotTradePage() {
             )}
             {ordersLoading ? (
               <div className="flex items-center justify-center py-12">
-                <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+                <Loader2 className="w-6 h-6 text-primary animate-spin" />
               </div>
             ) : orders.length === 0 ? (
               <div className="py-12 text-center text-muted-foreground text-sm">No open orders.</div>
             ) : (
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-left uppercase text-xs tracking-wider text-gray-400 border-b border-gray-200 dark:border-white/10">
+                  <tr className="text-left uppercase text-xs tracking-wider text-muted-foreground border-b border-border dark:border-white/10">
                     <th className="p-3 font-medium">Market</th>
                     <th className="p-3 font-medium">Side</th>
                     <th className="p-3 font-medium">Price</th>
@@ -402,7 +402,7 @@ export default function SpotTradePage() {
                     const canCancel = ['OPEN', 'PARTIALLY_FILLED', 'PENDING_TRIGGER'].includes(o.status);
                     const displayStatus = o.status === 'PENDING_TRIGGER' ? 'Pending Trigger' : o.status;
                     return (
-                      <tr key={o.id} className="border-b border-gray-100 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-card/[0.06] transition-colors duration-150">
+                      <tr key={o.id} className="border-b border-border dark:border-white/10 hover:bg-muted dark:hover:bg-card/[0.06] transition-colors duration-150">
                         <td className="p-3 font-medium text-foreground tabular-nums tracking-tight">{o.market}</td>
                         <td className="p-3">
                           <span className={`tabular-nums tracking-tight ${o.side === 'buy' ? 'text-buy' : 'text-destructive'}`}>{o.side}</span>
@@ -441,7 +441,7 @@ export default function SpotTradePage() {
             </div>
             {historyLoading ? (
               <div className="flex items-center justify-center py-12">
-                <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+                <Loader2 className="w-6 h-6 text-primary animate-spin" />
               </div>
             ) : historyOrders.length === 0 ? (
               <div className="py-12 text-center text-muted-foreground text-sm">No order history.</div>
@@ -449,7 +449,7 @@ export default function SpotTradePage() {
               <>
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-left uppercase text-xs tracking-wider text-gray-400 border-b border-gray-200 dark:border-white/10">
+                    <tr className="text-left uppercase text-xs tracking-wider text-muted-foreground border-b border-border dark:border-white/10">
                       <th className="p-3 font-medium">Market</th>
                       <th className="p-3 font-medium">Side</th>
                       <th className="p-3 font-medium">Price</th>
@@ -459,7 +459,7 @@ export default function SpotTradePage() {
                   </thead>
                   <tbody>
                     {historyOrders.map((o) => (
-                      <tr key={o.id} className="border-b border-gray-100 dark:border-white/10">
+                      <tr key={o.id} className="border-b border-border dark:border-white/10">
                         <td className="p-3 font-medium text-foreground tabular-nums tracking-tight">{o.market}</td>
                         <td className="p-3">
                           <span className={`tabular-nums tracking-tight ${o.side === 'buy' ? 'text-buy' : 'text-destructive'}`}>{o.side}</span>
@@ -479,7 +479,7 @@ export default function SpotTradePage() {
                       type="button"
                       onClick={() => fetchHistoryOrders(historyNextCursor, true)}
                       disabled={historyLoadMore}
-                      className="py-2 px-4 rounded-lg bg-accent text-foreground/80 text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 flex items-center gap-2"
+                      className="py-2 px-4 rounded-lg bg-accent text-foreground/80 text-sm font-medium hover:bg-accent dark:hover:bg-gray-600 disabled:opacity-50 flex items-center gap-2"
                     >
                       {historyLoadMore ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                       Load more

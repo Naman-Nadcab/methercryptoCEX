@@ -122,7 +122,7 @@ export default function TelegramLoginButton({
           <div ref={containerRef} className="flex justify-center min-h-[44px]" />
           <button
             onClick={() => setShowWidget(false)}
-            className="mt-4 w-full py-2 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+            className="mt-4 w-full py-2 text-sm text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300"
           >
             Cancel
           </button>

@@ -88,7 +88,7 @@ export default function FundingAccountPage() {
               <h1 className="text-2xl font-bold text-foreground">Funding Account</h1>
               <button
                 onClick={() => setShowBalance(!showBalance)}
-                className="p-2 text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+                className="p-2 text-muted-foreground hover:text-primary hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
               >
                 {showBalance ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
               </button>
@@ -154,12 +154,12 @@ export default function FundingAccountPage() {
                   <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
                     <Wallet className="w-5 h-5 text-white" />
                   </div>
-                  <p className="text-sm font-medium text-gray-500">Total Equity</p>
+                  <p className="text-sm font-medium text-muted-foreground">Total Equity</p>
                 </div>
                 <p className="text-3xl font-bold text-foreground">
-                  {showBalance ? formatNumber(totalEquity.usd, 2) : '******'} <span className="text-sm font-normal text-gray-500">USD</span>
+                  {showBalance ? formatNumber(totalEquity.usd, 2) : '******'} <span className="text-sm font-normal text-muted-foreground">USD</span>
                 </p>
-                <p className="text-sm text-gray-500 mt-1">
+                <p className="text-sm text-muted-foreground mt-1">
                   ≈ {showBalance ? formatNumber(totalEquity.btc, 8) : '********'} BTC
                 </p>
               </div>
@@ -168,12 +168,12 @@ export default function FundingAccountPage() {
                   <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center">
                     <ArrowUpRight className="w-5 h-5 text-white" />
                   </div>
-                  <p className="text-sm font-medium text-gray-500">Available Balance</p>
+                  <p className="text-sm font-medium text-muted-foreground">Available Balance</p>
                 </div>
                 <p className="text-3xl font-bold text-foreground">
-                  {showBalance ? formatNumber(availableBalance.usd, 2) : '******'} <span className="text-sm font-normal text-gray-500">USD</span>
+                  {showBalance ? formatNumber(availableBalance.usd, 2) : '******'} <span className="text-sm font-normal text-muted-foreground">USD</span>
                 </p>
-                <p className="text-sm text-gray-500 mt-1">
+                <p className="text-sm text-muted-foreground mt-1">
                   ≈ {showBalance ? formatNumber(availableBalance.btc, 8) : '********'} BTC
                 </p>
               </div>
@@ -182,12 +182,12 @@ export default function FundingAccountPage() {
                   <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
                     <Clock className="w-5 h-5 text-white" />
                   </div>
-                  <p className="text-sm font-medium text-gray-500">In Use</p>
+                  <p className="text-sm font-medium text-muted-foreground">In Use</p>
                 </div>
                 <p className="text-3xl font-bold text-foreground">
-                  {showBalance ? formatNumber(inUse.usd, 2) : '******'} <span className="text-sm font-normal text-gray-500">USD</span>
+                  {showBalance ? formatNumber(inUse.usd, 2) : '******'} <span className="text-sm font-normal text-muted-foreground">USD</span>
                 </p>
-                <p className="text-sm text-gray-500 mt-1">
+                <p className="text-sm text-muted-foreground mt-1">
                   ≈ {showBalance ? formatNumber(inUse.btc, 8) : '********'} BTC
                 </p>
               </div>
@@ -196,13 +196,13 @@ export default function FundingAccountPage() {
 
           {/* Tabs */}
           <div className="bg-card rounded-xl border border-border overflow-hidden">
-            <div className="flex gap-1 p-1.5 bg-gray-100 dark:bg-[#2b2f36] m-4 rounded-xl w-fit">
+            <div className="flex gap-1 p-1.5 bg-accent dark:bg-[#2b2f36] m-4 rounded-xl w-fit">
               <button
                 onClick={() => setActiveTab('crypto')}
                 className={`px-6 py-2.5 text-sm font-medium rounded-lg transition-all ${
                   activeTab === 'crypto'
                     ? 'bg-card text-primary shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                    : 'text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'
                 }`}
               >
                 Crypto
@@ -212,7 +212,7 @@ export default function FundingAccountPage() {
                 className={`px-6 py-2.5 text-sm font-medium rounded-lg transition-all ${
                   activeTab === 'fiat'
                     ? 'bg-card text-primary shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                    : 'text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'
                 }`}
               >
                 Fiat
@@ -223,21 +223,21 @@ export default function FundingAccountPage() {
             <div className="flex items-center justify-between px-6 pb-4">
               <div className="flex items-center gap-4">
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <input
                     type="text"
                     placeholder="Search coin..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:ring-2 focus:ring-primary focus:border-transparent w-64"
+                    className="pl-10 pr-4 py-2.5 bg-muted dark:bg-[#2b2f36] border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:ring-2 focus:ring-primary focus:border-transparent w-64"
                   />
                 </div>
-                <label className="flex items-center gap-2.5 cursor-pointer px-3 py-2 bg-gray-50 dark:bg-[#2b2f36] rounded-xl border border-border">
+                <label className="flex items-center gap-2.5 cursor-pointer px-3 py-2 bg-muted dark:bg-[#2b2f36] rounded-xl border border-border">
                   <input
                     type="checkbox"
                     checked={hideSmallBalances}
                     onChange={(e) => setHideSmallBalances(e.target.checked)}
-                    className="w-4 h-4 rounded border-gray-300 text-blue-500 focus:ring-primary"
+                    className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
                   />
                   <span className="text-sm text-muted-foreground">Hide assets &lt; $1</span>
                 </label>
@@ -252,14 +252,14 @@ export default function FundingAccountPage() {
 
               {/* Promo Banner */}
               <div className="flex items-center gap-3 px-4 py-2.5 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl border border-blue-100 dark:border-blue-800/30">
-                <div className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center">
+                <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
                   <Sparkles className="w-4 h-4 text-white" />
                 </div>
                 <div className="text-sm">
                   <span className="text-foreground/80">HODL USDe to Enjoy Up to </span>
                   <span className="text-primary font-semibold">4.50% APR!</span>
                 </div>
-                <ChevronRight className="w-4 h-4 text-blue-500" />
+                <ChevronRight className="w-4 h-4 text-primary" />
               </div>
             </div>
 
@@ -268,18 +268,18 @@ export default function FundingAccountPage() {
               <thead>
                 <tr className="bg-background border-y border-border">
                   <th 
-                    className="text-left px-6 py-4 text-xs font-semibold text-gray-500 uppercase cursor-pointer hover:text-blue-500 transition-colors"
+                    className="text-left px-6 py-4 text-xs font-semibold text-muted-foreground uppercase cursor-pointer hover:text-primary transition-colors"
                     onClick={() => handleSort('symbol')}
                   >
                     <div className="flex items-center gap-1">
                       Coin {sortBy === 'symbol' && (sortOrder === 'asc' ? '↑' : '↓')}
                     </div>
                   </th>
-                  <th className="text-right px-6 py-4 text-xs font-semibold text-gray-500 uppercase">All</th>
-                  <th className="text-right px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Available Balance</th>
-                  <th className="text-right px-6 py-4 text-xs font-semibold text-gray-500 uppercase">In Use</th>
-                  <th className="text-right px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Equivalent</th>
-                  <th className="text-right px-6 py-4 text-xs font-semibold text-gray-500 uppercase">Action</th>
+                  <th className="text-right px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">All</th>
+                  <th className="text-right px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">Available Balance</th>
+                  <th className="text-right px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">In Use</th>
+                  <th className="text-right px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">Equivalent</th>
+                  <th className="text-right px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -307,12 +307,12 @@ export default function FundingAccountPage() {
                             <div className="flex items-center gap-2">
                               <span className="font-semibold text-foreground">{balance.symbol}</span>
                               {balance.is_delisted && (
-                                <span className="px-2 py-0.5 text-xs bg-accent text-gray-500 rounded-lg flex items-center gap-1">
+                                <span className="px-2 py-0.5 text-xs bg-accent text-muted-foreground rounded-lg flex items-center gap-1">
                                   Delisted <HelpCircle className="w-3 h-3" />
                                 </span>
                               )}
                             </div>
-                            <p className="text-xs text-gray-500 mt-0.5">{balance.name}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">{balance.name}</p>
                           </div>
                         </div>
                       </td>
@@ -329,7 +329,7 @@ export default function FundingAccountPage() {
                         <p className="font-mono text-sm text-foreground">
                           {showBalance ? formatNumber(balance.btc_value) : '********'} BTC
                         </p>
-                        <p className="text-xs text-gray-500 mt-0.5">
+                        <p className="text-xs text-muted-foreground mt-0.5">
                           ≈ {showBalance ? formatNumber(parseFloat(balance.usd_value), 2) : '****'} USD
                         </p>
                       </td>
@@ -348,7 +348,7 @@ export default function FundingAccountPage() {
                             Transfer
                           </Link>
                           <button className="p-1.5 hover:bg-accent rounded-lg transition-colors">
-                            <MoreHorizontal className="w-4 h-4 text-gray-400" />
+                            <MoreHorizontal className="w-4 h-4 text-muted-foreground" />
                           </button>
                         </div>
                       </td>
@@ -359,10 +359,10 @@ export default function FundingAccountPage() {
                     <td colSpan={6} className="py-20 text-center">
                       <div className="flex flex-col items-center">
                         <div className="w-20 h-20 bg-accent rounded-xl flex items-center justify-center mb-4">
-                          <Wallet className="w-10 h-10 text-gray-300 dark:text-gray-600" />
+                          <Wallet className="w-10 h-10 text-gray-300 dark:text-muted-foreground" />
                         </div>
-                        <p className="text-gray-500 font-medium">No assets found</p>
-                        <p className="text-sm text-gray-400 mt-1">Deposit funds to get started</p>
+                        <p className="text-muted-foreground font-medium">No assets found</p>
+                        <p className="text-sm text-muted-foreground mt-1">Deposit funds to get started</p>
                         <Link
                           href="/wallet/deposit/crypto"
                           className="mt-4 px-6 py-2.5 bg-primary hover:bg-primary/85 text-white font-medium text-sm rounded-xl transition-colors"

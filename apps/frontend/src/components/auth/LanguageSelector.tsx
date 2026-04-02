@@ -69,7 +69,7 @@ export default function LanguageSelector({ className = '' }: LanguageSelectorPro
                 onClick={() => setIsOpen(false)}
                 className="p-2 rounded-full hover:bg-accent transition-colors"
               >
-                <X className="w-5 h-5 text-gray-500" />
+                <X className="w-5 h-5 text-muted-foreground" />
               </button>
             </div>
 

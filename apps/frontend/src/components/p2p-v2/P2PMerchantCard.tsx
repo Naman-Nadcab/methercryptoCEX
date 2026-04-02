@@ -22,7 +22,7 @@ export function P2PMerchantCard({ ad, fiat }: Props) {
       {uid ? (
         <Link
           href={p2pProfilePath(String(uid))}
-          className="font-medium text-blue-600 hover:underline dark:text-blue-400"
+          className="font-medium text-primary hover:underline dark:text-blue-400"
         >
           {ad.username || 'Merchant'}
         </Link>

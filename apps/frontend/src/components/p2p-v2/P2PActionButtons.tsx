@@ -160,7 +160,7 @@ export function P2PActionButtons({ order, isBuyer, isSeller }: Props) {
   if (!user) return null;
 
   return (
-    <div className="space-y-3 rounded-xl border border-gray-200 bg-card p-4 dark:border-gray-800 dark:bg-card">
+    <div className="space-y-3 rounded-xl border border-border bg-card p-4 dark:border-border dark:bg-card">
       <h3 className="text-sm font-semibold text-foreground">Actions</h3>
       {err && <p className="text-sm text-red-600">{err}</p>}
       {ok && <p className="text-sm text-emerald-600">{ok}</p>}
@@ -178,7 +178,7 @@ export function P2PActionButtons({ order, isBuyer, isSeller }: Props) {
               setPayFile(f ?? null);
               e.target.value = '';
             }}
-            className="block w-full text-xs text-gray-600 file:mr-2 file:rounded file:border-0 file:bg-gray-100 file:px-2 file:py-1 dark:text-gray-300"
+            className="block w-full text-xs text-muted-foreground file:mr-2 file:rounded file:border-0 file:bg-accent file:px-2 file:py-1 dark:text-foreground/80"
           />
           <input
             type="text"
@@ -186,7 +186,7 @@ export function P2PActionButtons({ order, isBuyer, isSeller }: Props) {
             onChange={(e) => setTxRef(e.target.value)}
             placeholder="Transaction reference (as shown on receipt)"
             maxLength={256}
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-background dark:text-white"
+            className="w-full rounded-lg border border-border px-3 py-2 text-sm dark:border-border dark:bg-background dark:text-foreground"
           />
           <button
             type="button"
@@ -228,12 +228,12 @@ export function P2PActionButtons({ order, isBuyer, isSeller }: Props) {
       )}
 
       {canCancel && (
-        <div className="space-y-2 border-t border-gray-100 pt-3 dark:border-gray-800">
+        <div className="space-y-2 border-t border-border pt-3 dark:border-border">
           <input
             value={cancelReason}
             onChange={(e) => setCancelReason(e.target.value)}
             placeholder="Cancel reason (required)"
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-background dark:text-white"
+            className="w-full rounded-lg border border-border px-3 py-2 text-sm dark:border-border dark:bg-background dark:text-foreground"
           />
           <button
             type="button"
@@ -243,18 +243,18 @@ export function P2PActionButtons({ order, isBuyer, isSeller }: Props) {
           >
             Cancel order
           </button>
-          <p className="text-[10px] text-gray-500">Only available before payment is marked as paid.</p>
+          <p className="text-[10px] text-muted-foreground">Only available before payment is marked as paid.</p>
         </div>
       )}
 
       {canDispute && (
-        <div className="space-y-2 border-t border-gray-100 pt-3 dark:border-gray-800">
+        <div className="space-y-2 border-t border-border pt-3 dark:border-border">
           <textarea
             value={disputeReason}
             onChange={(e) => setDisputeReason(e.target.value)}
             placeholder="Describe the issue (10–1000 characters)"
             rows={3}
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-background dark:text-white"
+            className="w-full rounded-lg border border-border px-3 py-2 text-sm dark:border-border dark:bg-background dark:text-foreground"
           />
           <button
             type="button"

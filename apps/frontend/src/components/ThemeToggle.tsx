@@ -68,7 +68,7 @@ export default function ThemeToggle({
           <button
             onClick={() => setTheme('light')}
             className={`flex items-center gap-2 w-full px-4 py-2 text-sm hover:bg-accent ${
-              theme === 'light' ? 'text-blue-500' : 'text-foreground/80'
+              theme === 'light' ? 'text-primary' : 'text-foreground/80'
             }`}
           >
             <Sun className="w-4 h-4" />
@@ -77,7 +77,7 @@ export default function ThemeToggle({
           <button
             onClick={() => setTheme('dark')}
             className={`flex items-center gap-2 w-full px-4 py-2 text-sm hover:bg-accent ${
-              theme === 'dark' ? 'text-blue-500' : 'text-foreground/80'
+              theme === 'dark' ? 'text-primary' : 'text-foreground/80'
             }`}
           >
             <Moon className="w-4 h-4" />
@@ -86,7 +86,7 @@ export default function ThemeToggle({
           <button
             onClick={() => setTheme('system')}
             className={`flex items-center gap-2 w-full px-4 py-2 text-sm hover:bg-accent ${
-              theme === 'system' ? 'text-blue-500' : 'text-foreground/80'
+              theme === 'system' ? 'text-primary' : 'text-foreground/80'
             }`}
           >
             <Monitor className="w-4 h-4" />

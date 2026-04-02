@@ -22,7 +22,7 @@ export default function OrdersHubPage() {
             <p className="font-medium text-foreground">Spot Orders</p>
             <p className="text-sm text-muted-foreground">View and manage spot orders</p>
           </div>
-          <span className="text-gray-400">→</span>
+          <span className="text-muted-foreground">→</span>
         </Link>
         <Link
           href="/orders/p2p"
@@ -35,7 +35,7 @@ export default function OrdersHubPage() {
             <p className="font-medium text-foreground">P2P Orders</p>
             <p className="text-sm text-muted-foreground">View and manage P2P orders</p>
           </div>
-          <span className="text-gray-400">→</span>
+          <span className="text-muted-foreground">→</span>
         </Link>
         <Link
           href="/wallet/convert"
@@ -48,7 +48,7 @@ export default function OrdersHubPage() {
             <p className="font-medium text-foreground">Convert</p>
             <p className="text-sm text-muted-foreground">Convert between assets</p>
           </div>
-          <span className="text-gray-400">→</span>
+          <span className="text-muted-foreground">→</span>
         </Link>
       </div>
     </div>

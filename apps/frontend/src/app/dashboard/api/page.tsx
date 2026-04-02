@@ -99,7 +99,7 @@ export default function ApiPage() {
     const days = Math.ceil((new Date(expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
     if (days < 0) return { text: 'Expired', color: 'text-red-500' };
     if (days < 30) return { text: `${days} days`, color: 'text-yellow-500' };
-    return { text: `${days} days`, color: 'text-gray-500' };
+    return { text: `${days} days`, color: 'text-muted-foreground' };
   };
 
   const handleCreateKey = (type: 'system' | 'self') => {
@@ -184,12 +184,12 @@ export default function ApiPage() {
                 <h3 className="font-semibold text-foreground inline-flex items-center gap-1">
                   API Keys <InfoTooltip content="Your API keys for trading and integrations. Keys without IP binding expire in 3 months." />
                 </h3>
-                <p className="text-xs text-gray-500">{apiKeys.length} / 20 keys</p>
+                <p className="text-xs text-muted-foreground">{apiKeys.length} / 20 keys</p>
               </div>
             </div>
             <div className="w-full bg-accent rounded-full h-2">
               <div 
-                className="bg-blue-500 h-2 rounded-full transition-all"
+                className="bg-primary h-2 rounded-full transition-all"
                 style={{ width: `${(apiKeys.length / 20) * 100}%` }}
               ></div>
             </div>
@@ -202,7 +202,7 @@ export default function ApiPage() {
               </div>
               <div>
                 <h3 className="font-semibold text-foreground">Security</h3>
-                <p className="text-xs text-gray-500">IP Whitelisting recommended</p>
+                <p className="text-xs text-muted-foreground">IP Whitelisting recommended</p>
               </div>
             </div>
             <p className="text-xs text-muted-foreground mt-2">Keys without IP binding expire in 3 months</p>
@@ -217,7 +217,7 @@ export default function ApiPage() {
               </div>
               <div>
                 <h3 className="font-semibold text-foreground">Community</h3>
-                <p className="text-xs text-gray-500">Join our Telegram</p>
+                <p className="text-xs text-muted-foreground">Join our Telegram</p>
               </div>
             </div>
             <div className="flex gap-2 mt-2">
@@ -327,7 +327,7 @@ export default function ApiPage() {
                   {apiKeys.map(key => {
                     const expiration = getDaysToExpiration(key.expiresAt);
                     return (
-                      <tr key={key.id} className="hover:bg-gray-50 dark:hover:bg-[#1e2329] transition-colors">
+                      <tr key={key.id} className="hover:bg-muted dark:hover:bg-[#1e2329] transition-colors">
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
                             <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
@@ -335,7 +335,7 @@ export default function ApiPage() {
                             </div>
                             <div>
                               <p className="font-medium text-foreground">{key.name}</p>
-                              <p className="text-xs text-gray-500">{key.apiKeyUsage === 'transaction' ? 'API Transaction' : 'Third-Party'}</p>
+                              <p className="text-xs text-muted-foreground">{key.apiKeyUsage === 'transaction' ? 'API Transaction' : 'Third-Party'}</p>
                             </div>
                           </div>
                         </td>
@@ -360,7 +360,7 @@ export default function ApiPage() {
                               {copiedKey === `key-${key.id}` ? (
                                 <Check className="w-4 h-4 text-green-500" />
                               ) : (
-                                <Copy className="w-4 h-4 text-gray-400" />
+                                <Copy className="w-4 h-4 text-muted-foreground" />
                               )}
                             </button>
                           </div>
@@ -375,9 +375,9 @@ export default function ApiPage() {
                               className="p-1.5 hover:bg-accent rounded-lg transition-colors"
                             >
                               {visibleSecrets.has(key.id) ? (
-                                <EyeOff className="w-4 h-4 text-gray-400" />
+                                <EyeOff className="w-4 h-4 text-muted-foreground" />
                               ) : (
-                                <Eye className="w-4 h-4 text-gray-400" />
+                                <Eye className="w-4 h-4 text-muted-foreground" />
                               )}
                             </button>
                           </div>
@@ -398,7 +398,7 @@ export default function ApiPage() {
                               {key.ipAddresses.length} IPs
                             </span>
                           ) : (
-                            <span className="text-sm text-gray-400">None</span>
+                            <span className="text-sm text-muted-foreground">None</span>
                           )}
                         </td>
                         <td className="px-6 py-4 text-sm text-muted-foreground">
@@ -417,7 +417,7 @@ export default function ApiPage() {
                               title="Edit coming soon - create a new key to change settings"
                               aria-label="Edit API key - coming soon"
                             >
-                              <Edit3 className="w-4 h-4 text-gray-500" aria-hidden />
+                              <Edit3 className="w-4 h-4 text-muted-foreground" aria-hidden />
                             </button>
                             <button
                               onClick={() => handleDeleteKey(key)}
@@ -473,7 +473,7 @@ export default function ApiPage() {
                 onClick={() => setShowTypeModal(false)}
                 className="p-2 hover:bg-accent rounded-xl transition-colors"
               >
-                <X className="w-5 h-5 text-gray-400" />
+                <X className="w-5 h-5 text-muted-foreground" />
               </button>
             </div>
 
@@ -491,7 +491,7 @@ export default function ApiPage() {
                   <div className="flex-1">
                     <div className="flex items-center justify-between">
                       <h3 className="text-lg font-bold text-foreground">System-generated API Keys</h3>
-                      <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-blue-500 transition-colors" />
+                      <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
                     </div>
                     <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
                       Uses <span className="font-semibold text-primary">HMAC encryption</span>. You'll receive a public and private key pair. Keep them secure like passwords.
@@ -516,7 +516,7 @@ export default function ApiPage() {
                   <div className="flex-1">
                     <div className="flex items-center justify-between">
                       <h3 className="text-lg font-bold text-foreground">Self-generated API Keys</h3>
-                      <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-purple-500 transition-colors" />
+                      <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-purple-500 transition-colors" />
                     </div>
                     <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
                       Uses <span className="font-semibold text-purple-600 dark:text-purple-400">RSA encryption</span>. Create your own key pair locally. We only store your public key - maximum security.
