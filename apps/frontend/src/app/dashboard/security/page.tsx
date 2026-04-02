@@ -67,12 +67,12 @@ const Modal = ({ show, onClose, title, children }: {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div 
-        className="relative bg-white dark:bg-[#181a20] rounded-2xl w-full max-w-md shadow-2xl z-10"
+        className="relative bg-card rounded-xl w-full max-w-md shadow-2xl z-10"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800">
-          <h3 className="text-lg font-bold text-gray-900 dark:text-white">{title}</h3>
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <h3 className="text-lg font-bold text-foreground">{title}</h3>
+          <button onClick={onClose} className="p-2 hover:bg-accent rounded-xl transition-colors">
             <X className="w-5 h-5 text-gray-500" />
           </button>
         </div>
@@ -118,15 +118,15 @@ const SecurityRow = ({
   onToggle?: (enabled: boolean) => void;
   toggleLoading?: boolean;
 }) => (
-  <div className="flex flex-col lg:flex-row lg:items-center justify-between p-5 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors gap-4">
+  <div className="flex flex-col lg:flex-row lg:items-center justify-between p-5 hover:bg-accent/30 transition-colors gap-4">
     <div className="flex items-start lg:items-center gap-4">
       <div className={`w-12 h-12 ${iconBg} rounded-xl flex items-center justify-center flex-shrink-0`}>
         <Icon className="w-6 h-6" />
       </div>
       <div>
-        <h3 className="font-semibold text-gray-900 dark:text-white">{title}</h3>
+        <h3 className="font-semibold text-foreground">{title}</h3>
         {description && (
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{description}</p>
+          <p className="text-sm text-muted-foreground mt-1">{description}</p>
         )}
       </div>
     </div>
@@ -155,7 +155,7 @@ const SecurityRow = ({
                 }
               }}
               disabled={toggleLoading}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
                 toggleEnabled ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'
               } ${toggleLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
             >
@@ -165,7 +165,7 @@ const SecurityRow = ({
                 </span>
               ) : (
                 <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-lg transition-transform ${
+                  className={`inline-block h-4 w-4 transform rounded-full bg-card shadow-lg transition-transform ${
                     toggleEnabled ? 'translate-x-6' : 'translate-x-1'
                   }`}
                 />
@@ -175,7 +175,7 @@ const SecurityRow = ({
           {secondaryAction && (
             <button
               onClick={secondaryAction}
-              className="px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl transition-colors"
+              className="px-4 py-2.5 text-sm font-medium text-foreground/80 bg-accent hover:bg-accent rounded-xl transition-colors"
             >
               {secondaryLabel}
             </button>
@@ -184,10 +184,10 @@ const SecurityRow = ({
             onClick={onAction}
             className={`px-5 py-2.5 text-sm font-semibold rounded-xl transition-all ${
               actionVariant === 'primary'
-                ? 'bg-blue-500 hover:bg-blue-600 text-white shadow-lg shadow-blue-500/25'
+                ? 'bg-primary hover:bg-primary/85 text-white shadow-lg shadow-blue-500/25'
                 : actionVariant === 'danger'
                 ? 'bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-500/25'
-                : 'bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
+                : 'bg-accent hover:bg-accent text-foreground/80'
             }`}
           >
             {actionLabel}
@@ -209,7 +209,7 @@ const ToggleSwitch = ({ enabled, onChange, loading }: { enabled: boolean; onChan
       }`}
     >
       <span
-        className={`absolute top-1 w-6 h-6 bg-white rounded-full transition-all shadow-lg ${
+        className={`absolute top-1 w-6 h-6 bg-card rounded-full transition-all shadow-lg ${
           enabled ? 'right-1' : 'left-1'
         }`}
       />
@@ -233,17 +233,17 @@ const SectionCard = ({
   subtitle: string;
   children: React.ReactNode;
 }) => (
-  <div className="bg-white dark:bg-[#181a20] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden mb-6">
-    <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center gap-4">
+  <div className="bg-card rounded-xl border border-border overflow-hidden mb-6">
+    <div className="px-6 py-4 border-b border-border flex items-center gap-4">
       <div className={`w-12 h-12 ${iconBg} rounded-xl flex items-center justify-center`}>
         <Icon className={`w-6 h-6 ${iconColor}`} />
       </div>
       <div>
-        <h2 className="text-lg font-bold text-gray-900 dark:text-white">{title}</h2>
-        <p className="text-sm text-gray-500 dark:text-gray-400">{subtitle}</p>
+        <h2 className="text-lg font-bold text-foreground">{title}</h2>
+        <p className="text-sm text-muted-foreground">{subtitle}</p>
       </div>
     </div>
-    <div className="divide-y divide-gray-100 dark:divide-gray-800">
+    <div className="divide-y divide-border">
       {children}
     </div>
   </div>
@@ -1558,36 +1558,36 @@ export default function SecurityPage() {
 
   // OTP Input Component
   return (
-    <div className="p-4 lg:p-8 bg-gray-50 dark:bg-[#0b0e11] min-h-full">
+    <div className="p-4 lg:p-8 bg-background min-h-full">
       <div className="max-w-5xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Security Center</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-2">Protect your account with multiple layers of security</p>
+          <h1 className="text-3xl font-bold text-foreground">Security Center</h1>
+          <p className="text-muted-foreground mt-2">Protect your account with multiple layers of security</p>
         </div>
 
         {/* Security Overview Card */}
-        <div className="bg-white dark:bg-[#181a20] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden mb-6">
+        <div className="bg-card rounded-xl border border-border overflow-hidden mb-6">
           <div className="p-6 lg:p-8">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
               {/* Left: Security Level */}
               <div className="flex items-center gap-6">
-                <div className={`w-20 h-20 rounded-2xl bg-gradient-to-br ${securityBgColor} flex items-center justify-center shadow-lg`}>
+                <div className={`w-20 h-20 rounded-xl bg-gradient-to-br ${securityBgColor} flex items-center justify-center shadow-lg`}>
                   <Shield className="w-10 h-10 text-white" />
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Security Level: <span className={securityColor}>{securityStatus}</span></h2>
-                  <p className="text-gray-500 dark:text-gray-400">Complete more security settings to increase protection</p>
+                  <h2 className="text-xl font-bold text-foreground mb-2">Security Level: <span className={securityColor}>{securityStatus}</span></h2>
+                  <p className="text-muted-foreground">Complete more security settings to increase protection</p>
                 </div>
               </div>
 
               {/* Right: Progress */}
               <div className="w-full lg:w-64">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Protection Score</span>
+                  <span className="text-sm font-medium text-foreground/80">Protection Score</span>
                   <span className={`text-sm font-bold ${securityColor}`}>{securityLevel}%</span>
                 </div>
-                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3">
+                <div className="w-full bg-accent rounded-full h-3">
                   <div 
                     className={`h-3 rounded-full bg-gradient-to-r ${securityBgColor} transition-all duration-500`} 
                     style={{ width: `${securityLevel}%` }}
@@ -1602,13 +1602,13 @@ export default function SecurityPage() {
         <SectionCard
           icon={Lock}
           iconBg="bg-blue-100 dark:bg-blue-900/30"
-          iconColor="text-blue-600 dark:text-blue-400"
+          iconColor="text-primary"
           title="Password"
           subtitle="Manage your login credentials"
         >
           <SecurityRow
             icon={Lock}
-            iconBg="bg-gray-100 dark:bg-gray-800 text-gray-500"
+            iconBg="bg-accent text-gray-500"
             title="Login Password"
             description="Used for account login"
             status="Set up"
@@ -1622,13 +1622,13 @@ export default function SecurityPage() {
         <SectionCard
           icon={ShieldCheck}
           iconBg="bg-green-100 dark:bg-green-900/30"
-          iconColor="text-green-600 dark:text-green-400"
+          iconColor="text-buy"
           title="Two-Factor Authentication"
           subtitle="Add extra layers of security to your account"
         >
           <SecurityRow
             icon={Mail}
-            iconBg="bg-gray-100 dark:bg-gray-800 text-gray-500"
+            iconBg="bg-accent text-gray-500"
             title="Email Authentication"
             description={<>For login, withdrawal, and security verification. <span className="text-blue-500 cursor-pointer hover:underline">Unlink</span></>}
             status="Verified"
@@ -1639,7 +1639,7 @@ export default function SecurityPage() {
           />
           <SecurityRow
             icon={Smartphone}
-            iconBg={userPhone && smsAuthEnabled ? "bg-green-100 dark:bg-green-900/30 text-green-600" : "bg-gray-100 dark:bg-gray-800 text-gray-500"}
+            iconBg={userPhone && smsAuthEnabled ? "bg-green-100 dark:bg-green-900/30 text-green-600" : "bg-accent text-gray-500"}
             title="SMS Authentication"
             description="For login, password reset, and security settings"
             status={userPhone ? (smsAuthEnabled ? 'ON' : 'OFF') : 'Not Configured'}
@@ -1655,7 +1655,7 @@ export default function SecurityPage() {
           />
           <SecurityRow
             icon={Shield}
-            iconBg="bg-gray-100 dark:bg-gray-800 text-gray-500"
+            iconBg="bg-accent text-gray-500"
             title="Google 2FA"
             description="Most secure verification for sensitive operations"
             status={user2faEnabled ? 'Enabled' : 'Not Configured'}
@@ -1677,7 +1677,7 @@ export default function SecurityPage() {
         >
           <SecurityRow
             icon={Fingerprint}
-            iconBg="bg-gray-100 dark:bg-gray-800 text-gray-500"
+            iconBg="bg-accent text-gray-500"
             title="Passkeys (Touch ID / Face ID)"
             description="Use biometrics for fast and secure login"
             status={passkeysCount > 0 ? `${passkeysCount} Registered` : 'Not Configured'}
@@ -1689,7 +1689,7 @@ export default function SecurityPage() {
           />
           <SecurityRow
             icon={KeyRound}
-            iconBg="bg-gray-100 dark:bg-gray-800 text-gray-500"
+            iconBg="bg-accent text-gray-500"
             title="Fund Password"
             description="Required for withdrawal, P2P trading, and other sensitive operations"
             status={hasFundPassword ? 'Set up' : 'Not Configured'}
@@ -1701,7 +1701,7 @@ export default function SecurityPage() {
           />
           <SecurityRow
             icon={BadgeCheck}
-            iconBg="bg-gray-100 dark:bg-gray-800 text-gray-500"
+            iconBg="bg-accent text-gray-500"
             title="Anti-Phishing Code"
             description="This code appears in all official emails to prevent phishing"
             status={antiPhishingCode ? 'Set up' : 'Not Configured'}
@@ -1722,14 +1722,14 @@ export default function SecurityPage() {
           title="Withdrawal Security"
           subtitle="Control how and where you can withdraw funds"
         >
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between p-5 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors gap-4">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between p-5 hover:bg-accent/30 transition-colors gap-4">
             <div className="flex items-start lg:items-center gap-4">
-              <div className="w-12 h-12 bg-gray-100 dark:bg-gray-800 rounded-xl flex items-center justify-center flex-shrink-0">
+              <div className="w-12 h-12 bg-accent rounded-xl flex items-center justify-center flex-shrink-0">
                 <ShieldCheck className="w-6 h-6 text-gray-500" />
               </div>
               <div>
-                <h3 className="font-semibold text-gray-900 dark:text-white">Withdrawal Address Whitelist</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                <h3 className="font-semibold text-foreground">Withdrawal Address Whitelist</h3>
+                <p className="text-sm text-muted-foreground mt-1">
                   Skip verification for trusted addresses when enabled
                 </p>
               </div>
@@ -1743,14 +1743,14 @@ export default function SecurityPage() {
             </div>
           </div>
 
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between p-5 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors gap-4">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between p-5 hover:bg-accent/30 transition-colors gap-4">
             <div className="flex items-start lg:items-center gap-4">
-              <div className="w-12 h-12 bg-gray-100 dark:bg-gray-800 rounded-xl flex items-center justify-center flex-shrink-0">
+              <div className="w-12 h-12 bg-accent rounded-xl flex items-center justify-center flex-shrink-0">
                 <BookOpen className="w-6 h-6 text-gray-500" />
               </div>
               <div>
-                <h3 className="font-semibold text-gray-900 dark:text-white">Withdraw via Address Book</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                <h3 className="font-semibold text-foreground">Withdraw via Address Book</h3>
+                <p className="text-sm text-muted-foreground mt-1">
                   Only withdraw to saved addresses.{' '}
                   <Link href="/dashboard/address-book" className="text-blue-500 hover:underline">Manage Addresses</Link>
                 </p>
@@ -1767,7 +1767,7 @@ export default function SecurityPage() {
 
           <SecurityRow
             icon={MapPin}
-            iconBg="bg-gray-100 dark:bg-gray-800 text-gray-400"
+            iconBg="bg-accent text-gray-400"
             title="New Address Withdrawal Lock"
             description="Disable withdrawals to newly saved addresses for 24 hours"
             status="Coming Soon"
@@ -1777,7 +1777,7 @@ export default function SecurityPage() {
 
           <SecurityRow
             icon={Coins}
-            iconBg="bg-gray-100 dark:bg-gray-800 text-gray-500"
+            iconBg="bg-accent text-gray-500"
             title="Manage Withdrawal Limits"
             description="Configure daily and monthly withdrawal limits"
             actionLabel="Manage"
@@ -1794,8 +1794,8 @@ export default function SecurityPage() {
           <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
             <Mail className="w-8 h-8 text-blue-500" />
           </div>
-          <p className="text-gray-600 dark:text-gray-400">
-            Enter the 6-digit code sent to <span className="font-medium text-gray-900 dark:text-white">{maskEmail(user?.email || '')}</span>
+          <p className="text-muted-foreground">
+            Enter the 6-digit code sent to <span className="font-medium text-foreground">{maskEmail(user?.email || '')}</span>
           </p>
         </div>
         <div className="flex gap-3 justify-center">
@@ -1819,7 +1819,7 @@ export default function SecurityPage() {
                 if (e.key === 'Backspace' && !emailOtp[i] && i > 0) emailOtpRefs.current[i - 1]?.focus();
               }}
               ref={(el) => { emailOtpRefs.current[i] = el; }}
-              className="w-12 h-14 text-center text-xl font-bold text-gray-900 dark:text-white bg-gray-50 dark:bg-[#1e2329] border-2 border-gray-200 dark:border-gray-700 rounded-xl focus:border-blue-500 focus:outline-none"
+              className="w-12 h-14 text-center text-xl font-bold text-foreground bg-muted border-2 border-border rounded-xl focus:border-blue-500 focus:outline-none"
             />
           ))}
         </div>
@@ -1835,7 +1835,7 @@ export default function SecurityPage() {
         <button
           onClick={verifyEmailOtp}
           disabled={verifyingEmailOtp || emailOtp.join('').length !== 6}
-          className="w-full mt-6 py-3.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+          className="w-full mt-6 py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
         >
           {verifyingEmailOtp ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
           Verify
@@ -1848,7 +1848,7 @@ export default function SecurityPage() {
           <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
             <Smartphone className="w-8 h-8 text-blue-500" />
           </div>
-          <p className="text-gray-600 dark:text-gray-400">Enter your phone number for SMS authentication</p>
+          <p className="text-muted-foreground">Enter your phone number for SMS authentication</p>
         </div>
         <div className="flex gap-2">
           <div className="relative">
@@ -1857,14 +1857,14 @@ export default function SecurityPage() {
                 e.stopPropagation();
                 setShowCountryDropdown(!showCountryDropdown);
               }}
-              className="flex items-center gap-2 px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl"
+              className="flex items-center gap-2 px-4 py-3.5 bg-muted border border-border rounded-xl"
             >
               <span>{selectedCountry.flag}</span>
               <span>{selectedCountry.code}</span>
               <ChevronDown className="w-4 h-4" />
             </button>
             {showCountryDropdown && (
-              <div className="absolute top-full left-0 mt-2 w-64 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-10 max-h-60 overflow-y-auto">
+              <div className="absolute top-full left-0 mt-2 w-64 bg-card border border-border rounded-xl shadow-xl z-10 max-h-60 overflow-y-auto">
                 {countries.map(country => (
                   <button
                     key={country.code}
@@ -1873,7 +1873,7 @@ export default function SecurityPage() {
                       setSelectedCountry(country); 
                       setShowCountryDropdown(false); 
                     }}
-                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800"
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent"
                   >
                     <span>{country.flag}</span>
                     <span className="flex-1 text-left">{country.name}</span>
@@ -1888,13 +1888,13 @@ export default function SecurityPage() {
             value={phoneNumber}
             onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
             placeholder="Phone number"
-            className="flex-1 px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:border-blue-500"
+            className="flex-1 px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-blue-500"
           />
         </div>
         <button
           onClick={handlePhoneSubmit}
           disabled={phoneNumber.length < 10}
-          className="w-full mt-6 py-3.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors"
+          className="w-full mt-6 py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors"
         >
           Continue
         </button>
@@ -1902,7 +1902,7 @@ export default function SecurityPage() {
 
       {/* Captcha Modal */}
       <Modal show={showCaptchaModal} onClose={() => setShowCaptchaModal(false)} title="Security Verification">
-        <div className="relative h-32 bg-gray-100 dark:bg-gray-800 rounded-xl mb-6 overflow-hidden">
+        <div className="relative h-32 bg-accent rounded-xl mb-6 overflow-hidden">
           <div className="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-purple-500/20" />
           <div
             className="absolute top-1/2 -translate-y-1/2 w-12 h-12 bg-blue-500 rounded-lg transition-all"
@@ -1914,7 +1914,7 @@ export default function SecurityPage() {
           />
         </div>
         <div 
-          className="captcha-slider relative h-12 bg-gray-100 dark:bg-gray-800 rounded-xl cursor-pointer"
+          className="captcha-slider relative h-12 bg-accent rounded-xl cursor-pointer"
           onMouseDown={() => setDragging(true)}
           onMouseUp={() => { setDragging(false); verifyCaptcha(); }}
           onMouseLeave={() => setDragging(false)}
@@ -1946,8 +1946,8 @@ export default function SecurityPage() {
           <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
             <Smartphone className="w-8 h-8 text-blue-500" />
           </div>
-          <p className="text-gray-600 dark:text-gray-400">
-            Enter the code sent to <span className="font-medium text-gray-900 dark:text-white">{selectedCountry.code}{phoneNumber}</span>
+          <p className="text-muted-foreground">
+            Enter the code sent to <span className="font-medium text-foreground">{selectedCountry.code}{phoneNumber}</span>
           </p>
         </div>
         <div className="flex gap-3 justify-center">
@@ -1971,7 +1971,7 @@ export default function SecurityPage() {
                 if (e.key === 'Backspace' && !phoneOtp[i] && i > 0) phoneOtpRefs.current[i - 1]?.focus();
               }}
               ref={(el) => { phoneOtpRefs.current[i] = el; }}
-              className="w-12 h-14 text-center text-xl font-bold text-gray-900 dark:text-white bg-gray-50 dark:bg-[#1e2329] border-2 border-gray-200 dark:border-gray-700 rounded-xl focus:border-blue-500 focus:outline-none"
+              className="w-12 h-14 text-center text-xl font-bold text-foreground bg-muted border-2 border-border rounded-xl focus:border-blue-500 focus:outline-none"
             />
           ))}
         </div>
@@ -1987,7 +1987,7 @@ export default function SecurityPage() {
         <button
           onClick={verifyPhoneOtp}
           disabled={verifyingPhoneOtp || phoneOtp.join('').length !== 6}
-          className="w-full mt-6 py-3.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+          className="w-full mt-6 py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
         >
           {verifyingPhoneOtp ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
           Verify & Enable
@@ -2000,7 +2000,7 @@ export default function SecurityPage() {
           <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
             <Shield className="w-8 h-8 text-green-500" />
           </div>
-          <p className="text-gray-600 dark:text-gray-400">Verify your email before enabling Google 2FA</p>
+          <p className="text-muted-foreground">Verify your email before enabling Google 2FA</p>
         </div>
         <div className="flex gap-3 justify-center">
           {google2faEmailOtp.map((digit, i) => (
@@ -2023,7 +2023,7 @@ export default function SecurityPage() {
                 if (e.key === 'Backspace' && !google2faEmailOtp[i] && i > 0) google2faEmailOtpRefs.current[i - 1]?.focus();
               }}
               ref={(el) => { google2faEmailOtpRefs.current[i] = el; }}
-              className="w-12 h-14 text-center text-xl font-bold text-gray-900 dark:text-white bg-gray-50 dark:bg-[#1e2329] border-2 border-gray-200 dark:border-gray-700 rounded-xl focus:border-blue-500 focus:outline-none"
+              className="w-12 h-14 text-center text-xl font-bold text-foreground bg-muted border-2 border-border rounded-xl focus:border-blue-500 focus:outline-none"
             />
           ))}
         </div>
@@ -2039,7 +2039,7 @@ export default function SecurityPage() {
         <button
           onClick={verifyGoogle2faEmailOtp}
           disabled={verifyingGoogle2faEmailOtp || google2faEmailOtp.join('').length !== 6}
-          className="w-full mt-6 py-3.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+          className="w-full mt-6 py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
         >
           {verifyingGoogle2faEmailOtp ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
           Continue
@@ -2050,37 +2050,37 @@ export default function SecurityPage() {
       <Modal show={showGoogle2faSetupModal} onClose={() => setShowGoogle2faSetupModal(false)} title="Set Up Google 2FA">
         <div className="space-y-6">
           <div className="text-center">
-            <p className="text-gray-600 dark:text-gray-400 mb-4">Scan this QR code with Google Authenticator</p>
+            <p className="text-muted-foreground mb-4">Scan this QR code with Google Authenticator</p>
             {google2faQrCode && (
-              <img src={google2faQrCode} alt="2FA QR Code" className="w-48 h-48 mx-auto rounded-xl border border-gray-200 dark:border-gray-700" />
+              <img src={google2faQrCode} alt="2FA QR Code" className="w-48 h-48 mx-auto rounded-xl border border-border" />
             )}
           </div>
-          <div className="p-4 bg-gray-50 dark:bg-[#1e2329] rounded-xl">
+          <div className="p-4 bg-muted rounded-xl">
             <p className="text-xs text-gray-500 mb-2">Or enter this key manually:</p>
             <div className="flex items-center gap-2">
-              <code className="flex-1 text-sm font-mono text-gray-900 dark:text-white break-all">{google2faSecret}</code>
+              <code className="flex-1 text-sm font-mono text-foreground break-all">{google2faSecret}</code>
               <button
                 onClick={() => navigator.clipboard.writeText(google2faSecret)}
-                className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg"
+                className="p-2 hover:bg-accent rounded-lg"
               >
                 <Copy className="w-4 h-4 text-gray-500" />
               </button>
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Enter 6-digit code</label>
+            <label className="block text-sm font-medium text-foreground/80 mb-2">Enter 6-digit code</label>
             <input
               type="text"
               value={google2faCode}
               onChange={(e) => setGoogle2faCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
               placeholder="000000"
-              className="w-full px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl text-center text-xl font-mono tracking-widest outline-none focus:border-blue-500"
+              className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl text-center text-xl font-mono tracking-widest outline-none focus:border-blue-500"
             />
           </div>
           <button
             onClick={enableGoogle2fa}
             disabled={enablingGoogle2fa || google2faCode.length !== 6}
-            className="w-full py-3.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+            className="w-full py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
           >
             {enablingGoogle2fa ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
             Enable 2FA
@@ -2094,15 +2094,15 @@ export default function SecurityPage() {
           <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
             <AlertTriangle className="w-8 h-8 text-red-500" />
           </div>
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Are you sure?</h3>
-          <p className="text-gray-600 dark:text-gray-400">
+          <h3 className="text-lg font-semibold text-foreground mb-2">Are you sure?</h3>
+          <p className="text-muted-foreground">
             Disabling 2FA will reduce your account security. You will need your password and current 2FA code to proceed.
           </p>
         </div>
         <div className="flex gap-3">
           <button
             onClick={() => setShowDisable2faConfirmModal(false)}
-            className="flex-1 py-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 font-medium rounded-xl transition-colors"
+            className="flex-1 py-3 bg-accent hover:bg-accent text-foreground/80 font-medium rounded-xl transition-colors"
           >
             Cancel
           </button>
@@ -2119,14 +2119,14 @@ export default function SecurityPage() {
       <Modal show={showDisable2faVerifyModal} onClose={() => setShowDisable2faVerifyModal(false)} title="Verify to Disable 2FA">
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Password</label>
+            <label className="block text-sm font-medium text-foreground/80 mb-2">Password</label>
             <div className="relative">
               <input
                 type={showDisablePassword ? 'text' : 'password'}
                 value={disable2faPassword}
                 onChange={(e) => setDisable2faPassword(e.target.value)}
                 placeholder="Enter your password"
-                className="w-full px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:border-blue-500 pr-12 text-gray-900 dark:text-white placeholder-gray-400"
+                className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-blue-500 pr-12 text-foreground placeholder:text-muted-foreground"
               />
               <button
                 type="button"
@@ -2138,13 +2138,13 @@ export default function SecurityPage() {
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">2FA Code</label>
+            <label className="block text-sm font-medium text-foreground/80 mb-2">2FA Code</label>
             <input
               type="text"
               value={disable2faCode}
               onChange={(e) => setDisable2faCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
               placeholder="Enter 6-digit code"
-              className="w-full px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl text-center text-xl font-mono tracking-widest outline-none focus:border-blue-500 text-gray-900 dark:text-white placeholder-gray-400"
+              className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl text-center text-xl font-mono tracking-widest outline-none focus:border-blue-500 text-foreground placeholder:text-muted-foreground"
             />
           </div>
           <button
@@ -2164,20 +2164,20 @@ export default function SecurityPage() {
           <div className="w-16 h-16 bg-purple-100 dark:bg-purple-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
             <KeyRound className="w-8 h-8 text-purple-500" />
           </div>
-          <p className="text-gray-600 dark:text-gray-400">
+          <p className="text-muted-foreground">
             Fund password is required for withdrawals and P2P trading
           </p>
         </div>
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Fund Password</label>
+            <label className="block text-sm font-medium text-foreground/80 mb-2">Fund Password</label>
             <div className="relative">
               <input
                 type={showFundPasswordInput ? 'text' : 'password'}
                 value={fundPassword}
                 onChange={(e) => setFundPassword(e.target.value)}
                 placeholder="Enter fund password"
-                className="w-full px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:border-blue-500 pr-12"
+                className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-blue-500 pr-12"
               />
               <button
                 type="button"
@@ -2189,14 +2189,14 @@ export default function SecurityPage() {
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Confirm Password</label>
+            <label className="block text-sm font-medium text-foreground/80 mb-2">Confirm Password</label>
             <div className="relative">
               <input
                 type={showConfirmFundPasswordInput ? 'text' : 'password'}
                 value={confirmFundPassword}
                 onChange={(e) => setConfirmFundPassword(e.target.value)}
                 placeholder="Confirm fund password"
-                className="w-full px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:border-blue-500 pr-12"
+                className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-blue-500 pr-12"
               />
               <button
                 type="button"
@@ -2210,7 +2210,7 @@ export default function SecurityPage() {
           <button
             onClick={submitFundPassword}
             disabled={settingFundPassword || !fundPassword || fundPassword !== confirmFundPassword}
-            className="w-full py-3.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+            className="w-full py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
           >
             {settingFundPassword ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
             {user2faEnabled ? 'Continue' : 'Save'}
@@ -2224,7 +2224,7 @@ export default function SecurityPage() {
           <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
             <Shield className="w-8 h-8 text-green-500" />
           </div>
-          <p className="text-gray-600 dark:text-gray-400">Enter your Google 2FA code to confirm</p>
+          <p className="text-muted-foreground">Enter your Google 2FA code to confirm</p>
         </div>
         <div className="flex gap-3 justify-center">
           {fundPassword2faCode.map((digit, i) => (
@@ -2247,14 +2247,14 @@ export default function SecurityPage() {
                 if (e.key === 'Backspace' && !fundPassword2faCode[i] && i > 0) fundPassword2faRefs.current[i - 1]?.focus();
               }}
               ref={(el) => { fundPassword2faRefs.current[i] = el; }}
-              className="w-12 h-14 text-center text-xl font-bold text-gray-900 dark:text-white bg-gray-50 dark:bg-[#1e2329] border-2 border-gray-200 dark:border-gray-700 rounded-xl focus:border-blue-500 focus:outline-none"
+              className="w-12 h-14 text-center text-xl font-bold text-foreground bg-muted border-2 border-border rounded-xl focus:border-blue-500 focus:outline-none"
             />
           ))}
         </div>
         <button
           onClick={verifyFundPassword2fa}
           disabled={verifyingFundPassword2fa || fundPassword2faCode.join('').length !== 6}
-          className="w-full mt-6 py-3.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+          className="w-full mt-6 py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
         >
           {verifyingFundPassword2fa ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
           Confirm
@@ -2267,37 +2267,37 @@ export default function SecurityPage() {
           <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
             <BadgeCheck className="w-8 h-8 text-blue-500" />
           </div>
-          <p className="text-gray-600 dark:text-gray-400">
+          <p className="text-muted-foreground">
             This code will appear in all official emails from Methereum
           </p>
         </div>
         <div className="space-y-4">
           {isChangingAntiPhishing && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Current Code</label>
+              <label className="block text-sm font-medium text-foreground/80 mb-2">Current Code</label>
               <input
                 type="text"
                 value={oldAntiPhishingCodeInput}
                 onChange={(e) => setOldAntiPhishingCodeInput(e.target.value)}
                 placeholder="Enter current anti-phishing code"
-                className="w-full px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:border-blue-500"
+                className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-blue-500"
               />
             </div>
           )}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">New Code (4-20 characters)</label>
+            <label className="block text-sm font-medium text-foreground/80 mb-2">New Code (4-20 characters)</label>
             <input
               type="text"
               value={antiPhishingCodeInput}
               onChange={(e) => setAntiPhishingCodeInput(e.target.value.slice(0, 20))}
               placeholder="Enter new anti-phishing code"
-              className="w-full px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:border-blue-500"
+              className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-blue-500"
             />
           </div>
           <button
             onClick={saveAntiPhishing}
             disabled={savingAntiPhishing || antiPhishingCodeInput.length < 4}
-            className="w-full py-3.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+            className="w-full py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
           >
             {savingAntiPhishing ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
             Save
@@ -2311,23 +2311,23 @@ export default function SecurityPage() {
           <div className="w-16 h-16 bg-orange-100 dark:bg-orange-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
             <ShieldCheck className="w-8 h-8 text-orange-500" />
           </div>
-          <p className="text-gray-600 dark:text-gray-400">Verify your identity to enable whitelist</p>
+          <p className="text-muted-foreground">Verify your identity to enable whitelist</p>
         </div>
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Email OTP</label>
+            <label className="block text-sm font-medium text-foreground/80 mb-2">Email OTP</label>
             <div className="flex gap-2">
               <input
                 type="text"
                 value={whitelistEmailOtp}
                 onChange={(e) => setWhitelistEmailOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
                 placeholder="Enter 6-digit code"
-                className="flex-1 px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:border-blue-500"
+                className="flex-1 px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-blue-500"
               />
               <button
                 onClick={sendWhitelistOtp}
                 disabled={sendingWhitelistOtp || whitelistEmailOtpTimer > 0}
-                className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-xl transition-colors whitespace-nowrap"
+                className="px-4 py-2 bg-accent hover:bg-accent text-foreground/80 rounded-xl transition-colors whitespace-nowrap"
               >
                 {whitelistEmailOtpTimer > 0 ? `${whitelistEmailOtpTimer}s` : 'Send'}
               </button>
@@ -2335,20 +2335,20 @@ export default function SecurityPage() {
           </div>
           {user2faEnabled && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Google 2FA Code</label>
+              <label className="block text-sm font-medium text-foreground/80 mb-2">Google 2FA Code</label>
               <input
                 type="text"
                 value={whitelistGoogle2faCode}
                 onChange={(e) => setWhitelistGoogle2faCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                 placeholder="Enter 6-digit code"
-                className="w-full px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:border-blue-500"
+                className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-blue-500"
               />
             </div>
           )}
           <button
             onClick={verifyWhitelistAndEnable}
             disabled={verifyingWhitelist || whitelistEmailOtp.length !== 6 || (user2faEnabled && whitelistGoogle2faCode.length !== 6)}
-            className="w-full py-3.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+            className="w-full py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
           >
             {verifyingWhitelist ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
             Enable Whitelist
@@ -2362,22 +2362,22 @@ export default function SecurityPage() {
           <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
             <BookOpen className="w-8 h-8 text-blue-500" />
           </div>
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Restrict Withdrawals</h3>
-          <p className="text-gray-600 dark:text-gray-400">
+          <h3 className="text-lg font-semibold text-foreground mb-2">Restrict Withdrawals</h3>
+          <p className="text-muted-foreground">
             Once enabled, you can only withdraw to addresses saved in your Address Book.
           </p>
         </div>
         <div className="flex gap-3">
           <button
             onClick={() => setShowAddressBookModal(false)}
-            className="flex-1 py-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 font-medium rounded-xl transition-colors"
+            className="flex-1 py-3 bg-accent hover:bg-accent text-foreground/80 font-medium rounded-xl transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={enableAddressBook}
             disabled={enablingAddressBook}
-            className="flex-1 py-3 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-xl transition-colors flex items-center justify-center gap-2"
+            className="flex-1 py-3 bg-primary hover:bg-primary/85 text-white font-medium rounded-xl transition-colors flex items-center justify-center gap-2"
           >
             {enablingAddressBook ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
             Enable
@@ -2394,19 +2394,19 @@ export default function SecurityPage() {
                 <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
                   <Mail className="w-8 h-8 text-blue-500" />
                 </div>
-                <p className="text-gray-600 dark:text-gray-400">Enter your new email address</p>
+                <p className="text-muted-foreground">Enter your new email address</p>
               </div>
               <input
                 type="email"
                 value={newEmail}
                 onChange={(e) => setNewEmail(e.target.value)}
                 placeholder="New email address"
-                className="w-full px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:border-blue-500 text-gray-900 dark:text-white"
+                className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-blue-500 text-foreground"
               />
               <button
                 onClick={sendEmailChangeOtp}
                 disabled={sendingEmailChangeOtp || !newEmail}
-                className="w-full py-3.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+                className="w-full py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
               >
                 {sendingEmailChangeOtp ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
                 Continue
@@ -2419,7 +2419,7 @@ export default function SecurityPage() {
                 <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
                   <Mail className="w-8 h-8 text-green-500" />
                 </div>
-                <p className="text-gray-600 dark:text-gray-400">Enter the code sent to <span className="font-medium text-gray-900 dark:text-white">{newEmail}</span></p>
+                <p className="text-muted-foreground">Enter the code sent to <span className="font-medium text-foreground">{newEmail}</span></p>
               </div>
               <div className="flex gap-3 justify-center">
                 {emailChangeOtp.map((digit, i) => (
@@ -2442,7 +2442,7 @@ export default function SecurityPage() {
                       if (e.key === 'Backspace' && !emailChangeOtp[i] && i > 0) emailChangeOtpRefs.current[i - 1]?.focus();
                     }}
                     ref={(el) => { emailChangeOtpRefs.current[i] = el; }}
-                    className="w-12 h-14 text-center text-xl font-bold text-gray-900 dark:text-white bg-gray-50 dark:bg-[#1e2329] border-2 border-gray-200 dark:border-gray-700 rounded-xl focus:border-blue-500 focus:outline-none"
+                    className="w-12 h-14 text-center text-xl font-bold text-foreground bg-muted border-2 border-border rounded-xl focus:border-blue-500 focus:outline-none"
                   />
                 ))}
               </div>
@@ -2458,7 +2458,7 @@ export default function SecurityPage() {
               <button
                 onClick={verifyEmailChange}
                 disabled={verifyingEmailChange || emailChangeOtp.join('').length !== 6}
-                className="w-full py-3.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+                className="w-full py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
               >
                 {verifyingEmailChange ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
                 Verify & Change
@@ -2477,7 +2477,7 @@ export default function SecurityPage() {
                 <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
                   <Smartphone className="w-8 h-8 text-blue-500" />
                 </div>
-                <p className="text-gray-600 dark:text-gray-400">Enter the code sent to your current phone <span className="font-medium text-gray-900 dark:text-white">{maskPhone(userPhone || '')}</span></p>
+                <p className="text-muted-foreground">Enter the code sent to your current phone <span className="font-medium text-foreground">{maskPhone(userPhone || '')}</span></p>
               </div>
               <div className="flex gap-3 justify-center">
                 {currentPhoneOtp.map((digit, i) => (
@@ -2500,7 +2500,7 @@ export default function SecurityPage() {
                       if (e.key === 'Backspace' && !currentPhoneOtp[i] && i > 0) currentPhoneOtpRefs.current[i - 1]?.focus();
                     }}
                     ref={(el) => { currentPhoneOtpRefs.current[i] = el; }}
-                    className="w-12 h-14 text-center text-xl font-bold text-gray-900 dark:text-white bg-gray-50 dark:bg-[#1e2329] border-2 border-gray-200 dark:border-gray-700 rounded-xl focus:border-blue-500 focus:outline-none"
+                    className="w-12 h-14 text-center text-xl font-bold text-foreground bg-muted border-2 border-border rounded-xl focus:border-blue-500 focus:outline-none"
                   />
                 ))}
               </div>
@@ -2516,7 +2516,7 @@ export default function SecurityPage() {
               <button
                 onClick={verifyCurrentPhoneAndContinue}
                 disabled={verifyingSmsChange || currentPhoneOtp.join('').length !== 6}
-                className="w-full py-3.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+                className="w-full py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
               >
                 {verifyingSmsChange ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
                 Verify & Continue
@@ -2529,28 +2529,28 @@ export default function SecurityPage() {
                 <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
                   <Smartphone className="w-8 h-8 text-green-500" />
                 </div>
-                <p className="text-gray-600 dark:text-gray-400">Enter your new phone number</p>
+                <p className="text-muted-foreground">Enter your new phone number</p>
               </div>
               <div className="flex gap-2">
                 <div className="relative">
                   <button
                     onClick={() => setShowCountryDropdown(!showCountryDropdown)}
-                    className="px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl flex items-center gap-2 min-w-[100px]"
+                    className="px-4 py-3.5 bg-muted border border-border rounded-xl flex items-center gap-2 min-w-[100px]"
                   >
                     <span>{selectedCountry?.flag}</span>
-                    <span className="text-gray-900 dark:text-white">{selectedCountry?.code}</span>
+                    <span className="text-foreground">{selectedCountry?.code}</span>
                     <ChevronDown className="w-4 h-4 text-gray-400" />
                   </button>
                   {showCountryDropdown && (
-                    <div className="absolute top-full mt-1 w-48 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg z-10 max-h-48 overflow-auto">
+                    <div className="absolute top-full mt-1 w-48 bg-card border border-border rounded-xl shadow-lg z-10 max-h-48 overflow-auto">
                       {countries.map((country) => (
                         <button
                           key={country.code}
                           onClick={() => { setSelectedCountry(country); setShowCountryDropdown(false); }}
-                          className="w-full px-4 py-2 flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-800 text-left"
+                          className="w-full px-4 py-2 flex items-center gap-2 hover:bg-accent text-left"
                         >
                           <span>{country.flag}</span>
-                          <span className="text-gray-900 dark:text-white">{country.name}</span>
+                          <span className="text-foreground">{country.name}</span>
                           <span className="text-gray-500 ml-auto">{country.code}</span>
                         </button>
                       ))}
@@ -2562,13 +2562,13 @@ export default function SecurityPage() {
                   value={newPhoneNumber}
                   onChange={(e) => setNewPhoneNumber(e.target.value.replace(/\D/g, '').slice(0, 15))}
                   placeholder="Phone number"
-                  className="flex-1 px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:border-blue-500 text-gray-900 dark:text-white"
+                  className="flex-1 px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-blue-500 text-foreground"
                 />
               </div>
               <button
                 onClick={sendNewPhoneOtp}
                 disabled={sendingSmsChangeOtp || !newPhoneNumber}
-                className="w-full py-3.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+                className="w-full py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
               >
                 {sendingSmsChangeOtp ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
                 Continue
@@ -2581,7 +2581,7 @@ export default function SecurityPage() {
                 <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
                   <Smartphone className="w-8 h-8 text-green-500" />
                 </div>
-                <p className="text-gray-600 dark:text-gray-400">Enter the code sent to <span className="font-medium text-gray-900 dark:text-white">{selectedCountry?.code}{newPhoneNumber}</span></p>
+                <p className="text-muted-foreground">Enter the code sent to <span className="font-medium text-foreground">{selectedCountry?.code}{newPhoneNumber}</span></p>
               </div>
               <div className="flex gap-3 justify-center">
                 {newPhoneOtp.map((digit, i) => (
@@ -2604,7 +2604,7 @@ export default function SecurityPage() {
                       if (e.key === 'Backspace' && !newPhoneOtp[i] && i > 0) newPhoneOtpRefs.current[i - 1]?.focus();
                     }}
                     ref={(el) => { newPhoneOtpRefs.current[i] = el; }}
-                    className="w-12 h-14 text-center text-xl font-bold text-gray-900 dark:text-white bg-gray-50 dark:bg-[#1e2329] border-2 border-gray-200 dark:border-gray-700 rounded-xl focus:border-blue-500 focus:outline-none"
+                    className="w-12 h-14 text-center text-xl font-bold text-foreground bg-muted border-2 border-border rounded-xl focus:border-blue-500 focus:outline-none"
                   />
                 ))}
               </div>
@@ -2620,7 +2620,7 @@ export default function SecurityPage() {
               <button
                 onClick={verifyNewPhoneAndSave}
                 disabled={verifyingSmsChange || newPhoneOtp.join('').length !== 6}
-                className="w-full py-3.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+                className="w-full py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
               >
                 {verifyingSmsChange ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
                 Verify & Save
@@ -2637,7 +2637,7 @@ export default function SecurityPage() {
             <div className="w-16 h-16 bg-purple-100 dark:bg-purple-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
               <Lock className="w-8 h-8 text-purple-500" />
             </div>
-            <p className="text-gray-600 dark:text-gray-400">Enter your current password and new password</p>
+            <p className="text-muted-foreground">Enter your current password and new password</p>
           </div>
           <div className="space-y-4">
             <div className="relative">
@@ -2646,7 +2646,7 @@ export default function SecurityPage() {
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 placeholder="Current password"
-                className="w-full px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:border-blue-500 text-gray-900 dark:text-white pr-12"
+                className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-blue-500 text-foreground pr-12"
               />
               <button
                 type="button"
@@ -2662,7 +2662,7 @@ export default function SecurityPage() {
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="New password (min 8 characters)"
-                className="w-full px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:border-blue-500 text-gray-900 dark:text-white pr-12"
+                className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-blue-500 text-foreground pr-12"
               />
               <button
                 type="button"
@@ -2678,7 +2678,7 @@ export default function SecurityPage() {
                 value={confirmNewPassword}
                 onChange={(e) => setConfirmNewPassword(e.target.value)}
                 placeholder="Confirm new password"
-                className="w-full px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:border-blue-500 text-gray-900 dark:text-white pr-12"
+                className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-blue-500 text-foreground pr-12"
               />
               <button
                 type="button"
@@ -2692,7 +2692,7 @@ export default function SecurityPage() {
           <button
             onClick={changePassword}
             disabled={changingPassword || !currentPassword || !newPassword || newPassword !== confirmNewPassword}
-            className="w-full py-3.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+            className="w-full py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
           >
             {changingPassword ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
             Change Password
@@ -2704,13 +2704,13 @@ export default function SecurityPage() {
       <Modal show={showPasskeyModal} onClose={() => setShowPasskeyModal(false)} title="Passkey Settings">
         <div className="space-y-6">
           <div className="text-center">
-            <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-indigo-500 rounded-2xl mx-auto flex items-center justify-center mb-4 shadow-lg">
+            <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-indigo-500 rounded-xl mx-auto flex items-center justify-center mb-4 shadow-lg">
               <Fingerprint className="w-10 h-10 text-white" />
             </div>
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+            <h3 className="text-lg font-semibold text-foreground mb-2">
               {passkeys.length > 0 ? 'Manage Passkeys' : 'Enable Touch ID / Face ID'}
             </h3>
-            <p className="text-gray-600 dark:text-gray-400 text-sm">
+            <p className="text-muted-foreground text-sm">
               {passkeys.length > 0 
                 ? 'Your device is registered for biometric login'
                 : 'Login instantly with your fingerprint or face'
@@ -2752,8 +2752,8 @@ export default function SecurityPage() {
                       <Check className="w-6 h-6 text-green-600" />
                     </div>
                     <div>
-                      <p className="font-semibold text-gray-900 dark:text-white">{passkey.device_name || 'This Device'}</p>
-                      <p className="text-xs text-green-600 dark:text-green-400">
+                      <p className="font-semibold text-foreground">{passkey.device_name || 'This Device'}</p>
+                      <p className="text-xs text-buy">
                         Registered {new Date(passkey.created_at).toLocaleDateString()}
                       </p>
                     </div>
@@ -2776,7 +2776,7 @@ export default function SecurityPage() {
               <button
                 onClick={registerPasskey}
                 disabled={registeringPasskey}
-                className="w-full py-3 border-2 border-dashed border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 font-medium rounded-xl hover:border-blue-500 hover:text-blue-500 transition-all flex items-center justify-center gap-2"
+                className="w-full py-3 border-2 border-dashed border-gray-300 dark:border-gray-600 text-muted-foreground font-medium rounded-xl hover:border-blue-500 hover:text-blue-500 transition-all flex items-center justify-center gap-2"
               >
                 {registeringPasskey ? (
                   <>

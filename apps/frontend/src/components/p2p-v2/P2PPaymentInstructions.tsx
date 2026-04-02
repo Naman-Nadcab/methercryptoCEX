@@ -116,11 +116,11 @@ export function P2PPaymentInstructions({ details, displayName }: Props) {
     mono?: boolean;
   }) => (
     <div className="flex flex-col gap-1 border-b border-gray-100 py-2 last:border-b-0 dark:border-gray-800">
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
       </span>
       <div className="flex items-start justify-between gap-2">
-        <span className={`min-w-0 flex-1 break-all text-sm text-gray-900 dark:text-gray-100 ${mono ? 'font-mono' : ''}`}>
+        <span className={`min-w-0 flex-1 break-all text-sm text-foreground ${mono ? 'font-mono' : ''}`}>
           {value || '—'}
         </span>
         {value ? (
@@ -151,13 +151,13 @@ export function P2PPaymentInstructions({ details, displayName }: Props) {
       </div>
 
       <div>
-        <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-white">Send payment to</h3>
+        <h3 className="mb-3 text-sm font-semibold text-foreground">Send payment to</h3>
         {displayName ? (
-          <p className="mb-2 text-xs text-gray-600 dark:text-gray-400">
+          <p className="mb-2 text-xs text-muted-foreground">
             Method label: <span className="font-medium text-gray-900 dark:text-gray-200">{displayName}</span>
           </p>
         ) : null}
-        <div className="rounded-lg border border-gray-200 bg-white px-3 dark:border-gray-700 dark:bg-[#1e2329]">
+        <div className="rounded-lg border border-gray-200 bg-card px-3 dark:border-gray-700 dark:bg-card">
           <Row label="Account name" value={accountName} copyKey="account_name" mono={false} />
           <Row label="Bank / institution" value={bankName} copyKey="bank" mono={false} />
           <Row label="Account number / UPI" value={accountNumber} copyKey="account" />
@@ -167,7 +167,7 @@ export function P2PPaymentInstructions({ details, displayName }: Props) {
       </div>
 
       {extras.length > 0 ? (
-        <div className="rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-2 dark:border-gray-700 dark:bg-gray-900/40">
+        <div className="rounded-lg border border-gray-200 bg-background/80 px-3 py-2 dark:border-gray-700 dark:bg-gray-900/40">
           <p className="mb-2 text-[10px] font-semibold uppercase text-gray-500">Additional details</p>
           <dl className="space-y-1 text-xs">
             {extras.map(([k, v]) => (

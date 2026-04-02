@@ -25,7 +25,7 @@ export function APIDocLinks() {
             href={href}
             target={isExternal ? '_blank' : undefined}
             rel={isExternal ? 'noopener noreferrer' : undefined}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1e2329] hover:border-blue-400 dark:hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-gray-700 dark:text-gray-300 text-sm font-medium transition-colors"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-card hover:border-blue-400 dark:hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-foreground/80 text-sm font-medium transition-colors"
           >
             <Icon className="w-4 h-4 text-blue-500" />
             {item.label}

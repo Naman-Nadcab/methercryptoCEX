@@ -10,7 +10,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 function SpotPageSkeleton() {
   return (
     <div
-      className="flex h-screen w-full flex-col bg-gray-50 dark:bg-[#0b0e11]"
+      className="flex h-screen w-full flex-col bg-background"
       aria-busy="true"
       aria-label="Loading"
     >

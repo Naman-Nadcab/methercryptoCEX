@@ -116,25 +116,25 @@ export function ReferralBannerGenerator({
   ];
 
   return (
-    <div className="bg-white dark:bg-[#181a20] rounded-2xl p-6 border border-gray-100 dark:border-gray-800 card-bybit">
-      <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">Banner Generator</h3>
-      <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">Download referral banners for social sharing</p>
+    <div className="bg-card rounded-xl p-6 border border-border card-bybit">
+      <h3 className="text-sm font-semibold text-foreground mb-1">Banner Generator</h3>
+      <p className="text-xs text-muted-foreground mb-4">Download referral banners for social sharing</p>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {options.map(({ format, label, icon: Icon }) => (
           <button
             key={format}
             type="button"
             onClick={() => handleDownload(format)}
-            className="flex flex-col items-center gap-3 p-4 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-blue-400 dark:hover:border-blue-500 hover:bg-gray-50 dark:hover:bg-white/[0.04] transition-all group"
+            className="flex flex-col items-center gap-3 p-4 rounded-xl border border-border hover:border-blue-400 dark:hover:border-blue-500 hover:bg-gray-50 dark:hover:bg-card/[0.04] transition-all group"
           >
             <div className="w-12 h-12 rounded-xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center group-hover:bg-blue-200 dark:group-hover:bg-blue-900/50 transition-colors">
-              <Icon className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+              <Icon className="w-6 h-6 text-primary" />
             </div>
-            <span className="text-sm font-medium text-gray-900 dark:text-white">{label}</span>
-            <span className="text-xs text-gray-500 dark:text-gray-400">
+            <span className="text-sm font-medium text-foreground">{label}</span>
+            <span className="text-xs text-muted-foreground">
               {DIMENSIONS[format].width}×{DIMENSIONS[format].height}
             </span>
-            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 dark:text-blue-400">
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-primary">
               <Download className="w-3.5 h-3.5" />
               Download
             </span>

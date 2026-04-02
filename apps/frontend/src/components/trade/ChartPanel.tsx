@@ -404,7 +404,7 @@ function ChartPanelInner({
     return /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent) ? '⌘ + scroll: zoom chart' : 'Ctrl + scroll: zoom chart';
   }, []);
 
-  const lastColor = 'text-gray-900 dark:text-gray-100';
+  const lastColor = 'text-foreground';
 
   const hasLastTrade = lastPrice != null && lastPrice !== '';
 
@@ -417,12 +417,12 @@ function ChartPanelInner({
         ? 'text-price-up'
         : changeTone24h === 'down'
           ? 'text-price-down'
-          : 'text-gray-500 dark:text-gray-400';
+          : 'text-muted-foreground';
 
   return (
     <div
       ref={rootRef}
-      className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden bg-white dark:bg-[#181a20]"
+      className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden bg-card"
     >
       {/* Tier-1 market strip — optional when pair header is outside; OHLC row only in chart mode */}
       {(!hideDuplicatePairSummary || viewMode === 'chart') && (
@@ -431,14 +431,14 @@ function ChartPanelInner({
           <div className="flex flex-wrap items-start justify-between gap-2 px-2.5 py-2">
             <div className="flex min-w-0 flex-wrap items-end gap-x-4 gap-y-1">
               <div className="min-w-0">
-                <div className="text-[9px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-500">Last</div>
+                <div className="text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Last</div>
                 <div className={`font-mono text-[22px] font-bold leading-tight tabular-nums sm:text-2xl ${lastColor}`}>
                   {quoteAsset === 'USDT' && lastPrice != null && lastPrice !== ''
                     ? `$${formatValueFixedTrim(lastPrice, pricePrecision)}`
                     : formatValueFixedTrim(lastPrice, pricePrecision)}
                 </div>
                 {quoteAsset === 'USDT' && lastPrice != null && lastPrice !== '' && (
-                  <div className="text-[10px] font-mono tabular-nums text-gray-500 dark:text-gray-500">
+                  <div className="text-[10px] font-mono tabular-nums text-muted-foreground">
                     ≈ {formatValueFixedTrim(lastPrice, pricePrecision)} USD
                   </div>
                 )}
@@ -448,15 +448,15 @@ function ChartPanelInner({
                   className="flex min-w-0 max-w-[11rem] items-baseline gap-1 sm:max-w-none"
                   title={changePct != null ? TOOLTIP_24H_CHANGE : TOOLTIP_CHANGE_UNAVAILABLE}
                 >
-                  <span className="shrink-0 font-semibold text-gray-500 dark:text-gray-500">24h</span>
+                  <span className="shrink-0 font-semibold text-muted-foreground">24h</span>
                   <span className={`min-w-0 truncate font-mono font-bold tabular-nums transition-colors duration-300 ${changeClass24h}`}>
                     {changePct != null ? `${changePct > 0 ? '+' : ''}${changePct.toFixed(2)}%` : '—'}
                   </span>
                 </div>
                 <div className="hidden h-3 w-px bg-gray-300 dark:bg-gray-700 sm:block" aria-hidden />
                 <div className="flex min-w-0 max-w-[5rem] items-baseline gap-1" title={TOOLTIP_24H_HIGH}>
-                  <span className="shrink-0 text-gray-500 dark:text-gray-500">H</span>
-                  <span className="min-w-0 truncate font-mono font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+                  <span className="shrink-0 text-muted-foreground">H</span>
+                  <span className="min-w-0 truncate font-mono font-semibold tabular-nums text-foreground">
                     {(() => {
                       const s = formatValueFixedTrim(high24h, pricePrecision);
                       return s === '—' ? (hasLastTrade ? NO_ACTIVITY_SHORT : NO_TRADES_TINY) : s;
@@ -464,8 +464,8 @@ function ChartPanelInner({
                   </span>
                 </div>
                 <div className="flex min-w-0 max-w-[5rem] items-baseline gap-1" title={TOOLTIP_24H_LOW}>
-                  <span className="shrink-0 text-gray-500 dark:text-gray-500">L</span>
-                  <span className="min-w-0 truncate font-mono font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+                  <span className="shrink-0 text-muted-foreground">L</span>
+                  <span className="min-w-0 truncate font-mono font-semibold tabular-nums text-foreground">
                     {(() => {
                       const s = formatValueFixedTrim(low24h, pricePrecision);
                       return s === '—' ? (hasLastTrade ? NO_ACTIVITY_SHORT : NO_TRADES_TINY) : s;
@@ -473,8 +473,8 @@ function ChartPanelInner({
                   </span>
                 </div>
                 <div className="hidden min-w-0 max-w-[6rem] items-baseline gap-1 md:flex" title={TOOLTIP_BASE_VOLUME_24H}>
-                  <span className="shrink-0 text-gray-500 dark:text-gray-500">Vol</span>
-                  <span className="min-w-0 truncate font-mono font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+                  <span className="shrink-0 text-muted-foreground">Vol</span>
+                  <span className="min-w-0 truncate font-mono font-semibold tabular-nums text-foreground">
                     {(() => {
                       const s = formatCompactNumber(volume24h);
                       const body = s === '—' ? (hasLastTrade ? NO_ACTIVITY_SHORT : NO_TRADES_TINY) : s;
@@ -486,8 +486,8 @@ function ChartPanelInner({
                   className="hidden min-w-0 max-w-[6rem] items-baseline gap-1 lg:flex"
                   title={TOOLTIP_QUOTE_VOLUME_24H}
                 >
-                  <span className="shrink-0 text-gray-500 dark:text-gray-500">Turn.</span>
-                  <span className="min-w-0 truncate font-mono font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+                  <span className="shrink-0 text-muted-foreground">Turn.</span>
+                  <span className="min-w-0 truncate font-mono font-semibold tabular-nums text-foreground">
                     {(() => {
                       const s = formatCompactNumber(turnoverQuote24h);
                       const body = s === '—' ? (hasLastTrade ? NO_ACTIVITY_SHORT : NO_TRADES_TINY) : s;
@@ -498,13 +498,13 @@ function ChartPanelInner({
               </div>
             </div>
             <div className="text-right text-[10px] sm:text-[11px]">
-              <div className="font-mono font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+              <div className="font-mono font-semibold tabular-nums text-foreground">
                 <span className="text-price-up">{formatValueFixedTrim(bid, pricePrecision)}</span>
                 <span className="mx-1 text-gray-400">/</span>
                 <span className="text-price-down">{formatValueFixedTrim(ask, pricePrecision)}</span>
               </div>
               {spreadInfo && (
-                <div className="mt-0.5 font-mono text-[10px] tabular-nums text-gray-500 dark:text-gray-500">
+                <div className="mt-0.5 font-mono text-[10px] tabular-nums text-muted-foreground">
                   Spread {formatValueFixedTrim(String(spreadInfo.spread), pricePrecision)} ({spreadInfo.pct.toFixed(3)}%)
                 </div>
               )}
@@ -514,12 +514,12 @@ function ChartPanelInner({
 
         {viewMode === 'chart' && (
           <div
-            className={`px-2 py-1 font-mono text-[10px] leading-snug text-gray-600 dark:text-gray-400 ${
-              !hideDuplicatePairSummary ? 'border-t border-gray-200/80 dark:border-gray-800/80' : ''
+            className={`px-2 py-1 font-mono text-[10px] leading-snug text-muted-foreground ${
+              !hideDuplicatePairSummary ? 'border-t border-border' : ''
             }`}
             title="Crosshair or last candle"
           >
-            <span className="font-semibold text-gray-700 dark:text-gray-300">{pairLabel}</span>
+            <span className="font-semibold text-foreground/80">{pairLabel}</span>
             <span className="text-gray-400"> · Spot · {intervalLabel}</span>
             <span className="text-gray-400"> · Bar {barEta}</span>
             <span className="text-gray-500"> · </span>
@@ -530,11 +530,11 @@ function ChartPanelInner({
       )}
 
       {/* Toolbar: row 1 = modes + overlay/indicators + intervals; row 2 = optional compact stack (collapsed by default) */}
-      <div className="flex flex-shrink-0 flex-col gap-1 border-b border-gray-200/90 bg-gray-50/80 px-2 py-1 dark:border-gray-800/90 dark:bg-gray-900/40">
+      <div className="flex flex-shrink-0 flex-col gap-1 border-b border-gray-200/90 bg-background/80 px-2 py-1 dark:border-gray-800/90 dark:bg-gray-900/40">
         <div className="flex w-full min-w-0 flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           {onViewModeChange && (
-            <div className="flex shrink-0 overflow-hidden rounded-md border border-gray-200 dark:border-gray-700">
+            <div className="flex shrink-0 overflow-hidden rounded-md border border-border">
               <button
                 type="button"
                 onClick={() => onViewModeChange('chart')}
@@ -564,7 +564,7 @@ function ChartPanelInner({
           {viewMode === 'chart' && (
             <>
               <div
-                className="flex shrink-0 overflow-hidden rounded-md border border-gray-200 dark:border-gray-700"
+                className="flex shrink-0 overflow-hidden rounded-md border border-border"
                 title="Price scale (main pane)"
               >
                 {(
@@ -579,7 +579,7 @@ function ChartPanelInner({
                     type="button"
                     onClick={() => setChartPriceScale(id)}
                     className={`px-2 py-1.5 text-[10px] font-bold tabular-nums sm:text-[11px] ${
-                      i > 0 ? 'border-l border-gray-200 dark:border-gray-700' : ''
+                      i > 0 ? 'border-l border-border' : ''
                     } ${
                       chartPriceScale === id
                         ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100'
@@ -593,7 +593,7 @@ function ChartPanelInner({
               <select
                 value={overlayStudy}
                 onChange={(e) => setOverlayStudy(e.target.value as OverlayStudyId)}
-                className="max-w-[11rem] shrink-0 cursor-pointer rounded-md border border-gray-200 bg-white px-1.5 py-1 text-[10px] font-semibold text-gray-800 dark:border-gray-700 dark:bg-[#0b0e11] dark:text-gray-200"
+                className="max-w-[11rem] shrink-0 cursor-pointer rounded-md border border-gray-200 bg-card px-1.5 py-1 text-[10px] font-semibold text-gray-800 dark:border-gray-700 dark:bg-background dark:text-gray-200"
                 title="Price overlay (SMA, EMA, VWAP, Bollinger)"
               >
                 {OVERLAY_OPTIONS.map(({ id, label }) => (
@@ -602,7 +602,7 @@ function ChartPanelInner({
                   </option>
                 ))}
               </select>
-              <label className="flex cursor-pointer items-center gap-1 whitespace-nowrap text-[10px] font-semibold text-gray-700 dark:text-gray-300">
+              <label className="flex cursor-pointer items-center gap-1 whitespace-nowrap text-[10px] font-semibold text-foreground/80">
                 <input
                   type="checkbox"
                   checked={showVolumeMa}
@@ -611,7 +611,7 @@ function ChartPanelInner({
                 />
                 Vol SMA 9
               </label>
-              <label className="flex cursor-pointer items-center gap-1 whitespace-nowrap text-[10px] font-semibold text-gray-700 dark:text-gray-300">
+              <label className="flex cursor-pointer items-center gap-1 whitespace-nowrap text-[10px] font-semibold text-foreground/80">
                 <input
                   type="checkbox"
                   checked={showRsi}
@@ -682,7 +682,7 @@ function ChartPanelInner({
           <button
             type="button"
             onClick={() => setExtStackOpen(true)}
-            className="flex w-full min-w-0 items-center justify-between gap-2 rounded border border-dashed border-gray-300/90 bg-white/60 px-2 py-0.5 text-left text-[10px] font-medium text-gray-600 hover:bg-gray-100/90 dark:border-gray-600 dark:bg-gray-900/50 dark:text-gray-400 dark:hover:bg-gray-800/80"
+            className="flex w-full min-w-0 items-center justify-between gap-2 rounded border border-dashed border-gray-300/90 bg-card/60 px-2 py-0.5 text-left text-[10px] font-medium text-gray-600 hover:bg-gray-100/90 dark:border-gray-600 dark:bg-gray-900/50 dark:text-gray-400 dark:hover:bg-gray-800/80"
             title="Multi-EMA, extra VWAP, volume bar toggle, drawing tools"
           >
             <span className="truncate">▸ Multi-EMA · VWAP² · Vol · Draw</span>
@@ -690,7 +690,7 @@ function ChartPanelInner({
           </button>
         )}
         {viewMode === 'chart' && extStackOpen && (
-          <div className="w-full min-w-0 rounded border border-gray-200/90 bg-white/80 px-1.5 py-1 dark:border-gray-700/80 dark:bg-gray-900/55">
+          <div className="w-full min-w-0 rounded border border-gray-200/90 bg-card/80 px-1.5 py-1 dark:border-gray-700/80 dark:bg-gray-900/55">
             <div className="flex min-h-0 w-full min-w-0 flex-nowrap items-center gap-x-2 gap-y-0.5 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1">
               <button
                 type="button"
@@ -700,7 +700,7 @@ function ChartPanelInner({
               >
                 ▴ Hide
               </button>
-              <span className="shrink-0 text-[9px] font-bold uppercase text-gray-500 dark:text-gray-400">EMA</span>
+              <span className="shrink-0 text-[9px] font-bold uppercase text-muted-foreground">EMA</span>
               {([7, 20, 50, 200] as const).map((p) => (
                 <label
                   key={p}
@@ -738,7 +738,7 @@ function ChartPanelInner({
               </label>
               <span className="mx-0.5 h-3.5 w-px shrink-0 bg-gray-300 dark:bg-gray-600" aria-hidden />
               <span
-                className="shrink-0 text-[9px] font-bold uppercase text-gray-500 dark:text-gray-400"
+                className="shrink-0 text-[9px] font-bold uppercase text-muted-foreground"
                 title="Draw: H / V / ∠ / Fib. Esc: cancel or deselect. Del removes. Drawings save per symbol (this browser)."
               >
                 Draw
@@ -817,7 +817,7 @@ function ChartPanelInner({
           {chartError && (
             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-background/95 p-4">
               <AlertCircle className="h-10 w-10 text-gray-400" aria-hidden />
-              <p className="max-w-xs text-center text-sm text-gray-600 dark:text-gray-400">Chart unavailable. {chartError}</p>
+              <p className="max-w-xs text-center text-sm text-muted-foreground">Chart unavailable. {chartError}</p>
               <button
                 type="button"
                 onClick={retryChart}

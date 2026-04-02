@@ -93,18 +93,18 @@ function OpenOrderRow({
   const filledQtyStr = filled > 0 && qty > 0 ? `${filled.toFixed(4)}/${qty.toFixed(4)}` : (o.quantity ?? '—');
   return (
     <tr
-      className={`min-h-[36px] border-b border-gray-200/80 transition-[background-color,box-shadow] duration-500 ease-out hover:bg-gray-50/80 dark:border-gray-800/80 dark:hover:bg-gray-900/40 sm:min-h-[30px] ${
+      className={`min-h-[36px] border-b border-gray-200/80 transition-[background-color,box-shadow] duration-500 ease-out hover:bg-background/80 dark:border-gray-800/80 dark:hover:bg-gray-900/40 sm:min-h-[30px] ${
         pulse ? 'bg-blue-500/12 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.35)] dark:bg-blue-500/10 dark:shadow-[inset_0_0_0_1px_rgba(96,165,250,0.3)]' : ''
       }`}
     >
-      <td className="py-1.5 px-2 align-middle font-mono text-[11px] tabular-nums text-gray-900 dark:text-white">{o.market}</td>
+      <td className="py-1.5 px-2 align-middle font-mono text-[11px] tabular-nums text-foreground">{o.market}</td>
       <td className="py-1.5 px-2 align-middle">
-        <span className="text-[10px] text-gray-500 dark:text-gray-500">{displayOrderType(o.type)}</span>
+        <span className="text-[10px] text-muted-foreground">{displayOrderType(o.type)}</span>
       </td>
       <td className="py-1.5 px-2 align-middle">
         <span className={o.side === 'buy' ? 'text-price-up' : 'text-price-down'}>{o.side}</span>
       </td>
-      <td className="py-1.5 px-2 align-middle font-mono text-[11px] tabular-nums text-gray-600 dark:text-gray-400">{o.price ?? '—'}</td>
+      <td className="py-1.5 px-2 align-middle font-mono text-[11px] tabular-nums text-muted-foreground">{o.price ?? '—'}</td>
       <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums text-[11px]">{o.stop_price ?? '—'}</td>
       <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums text-[11px]">{filledQtyStr}</td>
       <td className="py-1.5 px-2 align-middle">{executionStatusPill(o.status)}</td>
@@ -237,7 +237,7 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
     }`;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-white dark:bg-[#181a20]">
+    <div className="flex h-full min-h-0 flex-col bg-card">
       <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 border-b border-gray-200/90 bg-gray-50/90 px-1 dark:border-gray-800/90 dark:bg-gray-900/30">
         <div className="flex flex-wrap items-center gap-0.5 sm:gap-1">
           <button type="button" onClick={() => data.setTab('open')} className={tabBtn(data.tab === 'open')}>Open ({data.openOrders.length})</button>
@@ -288,7 +288,7 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
             <div className="p-4 text-center text-muted-foreground text-xs">No open orders</div>
           ) : (
             <table className="w-full text-[11px] table-fixed">
-              <thead className="sticky top-0 z-10 bg-gray-50/95 backdrop-blur-sm dark:bg-[#1e2026]/95">
+              <thead className="sticky top-0 z-10 bg-gray-50/95 backdrop-blur-sm dark:bg-card/95">
                 <tr className="border-b border-gray-200/90 text-left text-[11px] font-medium text-gray-500 dark:border-gray-800/90 dark:text-gray-500">
                   <th className="py-2 px-2 font-medium cursor-pointer w-24" onClick={() => toggleSort('market')}>Market{sortGlyph('market')}</th>
                   <th className="py-2 px-2 font-medium cursor-pointer w-16" onClick={() => toggleSort('type')}>Type{sortGlyph('type')}</th>

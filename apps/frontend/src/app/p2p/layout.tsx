@@ -15,7 +15,7 @@ export default function P2PShellLayout({ children }: { children: React.ReactNode
   return (
     <>
       <SessionManager redirectPath="/login" />
-      <div className="min-h-screen bg-gray-50 dark:bg-[#0b0e11]">
+      <div className="min-h-screen bg-background">
         <div className={`flex h-screen w-full flex-col overflow-hidden ${MOBILE_NAV_PAD}`}>
           <ExchangeHeader />
           <P2PHeader />

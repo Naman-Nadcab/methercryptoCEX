@@ -108,7 +108,7 @@ export function NotificationCenter({ accessToken, className = '' }: Notification
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1 w-80 bg-popover dark:bg-[#1e2329] border border-border rounded-lg shadow-xl z-50 overflow-hidden">
+        <div className="absolute right-0 top-full mt-1 w-80 bg-popover dark:bg-card border border-border rounded-lg shadow-xl z-50 overflow-hidden">
           <div className="p-3 border-b border-border flex items-center justify-between">
             <p className="text-sm font-semibold text-foreground">Notifications</p>
             <Link

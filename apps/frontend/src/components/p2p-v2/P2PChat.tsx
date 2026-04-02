@@ -103,14 +103,14 @@ export function P2PChat({ orderId, enabled }: Props) {
 
   if (!enabled) {
     return (
-      <div className="rounded-xl border border-gray-200 bg-white p-4 text-sm text-gray-500 dark:border-gray-800 dark:bg-[#1e2329]">
+      <div className="rounded-xl border border-gray-200 bg-card p-4 text-sm text-gray-500 dark:border-gray-800 dark:bg-card">
         Chat is available when the order is open.
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-[#1e2329]">
+    <div className="flex flex-col rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-card">
       <div className="flex items-center justify-between border-b border-gray-200 px-4 py-2 text-sm font-medium text-gray-900 dark:border-gray-800 dark:text-white">
         <span>Order chat</span>
         <span className="text-[10px] font-normal text-gray-400">
@@ -126,13 +126,13 @@ export function P2PChat({ orderId, enabled }: Props) {
           </div>
         ) : null}
         {!isLoading && messages.length === 0 && (
-          <p className="text-sm text-gray-500 dark:text-gray-400">No messages yet. Coordinate payment details here.</p>
+          <p className="text-sm text-muted-foreground">No messages yet. Coordinate payment details here.</p>
         )}
         <ul className="space-y-2">
           {messages.map((m) => (
             <li key={m.id} className="rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-900/50">
               <div className="flex flex-wrap items-baseline justify-between gap-1">
-                <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
+                <span className="text-xs font-medium text-primary">
                   {m.senderUsername ?? m.senderId.slice(0, 8)}
                 </span>
                 <time className="text-[10px] text-gray-400" dateTime={m.createdAt}>
@@ -152,7 +152,7 @@ export function P2PChat({ orderId, enabled }: Props) {
           onChange={(e) => onChangeText(e.target.value)}
           maxLength={2000}
           placeholder="Type a message…"
-          className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-[#0b0e11] dark:text-white"
+          className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-card px-3 py-2 text-sm dark:border-gray-700 dark:bg-background dark:text-white"
         />
         <button
           type="submit"

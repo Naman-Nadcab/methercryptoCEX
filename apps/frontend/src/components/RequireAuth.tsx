@@ -29,8 +29,8 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
       console.warn('[RequireAuth] Session not resolved — showing fallback (not blocking app)');
     }
     return (
-      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 bg-gray-50 p-6 text-center dark:bg-[#0b0e11]">
-        <p className="text-sm text-gray-600 dark:text-gray-400">Checking your session…</p>
+      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 bg-gray-50 p-6 text-center dark:bg-background">
+        <p className="text-sm text-muted-foreground">Checking your session…</p>
         <Link href={loginHref} className="text-sm font-medium text-blue-600 underline dark:text-blue-400">
           Sign in
         </Link>
@@ -40,7 +40,7 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
 
   if (!isAuthenticated) {
     return (
-      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-2 bg-gray-50 p-6 text-center text-sm text-gray-600 dark:bg-[#0b0e11] dark:text-gray-400">
+      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-2 bg-gray-50 p-6 text-center text-sm text-gray-600 dark:bg-background dark:text-gray-400">
         <p>Redirecting to sign in…</p>
         <Link href={loginHref} className="font-medium text-blue-600 underline dark:text-blue-400">
           Continue to login

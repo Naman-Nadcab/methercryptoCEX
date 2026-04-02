@@ -35,10 +35,10 @@ export function DashboardPageShell({
     <div className={`w-full ${className}`}>
       <header className="mb-6 sm:mb-8">
         {crumbs && (
-          <nav aria-label="Breadcrumb" className="mb-3 flex flex-wrap items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+          <nav aria-label="Breadcrumb" className="mb-3 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
             <Link
               href={ROUTES.home}
-              className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white transition-colors"
+              className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-accent hover:text-gray-900 dark:hover:text-white transition-colors"
             >
               <Home className="w-3.5 h-3.5 opacity-80" aria-hidden />
               <span>Home</span>
@@ -52,7 +52,7 @@ export function DashboardPageShell({
                     <span
                       className={
                         isLast
-                          ? 'font-medium text-gray-700 dark:text-gray-300 px-1.5 py-0.5'
+                          ? 'font-medium text-foreground/80 px-1.5 py-0.5'
                           : 'px-1.5 py-0.5'
                       }
                       aria-current={isLast ? 'page' : undefined}
@@ -62,7 +62,7 @@ export function DashboardPageShell({
                   ) : (
                     <Link
                       href={c.href}
-                      className="rounded-md px-1.5 py-0.5 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white transition-colors"
+                      className="rounded-md px-1.5 py-0.5 hover:bg-accent hover:text-gray-900 dark:hover:text-white transition-colors"
                     >
                       {c.label}
                     </Link>
@@ -75,14 +75,14 @@ export function DashboardPageShell({
 
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="space-y-1 min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-400 dark:text-gray-500">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               Dashboard
             </p>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
               {title}
             </h1>
             {description ? (
-              <p className="text-sm text-gray-500 dark:text-gray-400 max-w-2xl leading-relaxed">
+              <p className="text-sm text-muted-foreground max-w-2xl leading-relaxed">
                 {description}
               </p>
             ) : null}

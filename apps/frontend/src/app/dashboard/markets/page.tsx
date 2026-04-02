@@ -79,13 +79,13 @@ function MarketsTableSkeleton() {
       <tbody>
         {Array.from({ length: 8 }).map((_, i) => (
           <tr key={i} className="border-b border-white/5">
-            <td className="py-2.5 px-3"><span className="h-4 w-20 bg-white/10 rounded block animate-pulse" /></td>
-            <td className="py-2.5 px-3 text-right"><span className="h-4 w-16 bg-white/10 rounded block animate-pulse ml-auto" /></td>
-            <td className="py-2.5 px-3 text-right"><span className="h-4 w-12 bg-white/10 rounded block animate-pulse ml-auto" /></td>
-            <td className="py-2.5 px-3 text-right"><span className="h-4 w-16 bg-white/10 rounded block animate-pulse ml-auto" /></td>
-            <td className="py-2.5 px-3 text-right"><span className="h-4 w-16 bg-white/10 rounded block animate-pulse ml-auto" /></td>
-            <td className="py-2.5 px-3 text-right"><span className="h-4 w-14 bg-white/10 rounded block animate-pulse ml-auto" /></td>
-            <td className="py-2.5 px-3 text-right"><span className="h-4 w-12 bg-white/10 rounded block animate-pulse ml-auto" /></td>
+            <td className="py-2.5 px-3"><span className="h-4 w-20 bg-card/10 rounded block animate-pulse" /></td>
+            <td className="py-2.5 px-3 text-right"><span className="h-4 w-16 bg-card/10 rounded block animate-pulse ml-auto" /></td>
+            <td className="py-2.5 px-3 text-right"><span className="h-4 w-12 bg-card/10 rounded block animate-pulse ml-auto" /></td>
+            <td className="py-2.5 px-3 text-right"><span className="h-4 w-16 bg-card/10 rounded block animate-pulse ml-auto" /></td>
+            <td className="py-2.5 px-3 text-right"><span className="h-4 w-16 bg-card/10 rounded block animate-pulse ml-auto" /></td>
+            <td className="py-2.5 px-3 text-right"><span className="h-4 w-14 bg-card/10 rounded block animate-pulse ml-auto" /></td>
+            <td className="py-2.5 px-3 text-right"><span className="h-4 w-12 bg-card/10 rounded block animate-pulse ml-auto" /></td>
           </tr>
         ))}
       </tbody>
@@ -292,7 +292,7 @@ export default function MarketsPage() {
   }, [filtered, sortKey, sortDir, tickersBySymbol]);
 
   return (
-    <div className="min-h-screen bg-[#0b0e11] dark:bg-[#0b0e11] text-white p-4">
+    <div className="min-h-screen bg-[#0b0e11] dark:bg-background text-white p-4">
       <div className="max-w-6xl mx-auto">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
           <h1 className="text-lg font-semibold text-white">Markets</h1>
@@ -304,7 +304,7 @@ export default function MarketsPage() {
               id="markets-quote-filter"
               value={quoteFilter}
               onChange={(e) => setQuoteFilter(e.target.value)}
-              className="min-h-11 h-11 sm:h-9 sm:min-h-0 px-3 sm:px-2 bg-white/5 border border-white/10 rounded text-sm text-white focus:outline-none focus:border-white/20"
+              className="min-h-11 h-11 sm:h-9 sm:min-h-0 px-3 sm:px-2 bg-card/5 border border-white/10 rounded text-sm text-white focus:outline-none focus:border-white/20"
               aria-label="Filter by quote currency"
             >
               <option value="all">All quotes</option>
@@ -319,7 +319,7 @@ export default function MarketsPage() {
               placeholder="Search pair or asset…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="min-h-11 h-11 sm:h-9 sm:min-h-0 px-3 min-w-[12rem] flex-1 sm:flex-initial sm:w-56 bg-white/5 border border-white/10 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-white/20"
+              className="min-h-11 h-11 sm:h-9 sm:min-h-0 px-3 min-w-[12rem] flex-1 sm:flex-initial sm:w-56 bg-card/5 border border-white/10 rounded text-sm text-white placeholder:text-muted-foreground focus:outline-none focus:border-white/20"
               aria-label="Search trading pairs"
             />
           </div>
@@ -466,7 +466,7 @@ function MarketsRow({
 
   return (
     <tr
-      className={`border-b border-white/5 transition-[background-color,color] duration-300 ease-out hover:bg-white/5 ${rowFlash}`}
+      className={`border-b border-white/5 transition-[background-color,color] duration-300 ease-out hover:bg-card/5 ${rowFlash}`}
     >
       <td className="py-2.5 px-3 font-medium tabular-nums text-white">{market.symbol.replace('_', '/')}</td>
       <td className={`py-2.5 px-3 text-right tabular-nums transition-colors duration-300 ${lastCellClass}`}>
@@ -487,7 +487,7 @@ function MarketsRow({
       <td className="py-2.5 px-3 text-right">
         <Link
           href={`/trade/spot?symbol=${encodeURIComponent(market.symbol)}`}
-          className="inline-flex min-h-11 min-w-[4.5rem] items-center justify-center rounded-md px-3 text-sm font-semibold text-blue-400 transition-colors hover:bg-white/5 hover:text-blue-300 sm:min-h-0 sm:text-xs sm:font-medium"
+          className="inline-flex min-h-11 min-w-[4.5rem] items-center justify-center rounded-md px-3 text-sm font-semibold text-blue-400 transition-colors hover:bg-card/5 hover:text-blue-300 sm:min-h-0 sm:text-xs sm:font-medium"
           aria-label={`Trade ${market.symbol.replace('_', '/')}`}
         >
           Trade

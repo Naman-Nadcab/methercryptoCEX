@@ -160,14 +160,14 @@ export function P2PActionButtons({ order, isBuyer, isSeller }: Props) {
   if (!user) return null;
 
   return (
-    <div className="space-y-3 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-[#1e2329]">
-      <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Actions</h3>
+    <div className="space-y-3 rounded-xl border border-gray-200 bg-card p-4 dark:border-gray-800 dark:bg-card">
+      <h3 className="text-sm font-semibold text-foreground">Actions</h3>
       {err && <p className="text-sm text-red-600">{err}</p>}
       {ok && <p className="text-sm text-emerald-600">{ok}</p>}
 
       {canPay && (
         <div className="space-y-2">
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-muted-foreground">
             Upload a screenshot of your transfer and enter the transaction ID from your bank or payment app. Both are required.
           </p>
           <input
@@ -186,7 +186,7 @@ export function P2PActionButtons({ order, isBuyer, isSeller }: Props) {
             onChange={(e) => setTxRef(e.target.value)}
             placeholder="Transaction reference (as shown on receipt)"
             maxLength={256}
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-[#0b0e11] dark:text-white"
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-background dark:text-white"
           />
           <button
             type="button"
@@ -233,7 +233,7 @@ export function P2PActionButtons({ order, isBuyer, isSeller }: Props) {
             value={cancelReason}
             onChange={(e) => setCancelReason(e.target.value)}
             placeholder="Cancel reason (required)"
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-[#0b0e11] dark:text-white"
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-background dark:text-white"
           />
           <button
             type="button"
@@ -254,7 +254,7 @@ export function P2PActionButtons({ order, isBuyer, isSeller }: Props) {
             onChange={(e) => setDisputeReason(e.target.value)}
             placeholder="Describe the issue (10–1000 characters)"
             rows={3}
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-[#0b0e11] dark:text-white"
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-background dark:text-white"
           />
           <button
             type="button"

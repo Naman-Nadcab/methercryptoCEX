@@ -93,9 +93,9 @@ function CreateAdForm() {
 
   return (
     <div className="mx-auto max-w-xl space-y-6">
-      <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Create ad</h1>
+      <h1 className="text-xl font-semibold text-foreground">Create ad</h1>
 
-      <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-[#1e2329] space-y-4">
+      <div className="rounded-xl border border-gray-200 bg-card p-5 dark:border-gray-800 dark:bg-card space-y-4">
         <div className="flex gap-2">
           {(['sell', 'buy'] as const).map((s) => (
             <button
@@ -103,7 +103,7 @@ function CreateAdForm() {
               type="button"
               onClick={() => setSide(s)}
               className={`rounded-lg px-4 py-2 text-sm font-medium capitalize ${
-                side === s ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-800'
+                side === s ? 'bg-blue-600 text-white' : 'bg-accent'
               }`}
             >
               {s}
@@ -117,7 +117,7 @@ function CreateAdForm() {
             <select
               value={crypto}
               onChange={(e) => setCrypto(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-gray-200 px-2 py-2 text-sm dark:border-gray-700 dark:bg-[#0b0e11] dark:text-white"
+              className="mt-1 w-full rounded-lg border border-gray-200 px-2 py-2 text-sm dark:border-gray-700 dark:bg-background dark:text-white"
             >
               {['USDT', 'BTC', 'ETH', 'USDC'].map((c) => (
                 <option key={c} value={c}>
@@ -131,7 +131,7 @@ function CreateAdForm() {
             <select
               value={fiat}
               onChange={(e) => setFiat(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-gray-200 px-2 py-2 text-sm dark:border-gray-700 dark:bg-[#0b0e11] dark:text-white"
+              className="mt-1 w-full rounded-lg border border-gray-200 px-2 py-2 text-sm dark:border-gray-700 dark:bg-background dark:text-white"
             >
               {['INR', 'USD', 'EUR', 'GBP'].map((f) => (
                 <option key={f} value={f}>
@@ -151,7 +151,7 @@ function CreateAdForm() {
                 type="button"
                 onClick={() => setPricing(p)}
                 className={`rounded-lg px-3 py-1.5 text-xs font-medium capitalize ${
-                  pricing === p ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-800'
+                  pricing === p ? 'bg-blue-600 text-white' : 'bg-accent'
                 }`}
               >
                 {p}
@@ -162,7 +162,7 @@ function CreateAdForm() {
 
         {pricing === 'floating' && (
           <div className="rounded-lg bg-gray-50 p-3 text-sm dark:bg-gray-900/50">
-            <p className="text-gray-600 dark:text-gray-400">
+            <p className="text-muted-foreground">
               Market price (backend / spot): {marketPrice != null ? `${marketPrice.toFixed(4)} ${fiat}` : '—'}
             </p>
             <label className="mt-2 block text-xs text-gray-500">Margin %</label>
@@ -170,10 +170,10 @@ function CreateAdForm() {
               type="number"
               value={marginPct}
               onChange={(e) => setMarginPct(e.target.value)}
-              className="mt-1 w-full rounded border border-gray-200 px-2 py-1 font-mono dark:border-gray-700 dark:bg-[#0b0e11]"
+              className="mt-1 w-full rounded border border-gray-200 px-2 py-1 font-mono dark:border-gray-700 dark:bg-background"
             />
             {computedFloating != null && (
-              <p className="mt-2 font-mono text-gray-900 dark:text-white">
+              <p className="mt-2 font-mono text-foreground">
                 Ad price: {computedFloating.toFixed(4)} {fiat}
                 {diffPct != null && <span className="text-gray-500"> ({diffPct}% vs reference)</span>}
               </p>
@@ -187,7 +187,7 @@ function CreateAdForm() {
             <input
               value={fixedPrice}
               onChange={(e) => setFixedPrice(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 font-mono dark:border-gray-700 dark:bg-[#0b0e11] dark:text-white"
+              className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 font-mono dark:border-gray-700 dark:bg-background dark:text-white"
             />
           </div>
         )}
@@ -195,15 +195,15 @@ function CreateAdForm() {
         <div className="grid grid-cols-3 gap-2">
           <div>
             <label className="text-xs text-gray-500">Min</label>
-            <input value={minAmt} onChange={(e) => setMinAmt(e.target.value)} className="mt-1 w-full rounded border px-2 py-1 text-sm dark:bg-[#0b0e11]" />
+            <input value={minAmt} onChange={(e) => setMinAmt(e.target.value)} className="mt-1 w-full rounded border px-2 py-1 text-sm dark:bg-background" />
           </div>
           <div>
             <label className="text-xs text-gray-500">Max</label>
-            <input value={maxAmt} onChange={(e) => setMaxAmt(e.target.value)} className="mt-1 w-full rounded border px-2 py-1 text-sm dark:bg-[#0b0e11]" />
+            <input value={maxAmt} onChange={(e) => setMaxAmt(e.target.value)} className="mt-1 w-full rounded border px-2 py-1 text-sm dark:bg-background" />
           </div>
           <div>
             <label className="text-xs text-gray-500">Total</label>
-            <input value={totalAmt} onChange={(e) => setTotalAmt(e.target.value)} className="mt-1 w-full rounded border px-2 py-1 text-sm dark:bg-[#0b0e11]" />
+            <input value={totalAmt} onChange={(e) => setTotalAmt(e.target.value)} className="mt-1 w-full rounded border px-2 py-1 text-sm dark:bg-background" />
           </div>
         </div>
 
@@ -215,7 +215,7 @@ function CreateAdForm() {
             max={120}
             value={timeLimit}
             onChange={(e) => setTimeLimit(Number(e.target.value))}
-            className="mt-1 w-full rounded border px-2 py-1 dark:bg-[#0b0e11]"
+            className="mt-1 w-full rounded border px-2 py-1 dark:bg-background"
           />
         </div>
 
@@ -226,11 +226,11 @@ function CreateAdForm() {
 
         <div>
           <label className="text-xs text-gray-500">Terms / remarks</label>
-          <textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={2} className="mt-1 w-full rounded border px-2 py-1 text-sm dark:bg-[#0b0e11]" />
+          <textarea value={remarks} onChange={(e) => setRemarks(e.target.value)} rows={2} className="mt-1 w-full rounded border px-2 py-1 text-sm dark:bg-background" />
         </div>
         <div>
           <label className="text-xs text-gray-500">Auto-reply message</label>
-          <textarea value={autoReply} onChange={(e) => setAutoReply(e.target.value)} rows={2} className="mt-1 w-full rounded border px-2 py-1 text-sm dark:bg-[#0b0e11]" />
+          <textarea value={autoReply} onChange={(e) => setAutoReply(e.target.value)} rows={2} className="mt-1 w-full rounded border px-2 py-1 text-sm dark:bg-background" />
         </div>
 
         <div>

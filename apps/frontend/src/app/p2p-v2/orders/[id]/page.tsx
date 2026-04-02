@@ -19,7 +19,7 @@ function P2POrderDetailSkeleton() {
   return (
     <div className="space-y-6" aria-busy="true">
       <Skeleton className="h-4 w-40" />
-      <div className="space-y-3 rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-[#1e2329]">
+      <div className="space-y-3 rounded-xl border border-gray-200 bg-card p-5 dark:border-gray-800 dark:bg-card">
         <Skeleton className="h-6 w-56" />
         <Skeleton className="h-4 w-full" />
         <Skeleton className="h-4 w-3/4" />

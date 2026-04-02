@@ -71,20 +71,20 @@ export default function HelpPage() {
     <div className="max-w-3xl mx-auto px-4 py-8">
       <div className="flex items-center gap-2 mb-8">
         <HelpCircle className="w-8 h-8 text-blue-500" />
-        <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Help Center</h1>
+        <h1 className="text-2xl font-semibold text-foreground">Help Center</h1>
       </div>
       <div className="space-y-6">
         {SECTIONS.map((s) => (
           <section key={s.id} id={s.id} className="scroll-mt-24">
-            <h2 className="text-lg font-medium text-gray-900 dark:text-white mb-2">{s.title}</h2>
-            <p className="text-sm text-gray-600 dark:text-gray-400">{s.content}</p>
+            <h2 className="text-lg font-medium text-foreground mb-2">{s.title}</h2>
+            <p className="text-sm text-muted-foreground">{s.content}</p>
           </section>
         ))}
       </div>
-      <div className="mt-12 pt-6 border-t border-gray-200 dark:border-gray-800">
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+      <div className="mt-12 pt-6 border-t border-border">
+        <p className="text-sm text-muted-foreground">
           Need more help?{' '}
-          <Link href="/dashboard" className="text-blue-500 hover:text-blue-600 dark:hover:text-blue-400">
+          <Link href="/dashboard" className="text-primary hover:text-primary/85 dark:hover:text-blue-400">
             Return to Dashboard
           </Link>
         </p>

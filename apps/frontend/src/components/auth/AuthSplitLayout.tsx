@@ -14,7 +14,7 @@ export default function AuthSplitLayout({
   showCookieBanner?: boolean;
 }) {
   return (
-    <div className="min-h-screen flex bg-gray-50 dark:bg-[#0b0e11]">
+    <div className="min-h-screen flex bg-background">
       {/* Left - Brand panel with subtle grid pattern */}
       <div className="hidden lg:flex lg:w-[48%] relative overflow-hidden bg-gradient-to-br from-gray-900 via-[#0f172a] to-blue-950/40 p-12 flex-col justify-between">
         {/* Subtle grid overlay */}
@@ -41,7 +41,7 @@ export default function AuthSplitLayout({
               { icon: Coins, label: 'Assets', value: '300+', sub: '10k+ daily orders' },
             ].map(({ icon: Icon, label, value, sub }) => (
               <div key={label} className="group">
-                <div className="w-11 h-11 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center mb-3 group-hover:bg-blue-500/20 group-hover:border-blue-500/30 transition-colors">
+                <div className="w-11 h-11 rounded-xl bg-card/5 border border-white/10 flex items-center justify-center mb-3 group-hover:bg-blue-500/20 group-hover:border-blue-500/30 transition-colors">
                   <Icon className="w-5 h-5 text-blue-400" />
                 </div>
                 <p className="text-gray-500 text-xs font-medium uppercase tracking-wider mb-0.5">{label}</p>
@@ -55,9 +55,9 @@ export default function AuthSplitLayout({
       </div>
 
       {/* Right - Form area */}
-      <div className="flex-1 flex flex-col bg-white dark:bg-[#0b0e11] min-w-0">
+      <div className="flex-1 flex flex-col bg-white dark:bg-background min-w-0">
         <div className="flex items-center justify-between p-5 lg:p-6">
-          <Link href={ROUTES.home} className="text-xl font-bold text-gray-900 dark:text-white lg:hidden flex items-center gap-1.5">
+          <Link href={ROUTES.home} className="text-xl font-bold text-foreground lg:hidden flex items-center gap-1.5">
             <span className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center text-white font-bold text-sm">M</span>
             Methereum
           </Link>
@@ -69,12 +69,12 @@ export default function AuthSplitLayout({
           <div className="w-full max-w-[400px]">{children}</div>
         </div>
         {showCookieBanner && (
-          <div className="p-4 border-t border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-[#0b0e11]">
+          <div className="p-4 border-t border-border bg-gray-50/50 dark:bg-background">
             <div className="flex items-center justify-between max-w-4xl mx-auto gap-4 flex-wrap">
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                We use cookies. <Link href={ROUTES.cookies} className="text-blue-500 dark:text-blue-400 hover:underline">Cookie Policy</Link>
+              <p className="text-xs text-muted-foreground">
+                We use cookies. <Link href={ROUTES.cookies} className="text-primary hover:underline">Cookie Policy</Link>
               </p>
-              <button type="button" className="px-4 py-2 rounded-lg bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors">
+              <button type="button" className="px-4 py-2 rounded-lg bg-accent text-foreground/80 text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors">
                 Accept All
               </button>
             </div>

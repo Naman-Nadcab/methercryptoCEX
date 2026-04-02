@@ -108,43 +108,43 @@ export default function SpotOrdersViewPage() {
   return (
     <div className="p-4 md:p-5 max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-3">
-        <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Spot Orders</h1>
-        <Link href="/trade/spot" className="text-sm text-blue-500 dark:text-blue-400 hover:underline">Spot Trading →</Link>
+        <h1 className="text-xl font-semibold text-foreground">Spot Orders</h1>
+        <Link href="/trade/spot" className="text-sm text-primary hover:underline">Spot Trading →</Link>
       </div>
-      <div className="bg-white dark:bg-[#1e2026] border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-        <div className="flex border-b border-gray-200 dark:border-gray-700">
+      <div className="bg-card border border-border rounded-lg overflow-hidden">
+        <div className="flex border-b border-border">
           <button
             type="button"
             onClick={() => setOrdersTab('open')}
-            className={`px-4 py-2.5 text-sm font-medium ${ordersTab === 'open' ? 'border-b-2 border-blue-500 text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400'}`}
+            className={`px-4 py-2.5 text-sm font-medium ${ordersTab === 'open' ? 'border-b-2 border-blue-500 text-primary' : 'text-muted-foreground'}`}
           >
             Open Orders
           </button>
           <button
             type="button"
             onClick={() => setOrdersTab('history')}
-            className={`px-4 py-2.5 text-sm font-medium ${ordersTab === 'history' ? 'border-b-2 border-blue-500 text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400'}`}
+            className={`px-4 py-2.5 text-sm font-medium ${ordersTab === 'history' ? 'border-b-2 border-blue-500 text-primary' : 'text-muted-foreground'}`}
           >
             Order History
           </button>
         </div>
         {ordersTab === 'open' && (
           <>
-            <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-              <span className="text-xs text-gray-500 dark:text-gray-400">Active orders. Cancel releases locked funds.</span>
-              <button type="button" onClick={() => fetchOpenOrders()} disabled={ordersLoading} aria-busy={ordersLoading} className="text-sm text-blue-500 dark:text-blue-400 hover:underline disabled:opacity-50 disabled:cursor-not-allowed">
+            <div className="px-4 py-2 border-b border-border flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">Active orders. Cancel releases locked funds.</span>
+              <button type="button" onClick={() => fetchOpenOrders()} disabled={ordersLoading} aria-busy={ordersLoading} className="text-sm text-primary hover:underline disabled:opacity-50 disabled:cursor-not-allowed">
                 Refresh
               </button>
             </div>
             {cancelError && (
-              <div className="px-4 py-2 bg-red-500/10 text-red-600 dark:text-red-400 text-sm flex items-center justify-between">
+              <div className="px-4 py-2 bg-red-500/10 text-destructive text-sm flex items-center justify-between">
                 <span>{cancelError}</span>
                 <button type="button" onClick={() => setCancelError(null)} className="underline">Dismiss</button>
               </div>
             )}
             <table className="w-full text-xs">
                 <thead>
-                  <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+                  <tr className="text-left text-muted-foreground border-b border-border">
                     <th className="py-2 px-2 font-medium uppercase tracking-wide">Market</th>
                     <th className="py-2 px-2 font-medium uppercase tracking-wide">Side</th>
                     <th className="py-2 px-2 font-medium uppercase tracking-wide">Price</th>
@@ -157,14 +157,14 @@ export default function SpotOrdersViewPage() {
                 <tbody>
                   {ordersLoading ? (
                     [1, 2, 3, 4, 5].map((i) => (
-                      <tr key={i} className="border-b border-gray-100 dark:border-gray-800">
-                        <td className="py-2 px-2"><div className="h-3 w-14 rounded bg-gray-200 dark:bg-gray-700 animate-pulse" /></td>
-                        <td className="py-2 px-2"><div className="h-3 w-8 rounded bg-gray-200 dark:bg-gray-700 animate-pulse" /></td>
-                        <td className="py-2 px-2"><div className="h-3 w-16 rounded bg-gray-200 dark:bg-gray-700 animate-pulse" /></td>
-                        <td className="py-2 px-2"><div className="h-3 w-12 rounded bg-gray-200 dark:bg-gray-700 animate-pulse" /></td>
-                        <td className="py-2 px-2"><div className="h-3 w-12 rounded bg-gray-200 dark:bg-gray-700 animate-pulse" /></td>
-                        <td className="py-2 px-2"><div className="h-3 w-14 rounded bg-gray-200 dark:bg-gray-700 animate-pulse" /></td>
-                        <td className="py-2 px-2"><div className="h-3 w-12 rounded bg-gray-200 dark:bg-gray-700 animate-pulse" /></td>
+                      <tr key={i} className="border-b border-border">
+                        <td className="py-2 px-2"><div className="h-3 w-14 rounded bg-accent animate-pulse" /></td>
+                        <td className="py-2 px-2"><div className="h-3 w-8 rounded bg-accent animate-pulse" /></td>
+                        <td className="py-2 px-2"><div className="h-3 w-16 rounded bg-accent animate-pulse" /></td>
+                        <td className="py-2 px-2"><div className="h-3 w-12 rounded bg-accent animate-pulse" /></td>
+                        <td className="py-2 px-2"><div className="h-3 w-12 rounded bg-accent animate-pulse" /></td>
+                        <td className="py-2 px-2"><div className="h-3 w-14 rounded bg-accent animate-pulse" /></td>
+                        <td className="py-2 px-2"><div className="h-3 w-12 rounded bg-accent animate-pulse" /></td>
                       </tr>
                     ))
                   ) : orders.length === 0 ? (
@@ -182,16 +182,16 @@ export default function SpotOrdersViewPage() {
                       const canCancel = ['OPEN', 'PARTIALLY_FILLED', 'PENDING_TRIGGER'].includes(o.status);
                       const displayStatus = o.status === 'PENDING_TRIGGER' ? 'Pending Trigger' : o.status;
                       return (
-                    <tr key={o.id} className={`border-b border-gray-100 dark:border-gray-800 transition-colors duration-100 hover:bg-gray-50 dark:hover:bg-white/5 ${cancellingOrderId === o.id ? 'opacity-75 bg-gray-50 dark:bg-white/5' : ''}`}>
-                      <td className="py-2 px-2 font-medium text-gray-900 dark:text-white tabular-nums">{o.market}</td>
+                    <tr key={o.id} className={`border-b border-border transition-colors duration-100 hover:bg-gray-50 dark:hover:bg-card/5 ${cancellingOrderId === o.id ? 'opacity-75 bg-gray-50 dark:bg-card/5' : ''}`}>
+                      <td className="py-2 px-2 font-medium text-foreground tabular-nums">{o.market}</td>
                       <td className="py-2 px-2 tabular-nums">
-                        <span className={o.side === 'buy' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>{o.side}</span>
+                        <span className={o.side === 'buy' ? 'text-buy' : 'text-destructive'}>{o.side}</span>
                       </td>
-                      <td className="py-2 px-2 font-mono text-gray-700 dark:text-gray-300 tabular-nums">{o.price ?? '—'}</td>
-                      <td className="py-2 px-2 font-mono text-gray-700 dark:text-gray-300 tabular-nums">{o.stop_price ?? '—'}</td>
-                      <td className="py-2 px-2 font-mono text-gray-700 dark:text-gray-300 tabular-nums">{o.quantity}</td>
+                      <td className="py-2 px-2 font-mono text-foreground/80 tabular-nums">{o.price ?? '—'}</td>
+                      <td className="py-2 px-2 font-mono text-foreground/80 tabular-nums">{o.stop_price ?? '—'}</td>
+                      <td className="py-2 px-2 font-mono text-foreground/80 tabular-nums">{o.quantity}</td>
                       <td className="py-2 px-2">
-                        <span className="px-2 py-0.5 rounded text-xs bg-blue-500/20 text-blue-600 dark:text-blue-400">{displayStatus}</span>
+                        <span className="px-2 py-0.5 rounded text-xs bg-blue-500/20 text-primary">{displayStatus}</span>
                       </td>
                       <td className="py-2 px-2">
                         {canCancel && (
@@ -199,7 +199,7 @@ export default function SpotOrdersViewPage() {
                             type="button"
                             disabled={cancellingOrderId !== null}
                             onClick={() => handleCancel(o.id)}
-                            className="text-red-500 dark:text-red-400 hover:underline disabled:opacity-50 disabled:cursor-not-allowed text-sm flex items-center gap-1"
+                            className="text-destructive hover:underline disabled:opacity-50 disabled:cursor-not-allowed text-sm flex items-center gap-1"
                           >
                             {cancellingOrderId === o.id ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
                             {cancellingOrderId === o.id ? 'Cancelling…' : 'Cancel'}
@@ -215,12 +215,12 @@ export default function SpotOrdersViewPage() {
         )}
         {ordersTab === 'history' && (
           <>
-            <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-              <span className="text-xs text-gray-500 dark:text-gray-400">CANCELLED and FILLED. Read-only.</span>
+            <div className="px-4 py-2 border-b border-border flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">CANCELLED and FILLED. Read-only.</span>
             </div>
             <table className="w-full text-xs">
               <thead>
-                <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+                <tr className="text-left text-muted-foreground border-b border-border">
                   <th className="py-2 px-2 font-medium uppercase tracking-wide">Market</th>
                   <th className="py-2 px-2 font-medium uppercase tracking-wide">Side</th>
                   <th className="py-2 px-2 font-medium uppercase tracking-wide">Price</th>
@@ -231,12 +231,12 @@ export default function SpotOrdersViewPage() {
               <tbody>
                 {historyLoading ? (
                   [1, 2, 3, 4, 5].map((i) => (
-                    <tr key={i} className="border-b border-gray-100 dark:border-gray-800">
-                      <td className="py-2 px-2"><div className="h-3 w-14 rounded bg-gray-200 dark:bg-gray-700 animate-pulse" /></td>
-                      <td className="py-2 px-2"><div className="h-3 w-8 rounded bg-gray-200 dark:bg-gray-700 animate-pulse" /></td>
-                      <td className="py-2 px-2"><div className="h-3 w-16 rounded bg-gray-200 dark:bg-gray-700 animate-pulse" /></td>
-                      <td className="py-2 px-2"><div className="h-3 w-12 rounded bg-gray-200 dark:bg-gray-700 animate-pulse" /></td>
-                      <td className="py-2 px-2"><div className="h-3 w-14 rounded bg-gray-200 dark:bg-gray-700 animate-pulse" /></td>
+                    <tr key={i} className="border-b border-border">
+                      <td className="py-2 px-2"><div className="h-3 w-14 rounded bg-accent animate-pulse" /></td>
+                      <td className="py-2 px-2"><div className="h-3 w-8 rounded bg-accent animate-pulse" /></td>
+                      <td className="py-2 px-2"><div className="h-3 w-16 rounded bg-accent animate-pulse" /></td>
+                      <td className="py-2 px-2"><div className="h-3 w-12 rounded bg-accent animate-pulse" /></td>
+                      <td className="py-2 px-2"><div className="h-3 w-14 rounded bg-accent animate-pulse" /></td>
                     </tr>
                   ))
                 ) : historyOrders.length === 0 ? (
@@ -251,15 +251,15 @@ export default function SpotOrdersViewPage() {
                   </td></tr>
                 ) : (
                   historyOrders.map((o) => (
-                      <tr key={o.id} className="border-b border-gray-100 dark:border-gray-800 transition-colors duration-100 hover:bg-gray-50 dark:hover:bg-white/5">
-                        <td className="py-2 px-2 font-medium text-gray-900 dark:text-white tabular-nums">{o.market}</td>
+                      <tr key={o.id} className="border-b border-border transition-colors duration-100 hover:bg-gray-50 dark:hover:bg-card/5">
+                        <td className="py-2 px-2 font-medium text-foreground tabular-nums">{o.market}</td>
                         <td className="py-2 px-2 tabular-nums">
-                          <span className={o.side === 'buy' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>{o.side}</span>
+                          <span className={o.side === 'buy' ? 'text-buy' : 'text-destructive'}>{o.side}</span>
                         </td>
-                        <td className="py-2 px-2 font-mono text-gray-700 dark:text-gray-300 tabular-nums">{o.price ?? '—'}</td>
-                        <td className="py-2 px-2 font-mono text-gray-700 dark:text-gray-300 tabular-nums">{o.quantity}</td>
+                        <td className="py-2 px-2 font-mono text-foreground/80 tabular-nums">{o.price ?? '—'}</td>
+                        <td className="py-2 px-2 font-mono text-foreground/80 tabular-nums">{o.quantity}</td>
                         <td className="py-2 px-2">
-                          <span className={`px-2 py-0.5 rounded text-xs ${o.status === 'FILLED' ? 'bg-green-500/20 text-green-600 dark:text-green-400' : 'bg-gray-500/20 text-gray-600 dark:text-gray-400'}`}>{o.status}</span>
+                          <span className={`px-2 py-0.5 rounded text-xs ${o.status === 'FILLED' ? 'bg-green-500/20 text-buy' : 'bg-gray-500/20 text-muted-foreground'}`}>{o.status}</span>
                         </td>
                       </tr>
                   ))
@@ -267,12 +267,12 @@ export default function SpotOrdersViewPage() {
               </tbody>
             </table>
                 {!historyLoading && historyNextCursor && (
-                  <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-center">
+                  <div className="p-4 border-t border-border flex justify-center">
                     <button
                       type="button"
                       onClick={() => fetchHistoryOrders(historyNextCursor, true)}
                       disabled={historyLoadMore}
-                      className="py-2 px-4 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 flex items-center gap-2"
+                      className="py-2 px-4 rounded-lg bg-accent text-foreground/80 text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 flex items-center gap-2"
                     >
                       {historyLoadMore ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                       Load more

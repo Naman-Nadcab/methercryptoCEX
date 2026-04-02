@@ -42,11 +42,11 @@ function OrdersInner() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold text-gray-900 dark:text-white">P2P orders</h1>
+      <h1 className="text-xl font-semibold text-foreground">P2P orders</h1>
       <select
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
-        className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-[#1e2329] dark:text-white"
+        className="rounded-lg border border-gray-200 bg-card px-3 py-2 text-sm dark:border-gray-700 dark:bg-card dark:text-white"
       >
         {STATUSES.map((s) => (
           <option key={s || 'all'} value={s}>
@@ -60,7 +60,7 @@ function OrdersInner() {
           {Array.from({ length: 5 }).map((_, i) => (
             <div
               key={i}
-              className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-[#1e2329]"
+              className="rounded-xl border border-gray-200 bg-card p-4 dark:border-gray-800 dark:bg-card"
             >
               <Skeleton className="h-4 w-28" />
               <Skeleton className="mt-2 h-4 w-full max-w-xs" />
@@ -74,7 +74,7 @@ function OrdersInner() {
           onRetry={() => void refetch()}
         />
       ) : sorted.length === 0 ? (
-        <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-[#1e2329]">
+        <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-card">
           <EmptyState
             icon={ClipboardList}
             title="No orders yet"
@@ -89,13 +89,13 @@ function OrdersInner() {
           <Link
             key={o.id}
             href={`/p2p/orders/${o.id}`}
-            className="block rounded-xl border border-gray-200 bg-white p-4 transition hover:border-blue-500/40 dark:border-gray-800 dark:bg-[#1e2329]"
+            className="block rounded-xl border border-gray-200 bg-card p-4 transition hover:border-blue-500/40 dark:border-gray-800 dark:bg-card"
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="font-mono text-xs text-gray-500">{o.id.slice(0, 8)}…</span>
               <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs dark:bg-gray-800">{o.status}</span>
             </div>
-            <p className="mt-1 text-sm text-gray-900 dark:text-white">
+            <p className="mt-1 text-sm text-foreground">
               {o.quantity} {o.crypto_symbol} · {o.fiat_amount} {o.fiat_currency}
             </p>
           </Link>

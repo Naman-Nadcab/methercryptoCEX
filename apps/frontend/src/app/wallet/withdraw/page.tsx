@@ -9,7 +9,7 @@ export default function WalletWithdrawIndexPage() {
     router.replace('/wallet/withdraw/crypto');
   }, [router]);
   return (
-    <div className="flex min-h-[40vh] items-center justify-center bg-gray-50 dark:bg-[#0b0e11]">
+    <div className="flex min-h-[40vh] items-center justify-center bg-background">
       <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
     </div>
   );

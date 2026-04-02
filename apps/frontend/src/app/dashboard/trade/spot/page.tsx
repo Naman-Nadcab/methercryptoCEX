@@ -224,10 +224,10 @@ export default function SpotTradePage() {
     <div className="max-w-4xl mx-auto p-4 sm:p-6 space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Spot Order</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Place a limit order. Funds are reserved via balance lock until order is filled or cancelled.</p>
+          <h1 className="text-2xl font-bold text-foreground">Spot Order</h1>
+          <p className="text-sm text-muted-foreground mt-1">Place a limit order. Funds are reserved via balance lock until order is filled or cancelled.</p>
         </div>
-        <Link href="/trade/spot" className="text-sm text-blue-500 dark:text-blue-400 hover:underline">
+        <Link href="/trade/spot" className="text-sm text-primary hover:underline">
           Back to Trade
         </Link>
       </div>
@@ -237,14 +237,14 @@ export default function SpotTradePage() {
         <span>Limit orders match when price is reached. Stop orders trigger when market hits trigger price. Funds are locked until filled or cancelled.</span>
       </div>
 
-      <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-6 space-y-4 transition-all duration-200 ease-out hover:bg-gray-50/80 dark:hover:bg-white/[0.07] dark:hover:border-white/20">
+      <form onSubmit={handleSubmit} className="bg-card/50 border border-border rounded-xl p-6 space-y-4 transition-all duration-200 ease-out hover:bg-background/80 dark:hover:bg-card/[0.07] dark:hover:border-white/20">
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Market</label>
+          <label className="block text-sm font-medium text-foreground/80 mb-1">Market</label>
           <select
             value={market}
             onChange={(e) => setMarket(e.target.value)}
             disabled={marketsLoading}
-            className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white disabled:opacity-50"
+            className="w-full px-3 py-2 bg-card border border-border rounded-lg text-foreground disabled:opacity-50"
           >
             {markets.length === 0 && <option value="">{marketsLoading ? 'Loading…' : 'No markets'}</option>}
             {markets.map((m) => (
@@ -255,34 +255,34 @@ export default function SpotTradePage() {
         <div className="flex gap-4">
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="radio" name="side" checked={side === 'buy'} onChange={() => setSide('buy')} className="rounded-full" />
-            <span className={side === 'buy' ? 'text-green-600 dark:text-green-400 font-medium' : 'text-gray-600 dark:text-gray-400'}>Buy</span>
+            <span className={side === 'buy' ? 'text-buy font-medium' : 'text-muted-foreground'}>Buy</span>
           </label>
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="radio" name="side" checked={side === 'sell'} onChange={() => setSide('sell')} className="rounded-full" />
-            <span className={side === 'sell' ? 'text-red-600 dark:text-red-400 font-medium' : 'text-gray-600 dark:text-gray-400'}>Sell</span>
+            <span className={side === 'sell' ? 'text-destructive font-medium' : 'text-muted-foreground'}>Sell</span>
           </label>
         </div>
         <div className="flex flex-wrap gap-4">
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="radio" name="type" checked={orderType === 'limit'} onChange={() => setOrderType('limit')} className="rounded-full" />
-            <span className="text-gray-700 dark:text-gray-300">Limit</span>
+            <span className="text-foreground/80">Limit</span>
           </label>
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="radio" name="type" checked={orderType === 'market'} onChange={() => setOrderType('market')} className="rounded-full" />
-            <span className="text-gray-700 dark:text-gray-300">Market</span>
+            <span className="text-foreground/80">Market</span>
           </label>
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="radio" name="type" checked={orderType === 'stop_loss'} onChange={() => setOrderType('stop_loss')} className="rounded-full" />
-            <span className="text-gray-700 dark:text-gray-300">Stop</span>
+            <span className="text-foreground/80">Stop</span>
           </label>
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="radio" name="type" checked={orderType === 'stop_limit'} onChange={() => setOrderType('stop_limit')} className="rounded-full" />
-            <span className="text-gray-700 dark:text-gray-300">Stop Limit</span>
+            <span className="text-foreground/80">Stop Limit</span>
           </label>
         </div>
         {showStopPrice && (
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Trigger price ({selectedMarket?.quote_asset ?? ''})</label>
+            <label className="block text-sm font-medium text-foreground/80 mb-1">Trigger price ({selectedMarket?.quote_asset ?? ''})</label>
             <input
               type="number"
               step="any"
@@ -290,13 +290,13 @@ export default function SpotTradePage() {
               value={stopPrice}
               onChange={(e) => setStopPrice(e.target.value)}
               placeholder="0"
-              className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white"
+              className="w-full px-3 py-2 bg-card border border-border rounded-lg text-foreground"
             />
           </div>
         )}
         {showPrice && (
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Price ({selectedMarket?.quote_asset ?? ''})</label>
+            <label className="block text-sm font-medium text-foreground/80 mb-1">Price ({selectedMarket?.quote_asset ?? ''})</label>
             <input
               type="number"
               step="any"
@@ -304,12 +304,12 @@ export default function SpotTradePage() {
               value={price}
               onChange={(e) => setPrice(e.target.value)}
               placeholder={orderType === 'stop_limit' ? 'Limit price' : '0'}
-              className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white"
+              className="w-full px-3 py-2 bg-card border border-border rounded-lg text-foreground"
             />
           </div>
         )}
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Quantity ({selectedMarket?.base_asset ?? ''})</label>
+          <label className="block text-sm font-medium text-foreground/80 mb-1">Quantity ({selectedMarket?.base_asset ?? ''})</label>
           <input
             type="number"
             step="any"
@@ -317,14 +317,14 @@ export default function SpotTradePage() {
             value={quantity}
             onChange={(e) => setQuantity(e.target.value)}
             placeholder="0"
-            className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white"
+            className="w-full px-3 py-2 bg-card border border-border rounded-lg text-foreground"
           />
         </div>
-        <div className="text-xs text-gray-500 dark:text-gray-400">
+        <div className="text-xs text-muted-foreground">
           Client Order ID (idempotency): {clientOrderId}
         </div>
         {submitResult && (
-          <div className={`flex items-center gap-2 p-3 rounded-lg text-sm animate-fade-in ${submitResult.success ? 'bg-green-500/10 text-green-700 dark:text-green-300' : 'bg-red-500/10 text-red-600 dark:text-red-400'}`}>
+          <div className={`flex items-center gap-2 p-3 rounded-lg text-sm animate-fade-in ${submitResult.success ? 'bg-green-500/10 text-green-700 dark:text-green-300' : 'bg-red-500/10 text-destructive'}`}>
             {!submitResult.success && <AlertCircle className="w-4 h-4 flex-shrink-0" />}
             {submitResult.message}
           </div>
@@ -340,40 +340,40 @@ export default function SpotTradePage() {
             (orderType === 'stop_limit' && ((!stopPrice.trim() || parseFloat(stopPrice) <= 0) || (!price.trim() || parseFloat(price) <= 0)))
           }
           aria-busy={submitting}
-          className="w-full py-2.5 rounded-lg font-medium bg-blue-500 text-white hover:bg-blue-600 hover:brightness-110 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 min-w-[120px] transition-transform duration-75 active:scale-[0.97] active:brightness-110"
+          className="w-full py-2.5 rounded-lg font-medium bg-primary text-primary-foreground hover:bg-blue-600 hover:brightness-110 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 min-w-[120px] transition-transform duration-75 active:scale-[0.97] active:brightness-110"
         >
           {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
           Place Order
         </button>
       </form>
 
-      <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden transition-all duration-200 ease-out dark:hover:border-white/20">
-        <div className="flex border-b border-gray-200 dark:border-gray-700">
+      <div className="bg-card/50 border border-border rounded-xl overflow-hidden transition-all duration-200 ease-out dark:hover:border-white/20">
+        <div className="flex border-b border-border">
           <button
             type="button"
             onClick={() => setOrdersTab('open')}
-            className={`px-4 py-3 text-sm font-medium ${ordersTab === 'open' ? 'border-b-2 border-blue-500 text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400'}`}
+            className={`px-4 py-3 text-sm font-medium ${ordersTab === 'open' ? 'border-b-2 border-blue-500 text-primary' : 'text-muted-foreground'}`}
           >
             Open Orders
           </button>
           <button
             type="button"
             onClick={() => setOrdersTab('history')}
-            className={`px-4 py-3 text-sm font-medium ${ordersTab === 'history' ? 'border-b-2 border-blue-500 text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400'}`}
+            className={`px-4 py-3 text-sm font-medium ${ordersTab === 'history' ? 'border-b-2 border-blue-500 text-primary' : 'text-muted-foreground'}`}
           >
             Order History
           </button>
         </div>
         {ordersTab === 'open' && (
           <>
-            <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-              <span className="text-sm text-gray-500 dark:text-gray-400">Active orders. Cancel releases locked funds.</span>
-              <button type="button" onClick={() => fetchOpenOrders()} disabled={ordersLoading} className="text-sm text-blue-500 dark:text-blue-400 hover:underline disabled:opacity-50">
+            <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Active orders. Cancel releases locked funds.</span>
+              <button type="button" onClick={() => fetchOpenOrders()} disabled={ordersLoading} className="text-sm text-primary hover:underline disabled:opacity-50">
                 Refresh
               </button>
             </div>
             {cancelError && (
-              <div className="px-4 py-2 bg-red-500/10 text-red-600 dark:text-red-400 text-sm flex items-center justify-between animate-fade-in-fast">
+              <div className="px-4 py-2 bg-red-500/10 text-destructive text-sm flex items-center justify-between animate-fade-in-fast">
                 <span>{cancelError}</span>
                 <button type="button" onClick={() => setCancelError(null)} className="underline">Dismiss</button>
               </div>
@@ -383,7 +383,7 @@ export default function SpotTradePage() {
                 <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
               </div>
             ) : orders.length === 0 ? (
-              <div className="py-12 text-center text-gray-500 dark:text-gray-400 text-sm">No open orders.</div>
+              <div className="py-12 text-center text-muted-foreground text-sm">No open orders.</div>
             ) : (
               <table className="w-full text-sm">
                 <thead>
@@ -402,16 +402,16 @@ export default function SpotTradePage() {
                     const canCancel = ['OPEN', 'PARTIALLY_FILLED', 'PENDING_TRIGGER'].includes(o.status);
                     const displayStatus = o.status === 'PENDING_TRIGGER' ? 'Pending Trigger' : o.status;
                     return (
-                      <tr key={o.id} className="border-b border-gray-100 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-white/[0.06] transition-colors duration-150">
-                        <td className="p-3 font-medium text-gray-900 dark:text-white tabular-nums tracking-tight">{o.market}</td>
+                      <tr key={o.id} className="border-b border-gray-100 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-card/[0.06] transition-colors duration-150">
+                        <td className="p-3 font-medium text-foreground tabular-nums tracking-tight">{o.market}</td>
                         <td className="p-3">
-                          <span className={`tabular-nums tracking-tight ${o.side === 'buy' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{o.side}</span>
+                          <span className={`tabular-nums tracking-tight ${o.side === 'buy' ? 'text-buy' : 'text-destructive'}`}>{o.side}</span>
                         </td>
-                        <td className="p-3 tabular-nums tracking-tight text-gray-700 dark:text-gray-300">{o.price ?? '—'}</td>
-                        <td className="p-3 tabular-nums tracking-tight text-gray-700 dark:text-gray-300">{o.stop_price ?? '—'}</td>
-                        <td className="p-3 tabular-nums tracking-tight text-gray-700 dark:text-gray-300">{o.quantity}</td>
+                        <td className="p-3 tabular-nums tracking-tight text-foreground/80">{o.price ?? '—'}</td>
+                        <td className="p-3 tabular-nums tracking-tight text-foreground/80">{o.stop_price ?? '—'}</td>
+                        <td className="p-3 tabular-nums tracking-tight text-foreground/80">{o.quantity}</td>
                         <td className="p-3">
-                          <span className="px-2 py-0.5 rounded text-xs bg-blue-500/20 text-blue-600 dark:text-blue-400">{displayStatus}</span>
+                          <span className="px-2 py-0.5 rounded text-xs bg-blue-500/20 text-primary">{displayStatus}</span>
                         </td>
                         <td className="p-3">
                           {canCancel && (
@@ -419,7 +419,7 @@ export default function SpotTradePage() {
                               type="button"
                               disabled={cancellingOrderId !== null}
                               onClick={() => handleCancel(o.id)}
-                              className="text-red-500 dark:text-red-400 hover:underline disabled:opacity-60 disabled:cursor-not-allowed text-sm flex items-center gap-1 transition-transform duration-75 active:scale-[0.97]"
+                              className="text-destructive hover:underline disabled:opacity-60 disabled:cursor-not-allowed text-sm flex items-center gap-1 transition-transform duration-75 active:scale-[0.97]"
                             >
                               {cancellingOrderId === o.id ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
                               {cancellingOrderId === o.id ? 'Cancelling…' : 'Cancel'}
@@ -436,15 +436,15 @@ export default function SpotTradePage() {
         )}
         {ordersTab === 'history' && (
           <>
-            <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-              <span className="text-sm text-gray-500 dark:text-gray-400">CANCELLED and FILLED. Read-only.</span>
+            <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">CANCELLED and FILLED. Read-only.</span>
             </div>
             {historyLoading ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
               </div>
             ) : historyOrders.length === 0 ? (
-              <div className="py-12 text-center text-gray-500 dark:text-gray-400 text-sm">No order history.</div>
+              <div className="py-12 text-center text-muted-foreground text-sm">No order history.</div>
             ) : (
               <>
                 <table className="w-full text-sm">
@@ -460,26 +460,26 @@ export default function SpotTradePage() {
                   <tbody>
                     {historyOrders.map((o) => (
                       <tr key={o.id} className="border-b border-gray-100 dark:border-white/10">
-                        <td className="p-3 font-medium text-gray-900 dark:text-white tabular-nums tracking-tight">{o.market}</td>
+                        <td className="p-3 font-medium text-foreground tabular-nums tracking-tight">{o.market}</td>
                         <td className="p-3">
-                          <span className={`tabular-nums tracking-tight ${o.side === 'buy' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>{o.side}</span>
+                          <span className={`tabular-nums tracking-tight ${o.side === 'buy' ? 'text-buy' : 'text-destructive'}`}>{o.side}</span>
                         </td>
-                        <td className="p-3 tabular-nums tracking-tight text-gray-700 dark:text-gray-300">{o.price ?? '—'}</td>
-                        <td className="p-3 tabular-nums tracking-tight text-gray-700 dark:text-gray-300">{o.quantity}</td>
+                        <td className="p-3 tabular-nums tracking-tight text-foreground/80">{o.price ?? '—'}</td>
+                        <td className="p-3 tabular-nums tracking-tight text-foreground/80">{o.quantity}</td>
                         <td className="p-3">
-                          <span className={`px-2 py-0.5 rounded text-xs ${o.status === 'FILLED' ? 'bg-green-500/20 text-green-600 dark:text-green-400' : 'bg-gray-500/20 text-gray-600 dark:text-gray-400'}`}>{o.status}</span>
+                          <span className={`px-2 py-0.5 rounded text-xs ${o.status === 'FILLED' ? 'bg-green-500/20 text-buy' : 'bg-gray-500/20 text-muted-foreground'}`}>{o.status}</span>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
                 {historyNextCursor && (
-                  <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-center">
+                  <div className="p-4 border-t border-border flex justify-center">
                     <button
                       type="button"
                       onClick={() => fetchHistoryOrders(historyNextCursor, true)}
                       disabled={historyLoadMore}
-                      className="py-2 px-4 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 flex items-center gap-2"
+                      className="py-2 px-4 rounded-lg bg-accent text-foreground/80 text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 flex items-center gap-2"
                     >
                       {historyLoadMore ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                       Load more

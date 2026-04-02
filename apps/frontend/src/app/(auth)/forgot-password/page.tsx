@@ -163,22 +163,22 @@ export default function ForgotPasswordPage() {
           <ArrowLeft className="w-4 h-4" />
           Back to login
         </Link>
-        <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-800 p-8">
+        <div className="bg-card rounded-xl shadow-xl border border-border p-8">
           {step === 'request' ? (
             <form onSubmit={handleRequestSubmit} className="space-y-6">
               <div>
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">Forgot password?</h1>
-                <p className="text-gray-500 dark:text-gray-400">
+                <h1 className="text-2xl font-bold text-foreground mb-1">Forgot password?</h1>
+                <p className="text-muted-foreground">
                   Enter your email or phone to receive a reset code
                 </p>
               </div>
-              <div className="flex border-b border-gray-200 dark:border-gray-700">
+              <div className="flex border-b border-border">
                 <button
                   type="button"
                   onClick={() => setIdentifierType('email')}
                   className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${
                     identifierType === 'email'
-                      ? 'text-gray-900 dark:text-white border-gray-900 dark:border-white'
+                      ? 'text-foreground border-gray-900 dark:border-white'
                       : 'text-gray-500 border-transparent hover:text-gray-700 dark:hover:text-gray-300'
                   }`}
                 >
@@ -189,7 +189,7 @@ export default function ForgotPasswordPage() {
                   onClick={() => setIdentifierType('phone')}
                   className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${
                     identifierType === 'phone'
-                      ? 'text-gray-900 dark:text-white border-gray-900 dark:border-white'
+                      ? 'text-foreground border-gray-900 dark:border-white'
                       : 'text-gray-500 border-transparent hover:text-gray-700 dark:hover:text-gray-300'
                   }`}
                 >
@@ -209,7 +209,7 @@ export default function ForgotPasswordPage() {
                     }
                   }}
                   placeholder={identifierType === 'email' ? 'Email address' : 'Mobile number'}
-                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-gray-900 dark:text-white dark:bg-gray-800"
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent outline-none text-foreground dark:bg-gray-800"
                   required
                 />
               </div>
@@ -226,9 +226,9 @@ export default function ForgotPasswordPage() {
           ) : (
             <form onSubmit={handleResetSubmit} className="space-y-6">
               <div>
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">Reset password</h1>
-                <p className="text-gray-500 dark:text-gray-400">
-                  Enter the 6-digit code sent to <span className="font-medium text-gray-900 dark:text-white">{identifier}</span>
+                <h1 className="text-2xl font-bold text-foreground mb-1">Reset password</h1>
+                <p className="text-muted-foreground">
+                  Enter the 6-digit code sent to <span className="font-medium text-foreground">{identifier}</span>
                 </p>
               </div>
               <div className="flex gap-2 justify-center">
@@ -242,19 +242,19 @@ export default function ForgotPasswordPage() {
                     value={digit}
                     onChange={(e) => handleOtpChange(i, e.target.value)}
                     onKeyDown={(e) => handleOtpKeyDown(i, e)}
-                    className="w-12 h-14 text-center text-xl font-bold border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white dark:bg-gray-800"
+                    className="w-12 h-14 text-center text-xl font-bold border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary text-foreground dark:bg-gray-800"
                   />
                 ))}
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">New password</label>
+                <label className="block text-sm font-medium text-foreground/80 mb-1">New password</label>
                 <div className="relative">
                   <input
                     type={showPassword ? 'text' : 'password'}
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="Min 8 chars, uppercase, lowercase, number"
-                    className="w-full px-4 py-3 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white dark:bg-gray-800"
+                    className="w-full px-4 py-3 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary text-foreground dark:bg-gray-800"
                     required
                   />
                   <button
@@ -267,13 +267,13 @@ export default function ForgotPasswordPage() {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Confirm password</label>
+                <label className="block text-sm font-medium text-foreground/80 mb-1">Confirm password</label>
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="Re-enter password"
-                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white dark:bg-gray-800"
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary text-foreground dark:bg-gray-800"
                   required
                 />
               </div>

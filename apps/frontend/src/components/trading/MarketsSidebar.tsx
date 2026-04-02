@@ -147,7 +147,7 @@ export function MarketsSidebar({
                 return (
                   <tr
                     key={m.symbol}
-                    className={`border-b border-[#2B3139]/50 hover:bg-white/5 transition-colors cursor-pointer ${
+                    className={`border-b border-[#2B3139]/50 hover:bg-card/5 transition-colors cursor-pointer ${
                       isSelected ? 'bg-[#16C784]/10' : ''
                     }`}
                     onClick={() => onSelectSymbol(m.symbol)}

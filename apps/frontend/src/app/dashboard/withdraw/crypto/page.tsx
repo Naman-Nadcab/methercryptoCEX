@@ -569,16 +569,16 @@ export default function WithdrawCryptoPage() {
   const getStatusBadge = (status: string) => {
     const s = (status || '').toLowerCase();
     const styles: Record<string, string> = {
-      completed: 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400',
-      processing: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
+      completed: 'bg-green-100 dark:bg-green-900/30 text-buy',
+      processing: 'bg-blue-100 dark:bg-blue-900/30 text-primary',
       pending: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400',
       pending_approval: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400',
-      queued: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
-      signed: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
-      broadcasted: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
-      failed: 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400',
-      rejected: 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400',
-      cancelled: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400',
+      queued: 'bg-blue-100 dark:bg-blue-900/30 text-primary',
+      signed: 'bg-blue-100 dark:bg-blue-900/30 text-primary',
+      broadcasted: 'bg-blue-100 dark:bg-blue-900/30 text-primary',
+      failed: 'bg-red-100 dark:bg-red-900/30 text-destructive',
+      rejected: 'bg-red-100 dark:bg-red-900/30 text-destructive',
+      cancelled: 'bg-accent text-muted-foreground',
     };
     return styles[s] || styles.cancelled;
   };
@@ -589,10 +589,10 @@ export default function WithdrawCryptoPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0b0e11]">
+    <div className="min-h-screen bg-background">
       <div className="flex">
         {/* Sidebar */}
-        <aside className="w-60 min-h-screen bg-white dark:bg-[#181a20] border-r border-gray-200 dark:border-gray-800">
+        <aside className="w-60 min-h-screen bg-card border-r border-border">
           <nav className="p-4 space-y-1">
             {SIDEBAR_LINKS.map((link) => (
               <Link
@@ -600,8 +600,8 @@ export default function WithdrawCryptoPage() {
                 href={link.href}
                 className={`flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl transition-colors ${
                   link.active
-                    ? 'bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-800/30'
-                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                    ? 'bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 text-primary border border-blue-100 dark:border-blue-800/30'
+                    : 'text-muted-foreground hover:bg-accent/50'
                 }`}
               >
                 <link.icon className="w-5 h-5" />
@@ -615,10 +615,10 @@ export default function WithdrawCryptoPage() {
         <main className="flex-1 p-6">
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Withdraw</h1>
+            <h1 className="text-2xl font-bold text-foreground">Withdraw</h1>
             <Link
               href="/wallet/withdraw/fiat"
-              className="flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-[#1e2329] text-gray-700 dark:text-gray-300 font-medium text-sm rounded-xl border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
+              className="flex items-center gap-2 px-4 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-xl border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
             >
               <CreditCard className="w-4 h-4" />
               Fiat Withdrawal
@@ -637,19 +637,19 @@ export default function WithdrawCryptoPage() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Withdrawal Form */}
             <div className="lg:col-span-2">
-              <div className="bg-white dark:bg-[#1e2329] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
+              <div className="bg-card rounded-xl border border-border overflow-hidden">
                 {/* Form Content */}
                 <div className="p-6">
                   {/* Select Coin */}
                   <div className="mb-6">
                     <div className="flex items-center justify-between mb-2">
-                      <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Select Coin</label>
+                      <label className="text-sm font-medium text-foreground/80">Select Coin</label>
                       <span className="text-xs text-gray-400">Coin</span>
                     </div>
                     <div className="relative">
                       <button
                         onClick={() => setShowTokenDropdown(!showTokenDropdown)}
-                        className="w-full flex items-center justify-between px-4 py-3.5 bg-gray-50 dark:bg-[#2b2f36] border border-gray-200 dark:border-gray-700 rounded-xl text-left hover:border-blue-400 dark:hover:border-blue-500 transition-colors"
+                        className="w-full flex items-center justify-between px-4 py-3.5 bg-gray-50 dark:bg-[#2b2f36] border border-border rounded-xl text-left hover:border-blue-400 dark:hover:border-blue-500 transition-colors"
                       >
                         {selectedToken ? (
                           <div className="flex items-center gap-3">
@@ -662,7 +662,7 @@ export default function WithdrawCryptoPage() {
                               unoptimized
                             />
                             <div>
-                              <span className="font-semibold text-gray-900 dark:text-white">{selectedToken.symbol}</span>
+                              <span className="font-semibold text-foreground">{selectedToken.symbol}</span>
                               <span className="text-sm text-gray-500 ml-2">{selectedToken.name}</span>
                             </div>
                           </div>
@@ -673,8 +673,8 @@ export default function WithdrawCryptoPage() {
                       </button>
 
                       {showTokenDropdown && (
-                        <div className="absolute z-30 top-full left-0 right-0 mt-2 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl overflow-hidden">
-                          <div className="p-3 border-b border-gray-100 dark:border-gray-800">
+                        <div className="absolute z-30 top-full left-0 right-0 mt-2 bg-card border border-border rounded-xl shadow-2xl overflow-hidden">
+                          <div className="p-3 border-b border-border">
                             <div className="relative">
                               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                               <input
@@ -682,7 +682,7 @@ export default function WithdrawCryptoPage() {
                                 value={tokenSearch}
                                 onChange={(e) => setTokenSearch(e.target.value)}
                                 placeholder="Search coin..."
-                                className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] border-0 rounded-lg text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 outline-none"
+                                className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] border-0 rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:ring-2 focus:ring-primary outline-none"
                                 autoFocus
                               />
                             </div>
@@ -697,7 +697,7 @@ export default function WithdrawCryptoPage() {
                                 <button
                                   key={token.id}
                                   onClick={() => selectToken(token)}
-                                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent transition-colors"
                                 >
                                   <Image
                                     src={getTokenIcon(token.symbol)}
@@ -708,7 +708,7 @@ export default function WithdrawCryptoPage() {
                                     unoptimized
                                   />
                                   <div className="text-left">
-                                    <p className="font-medium text-gray-900 dark:text-white">{token.symbol}</p>
+                                    <p className="font-medium text-foreground">{token.symbol}</p>
                                     <p className="text-xs text-gray-500">{token.name}</p>
                                   </div>
                                 </button>
@@ -724,13 +724,13 @@ export default function WithdrawCryptoPage() {
 
                   {/* Withdraw To Tabs */}
                   <div className="mb-6">
-                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3 block">Withdraw to</label>
+                    <label className="text-sm font-medium text-foreground/80 mb-3 block">Withdraw to</label>
                     <div className="flex gap-1 p-1 bg-gray-100 dark:bg-[#2b2f36] rounded-xl w-fit">
                       <button
                         onClick={() => setWithdrawType('on-chain')}
                         className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
                           withdrawType === 'on-chain'
-                            ? 'bg-white dark:bg-[#1e2329] text-blue-600 dark:text-blue-400 shadow-sm'
+                            ? 'bg-card text-primary shadow-sm'
                             : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
                         }`}
                       >
@@ -740,7 +740,7 @@ export default function WithdrawCryptoPage() {
                         onClick={() => setWithdrawType('internal')}
                         className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
                           withdrawType === 'internal'
-                            ? 'bg-white dark:bg-[#1e2329] text-blue-600 dark:text-blue-400 shadow-sm'
+                            ? 'bg-card text-primary shadow-sm'
                             : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
                         }`}
                       >
@@ -764,7 +764,7 @@ export default function WithdrawCryptoPage() {
                                 if (addr) selectSavedAddress(addr);
                               }
                             }}
-                            className="w-full px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white text-sm focus:border-blue-500 outline-none"
+                            className="w-full px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] border border-border rounded-xl text-foreground text-sm focus:border-blue-500 outline-none"
                           >
                             <option value="">Select from address book...</option>
                             {matchingAddresses.map((addr, i) => (
@@ -784,9 +784,9 @@ export default function WithdrawCryptoPage() {
                             value={toAddress}
                             onChange={(e) => setToAddress(e.target.value)}
                             placeholder="Please enter or select from address book"
-                            className="w-full px-4 py-3.5 pr-12 bg-gray-50 dark:bg-[#2b2f36] border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white placeholder-gray-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 outline-none transition-all"
+                            className="w-full px-4 py-3.5 pr-12 bg-gray-50 dark:bg-[#2b2f36] border border-border rounded-xl text-foreground placeholder:text-muted-foreground focus:border-blue-500 focus:ring-1 focus:ring-primary/20 outline-none transition-all"
                           />
-                          <button className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors">
+                          <button className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 hover:bg-accent rounded-lg transition-colors">
                             <QrCode className="w-5 h-5 text-gray-400" />
                           </button>
                         </div>
@@ -798,7 +798,7 @@ export default function WithdrawCryptoPage() {
                           value={withdrawMemo}
                           onChange={(e) => setWithdrawMemo(e.target.value)}
                           placeholder="Leave empty if not required"
-                          className="w-full px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white text-sm"
+                          className="w-full px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] border border-border rounded-xl text-foreground text-sm"
                         />
                       </div>
 
@@ -809,7 +809,7 @@ export default function WithdrawCryptoPage() {
                           <button
                             onClick={() => selectedToken && setShowChainDropdown(!showChainDropdown)}
                             disabled={!selectedToken}
-                            className={`w-full flex items-center justify-between px-4 py-3.5 bg-gray-50 dark:bg-[#2b2f36] border border-gray-200 dark:border-gray-700 rounded-xl text-left ${
+                            className={`w-full flex items-center justify-between px-4 py-3.5 bg-gray-50 dark:bg-[#2b2f36] border border-border rounded-xl text-left ${
                               !selectedToken ? 'opacity-50 cursor-not-allowed' : 'hover:border-blue-400 dark:hover:border-blue-500'
                             } transition-colors`}
                           >
@@ -823,9 +823,9 @@ export default function WithdrawCryptoPage() {
                                   className="rounded-full"
                                   unoptimized
                                 />
-                                <span className="font-medium text-gray-900 dark:text-white">{selectedChain.name}</span>
+                                <span className="font-medium text-foreground">{selectedChain.name}</span>
                                 {selectedChain.type === 'evm' && (
-                                  <span className="text-xs px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full">EVM</span>
+                                  <span className="text-xs px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-primary rounded-full">EVM</span>
                                 )}
                               </div>
                             ) : (
@@ -835,7 +835,7 @@ export default function WithdrawCryptoPage() {
                           </button>
 
                           {showChainDropdown && (
-                            <div className="absolute z-30 top-full left-0 right-0 mt-2 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl overflow-hidden">
+                            <div className="absolute z-30 top-full left-0 right-0 mt-2 bg-card border border-border rounded-xl shadow-2xl overflow-hidden">
                               {chainsLoading ? (
                                 <div className="flex justify-center py-6">
                                   <RefreshCw className="w-5 h-5 text-blue-500 animate-spin" />
@@ -845,7 +845,7 @@ export default function WithdrawCryptoPage() {
                                   <button
                                     key={chain.id}
                                     onClick={() => selectChain(chain)}
-                                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-accent transition-colors"
                                   >
                                     <div className="flex items-center gap-3">
                                       <Image
@@ -856,7 +856,7 @@ export default function WithdrawCryptoPage() {
                                         className="rounded-full"
                                         unoptimized
                                       />
-                                      <span className="font-medium text-gray-900 dark:text-white">{chain.name}</span>
+                                      <span className="font-medium text-foreground">{chain.name}</span>
                                     </div>
                                   </button>
                                 ))
@@ -876,7 +876,7 @@ export default function WithdrawCryptoPage() {
                         value={internalRecipient}
                         onChange={(e) => setInternalRecipient(e.target.value)}
                         placeholder="Enter UID, email, or phone number"
-                        className="w-full px-4 py-3.5 bg-gray-50 dark:bg-[#2b2f36] border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white placeholder-gray-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 outline-none transition-all"
+                        className="w-full px-4 py-3.5 bg-gray-50 dark:bg-[#2b2f36] border border-border rounded-xl text-foreground placeholder:text-muted-foreground focus:border-blue-500 focus:ring-1 focus:ring-primary/20 outline-none transition-all"
                       />
                     </div>
                   )}
@@ -892,7 +892,7 @@ export default function WithdrawCryptoPage() {
                           </span>
                         )}
                         <span className="text-xs text-gray-400">Amount</span>
-                        <button className="text-xs text-blue-500 hover:text-blue-600 font-medium">Raise Amount</button>
+                        <button className="text-xs text-primary hover:text-primary/85 font-medium">Raise Amount</button>
                       </div>
                     </div>
                     <div className="relative">
@@ -901,11 +901,11 @@ export default function WithdrawCryptoPage() {
                         value={amount}
                         onChange={(e) => setAmount(e.target.value)}
                         placeholder="0"
-                        className="w-full px-4 py-3.5 pr-16 bg-gray-50 dark:bg-[#2b2f36] border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white placeholder-gray-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 outline-none transition-all"
+                        className="w-full px-4 py-3.5 pr-16 bg-gray-50 dark:bg-[#2b2f36] border border-border rounded-xl text-foreground placeholder:text-muted-foreground focus:border-blue-500 focus:ring-1 focus:ring-primary/20 outline-none transition-all"
                       />
                       <button
                         onClick={setMaxAmount}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-blue-500 hover:text-blue-600 font-medium"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-primary hover:text-primary/85 font-medium"
                       >
                         All
                       </button>
@@ -915,40 +915,40 @@ export default function WithdrawCryptoPage() {
                     <div className="mt-4 p-4 bg-gray-50 dark:bg-[#2b2f36] rounded-xl">
                       <div className="flex items-center justify-between text-sm text-gray-500 mb-3">
                         <span>Select account ({selectedAccounts.funding || selectedAccounts.trading ? 1 : 0})</span>
-                        <span className="font-medium text-gray-900 dark:text-white">
+                        <span className="font-medium text-foreground">
                           {selectedToken ? getAvailableBalance().toFixed(8) : '0'}
                         </span>
                       </div>
                       <div className="space-y-2">
-                        <label className="flex items-center justify-between p-3 bg-white dark:bg-[#1e2329] rounded-xl cursor-pointer border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors">
+                        <label className="flex items-center justify-between p-3 bg-card rounded-xl cursor-pointer border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors">
                           <div className="flex items-center gap-3">
                             <input
                               type="checkbox"
                               checked={selectedAccounts.funding}
                               onChange={(e) => setSelectedAccounts({ ...selectedAccounts, funding: e.target.checked })}
-                              className="w-4 h-4 rounded border-gray-300 text-blue-500 focus:ring-blue-500"
+                              className="w-4 h-4 rounded border-gray-300 text-blue-500 focus:ring-primary"
                             />
                             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
                               <Wallet className="w-4 h-4 text-white" />
                             </div>
-                            <span className="text-gray-700 dark:text-gray-300 font-medium">Funding</span>
+                            <span className="text-foreground/80 font-medium">Funding</span>
                           </div>
                           <span className="text-gray-500">
                             {(selectedToken && (balances || []).find(b => (b?.symbol || '').toUpperCase() === (selectedToken.symbol || '').toUpperCase())?.funding) ?? '0'}
                           </span>
                         </label>
-                        <label className="flex items-center justify-between p-3 bg-white dark:bg-[#1e2329] rounded-xl cursor-pointer border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors">
+                        <label className="flex items-center justify-between p-3 bg-card rounded-xl cursor-pointer border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors">
                           <div className="flex items-center gap-3">
                             <input
                               type="checkbox"
                               checked={selectedAccounts.trading}
                               onChange={(e) => setSelectedAccounts({ ...selectedAccounts, trading: e.target.checked })}
-                              className="w-4 h-4 rounded border-gray-300 text-blue-500 focus:ring-blue-500"
+                              className="w-4 h-4 rounded border-gray-300 text-blue-500 focus:ring-primary"
                             />
                             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center">
                               <TrendingUp className="w-4 h-4 text-white" />
                             </div>
-                            <span className="text-gray-700 dark:text-gray-300 font-medium">Unified Trading</span>
+                            <span className="text-foreground/80 font-medium">Unified Trading</span>
                           </div>
                           <span className="text-gray-500">
                             {(selectedToken && (balances || []).find(b => (b?.symbol || '').toUpperCase() === (selectedToken.symbol || '').toUpperCase())?.trading) ?? '0'}
@@ -961,8 +961,8 @@ export default function WithdrawCryptoPage() {
                   {/* Fee & Received (from preview when amount entered) */}
                   <div className="bg-blue-50 dark:bg-blue-900/10 rounded-xl p-4 border border-blue-100 dark:border-blue-800/30 mb-6">
                     <div className="flex items-center justify-between text-sm mb-2">
-                      <span className="text-gray-600 dark:text-gray-400">Transaction Fee</span>
-                      <span className="font-medium text-gray-900 dark:text-white">
+                      <span className="text-muted-foreground">Transaction Fee</span>
+                      <span className="font-medium text-foreground">
                         {withdrawType === 'internal'
                           ? `0 ${selectedToken?.symbol || ''}`
                           : previewLoading
@@ -971,8 +971,8 @@ export default function WithdrawCryptoPage() {
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-600 dark:text-gray-400">Amount Received</span>
-                      <span className="font-semibold text-gray-900 dark:text-white">
+                      <span className="text-muted-foreground">Amount Received</span>
+                      <span className="font-semibold text-foreground">
                         {withdrawType === 'internal'
                           ? (amount ? `${amount} ${selectedToken?.symbol || ''}` : '--')
                           : previewLoading
@@ -996,50 +996,50 @@ export default function WithdrawCryptoPage() {
                   {error && (
                     <div className="flex items-center gap-2 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl mb-6">
                       <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-                      <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+                      <p className="text-sm text-destructive">{error}</p>
                     </div>
                   )}
 
                   {/* Confirmation step: summary + Back / Confirm */}
                   {showConfirmStep && selectedToken && (
-                    <div className="mb-6 p-4 rounded-xl bg-gray-50 dark:bg-[#0b0e11] border border-gray-200 dark:border-gray-700">
-                      <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Review withdrawal</p>
+                    <div className="mb-6 p-4 rounded-xl bg-background border border-border">
+                      <p className="text-sm font-medium text-foreground/80 mb-3">Review withdrawal</p>
                       <dl className="space-y-2 text-sm">
                         <div className="flex justify-between">
-                          <dt className="text-gray-500 dark:text-gray-400">Coin</dt>
-                          <dd className="font-medium text-gray-900 dark:text-white">{selectedToken.symbol}</dd>
+                          <dt className="text-muted-foreground">Coin</dt>
+                          <dd className="font-medium text-foreground">{selectedToken.symbol}</dd>
                         </div>
                         <div className="flex justify-between">
-                          <dt className="text-gray-500 dark:text-gray-400">Amount</dt>
-                          <dd className="font-mono text-gray-900 dark:text-white">{amount} {selectedToken.symbol}</dd>
+                          <dt className="text-muted-foreground">Amount</dt>
+                          <dd className="font-mono text-foreground">{amount} {selectedToken.symbol}</dd>
                         </div>
                         {withdrawType === 'on-chain' && selectedChain && (
                           <>
                             <div className="flex justify-between">
-                              <dt className="text-gray-500 dark:text-gray-400">Network</dt>
-                              <dd className="font-medium text-gray-900 dark:text-white">{selectedChain.name}</dd>
+                              <dt className="text-muted-foreground">Network</dt>
+                              <dd className="font-medium text-foreground">{selectedChain.name}</dd>
                             </div>
                             <div className="flex justify-between">
-                              <dt className="text-gray-500 dark:text-gray-400">Fee</dt>
-                              <dd className="font-mono text-gray-900 dark:text-white">{getWithdrawFee().toFixed(8)} {selectedToken.symbol}</dd>
+                              <dt className="text-muted-foreground">Fee</dt>
+                              <dd className="font-mono text-foreground">{getWithdrawFee().toFixed(8)} {selectedToken.symbol}</dd>
                             </div>
                             <div className="flex justify-between items-start gap-2">
-                              <dt className="text-gray-500 dark:text-gray-400 shrink-0">Address</dt>
-                              <dd className="font-mono text-xs text-gray-900 dark:text-white break-all text-right">{toAddress.trim()}</dd>
+                              <dt className="text-muted-foreground shrink-0">Address</dt>
+                              <dd className="font-mono text-xs text-foreground break-all text-right">{toAddress.trim()}</dd>
                             </div>
                           </>
                         )}
                         {withdrawType === 'internal' && (
                           <div className="flex justify-between">
-                            <dt className="text-gray-500 dark:text-gray-400">Recipient</dt>
-                            <dd className="font-medium text-gray-900 dark:text-white">{internalRecipient.trim()}</dd>
+                            <dt className="text-muted-foreground">Recipient</dt>
+                            <dd className="font-medium text-foreground">{internalRecipient.trim()}</dd>
                           </div>
                         )}
                       </dl>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-3 mb-2">If you have 2FA or fund password enabled, enter them below.</p>
+                      <p className="text-xs text-muted-foreground mt-3 mb-2">If you have 2FA or fund password enabled, enter them below.</p>
                       <div className="space-y-3 mt-2">
                         <div>
-                          <label htmlFor="withdraw-2fa" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">2FA code (if enabled)</label>
+                          <label htmlFor="withdraw-2fa" className="block text-xs font-medium text-muted-foreground mb-1">2FA code (if enabled)</label>
                           <input
                             id="withdraw-2fa"
                             type="text"
@@ -1049,12 +1049,12 @@ export default function WithdrawCryptoPage() {
                             maxLength={8}
                             value={twoFactorCode}
                             onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, '').slice(0, 8))}
-                            className="w-full px-3 py-2 bg-white dark:bg-[#2b2f36] border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                            className="w-full px-3 py-2 bg-white dark:bg-[#2b2f36] border border-border rounded-lg text-foreground text-sm font-mono focus:ring-2 focus:ring-primary focus:border-blue-500 outline-none"
                             aria-label="Two-factor authentication code for withdrawal"
                           />
                         </div>
                         <div>
-                          <label htmlFor="withdraw-fund-password" className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Fund password (if set)</label>
+                          <label htmlFor="withdraw-fund-password" className="block text-xs font-medium text-muted-foreground mb-1">Fund password (if set)</label>
                           <input
                             id="withdraw-fund-password"
                             type="password"
@@ -1062,7 +1062,7 @@ export default function WithdrawCryptoPage() {
                             placeholder="••••••••"
                             value={fundPassword}
                             onChange={(e) => setFundPassword(e.target.value)}
-                            className="w-full px-3 py-2 bg-white dark:bg-[#2b2f36] border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                            className="w-full px-3 py-2 bg-white dark:bg-[#2b2f36] border border-border rounded-lg text-foreground text-sm focus:ring-2 focus:ring-primary focus:border-blue-500 outline-none"
                             aria-label="Fund password for withdrawal"
                           />
                         </div>
@@ -1073,7 +1073,7 @@ export default function WithdrawCryptoPage() {
                           onClick={() => setShowConfirmStep(false)}
                           disabled={submitting}
                           aria-label="Back to edit withdrawal details"
-                          className="flex-1 py-2.5 rounded-xl font-medium border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                          className="flex-1 py-2.5 rounded-xl font-medium border border-gray-300 dark:border-gray-600 text-foreground/80 hover:bg-accent disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
                         >
                           Back
                         </button>
@@ -1083,7 +1083,7 @@ export default function WithdrawCryptoPage() {
                           disabled={submitting}
                           aria-busy={submitting}
                           aria-label="Confirm and submit withdrawal"
-                          className="flex-1 py-2.5 rounded-xl font-semibold bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-50 flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                          className="flex-1 py-2.5 rounded-xl font-semibold bg-primary hover:bg-primary/85 text-white disabled:opacity-50 flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
                         >
                           {submitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : null}
                           Confirm withdrawal
@@ -1114,8 +1114,8 @@ export default function WithdrawCryptoPage() {
                         aria-label="Review withdrawal details before submitting"
                         className={`w-full py-3.5 rounded-xl font-semibold transition-all ${
                           isValid
-                            ? 'bg-blue-500 hover:bg-blue-600 text-white shadow-lg shadow-blue-500/25'
-                            : 'bg-gray-200 dark:bg-gray-700 text-gray-400 cursor-not-allowed'
+                            ? 'bg-primary hover:bg-primary/85 text-white shadow-lg shadow-blue-500/25'
+                            : 'bg-accent text-gray-400 cursor-not-allowed'
                         }`}
                       >
                         Review withdrawal
@@ -1129,12 +1129,12 @@ export default function WithdrawCryptoPage() {
             {/* Right Side - FAQ */}
             <div className="space-y-6">
               {/* FAQ */}
-              <div className="bg-white dark:bg-[#1e2329] rounded-2xl border border-gray-100 dark:border-gray-800 p-6">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">FAQ</h3>
+              <div className="bg-card rounded-xl border border-border p-6">
+                <h3 className="text-lg font-semibold text-foreground mb-4">FAQ</h3>
                 <ul className="space-y-3">
                   {FAQ_LINKS.map((link, index) => (
                     <li key={index}>
-                      <Link href={link.href} className="flex items-start gap-2 text-sm text-gray-600 dark:text-gray-400 hover:text-blue-500 dark:hover:text-blue-400 transition-colors">
+                      <Link href={link.href} className="flex items-start gap-2 text-sm text-muted-foreground hover:text-blue-500 dark:hover:text-blue-400 transition-colors">
                         <span className="text-blue-500 mt-0.5">•</span>
                         <span>{link.title}</span>
                       </Link>
@@ -1145,14 +1145,14 @@ export default function WithdrawCryptoPage() {
 
               {/* Withdrawal Limits */}
               {withdrawalLimits && (
-                <div className="bg-white dark:bg-[#1e2329] rounded-2xl border border-gray-100 dark:border-gray-800 p-6">
+                <div className="bg-card rounded-xl border border-border p-6">
                   <div className="flex items-center justify-between mb-4">
                     <p className="text-sm text-gray-500">Daily Remaining Limit</p>
-                    <span className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full font-medium">
+                    <span className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-primary rounded-full font-medium">
                       VIP {withdrawalLimits.vipLevel}
                     </span>
                   </div>
-                  <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden mb-3">
+                  <div className="h-2 bg-accent rounded-full overflow-hidden mb-3">
                     <div
                       className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full transition-all"
                       style={{ width: `${100 - Math.min(withdrawalLimits.daily.percentage, 100)}%` }}
@@ -1162,8 +1162,8 @@ export default function WithdrawCryptoPage() {
                     <span className="font-semibold text-blue-500">
                       {((1 - withdrawalLimits.daily.percentage / 100) * 100).toFixed(0)}% remaining
                     </span>
-                    <span className="text-gray-600 dark:text-gray-400">
-                      <span className="font-semibold text-gray-900 dark:text-white">
+                    <span className="text-muted-foreground">
+                      <span className="font-semibold text-foreground">
                         {withdrawalLimits.daily.remaining.toLocaleString()}
                       </span>
                       /{withdrawalLimits.daily.limit.toLocaleString()} USDT
@@ -1171,7 +1171,7 @@ export default function WithdrawCryptoPage() {
                   </div>
                   <Link
                     href="/dashboard/security/withdrawal-limits"
-                    className="flex items-center gap-1 text-sm text-blue-500 hover:text-blue-600 font-medium"
+                    className="flex items-center gap-1 text-sm text-primary hover:text-primary/85 font-medium"
                   >
                     Manage Limit
                     <ChevronRight className="w-4 h-4" />
@@ -1190,19 +1190,19 @@ export default function WithdrawCryptoPage() {
               </div>
             )}
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Recent Withdrawal Records</h2>
+              <h2 className="text-xl font-semibold text-foreground">Recent Withdrawal Records</h2>
               <Link
                 href="/wallet/history?tab=withdraw"
-                className="text-sm text-blue-500 hover:text-blue-600 font-medium flex items-center gap-1"
+                className="text-sm text-primary hover:text-primary/85 font-medium flex items-center gap-1"
               >
                 View All
                 <ChevronRight className="w-4 h-4" />
               </Link>
             </div>
 
-            <div className="bg-white dark:bg-[#1e2026] rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div className="bg-card rounded-lg border border-border overflow-hidden">
               {/* Table Header */}
-              <div className="grid grid-cols-8 gap-4 px-6 py-4 bg-gray-50 dark:bg-[#0b0e11] border-b border-gray-200 dark:border-gray-700 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              <div className="grid grid-cols-8 gap-4 px-6 py-4 bg-background border-b border-border text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 <span>Coin</span>
                 <span>Chain Type</span>
                 <span>Qty</span>
@@ -1215,7 +1215,7 @@ export default function WithdrawCryptoPage() {
 
               {/* Table Body */}
               {recentWithdrawals.length > 0 ? (
-                <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                <div className="divide-y divide-border">
                   {recentWithdrawals.map((withdrawal) => {
                     const coin = withdrawal.coin ?? withdrawal.symbol ?? '—';
                     const chainLabel = withdrawal.chain_type ?? withdrawal.chain_name ?? '—';
@@ -1227,7 +1227,7 @@ export default function WithdrawCryptoPage() {
                     const dateStr = withdrawal.date_time ?? withdrawal.created_at ?? '';
                     const displayStatus = withdrawal.displayStatus ?? (withdrawal.status ? withdrawal.status.charAt(0).toUpperCase() + withdrawal.status.slice(1).replace(/_/g, ' ') : '—');
                     return (
-                    <div key={withdrawal.id} className="grid grid-cols-8 gap-4 px-6 py-4 text-sm items-center hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                    <div key={withdrawal.id} className="grid grid-cols-8 gap-4 px-6 py-4 text-sm items-center hover:bg-accent/50 transition-colors">
                       <div className="flex items-center gap-2">
                         <Image
                           src={getTokenIcon(coin)}
@@ -1237,13 +1237,13 @@ export default function WithdrawCryptoPage() {
                           className="rounded-full"
                           unoptimized
                         />
-                        <span className="font-medium text-gray-900 dark:text-white">{coin}</span>
+                        <span className="font-medium text-foreground">{coin}</span>
                       </div>
-                      <span className="text-gray-600 dark:text-gray-400">{chainLabel}</span>
-                      <span className="font-medium text-gray-900 dark:text-white">{parseFloat(String(qty)).toFixed(6)}</span>
+                      <span className="text-muted-foreground">{chainLabel}</span>
+                      <span className="font-medium text-foreground">{parseFloat(String(qty)).toFixed(6)}</span>
                       <span className="text-gray-500">{withdrawal.fee ?? '0'}</span>
                       <div className="flex items-center gap-1">
-                        <span className="text-gray-600 dark:text-gray-400 font-mono text-xs" title={toLabel}>{withdrawal.withdrawal_type === 'internal' ? toLabel : formatAddress(toLabel)}</span>
+                        <span className="text-muted-foreground font-mono text-xs" title={toLabel}>{withdrawal.withdrawal_type === 'internal' ? toLabel : formatAddress(toLabel)}</span>
                         {withdrawal.withdrawal_type !== 'internal' && (
                           <button
                             onClick={() => copyToClipboard(toLabel, `addr-${withdrawal.id}`)}
@@ -1287,7 +1287,7 @@ export default function WithdrawCryptoPage() {
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center py-16">
-                  <div className="w-20 h-20 bg-gray-100 dark:bg-gray-800 rounded-2xl flex items-center justify-center mb-4">
+                  <div className="w-20 h-20 bg-accent rounded-xl flex items-center justify-center mb-4">
                     <Clock className="w-10 h-10 text-gray-300 dark:text-gray-600" />
                   </div>
                   <p className="text-gray-500 font-medium">No withdrawal records found</p>
@@ -1300,7 +1300,7 @@ export default function WithdrawCryptoPage() {
       </div>
 
       {/* Help Button */}
-      <button className="fixed bottom-6 right-6 w-12 h-12 bg-blue-500 hover:bg-blue-600 text-white rounded-full shadow-lg shadow-blue-500/25 flex items-center justify-center transition-colors z-40">
+      <button className="fixed bottom-6 right-6 w-12 h-12 bg-primary hover:bg-primary/85 text-white rounded-full shadow-lg shadow-blue-500/25 flex items-center justify-center transition-colors z-40">
         <HelpCircle className="w-6 h-6" />
       </button>
     </div>

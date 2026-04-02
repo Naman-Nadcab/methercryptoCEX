@@ -156,10 +156,10 @@ export default function IdentityVerificationPage() {
   // Show loading while checking KYC
   if (checkingKyc) {
     return (
-      <div className="min-h-screen bg-white dark:bg-gray-950 flex items-center justify-center">
+      <div className="min-h-screen bg-card flex items-center justify-center">
         <div className="text-center">
           <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600 dark:text-gray-400">Checking verification status...</p>
+          <p className="text-muted-foreground">Checking verification status...</p>
         </div>
       </div>
     );
@@ -168,55 +168,55 @@ export default function IdentityVerificationPage() {
   // Show verified state if KYC is approved
   if (kycStatus === 'approved') {
     return (
-      <div className="min-h-screen bg-white dark:bg-gray-950">
+      <div className="min-h-screen bg-card">
         {/* Header */}
-        <header className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+        <header className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div className="flex items-center gap-4">
-            <Link href="/dashboard" className="text-2xl font-bold text-gray-900 dark:text-white">
-              <span className="bg-blue-500 text-white px-2 py-1 rounded mr-1">M</span>
+            <Link href="/dashboard" className="text-2xl font-bold text-foreground">
+              <span className="bg-primary text-primary-foreground px-2 py-1 rounded mr-1">M</span>
               Methereum
             </Link>
             <span className="text-gray-400">|</span>
-            <h1 className="text-lg font-medium text-gray-900 dark:text-white">Identity Verification</h1>
+            <h1 className="text-lg font-medium text-foreground">Identity Verification</h1>
           </div>
         </header>
 
         {/* Verified Content */}
         <main className="max-w-2xl mx-auto px-6 py-12">
-          <div className="bg-white dark:bg-gray-900 rounded-2xl p-8 shadow-sm border border-gray-200 dark:border-gray-800 text-center">
+          <div className="bg-card rounded-xl p-8 shadow-sm border border-border text-center">
             <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
               <Check className="w-10 h-10 text-green-500" />
             </div>
             
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+            <h2 className="text-2xl font-bold text-foreground mb-2">
               Identity Verified
             </h2>
             
-            <p className="text-gray-500 dark:text-gray-400 mb-6">
+            <p className="text-muted-foreground mb-6">
               Your identity has been successfully verified. You now have full access to all platform features.
             </p>
 
-            <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-6 mb-6">
+            <div className="bg-muted rounded-xl p-6 mb-6">
               <div className="flex items-center justify-between mb-4">
-                <span className="text-gray-600 dark:text-gray-400">Verification Level</span>
-                <span className="font-semibold text-gray-900 dark:text-white">Level {kycLevel}</span>
+                <span className="text-muted-foreground">Verification Level</span>
+                <span className="font-semibold text-foreground">Level {kycLevel}</span>
               </div>
               <div className="flex items-center justify-between mb-4">
-                <span className="text-gray-600 dark:text-gray-400">Status</span>
+                <span className="text-muted-foreground">Status</span>
                 <span className="flex items-center gap-2 text-green-500 font-semibold">
                   <span className="w-2 h-2 bg-green-500 rounded-full"></span>
                   Verified
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-gray-600 dark:text-gray-400">Daily Withdrawal Limit</span>
-                <span className="font-semibold text-gray-900 dark:text-white">Unlimited</span>
+                <span className="text-muted-foreground">Daily Withdrawal Limit</span>
+                <span className="font-semibold text-foreground">Unlimited</span>
               </div>
             </div>
 
             <Link
               href="/dashboard/account"
-              className="inline-flex items-center gap-2 px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-xl transition-colors"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-primary hover:bg-primary/85 text-white font-semibold rounded-xl transition-colors"
             >
               Go to Account
               <ChevronRight className="w-4 h-4" />
@@ -225,7 +225,7 @@ export default function IdentityVerificationPage() {
         </main>
 
         {/* Footer */}
-        <footer className="py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+        <footer className="py-6 text-center text-sm text-muted-foreground">
           <p>© 2018-2026 Methereum.com. All rights reserved.</p>
         </footer>
       </div>
@@ -235,35 +235,35 @@ export default function IdentityVerificationPage() {
   // Show pending state if KYC is pending
   if (kycStatus === 'pending') {
     return (
-      <div className="min-h-screen bg-white dark:bg-gray-950">
-        <header className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+      <div className="min-h-screen bg-card">
+        <header className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div className="flex items-center gap-4">
-            <Link href="/dashboard" className="text-2xl font-bold text-gray-900 dark:text-white">
-              <span className="bg-blue-500 text-white px-2 py-1 rounded mr-1">M</span>
+            <Link href="/dashboard" className="text-2xl font-bold text-foreground">
+              <span className="bg-primary text-primary-foreground px-2 py-1 rounded mr-1">M</span>
               Methereum
             </Link>
             <span className="text-gray-400">|</span>
-            <h1 className="text-lg font-medium text-gray-900 dark:text-white">Identity Verification</h1>
+            <h1 className="text-lg font-medium text-foreground">Identity Verification</h1>
           </div>
         </header>
 
         <main className="max-w-2xl mx-auto px-6 py-12">
-          <div className="bg-white dark:bg-gray-900 rounded-2xl p-8 shadow-sm border border-gray-200 dark:border-gray-800 text-center">
+          <div className="bg-card rounded-xl p-8 shadow-sm border border-border text-center">
             <div className="w-20 h-20 bg-yellow-100 dark:bg-yellow-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
               <AlertCircle className="w-10 h-10 text-yellow-500" />
             </div>
             
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+            <h2 className="text-2xl font-bold text-foreground mb-2">
               Verification In Progress
             </h2>
             
-            <p className="text-gray-500 dark:text-gray-400 mb-6">
+            <p className="text-muted-foreground mb-6">
               Your documents are being reviewed. This usually takes 1-2 business days.
             </p>
 
             <Link
               href="/dashboard/account"
-              className="inline-flex items-center gap-2 px-6 py-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 font-semibold rounded-xl transition-colors"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-accent hover:bg-accent text-foreground/80 font-semibold rounded-xl transition-colors"
             >
               Go to Account
               <ChevronRight className="w-4 h-4" />
@@ -275,29 +275,29 @@ export default function IdentityVerificationPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white dark:bg-gray-950">
+    <div className="min-h-screen bg-card">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+      <header className="flex items-center justify-between px-6 py-4 border-b border-border">
         <div className="flex items-center gap-4">
-          <Link href="/dashboard" className="text-2xl font-bold text-gray-900 dark:text-white">
-            <span className="bg-blue-500 text-white px-2 py-1 rounded mr-1">M</span>
+          <Link href="/dashboard" className="text-2xl font-bold text-foreground">
+            <span className="bg-primary text-primary-foreground px-2 py-1 rounded mr-1">M</span>
             Methereum
           </Link>
           <span className="text-gray-400">|</span>
-          <h1 className="text-lg font-medium text-gray-900 dark:text-white">Identity Verification</h1>
+          <h1 className="text-lg font-medium text-foreground">Identity Verification</h1>
         </div>
         <div className="flex items-center gap-4">
           <Link
             href="/dashboard/help#business"
-            className="flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+            className="flex items-center gap-2 text-muted-foreground hover:text-gray-900 dark:hover:text-white"
           >
             <Building2 className="w-4 h-4" />
             Business Verification
           </Link>
-          <button className="p-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">
+          <button className="p-2 text-muted-foreground hover:text-gray-900 dark:hover:text-white">
             <HelpCircle className="w-5 h-5" />
           </button>
-          <button className="p-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">
+          <button className="p-2 text-muted-foreground hover:text-gray-900 dark:hover:text-white">
             <Globe className="w-5 h-5" />
           </button>
         </div>
@@ -305,24 +305,24 @@ export default function IdentityVerificationPage() {
 
       {/* Main Content */}
       <main className="max-w-2xl mx-auto px-6 py-12">
-        <div className="bg-white dark:bg-gray-900 rounded-2xl p-8 shadow-sm border border-gray-200 dark:border-gray-800">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-8">
+        <div className="bg-card rounded-xl p-8 shadow-sm border border-border">
+          <h2 className="text-2xl font-bold text-foreground mb-8">
             Proof of Identity
           </h2>
 
           {/* Country Selection */}
           <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label className="block text-sm font-medium text-foreground/80 mb-2">
               Country/region of issue
             </label>
             <div className="relative">
               <button
                 onClick={() => setShowCountryDropdown(!showCountryDropdown)}
-                className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-left hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
+                className="w-full flex items-center justify-between px-4 py-3 bg-muted border border-border rounded-xl text-left hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
               >
                 <div className="flex items-center gap-3">
                   <span className="text-2xl">{selectedCountry.flag}</span>
-                  <span className="text-gray-900 dark:text-white font-medium">{selectedCountry.name}</span>
+                  <span className="text-foreground font-medium">{selectedCountry.name}</span>
                 </div>
                 <div className="flex items-center gap-2 text-gray-500">
                   <Globe className="w-4 h-4" />
@@ -332,7 +332,7 @@ export default function IdentityVerificationPage() {
               </button>
 
               {showCountryDropdown && (
-                <div className="absolute z-10 top-full left-0 right-0 mt-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg max-h-60 overflow-y-auto">
+                <div className="absolute z-10 top-full left-0 right-0 mt-2 bg-card border border-border rounded-xl shadow-lg max-h-60 overflow-y-auto">
                   {countries.map((country) => (
                     <button
                       key={country.code}
@@ -341,10 +341,10 @@ export default function IdentityVerificationPage() {
                         setShowCountryDropdown(false);
                         setSelectedDocument('');
                       }}
-                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent transition-colors"
                     >
                       <span className="text-xl">{country.flag}</span>
-                      <span className="text-gray-900 dark:text-white">{country.name}</span>
+                      <span className="text-foreground">{country.name}</span>
                       {selectedCountry.code === country.code && (
                         <Check className="w-4 h-4 text-green-500 ml-auto" />
                       )}
@@ -357,7 +357,7 @@ export default function IdentityVerificationPage() {
 
           {/* Warning for India */}
           {selectedCountry.code === 'IN' && (
-            <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-xl text-sm text-gray-600 dark:text-gray-400">
+            <div className="mb-6 p-4 bg-muted rounded-xl text-sm text-muted-foreground">
               If you have chosen the ID Card, please note that you cannot submit PAN Document otherwise it will be rejected. 
               It is recommended to use Aadhaar Card or Voter ID.
             </div>
@@ -366,7 +366,7 @@ export default function IdentityVerificationPage() {
           {/* Quick Verification */}
           {quickVerification && (
             <div className="mb-6">
-              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+              <h3 className="text-sm font-medium text-foreground/80 mb-3">
                 Quick verification
               </h3>
               <button
@@ -374,13 +374,13 @@ export default function IdentityVerificationPage() {
                 className={`w-full flex items-center gap-4 px-4 py-4 border-2 rounded-xl transition-colors ${
                   selectedDocument === quickVerification.id || !selectedDocument
                     ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                    : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+                    : 'border-border hover:border-gray-300 dark:hover:border-gray-600'
                 }`}
               >
-                <div className="w-12 h-12 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center">
+                <div className="w-12 h-12 bg-accent rounded-lg flex items-center justify-center">
                   <span className="text-2xl">{quickVerification.icon}</span>
                 </div>
-                <span className="text-gray-900 dark:text-white font-medium flex-1 text-left">
+                <span className="text-foreground font-medium flex-1 text-left">
                   {quickVerification.name}
                 </span>
                 <span className="px-3 py-1 bg-blue-500 text-gray-900 text-xs font-semibold rounded-full">
@@ -394,7 +394,7 @@ export default function IdentityVerificationPage() {
           <div className="mb-8">
             <button
               onClick={() => setShowOtherDocuments(!showOtherDocuments)}
-              className="flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+              className="flex items-center gap-2 text-muted-foreground hover:text-gray-900 dark:hover:text-white"
             >
               No {quickVerification?.name}? Use other documents.
               <ChevronDown className={`w-4 h-4 transition-transform ${showOtherDocuments ? 'rotate-180' : ''}`} />
@@ -409,11 +409,11 @@ export default function IdentityVerificationPage() {
                     className={`w-full flex items-center gap-4 px-4 py-3 border-2 rounded-xl transition-colors ${
                       selectedDocument === doc.id
                         ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+                        : 'border-border hover:border-gray-300 dark:hover:border-gray-600'
                     }`}
                   >
                     <span className="text-xl">{doc.icon}</span>
-                    <span className="text-gray-900 dark:text-white">{doc.name}</span>
+                    <span className="text-foreground">{doc.name}</span>
                   </button>
                 ))}
               </div>
@@ -421,7 +421,7 @@ export default function IdentityVerificationPage() {
           </div>
 
           {error && (
-            <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl flex items-center gap-2 text-red-600 dark:text-red-400">
+            <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl flex items-center gap-2 text-destructive">
               <AlertCircle className="w-5 h-5" />
               {error}
             </div>
@@ -431,7 +431,7 @@ export default function IdentityVerificationPage() {
           <button
             onClick={handleVerifyClick}
             disabled={loading}
-            className="w-full py-4 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="w-full py-4 bg-primary hover:bg-primary/85 text-white font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             <span className="text-xl">🎁</span>
             Verify to Earn $20
@@ -439,9 +439,9 @@ export default function IdentityVerificationPage() {
 
           {/* App Link */}
           <div className="mt-8 text-center">
-            <p className="text-gray-500 dark:text-gray-400">
+            <p className="text-muted-foreground">
               You can also continue on{' '}
-              <Link href="/dashboard/help" className="text-gray-900 dark:text-white font-medium hover:underline inline-flex items-center gap-1">
+              <Link href="/dashboard/help" className="text-foreground font-medium hover:underline inline-flex items-center gap-1">
                 📱 Methereum App
                 <ChevronRight className="w-4 h-4" />
               </Link>
@@ -451,7 +451,7 @@ export default function IdentityVerificationPage() {
       </main>
 
       {/* Footer */}
-      <footer className="py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+      <footer className="py-6 text-center text-sm text-muted-foreground">
         <p>© 2018-2026 Methereum.com. All rights reserved.</p>
         <div className="mt-2 flex items-center justify-center gap-4">
           <Link href="/terms" className="hover:text-gray-900 dark:hover:text-white">Terms of Service</Link>
@@ -462,12 +462,12 @@ export default function IdentityVerificationPage() {
       {/* DigiLocker Modal */}
       {showDigiLocker && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-lg mx-4 overflow-hidden shadow-2xl">
+          <div className="bg-card rounded-xl w-full max-w-lg mx-4 overflow-hidden shadow-2xl">
             {/* Modal Header */}
             <div className="flex justify-end p-4">
               <button
                 onClick={() => setShowDigiLocker(false)}
-                className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
+                className="p-1 hover:bg-accent rounded-full transition-colors"
               >
                 <X className="w-5 h-5 text-gray-500" />
               </button>
@@ -475,15 +475,15 @@ export default function IdentityVerificationPage() {
 
             {/* Modal Content */}
             <div className="px-8 pb-8">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white text-center mb-2">
+              <h2 className="text-xl font-bold text-foreground text-center mb-2">
                 Share Aadhaar & PAN for faster verification
               </h2>
-              <p className="text-gray-500 dark:text-gray-400 text-center text-sm mb-6">
+              <p className="text-muted-foreground text-center text-sm mb-6">
                 Select PAN verification to skip extra steps later.
               </p>
 
               {/* DigiLocker Card */}
-              <div className="border border-gray-200 dark:border-gray-700 rounded-xl p-6 mb-6">
+              <div className="border border-border rounded-xl p-6 mb-6">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-3">
                     <div className="w-32 h-10 bg-blue-600 rounded flex items-center justify-center">
@@ -495,23 +495,23 @@ export default function IdentityVerificationPage() {
                   </div>
                 </div>
 
-                <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">
+                <p className="text-muted-foreground text-sm mb-4">
                   Please provide your consent to share the following with <strong>Methereum</strong>:
                 </p>
 
                 {/* Documents List */}
-                <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
-                  <div className="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800">
+                <div className="border border-border rounded-xl overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-3 bg-muted">
                     <div className="flex items-center gap-2">
                       <ChevronDown className="w-4 h-4 text-gray-500" />
-                      <span className="text-gray-700 dark:text-gray-300 font-medium">Issued Documents (3)</span>
+                      <span className="text-foreground/80 font-medium">Issued Documents (3)</span>
                     </div>
                     <button className="text-blue-500 text-sm font-medium">Select all</button>
                   </div>
                   
-                  <div className="divide-y divide-gray-200 dark:divide-gray-700">
-                    <label className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800">
-                      <span className="text-gray-900 dark:text-white">Aadhaar Card</span>
+                  <div className="divide-y divide-border">
+                    <label className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-accent">
+                      <span className="text-foreground">Aadhaar Card</span>
                       <input
                         type="checkbox"
                         checked={digiLockerConsent.aadhaar}
@@ -519,9 +519,9 @@ export default function IdentityVerificationPage() {
                         className="w-5 h-5 text-green-500 rounded border-gray-300 focus:ring-green-500"
                       />
                     </label>
-                    <label className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800">
+                    <label className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-accent">
                       <div>
-                        <span className="text-gray-900 dark:text-white">Driving License</span>
+                        <span className="text-foreground">Driving License</span>
                         <span className="text-gray-400 text-sm ml-2">(can be accessed)</span>
                       </div>
                       <input
@@ -531,8 +531,8 @@ export default function IdentityVerificationPage() {
                         className="w-5 h-5 text-green-500 rounded border-gray-300 focus:ring-green-500"
                       />
                     </label>
-                    <label className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800">
-                      <span className="text-gray-900 dark:text-white">PAN Verification Record</span>
+                    <label className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-accent">
+                      <span className="text-foreground">PAN Verification Record</span>
                       <input
                         type="checkbox"
                         checked={digiLockerConsent.pan}
@@ -548,7 +548,7 @@ export default function IdentityVerificationPage() {
               <button
                 onClick={handleDigiLockerContinue}
                 disabled={loading || (!digiLockerConsent.aadhaar && !digiLockerConsent.pan)}
-                className="w-full py-4 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full py-4 bg-primary hover:bg-primary/85 text-white font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? 'Verifying...' : 'Continue'}
               </button>
@@ -558,7 +558,7 @@ export default function IdentityVerificationPage() {
       )}
 
       {/* Help Button */}
-      <button className="fixed bottom-6 right-6 w-12 h-12 bg-blue-500 hover:bg-blue-600 text-white rounded-full shadow-lg flex items-center justify-center transition-colors z-40">
+      <button className="fixed bottom-6 right-6 w-12 h-12 bg-primary hover:bg-primary/85 text-white rounded-full shadow-lg flex items-center justify-center transition-colors z-40">
         <HelpCircle className="w-6 h-6" />
       </button>
     </div>

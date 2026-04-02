@@ -43,10 +43,10 @@ export default function LanguageSelector({ className = '' }: LanguageSelectorPro
       {/* Globe Icon Button */}
       <button
         onClick={() => setIsOpen(true)}
-        className={`p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors ${className}`}
+        className={`p-2 rounded-full hover:bg-accent transition-colors ${className}`}
         aria-label="Select language"
       >
-        <Globe className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+        <Globe className="w-5 h-5 text-muted-foreground" />
       </button>
 
       {/* Modal Overlay */}
@@ -59,15 +59,15 @@ export default function LanguageSelector({ className = '' }: LanguageSelectorPro
           />
 
           {/* Modal */}
-          <div className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-2xl mx-4 max-h-[80vh] overflow-hidden animate-fade-in">
+          <div className="relative bg-card rounded-xl shadow-2xl w-full max-w-2xl mx-4 max-h-[80vh] overflow-hidden animate-fade-in">
             {/* Header */}
-            <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+            <div className="flex items-center justify-between p-6 border-b border-border">
+              <h2 className="text-xl font-semibold text-foreground">
                 Choose Your Language
               </h2>
               <button
                 onClick={() => setIsOpen(false)}
-                className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                className="p-2 rounded-full hover:bg-accent transition-colors"
               >
                 <X className="w-5 h-5 text-gray-500" />
               </button>
@@ -83,7 +83,7 @@ export default function LanguageSelector({ className = '' }: LanguageSelectorPro
                     className={`px-4 py-3 rounded-lg text-left transition-all ${
                       selectedLanguage === lang.code
                         ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white'
-                        : 'hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300'
+                        : 'hover:bg-accent text-foreground/80'
                     }`}
                   >
                     {lang.name}

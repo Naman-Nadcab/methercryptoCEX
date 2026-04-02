@@ -153,14 +153,14 @@ function normalizeTickerPayload(raw: unknown): unknown[] {
 
 function RailCardPreviewSkeleton() {
   return (
-    <div className="mt-3 flex min-h-[148px] flex-1 flex-col rounded-xl border border-gray-100 bg-gray-50/80 p-3 dark:border-gray-800 dark:bg-gray-800/40">
+    <div className="mt-3 flex min-h-[148px] flex-1 flex-col rounded-xl border border-gray-100 bg-background/80 p-3 dark:border-gray-800 dark:bg-gray-800/40">
       <div className="flex flex-1 flex-col justify-center gap-3">
-        <div className="h-4 w-[90%] animate-pulse rounded-md bg-gray-200 dark:bg-gray-700" />
+        <div className="h-4 w-[90%] animate-pulse rounded-md bg-accent" />
         <div className="grid grid-cols-2 gap-2">
           <div className="h-14 animate-pulse rounded-lg bg-gray-200/80 dark:bg-gray-700/80" />
           <div className="h-14 animate-pulse rounded-lg bg-gray-200/80 dark:bg-gray-700/80" />
         </div>
-        <div className="h-3 w-2/3 animate-pulse rounded bg-gray-100 dark:bg-gray-800" />
+        <div className="h-3 w-2/3 animate-pulse rounded bg-accent" />
       </div>
     </div>
   );
@@ -525,7 +525,7 @@ export default function DashboardPage() {
   const referralFromApi = referralPreview !== null;
 
   return (
-    <div className="min-h-full bg-gray-50 dark:bg-[#0b0e11]">
+    <div className="min-h-full bg-background">
       <DashboardPageShell
         title="Overview"
         description="Spot prices, P2P shortcuts, balances, and announcements — your daily trading hub."
@@ -534,7 +534,7 @@ export default function DashboardPage() {
         <div className="flex flex-col xl:flex-row gap-6 lg:gap-8">
           <div className="flex-1 space-y-5 lg:space-y-6">
             {/* Hero — denser, account + balance split (API-backed) */}
-            <div className="relative overflow-hidden rounded-2xl border border-gray-200/90 bg-white shadow-[0_1px_0_rgba(15,23,42,0.04),0_12px_40px_-24px_rgba(15,23,42,0.18)] dark:border-gray-800 dark:bg-[#181a20] dark:shadow-[0_1px_0_rgba(255,255,255,0.04),0_12px_40px_-24px_rgba(0,0,0,0.5)]">
+            <div className="relative overflow-hidden rounded-xl border border-gray-200/90 bg-card shadow-[0_1px_0_rgba(15,23,42,0.04),0_12px_40px_-24px_rgba(15,23,42,0.18)] dark:border-gray-800 dark:bg-card dark:shadow-[0_1px_0_rgba(255,255,255,0.04),0_12px_40px_-24px_rgba(0,0,0,0.5)]">
               <div
                 className="pointer-events-none absolute inset-0 opacity-[0.65] dark:opacity-40"
                 style={{
@@ -547,16 +547,16 @@ export default function DashboardPage() {
                 <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
                   <div className="flex gap-4 min-w-0">
                     <div className="relative shrink-0">
-                      <div className="absolute -inset-px rounded-2xl bg-gradient-to-br from-blue-400/50 to-blue-600/20 opacity-80 blur-[2px]" aria-hidden />
-                      <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-100 to-white ring-1 ring-blue-200/80 dark:from-blue-950/80 dark:to-[#1e2430] dark:ring-blue-800/50">
-                        <User className="h-7 w-7 text-blue-600 dark:text-blue-400" />
+                      <div className="absolute -inset-px rounded-xl bg-gradient-to-br from-blue-400/50 to-blue-600/20 opacity-80 blur-[2px]" aria-hidden />
+                      <div className="relative flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-blue-100 to-white ring-1 ring-blue-200/80 dark:from-blue-950/80 dark:to-[#1e2430] dark:ring-blue-800/50">
+                        <User className="h-7 w-7 text-primary" />
                       </div>
                     </div>
                     <div className="min-w-0 space-y-2">
                       <div>
-                        <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-gray-400 dark:text-gray-500">Account</p>
-                        <h2 className="text-xl font-bold tracking-tight text-gray-900 dark:text-white sm:text-2xl">Welcome back</h2>
-                        <p className="mt-0.5 truncate text-sm text-gray-600 dark:text-gray-400">{maskEmail(user?.email || '')}</p>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Account</p>
+                        <h2 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">Welcome back</h2>
+                        <p className="mt-0.5 truncate text-sm text-muted-foreground">{maskEmail(user?.email || '')}</p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1 font-mono text-[11px] text-gray-600 dark:border-gray-700 dark:bg-gray-800/60 dark:text-gray-300">
@@ -578,16 +578,16 @@ export default function DashboardPage() {
                   <div className="flex w-full flex-col gap-4 lg:max-w-xl xl:max-w-md">
                     <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
                       <div>
-                        <p className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-gray-500 dark:text-gray-400">
+                        <p className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
                           Total balance (est.)
                           <InfoTooltip content="Combined funding and trading account balance in USD." />
                         </p>
-                        <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-gray-900 dark:text-white sm:text-4xl">
+                        <p className="mt-1 text-3xl font-bold tabular-nums tracking-tight text-foreground sm:text-4xl">
                           {Number.isFinite(totalUsd) ? formatUsd(totalUsd) : '—'}{' '}
-                          <span className="text-lg font-semibold text-gray-500 dark:text-gray-400 sm:text-xl">USD</span>
+                          <span className="text-lg font-semibold text-muted-foreground sm:text-xl">USD</span>
                         </p>
                         {lastBalUpdate ? (
-                          <p className="mt-1 text-[11px] text-gray-400 dark:text-gray-500">
+                          <p className="mt-1 text-[11px] text-muted-foreground">
                             Balances updated {lastBalUpdate.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}
                           </p>
                         ) : null}
@@ -601,7 +601,7 @@ export default function DashboardPage() {
                         </Link>
                         <Link
                           href="/wallet/withdraw/crypto"
-                          className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 shadow-sm transition hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
+                          className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-card px-4 py-2.5 text-sm font-semibold text-gray-800 shadow-sm transition hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
                         >
                           <Send className="h-4 w-4" /> Withdraw
                         </Link>
@@ -616,14 +616,14 @@ export default function DashboardPage() {
 
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-2">
                       <div className="rounded-xl border border-gray-100 bg-gray-50/90 p-3.5 ring-1 ring-gray-900/[0.03] dark:border-gray-700/80 dark:bg-gray-800/40 dark:ring-white/[0.04]">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Funding</p>
-                        <p className="mt-1 text-lg font-bold tabular-nums text-gray-900 dark:text-white">${formatUsd(fundingUsd)}</p>
-                        <p className="mt-0.5 text-[10px] leading-snug text-gray-500 dark:text-gray-500">Deposits &amp; P2P</p>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Funding</p>
+                        <p className="mt-1 text-lg font-bold tabular-nums text-foreground">${formatUsd(fundingUsd)}</p>
+                        <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">Deposits &amp; P2P</p>
                       </div>
                       <div className="rounded-xl border border-gray-100 bg-gray-50/90 p-3.5 ring-1 ring-gray-900/[0.03] dark:border-gray-700/80 dark:bg-gray-800/40 dark:ring-white/[0.04]">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Trading</p>
-                        <p className="mt-1 text-lg font-bold tabular-nums text-gray-900 dark:text-white">${formatUsd(tradingUsd)}</p>
-                        <p className="mt-0.5 text-[10px] leading-snug text-gray-500 dark:text-gray-500">Spot &amp; open orders</p>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Trading</p>
+                        <p className="mt-1 text-lg font-bold tabular-nums text-foreground">${formatUsd(tradingUsd)}</p>
+                        <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">Spot &amp; open orders</p>
                       </div>
                     </div>
 
@@ -639,9 +639,9 @@ export default function DashboardPage() {
             </div>
 
             {/* Quick shortcuts — high density nav strip */}
-            <div className="rounded-2xl border border-gray-200/80 bg-white/90 px-3 py-3 shadow-sm dark:border-gray-800 dark:bg-[#181a20]/95 dark:shadow-none">
+            <div className="rounded-xl border border-gray-200/80 bg-card/90 px-3 py-3 shadow-sm dark:border-gray-800 dark:bg-card/95 dark:shadow-none">
               <div className="mb-2 flex items-center justify-between px-1">
-                <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-gray-400 dark:text-gray-500">Shortcuts</span>
+                <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Shortcuts</span>
                 <LayoutGrid className="h-3.5 w-3.5 text-gray-300 dark:text-gray-600" aria-hidden />
               </div>
               <div className="flex gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -651,15 +651,15 @@ export default function DashboardPage() {
                     <Link
                       key={s.href}
                       href={s.href}
-                      className="group flex min-w-[118px] shrink-0 flex-col gap-0.5 rounded-xl border border-gray-100 bg-gray-50/80 px-3 py-2.5 transition hover:border-blue-200 hover:bg-white hover:shadow-md dark:border-gray-700/80 dark:bg-gray-800/50 dark:hover:border-blue-800 dark:hover:bg-gray-800"
+                      className="group flex min-w-[118px] shrink-0 flex-col gap-0.5 rounded-xl border border-gray-100 bg-background/80 px-3 py-2.5 transition hover:border-blue-200 hover:bg-card hover:shadow-md dark:border-gray-700/80 dark:bg-accent/50 dark:hover:border-blue-800 dark:hover:bg-gray-800"
                     >
                       <span className="flex items-center gap-2">
-                        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white text-blue-600 shadow-sm ring-1 ring-gray-200/80 dark:bg-gray-900 dark:text-blue-400 dark:ring-gray-700">
+                        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-card text-blue-600 shadow-sm ring-1 ring-gray-200/80 dark:bg-gray-900 dark:text-blue-400 dark:ring-gray-700">
                           <Icon className="h-3.5 w-3.5" />
                         </span>
-                        <span className="text-sm font-semibold text-gray-900 dark:text-white">{s.label}</span>
+                        <span className="text-sm font-semibold text-foreground">{s.label}</span>
                       </span>
-                      <span className="pl-9 text-[10px] text-gray-500 dark:text-gray-400">{s.desc}</span>
+                      <span className="pl-9 text-[10px] text-muted-foreground">{s.desc}</span>
                     </Link>
                   );
                 })}
@@ -669,37 +669,37 @@ export default function DashboardPage() {
             {/* Build progress — visual bar */}
             <Link
               href="/dashboard/progress"
-              className="group relative block overflow-hidden rounded-2xl border border-gray-200/90 bg-white p-4 shadow-sm transition hover:border-blue-300 hover:shadow-md dark:border-gray-800 dark:bg-[#181a20] dark:hover:border-blue-800"
+              className="group relative block overflow-hidden rounded-xl border border-gray-200/90 bg-card p-4 shadow-sm transition hover:border-blue-300 hover:shadow-md dark:border-gray-800 dark:bg-card dark:hover:border-blue-800"
             >
               <div className="pointer-events-none absolute right-0 top-0 h-24 w-24 translate-x-6 -translate-y-6 rounded-full bg-blue-500/5 blur-2xl dark:bg-blue-400/10" />
               <div className="relative flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
                   <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-950/80 dark:to-indigo-950/60">
-                    <ClipboardList className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                    <ClipboardList className="h-5 w-5 text-primary" />
                   </div>
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="text-base font-bold text-gray-900 dark:text-white">Platform build progress</h2>
+                      <h2 className="text-base font-bold text-foreground">Platform build progress</h2>
                       {progressPct === 100 ? (
                         <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400">
                           Complete
                         </span>
                       ) : null}
                     </div>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                    <p className="text-xs text-muted-foreground">
                       {progressDone} / {progressTotal} milestones · Roadmap visibility
                     </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3 sm:shrink-0">
                   <div className="min-w-0 flex-1 sm:w-40">
-                    <div className="h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+                    <div className="h-2 overflow-hidden rounded-full bg-accent">
                       <div
                         className="h-full rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-500 dark:from-blue-500 dark:to-blue-400"
                         style={{ width: `${progressPct}%` }}
                       />
                     </div>
-                    <p className="mt-1 text-right text-[11px] font-semibold tabular-nums text-gray-500 dark:text-gray-400">{progressPct}%</p>
+                    <p className="mt-1 text-right text-[11px] font-semibold tabular-nums text-muted-foreground">{progressPct}%</p>
                   </div>
                   <ChevronRight className="h-5 w-5 shrink-0 text-gray-400 transition group-hover:translate-x-0.5 group-hover:text-blue-500" />
                 </div>
@@ -707,14 +707,14 @@ export default function DashboardPage() {
             </Link>
 
             {kycVerified === false && (
-              <div className="overflow-hidden rounded-2xl border border-gray-200/90 bg-white shadow-sm dark:border-gray-800 dark:bg-[#181a20]">
+              <div className="overflow-hidden rounded-xl border border-gray-200/90 bg-card shadow-sm dark:border-gray-800 dark:bg-card">
                 <div className="flex items-center gap-3 border-b border-gray-100 px-5 py-4 dark:border-gray-800">
                   <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-900/40">
-                    <Target className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                    <Target className="h-5 w-5 text-primary" />
                   </div>
                   <div>
-                    <h2 className="text-lg font-bold text-gray-900 dark:text-white">Get started</h2>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Unlock limits and full access</p>
+                    <h2 className="text-lg font-bold text-foreground">Get started</h2>
+                    <p className="text-xs text-muted-foreground">Unlock limits and full access</p>
                   </div>
                 </div>
 
@@ -728,23 +728,23 @@ export default function DashboardPage() {
                       <p className="mt-3 text-xs font-semibold text-emerald-600 dark:text-emerald-400">Sign up</p>
                       <p className="text-[10px] text-gray-400">Done</p>
                     </div>
-                    <div className="mb-8 h-px w-6 shrink-0 bg-gray-200 dark:bg-gray-700 sm:w-10" />
+                    <div className="mb-8 h-px w-6 shrink-0 bg-accent sm:w-10" />
                     <div className="flex flex-1 flex-col items-center">
                       <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-500 shadow-lg shadow-blue-500/30">
                         <Shield className="h-6 w-6 text-white" />
                       </div>
-                      <div className="mt-3 h-1 w-full max-w-[80px] overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                      <div className="mt-3 h-1 w-full max-w-[80px] overflow-hidden rounded-full bg-accent">
                         <div className="h-full w-1/2 rounded-full bg-blue-500" />
                       </div>
-                      <p className="mt-3 text-xs font-semibold text-blue-600 dark:text-blue-400">Verify</p>
+                      <p className="mt-3 text-xs font-semibold text-primary">Verify</p>
                       <p className="text-[10px] text-gray-400">In progress</p>
                     </div>
-                    <div className="mb-8 h-px w-6 shrink-0 bg-gray-200 dark:bg-gray-700 sm:w-10" />
+                    <div className="mb-8 h-px w-6 shrink-0 bg-accent sm:w-10" />
                     <div className="flex flex-1 flex-col items-center">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-200 dark:bg-gray-700">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-accent">
                         <Wallet className="h-6 w-6 text-gray-400" />
                       </div>
-                      <div className="mt-3 h-1 w-full max-w-[80px] rounded-full bg-gray-200 dark:bg-gray-700" />
+                      <div className="mt-3 h-1 w-full max-w-[80px] rounded-full bg-accent" />
                       <p className="mt-3 text-xs font-medium text-gray-400">Deposit</p>
                       <p className="text-[10px] text-gray-400">Locked</p>
                     </div>
@@ -752,7 +752,7 @@ export default function DashboardPage() {
 
                   <div className="mt-6 rounded-xl border border-blue-100 bg-gradient-to-r from-blue-50 to-indigo-50 p-4 dark:border-blue-900/40 dark:from-blue-950/40 dark:to-indigo-950/30">
                     <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                      <ul className="space-y-1.5 text-sm text-gray-600 dark:text-gray-400">
+                      <ul className="space-y-1.5 text-sm text-muted-foreground">
                         <li className="flex items-center gap-2">
                           <Clock className="h-4 w-4 shrink-0 text-blue-500" />
                           2–5 minutes with a valid ID
@@ -775,7 +775,7 @@ export default function DashboardPage() {
             )}
 
             {/* Markets */}
-            <div className="overflow-hidden rounded-2xl border border-gray-200/90 bg-white shadow-sm dark:border-gray-800 dark:bg-[#181a20] dark:shadow-none">
+            <div className="overflow-hidden rounded-xl border border-gray-200/90 bg-card shadow-sm dark:border-gray-800 dark:bg-card dark:shadow-none">
               <div className="flex flex-col gap-3 border-b border-gray-100 px-5 py-4 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-start gap-3">
                   <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-100 to-green-50 ring-1 ring-emerald-200/60 dark:from-emerald-950/60 dark:to-green-950/40 dark:ring-emerald-900/40">
@@ -783,11 +783,11 @@ export default function DashboardPage() {
                   </div>
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="text-lg font-bold text-gray-900 dark:text-white">Markets</h2>
+                      <h2 className="text-lg font-bold text-foreground">Markets</h2>
                       <span className="rounded-md bg-gray-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-400">
                         Spot
                       </span>
-                      <span className="flex items-center gap-1.5 text-[10px] font-medium text-gray-400 dark:text-gray-500">
+                      <span className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
                         <span className="relative flex h-2 w-2">
                           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-40" />
                           <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
@@ -795,12 +795,12 @@ export default function DashboardPage() {
                         Live tickers
                       </span>
                     </div>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Top pairs by activity — open Spot for full depth</p>
+                    <p className="text-xs text-muted-foreground">Top pairs by activity — open Spot for full depth</p>
                   </div>
                 </div>
                 <Link
                   href="/markets"
-                  className="inline-flex items-center gap-1 text-sm font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
+                  className="inline-flex items-center gap-1 text-sm font-semibold text-primary hover:text-blue-700 dark:hover:text-blue-300"
                 >
                   All markets <ExternalLink className="h-3.5 w-3.5 opacity-70" />
                 </Link>
@@ -816,8 +816,8 @@ export default function DashboardPage() {
                       onClick={() => setActiveMarketTab(tab.id)}
                       className={`flex min-h-11 shrink-0 items-center gap-2 rounded-xl px-3.5 py-2.5 text-xs font-semibold transition-all sm:min-h-0 sm:py-2 sm:text-sm ${
                         activeMarketTab === tab.id
-                          ? 'bg-blue-500 text-white shadow-md shadow-blue-500/25'
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700'
+                          ? 'bg-primary text-primary-foreground shadow-md shadow-blue-500/25'
+                          : 'bg-gray-100 text-gray-600 hover:bg-accent dark:text-gray-400 dark:hover:bg-gray-700'
                       }`}
                     >
                       <Icon className="h-4 w-4" />
@@ -831,42 +831,42 @@ export default function DashboardPage() {
                 {marketsLoading ? (
                   <table className="w-full min-w-[640px]">
                     <thead>
-                      <tr className="bg-gray-50/95 dark:bg-[#1e2329]/90">
-                        <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                      <tr className="bg-gray-50/95 dark:bg-card/90">
+                        <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                           Pair
                         </th>
-                        <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                        <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                           Last price
                         </th>
-                        <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                        <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                           24h change
                         </th>
-                        <th className="w-28 px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400" />
+                        <th className="w-28 px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground" />
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100 dark:divide-gray-800/80">
+                    <tbody className="divide-y divide-border/80">
                       {[1, 2, 3, 4, 5, 6, 7].map((i) => (
                         <tr key={i}>
                           <td className="px-5 py-3.5">
                             <div className="flex items-center gap-3">
-                              <div className="h-9 w-9 animate-pulse rounded-lg bg-gray-200 dark:bg-gray-700" />
+                              <div className="h-9 w-9 animate-pulse rounded-lg bg-accent" />
                               <div className="space-y-1.5">
-                                <div className="h-3.5 w-24 animate-pulse rounded bg-gray-200 dark:bg-gray-700" />
-                                <div className="h-2.5 w-14 animate-pulse rounded bg-gray-100 dark:bg-gray-800" />
+                                <div className="h-3.5 w-24 animate-pulse rounded bg-accent" />
+                                <div className="h-2.5 w-14 animate-pulse rounded bg-accent" />
                               </div>
                             </div>
                           </td>
                           <td className="px-5 py-3.5 text-right">
-                            <div className="ml-auto h-4 w-20 animate-pulse rounded bg-gray-200 dark:bg-gray-700" />
+                            <div className="ml-auto h-4 w-20 animate-pulse rounded bg-accent" />
                           </td>
                           <td className="px-5 py-3.5 text-right">
                             <div className="ml-auto flex justify-end gap-2">
-                              <div className="h-6 w-12 animate-pulse rounded bg-gray-100 dark:bg-gray-800" />
-                              <div className="h-7 w-16 animate-pulse rounded bg-gray-200 dark:bg-gray-700" />
+                              <div className="h-6 w-12 animate-pulse rounded bg-accent" />
+                              <div className="h-7 w-16 animate-pulse rounded bg-accent" />
                             </div>
                           </td>
                           <td className="px-5 py-3.5 text-right">
-                            <div className="ml-auto h-8 w-[72px] animate-pulse rounded-lg bg-gray-200 dark:bg-gray-700" />
+                            <div className="ml-auto h-8 w-[72px] animate-pulse rounded-lg bg-accent" />
                           </td>
                         </tr>
                       ))}
@@ -875,21 +875,21 @@ export default function DashboardPage() {
                 ) : activeMarketTab === 'favorites' && displayedMarketData.length === 0 ? (
                   <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
                     <Star className="mb-3 h-12 w-12 text-amber-300 dark:text-amber-700/50" />
-                    <p className="text-base font-semibold text-gray-900 dark:text-white">No favorites yet</p>
-                    <p className="mt-1 max-w-sm text-sm text-gray-500 dark:text-gray-400">
+                    <p className="text-base font-semibold text-foreground">No favorites yet</p>
+                    <p className="mt-1 max-w-sm text-sm text-muted-foreground">
                       Star pairs in the table below once markets load, or browse Spot to add them.
                     </p>
-                    <Link href="/trade/spot" className="mt-4 text-sm font-semibold text-blue-600 dark:text-blue-400 hover:underline">
+                    <Link href="/trade/spot" className="mt-4 text-sm font-semibold text-primary hover:underline">
                       Open Spot
                     </Link>
                   </div>
                 ) : showMarketsEmpty ? (
                   <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
                     <LineChart className="mb-3 h-12 w-12 text-gray-300 dark:text-gray-600" />
-                    <p className="text-base font-semibold text-gray-900 dark:text-white">
+                    <p className="text-base font-semibold text-foreground">
                       {marketsLoadFailed ? "Couldn't load markets" : 'No tickers right now'}
                     </p>
-                    <p className="mt-1 max-w-md text-sm text-gray-500 dark:text-gray-400">
+                    <p className="mt-1 max-w-md text-sm text-muted-foreground">
                       {marketsLoadFailed
                         ? 'Check your connection or try again. Spot trading may still be available from the terminal.'
                         : 'The market service returned no pairs. Try again later or open Spot directly.'}
@@ -918,7 +918,7 @@ export default function DashboardPage() {
                             .catch(() => setMarketsLoadFailed(true))
                             .finally(() => setMarketsLoading(false));
                         }}
-                        className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-800 shadow-sm hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
+                        className="rounded-xl border border-gray-200 bg-card px-4 py-2 text-sm font-semibold text-gray-800 shadow-sm hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
                       >
                         Retry
                       </button>
@@ -933,31 +933,31 @@ export default function DashboardPage() {
                 ) : (
                     <table className="w-full min-w-[640px]">
                       <thead>
-                        <tr className="bg-gray-50/95 dark:bg-[#1e2329]/90">
-                          <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                        <tr className="bg-gray-50/95 dark:bg-card/90">
+                          <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                             <span className="inline-flex items-center gap-1">
                               Pair
                               <InfoTooltip content={TOOLTIP_PAIR} className="text-gray-400" />
                             </span>
                           </th>
-                          <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                          <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                             <span className="inline-flex items-center justify-end gap-1">
                               Last price
                               <InfoTooltip content={TOOLTIP_LAST_PRICE} className="text-gray-400" />
                             </span>
                           </th>
-                          <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                          <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                             <span className="inline-flex items-center justify-end gap-1">
                               24h change
                               <InfoTooltip content={TOOLTIP_24H_CHANGE} className="text-gray-400" />
                             </span>
                           </th>
-                          <th className="w-28 px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                          <th className="w-28 px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                             Action
                           </th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-100 dark:divide-gray-800/80">
+                      <tbody className="divide-y divide-border/80">
                         {displayedMarketData.map((item, idx) => {
                           const rowKey = `${item.pair}_${item.quote}`;
                           const flash = dashPriceFlash[rowKey];
@@ -982,8 +982,8 @@ export default function DashboardPage() {
                             flash === 'up'
                               ? 'text-emerald-600 dark:text-emerald-400'
                               : flash === 'down'
-                                ? 'text-red-600 dark:text-red-400'
-                                : 'text-gray-900 dark:text-white';
+                                ? 'text-destructive'
+                                : 'text-foreground';
                           return (
                             <tr
                               key={`${item.pair}-${item.quote}`}
@@ -1006,8 +1006,8 @@ export default function DashboardPage() {
                                     {item.icon}
                                   </div>
                                   <div>
-                                    <span className="font-semibold text-gray-900 dark:text-white">{item.pair}</span>
-                                    <span className="text-sm text-gray-400 dark:text-gray-500">/{item.quote}</span>
+                                    <span className="font-semibold text-foreground">{item.pair}</span>
+                                    <span className="text-sm text-muted-foreground">/{item.quote}</span>
                                   </div>
                                 </div>
                               </td>
@@ -1057,37 +1057,37 @@ export default function DashboardPage() {
             </div>
 
             {/* Announcements */}
-            <div className="overflow-hidden rounded-2xl border border-gray-200/90 bg-white shadow-sm dark:border-gray-800 dark:bg-[#181a20]">
+            <div className="overflow-hidden rounded-xl border border-gray-200/90 bg-card shadow-sm dark:border-gray-800 dark:bg-card">
               <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4 dark:border-gray-800">
                 <div className="flex items-center gap-3">
                   <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-amber-100 to-orange-50 ring-1 ring-amber-200/70 dark:from-amber-950/50 dark:to-orange-950/40 dark:ring-amber-900/40">
                     <Bell className="h-5 w-5 text-amber-600 dark:text-amber-400" />
                   </div>
                   <div>
-                    <h2 className="text-lg font-bold text-gray-900 dark:text-white">Announcements</h2>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Product &amp; maintenance updates</p>
+                    <h2 className="text-lg font-bold text-foreground">Announcements</h2>
+                    <p className="text-xs text-muted-foreground">Product &amp; maintenance updates</p>
                   </div>
                 </div>
                 <Link
                   href="/dashboard/announcements"
-                  className="text-sm font-semibold text-blue-600 dark:text-blue-400 hover:underline"
+                  className="text-sm font-semibold text-primary hover:underline"
                 >
                   View all
                 </Link>
               </div>
 
-              <div className="divide-y divide-gray-100 dark:divide-gray-800/80">
+              <div className="divide-y divide-border/80">
                 {announcementsLoading ? (
                   <div className="flex items-center justify-center gap-2 px-5 py-10">
                     <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-500/30 border-t-blue-500" />
-                    <span className="text-sm text-gray-500 dark:text-gray-400">Loading…</span>
+                    <span className="text-sm text-muted-foreground">Loading…</span>
                   </div>
                 ) : announcementsError ? (
                   <div className="px-5 py-4">
                     <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
                       {announcementsError}
                     </div>
-                    <p className="mb-2 mt-4 text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                    <p className="mb-2 mt-4 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                       Quick tips
                     </p>
                     <div className="grid gap-2 sm:grid-cols-3">
@@ -1096,8 +1096,8 @@ export default function DashboardPage() {
                           key={`err-${tip.t}`}
                           className="rounded-xl border border-gray-100 bg-gray-50/90 px-3 py-2.5 dark:border-gray-800 dark:bg-gray-800/40"
                         >
-                          <p className="text-[11px] font-bold text-gray-900 dark:text-white">{tip.t}</p>
-                          <p className="mt-0.5 text-[10px] leading-snug text-gray-600 dark:text-gray-400">{tip.d}</p>
+                          <p className="text-[11px] font-bold text-foreground">{tip.t}</p>
+                          <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">{tip.d}</p>
                         </div>
                       ))}
                     </div>
@@ -1107,11 +1107,11 @@ export default function DashboardPage() {
                     <div className="mb-5 text-center">
                       <Bell className="mx-auto mb-2 h-10 w-10 text-gray-300 dark:text-gray-600" />
                       <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">No pinned announcements</p>
-                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      <p className="mt-1 text-xs text-muted-foreground">
                         Listing updates, maintenance windows, and campaigns appear here when published.
                       </p>
                     </div>
-                    <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                    <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                       While you wait — quick tips
                     </p>
                     <div className="grid gap-2 sm:grid-cols-3">
@@ -1120,8 +1120,8 @@ export default function DashboardPage() {
                           key={tip.t}
                           className="rounded-xl border border-gray-100 bg-gray-50/90 px-3 py-2.5 text-left dark:border-gray-800 dark:bg-gray-800/40"
                         >
-                          <p className="text-[11px] font-bold text-gray-900 dark:text-white">{tip.t}</p>
-                          <p className="mt-0.5 text-[10px] leading-snug text-gray-600 dark:text-gray-400">{tip.d}</p>
+                          <p className="text-[11px] font-bold text-foreground">{tip.t}</p>
+                          <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">{tip.d}</p>
                         </div>
                       ))}
                     </div>
@@ -1139,7 +1139,7 @@ export default function DashboardPage() {
                       <Link
                         key={announcement.id}
                         href={`/dashboard/announcements/${announcement.id}`}
-                        className="group/ann flex items-center justify-between gap-4 px-5 py-4 transition hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                        className="group/ann flex items-center justify-between gap-4 px-5 py-4 transition hover:bg-accent/50"
                       >
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
@@ -1153,7 +1153,7 @@ export default function DashboardPage() {
                             </p>
                           </div>
                           {dateLabel ? (
-                            <p className="mt-0.5 text-[11px] text-gray-400 dark:text-gray-500">{dateLabel}</p>
+                            <p className="mt-0.5 text-[11px] text-muted-foreground">{dateLabel}</p>
                           ) : null}
                         </div>
                         <ChevronRight className="h-4 w-4 shrink-0 text-gray-400 transition group-hover/ann:translate-x-0.5 group-hover/ann:text-blue-500" />
@@ -1169,7 +1169,7 @@ export default function DashboardPage() {
           <div className="grid shrink-0 grid-cols-2 gap-3 xl:w-80 xl:grid-cols-1 xl:gap-4">
             <Link
               href="/dashboard/help"
-              className="group relative flex min-h-[268px] flex-col overflow-hidden rounded-2xl border border-gray-200/90 bg-white p-4 shadow-sm transition hover:border-indigo-300 hover:shadow-md sm:min-h-[280px] sm:p-5 dark:border-gray-800 dark:bg-[#181a20] dark:hover:border-indigo-800"
+              className="group relative flex min-h-[268px] flex-col overflow-hidden rounded-xl border border-gray-200/90 bg-card p-4 shadow-sm transition hover:border-indigo-300 hover:shadow-md sm:min-h-[280px] sm:p-5 dark:border-gray-800 dark:bg-card dark:hover:border-indigo-800"
             >
               <div className="pointer-events-none absolute -right-6 -top-6 h-20 w-20 rounded-full bg-indigo-500/10 blur-2xl" />
               <div className="relative flex shrink-0 items-start gap-3">
@@ -1177,8 +1177,8 @@ export default function DashboardPage() {
                   <HelpCircle className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
                 </div>
                 <div className="min-w-0 flex-1 pr-1">
-                  <h3 className="text-sm font-bold text-gray-900 dark:text-white">Help Center</h3>
-                  <p className="text-[11px] leading-snug text-gray-500 dark:text-gray-400">Self-service guides</p>
+                  <h3 className="text-sm font-bold text-foreground">Help Center</h3>
+                  <p className="text-[11px] leading-snug text-muted-foreground">Self-service guides</p>
                 </div>
                 <ChevronRight className="h-4 w-4 shrink-0 text-gray-400 group-hover:text-indigo-500" />
               </div>
@@ -1186,17 +1186,17 @@ export default function DashboardPage() {
                 <p className="shrink-0 text-xs font-bold leading-snug text-gray-800 dark:text-gray-200">
                   {HELP_CENTER_TOPIC_COUNT} step-by-step guides
                 </p>
-                <p className="mt-1 shrink-0 text-[11px] leading-relaxed text-gray-600 dark:text-gray-400">{HELP_PREVIEW_SNIPPETS}</p>
+                <p className="mt-1 shrink-0 text-[11px] leading-relaxed text-muted-foreground">{HELP_PREVIEW_SNIPPETS}</p>
                 <ul className="mt-3 flex flex-1 flex-col justify-center gap-2.5 border-t border-indigo-100/60 py-3 dark:border-indigo-900/25">
                   {HELP_TOPIC_PREVIEW_LINES.map((line) => (
-                    <li key={line} className="flex gap-2.5 text-[12px] leading-snug text-gray-700 dark:text-gray-300">
+                    <li key={line} className="flex gap-2.5 text-[12px] leading-snug text-foreground/80">
                       <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-500" aria-hidden />
                       <span>{line}</span>
                     </li>
                   ))}
                 </ul>
                 <div className="mt-auto flex shrink-0 items-center justify-between border-t border-indigo-100/60 pt-2.5 dark:border-indigo-900/25">
-                  <span className="text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">More inside</span>
+                  <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">More inside</span>
                   <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">Open →</span>
                 </div>
               </div>
@@ -1204,7 +1204,7 @@ export default function DashboardPage() {
 
             <Link
               href="/dashboard/referral"
-              className="group relative flex min-h-[268px] flex-col overflow-hidden rounded-2xl border border-gray-200/90 bg-white p-4 shadow-sm transition hover:border-emerald-300 hover:shadow-md sm:min-h-[280px] sm:p-5 dark:border-gray-800 dark:bg-[#181a20] dark:hover:border-emerald-800"
+              className="group relative flex min-h-[268px] flex-col overflow-hidden rounded-xl border border-gray-200/90 bg-card p-4 shadow-sm transition hover:border-emerald-300 hover:shadow-md sm:min-h-[280px] sm:p-5 dark:border-gray-800 dark:bg-card dark:hover:border-emerald-800"
             >
               <div className="pointer-events-none absolute -right-6 -top-6 h-20 w-20 rounded-full bg-emerald-500/10 blur-2xl" />
               <div className="relative flex shrink-0 items-start gap-3">
@@ -1212,8 +1212,8 @@ export default function DashboardPage() {
                   <Gift className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
                 </div>
                 <div className="min-w-0 flex-1 pr-1">
-                  <h3 className="text-sm font-bold text-gray-900 dark:text-white">Referrals</h3>
-                  <p className="text-[11px] leading-snug text-gray-500 dark:text-gray-400">Invite &amp; earn</p>
+                  <h3 className="text-sm font-bold text-foreground">Referrals</h3>
+                  <p className="text-[11px] leading-snug text-muted-foreground">Invite &amp; earn</p>
                 </div>
                 <ChevronRight className="h-4 w-4 shrink-0 text-gray-400 group-hover:text-emerald-500" />
               </div>
@@ -1222,30 +1222,30 @@ export default function DashboardPage() {
               ) : (
                 <div className="relative mt-3 flex min-h-0 flex-1 flex-col rounded-xl border border-emerald-100/80 bg-gradient-to-b from-emerald-50/90 to-white p-3 dark:border-emerald-900/30 dark:from-emerald-950/20 dark:to-[#1a1f28]">
                   <div className="shrink-0">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Your code</p>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Your code</p>
                     <p className="mt-1 break-all font-mono text-lg font-bold leading-tight tracking-tight text-emerald-700 dark:text-emerald-400">
                       {referralRailDisplay.code}
                     </p>
                   </div>
                   <div className="mt-3 grid flex-1 grid-cols-2 gap-2">
-                    <div className="flex flex-col justify-center rounded-lg border border-emerald-100/90 bg-white/80 px-2.5 py-2.5 text-center dark:border-emerald-900/35 dark:bg-gray-900/40">
-                      <span className="text-2xl font-bold tabular-nums leading-none text-gray-900 dark:text-white">
+                    <div className="flex flex-col justify-center rounded-lg border border-emerald-100/90 bg-card/80 px-2.5 py-2.5 text-center dark:border-emerald-900/35 dark:bg-gray-900/40">
+                      <span className="text-2xl font-bold tabular-nums leading-none text-foreground">
                         {referralRailDisplay.referrals}
                       </span>
-                      <span className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                      <span className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                         Invited
                       </span>
                     </div>
-                    <div className="flex flex-col justify-center rounded-lg border border-emerald-100/90 bg-white/80 px-2.5 py-2.5 text-center dark:border-emerald-900/35 dark:bg-gray-900/40">
-                      <span className="text-lg font-bold tabular-nums leading-none text-gray-900 dark:text-white">
+                    <div className="flex flex-col justify-center rounded-lg border border-emerald-100/90 bg-card/80 px-2.5 py-2.5 text-center dark:border-emerald-900/35 dark:bg-gray-900/40">
+                      <span className="text-lg font-bold tabular-nums leading-none text-foreground">
                         ${formatUsd(referralRailDisplay.earnings)}
                       </span>
-                      <span className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                      <span className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                         Earned
                       </span>
                     </div>
                   </div>
-                  <p className="mt-3 shrink-0 text-center text-[11px] font-medium text-gray-600 dark:text-gray-400">
+                  <p className="mt-3 shrink-0 text-center text-[11px] font-medium text-muted-foreground">
                     {referralRailDisplay.commissionPct.toFixed(0)}% commission · Link &amp; banners on full page
                   </p>
                   <div className="mt-auto flex shrink-0 items-center justify-between border-t border-emerald-100/60 pt-2.5 dark:border-emerald-900/25">
@@ -1262,16 +1262,16 @@ export default function DashboardPage() {
 
             <Link
               href="/p2p"
-              className="group relative flex min-h-[268px] flex-col overflow-hidden rounded-2xl border border-gray-200/90 bg-white p-4 shadow-sm transition hover:border-blue-300 hover:shadow-md sm:min-h-[280px] sm:p-5 dark:border-gray-800 dark:bg-[#181a20] dark:hover:border-blue-800"
+              className="group relative flex min-h-[268px] flex-col overflow-hidden rounded-xl border border-gray-200/90 bg-card p-4 shadow-sm transition hover:border-blue-300 hover:shadow-md sm:min-h-[280px] sm:p-5 dark:border-gray-800 dark:bg-card dark:hover:border-blue-800"
             >
               <div className="pointer-events-none absolute -right-6 -top-6 h-20 w-20 rounded-full bg-blue-500/10 blur-2xl" />
               <div className="relative flex shrink-0 items-start gap-3">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-100 to-cyan-100 dark:from-blue-950/50 dark:to-cyan-950/40">
-                  <Users className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                  <Users className="h-5 w-5 text-primary" />
                 </div>
                 <div className="min-w-0 flex-1 pr-1">
-                  <h3 className="text-sm font-bold text-gray-900 dark:text-white">P2P</h3>
-                  <p className="text-[11px] leading-snug text-gray-500 dark:text-gray-400">Buy / sell fiat</p>
+                  <h3 className="text-sm font-bold text-foreground">P2P</h3>
+                  <p className="text-[11px] leading-snug text-muted-foreground">Buy / sell fiat</p>
                 </div>
                 <ChevronRight className="h-4 w-4 shrink-0 text-gray-400 group-hover:text-blue-500" />
               </div>
@@ -1280,32 +1280,32 @@ export default function DashboardPage() {
               ) : (
                 <div className="relative mt-3 flex min-h-0 flex-1 flex-col rounded-xl border border-blue-100/80 bg-gradient-to-b from-blue-50/90 to-white p-3 dark:border-blue-900/30 dark:from-blue-950/20 dark:to-[#1a1f28]">
                   <div className="grid flex-1 grid-cols-2 gap-2">
-                    <div className="flex flex-col justify-center rounded-lg border border-blue-100/90 bg-white/80 px-2 py-3 text-center dark:border-blue-900/35 dark:bg-gray-900/40">
+                    <div className="flex flex-col justify-center rounded-lg border border-blue-100/90 bg-card/80 px-2 py-3 text-center dark:border-blue-900/35 dark:bg-gray-900/40">
                       <span className="text-2xl font-bold tabular-nums leading-none text-blue-700 dark:text-blue-400">
                         {p2pRailDisplay.active}
                       </span>
-                      <span className="mt-1.5 text-[10px] font-bold uppercase leading-tight tracking-wide text-gray-500 dark:text-gray-400">
+                      <span className="mt-1.5 text-[10px] font-bold uppercase leading-tight tracking-wide text-muted-foreground">
                         In progress
                       </span>
                     </div>
-                    <div className="flex flex-col justify-center rounded-lg border border-blue-100/90 bg-white/80 px-2 py-3 text-center dark:border-blue-900/35 dark:bg-gray-900/40">
-                      <span className="text-2xl font-bold tabular-nums leading-none text-gray-900 dark:text-white">
+                    <div className="flex flex-col justify-center rounded-lg border border-blue-100/90 bg-card/80 px-2 py-3 text-center dark:border-blue-900/35 dark:bg-gray-900/40">
+                      <span className="text-2xl font-bold tabular-nums leading-none text-foreground">
                         {p2pRailDisplay.total}
                       </span>
-                      <span className="mt-1.5 text-[10px] font-bold uppercase leading-tight tracking-wide text-gray-500 dark:text-gray-400">
+                      <span className="mt-1.5 text-[10px] font-bold uppercase leading-tight tracking-wide text-muted-foreground">
                         All orders
                       </span>
                     </div>
                   </div>
-                  <p className="mt-3 text-[12px] font-medium leading-relaxed text-gray-700 dark:text-gray-300">
+                  <p className="mt-3 text-[12px] font-medium leading-relaxed text-foreground/80">
                     USDT, BTC, ETH vs INR — bank, UPI &amp; listed methods only.
                   </p>
-                  <p className="mt-2 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+                  <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
                     Escrow-protected trades · Manage payment methods &amp; order history from the hub.
                   </p>
                   <div className="mt-auto flex shrink-0 items-center justify-between border-t border-blue-100/60 pt-2.5 dark:border-blue-900/25">
-                    <span className="text-[10px] text-gray-500 dark:text-gray-400">Orders → P2P</span>
-                    <span className="text-xs font-bold text-blue-600 dark:text-blue-400">Trade →</span>
+                    <span className="text-[10px] text-muted-foreground">Orders → P2P</span>
+                    <span className="text-xs font-bold text-primary">Trade →</span>
                   </div>
                 </div>
               )}
@@ -1313,7 +1313,7 @@ export default function DashboardPage() {
 
             <Link
               href="/dashboard/fee-rates"
-              className="group relative flex min-h-[268px] flex-col overflow-hidden rounded-2xl border border-gray-200/90 bg-white p-4 shadow-sm transition hover:border-amber-300 hover:shadow-md sm:min-h-[280px] sm:p-5 dark:border-gray-800 dark:bg-[#181a20] dark:hover:border-amber-800"
+              className="group relative flex min-h-[268px] flex-col overflow-hidden rounded-xl border border-gray-200/90 bg-card p-4 shadow-sm transition hover:border-amber-300 hover:shadow-md sm:min-h-[280px] sm:p-5 dark:border-gray-800 dark:bg-card dark:hover:border-amber-800"
             >
               <div className="pointer-events-none absolute -right-6 -top-6 h-20 w-20 rounded-full bg-amber-500/10 blur-2xl" />
               <div className="relative flex shrink-0 items-start gap-3">
@@ -1321,8 +1321,8 @@ export default function DashboardPage() {
                   <Receipt className="h-5 w-5 text-amber-600 dark:text-amber-400" />
                 </div>
                 <div className="min-w-0 flex-1 pr-1">
-                  <h3 className="text-sm font-bold text-gray-900 dark:text-white">Fee tier</h3>
-                  <p className="text-[11px] leading-snug text-gray-500 dark:text-gray-400">Spot rates</p>
+                  <h3 className="text-sm font-bold text-foreground">Fee tier</h3>
+                  <p className="text-[11px] leading-snug text-muted-foreground">Spot rates</p>
                 </div>
                 <ChevronRight className="h-4 w-4 shrink-0 text-gray-400 group-hover:text-amber-500" />
               </div>
@@ -1332,10 +1332,10 @@ export default function DashboardPage() {
                 <div className="relative mt-3 flex min-h-0 flex-1 flex-col rounded-xl border border-amber-100/80 bg-gradient-to-b from-amber-50/90 to-white p-3 dark:border-amber-900/30 dark:from-amber-950/20 dark:to-[#1a1f28]">
                   <div className="flex shrink-0 items-center justify-between gap-2">
                     <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Status</p>
-                      <p className="text-sm font-bold text-gray-900 dark:text-white">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Status</p>
+                      <p className="text-sm font-bold text-foreground">
                         VIP {feeRailDisplay.vipLevel}
-                        <span className="font-semibold text-gray-500 dark:text-gray-400"> · {feeRailDisplay.vipName}</span>
+                        <span className="font-semibold text-muted-foreground"> · {feeRailDisplay.vipName}</span>
                       </p>
                     </div>
                     {!feePreview ? (
@@ -1349,20 +1349,20 @@ export default function DashboardPage() {
                     )}
                   </div>
                   <div className="mt-3 grid flex-1 grid-cols-2 gap-2">
-                    <div className="flex flex-col justify-center rounded-lg border border-amber-200/80 bg-white/90 px-2 py-3 text-center dark:border-amber-900/40 dark:bg-gray-900/45">
-                      <span className="text-[10px] font-bold uppercase text-gray-500 dark:text-gray-400">Maker</span>
+                    <div className="flex flex-col justify-center rounded-lg border border-amber-200/80 bg-card/90 px-2 py-3 text-center dark:border-amber-900/40 dark:bg-gray-900/45">
+                      <span className="text-[10px] font-bold uppercase text-muted-foreground">Maker</span>
                       <span className="mt-1 text-xl font-bold tabular-nums text-amber-700 dark:text-amber-400">
                         {feeRailDisplay.maker}%
                       </span>
                     </div>
-                    <div className="flex flex-col justify-center rounded-lg border border-amber-200/80 bg-white/90 px-2 py-3 text-center dark:border-amber-900/40 dark:bg-gray-900/45">
-                      <span className="text-[10px] font-bold uppercase text-gray-500 dark:text-gray-400">Taker</span>
+                    <div className="flex flex-col justify-center rounded-lg border border-amber-200/80 bg-card/90 px-2 py-3 text-center dark:border-amber-900/40 dark:bg-gray-900/45">
+                      <span className="text-[10px] font-bold uppercase text-muted-foreground">Taker</span>
                       <span className="mt-1 text-xl font-bold tabular-nums text-amber-700 dark:text-amber-400">
                         {feeRailDisplay.taker}%
                       </span>
                     </div>
                   </div>
-                  <div className="mt-3 flex flex-1 flex-col justify-center gap-1.5 text-[11px] leading-snug text-gray-600 dark:text-gray-400">
+                  <div className="mt-3 flex flex-1 flex-col justify-center gap-1.5 text-[11px] leading-snug text-muted-foreground">
                     {feeRailDisplay.volumeTierLabel ? (
                       <p>
                         <span className="font-semibold text-gray-800 dark:text-gray-200">Volume tier:</span> {feeRailDisplay.volumeTierLabel}
@@ -1377,7 +1377,7 @@ export default function DashboardPage() {
                     )}
                   </div>
                   <div className="mt-auto flex shrink-0 items-center justify-between border-t border-amber-100/60 pt-2.5 dark:border-amber-900/25">
-                    <span className="text-[10px] text-gray-500 dark:text-gray-400">VIP &amp; volume</span>
+                    <span className="text-[10px] text-muted-foreground">VIP &amp; volume</span>
                     <span className="text-xs font-bold text-amber-700 dark:text-amber-400">Details →</span>
                   </div>
                 </div>
@@ -1389,7 +1389,7 @@ export default function DashboardPage() {
 
       <Link
         href="/dashboard/help"
-        className="fixed bottom-6 right-6 z-40 flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-500 shadow-xl shadow-blue-500/30 ring-2 ring-white/25 transition hover:scale-105 hover:bg-blue-600 hover:shadow-2xl dark:ring-gray-900/40 sm:bottom-8 sm:right-8"
+        className="fixed bottom-6 right-6 z-40 flex h-14 w-14 items-center justify-center rounded-xl bg-blue-500 shadow-xl shadow-blue-500/30 ring-2 ring-white/25 transition hover:scale-105 hover:bg-blue-600 hover:shadow-2xl dark:ring-gray-900/40 sm:bottom-8 sm:right-8"
         aria-label="Help"
       >
         <HelpCircle className="h-6 w-6 text-white" />

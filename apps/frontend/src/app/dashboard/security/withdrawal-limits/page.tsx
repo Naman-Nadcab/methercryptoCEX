@@ -265,18 +265,18 @@ export default function WithdrawalLimitsPage() {
   const canSubmit = smsOtp && (!user2faEnabled || google2faCode);
 
   return (
-    <div className="p-4 lg:p-6 bg-gray-50 dark:bg-[#0b0e11] min-h-full">
+    <div className="p-4 lg:p-6 bg-background min-h-full">
       <div className="max-w-6xl mx-auto">
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-sm mb-6">
           <span 
-            className="text-gray-500 dark:text-gray-400 hover:text-blue-500 cursor-pointer"
+            className="text-muted-foreground hover:text-blue-500 cursor-pointer"
             onClick={() => router.push('/dashboard/security')}
           >
             Security
           </span>
           <ChevronRight className="w-4 h-4 text-gray-400" />
-          <span className="text-gray-900 dark:text-white font-medium">Manage Crypto Withdrawal Limits</span>
+          <span className="text-foreground font-medium">Manage Crypto Withdrawal Limits</span>
         </div>
 
         {loading ? (
@@ -287,8 +287,8 @@ export default function WithdrawalLimitsPage() {
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Change Limit Card */}
-            <div className="bg-white dark:bg-[#181a20] rounded-lg p-6">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+            <div className="bg-card rounded-lg p-6">
+              <h2 className="text-xl font-semibold text-foreground mb-4">
                 Change Limit
               </h2>
 
@@ -297,7 +297,7 @@ export default function WithdrawalLimitsPage() {
                 <div className="w-5 h-5 rounded-full bg-yellow-400 flex items-center justify-center flex-shrink-0 mt-0.5">
                   <span className="text-white text-xs font-bold">!</span>
                 </div>
-                <p className="text-sm text-gray-700 dark:text-gray-300">
+                <p className="text-sm text-foreground/80">
                   Adjusting the withdrawal limit will not impact any withdrawal requests that are currently being processed.
                 </p>
               </div>
@@ -305,10 +305,10 @@ export default function WithdrawalLimitsPage() {
               {/* Daily Withdrawal Amount */}
               <div className="mb-6">
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm text-gray-500 dark:text-gray-400 inline-flex items-center gap-1">
+                  <label className="text-sm text-muted-foreground inline-flex items-center gap-1">
                     Daily Withdrawal Amount <InfoTooltip content="Maximum amount you can withdraw in 24 hours. Higher limits may require additional verification." />
                   </label>
-                  <span className="text-sm text-gray-500 dark:text-gray-400">
+                  <span className="text-sm text-muted-foreground">
                     Used {formatNumber(limits.dailyUsed)}/{formatNumber(limits.maxDailyLimit)}
                   </span>
                 </div>
@@ -317,13 +317,13 @@ export default function WithdrawalLimitsPage() {
                     type="text"
                     value={dailyInput}
                     onChange={e => setDailyInput(e.target.value.replace(/[^0-9.]/g, ''))}
-                    className="w-full px-4 py-3 pr-16 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white text-lg outline-none focus:border-blue-500"
+                    className="w-full px-4 py-3 pr-16 bg-card border border-border rounded-lg text-foreground text-lg outline-none focus:border-blue-500"
                   />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground">
                     USDT
                   </span>
                 </div>
-                <p className="text-sm text-gray-400 dark:text-gray-500 mt-2">
+                <p className="text-sm text-muted-foreground mt-2">
                   Withdrawal Limit 0-{limits.maxDailyLimit.toLocaleString()}
                 </p>
               </div>
@@ -331,10 +331,10 @@ export default function WithdrawalLimitsPage() {
               {/* Monthly Withdrawal Amount */}
               <div className="mb-6">
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm text-gray-500 dark:text-gray-400 inline-flex items-center gap-1">
+                  <label className="text-sm text-muted-foreground inline-flex items-center gap-1">
                     Monthly Withdrawal Amount <InfoTooltip content="Maximum amount you can withdraw per calendar month. Resets at the start of each month." />
                   </label>
-                  <span className="text-sm text-gray-500 dark:text-gray-400">
+                  <span className="text-sm text-muted-foreground">
                     Used {formatNumber(limits.monthlyUsed)}/{formatNumber(limits.maxMonthlyLimit)}
                   </span>
                 </div>
@@ -343,13 +343,13 @@ export default function WithdrawalLimitsPage() {
                     type="text"
                     value={monthlyInput}
                     onChange={e => setMonthlyInput(e.target.value.replace(/[^0-9.]/g, ''))}
-                    className="w-full px-4 py-3 pr-16 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white text-lg outline-none focus:border-blue-500"
+                    className="w-full px-4 py-3 pr-16 bg-card border border-border rounded-lg text-foreground text-lg outline-none focus:border-blue-500"
                   />
-                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">
+                  <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground">
                     USDT
                   </span>
                 </div>
-                <p className="text-sm text-gray-400 dark:text-gray-500 mt-2">
+                <p className="text-sm text-muted-foreground mt-2">
                   Withdrawal Limit 0-{limits.maxMonthlyLimit.toLocaleString()}
                 </p>
               </div>
@@ -358,24 +358,24 @@ export default function WithdrawalLimitsPage() {
               <button
                 onClick={handleSubmitClick}
                 disabled={submitting}
-                className="w-full py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+                className="w-full py-3 bg-primary hover:bg-primary/85 disabled:bg-blue-300 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
               >
                 Submit
               </button>
             </div>
 
             {/* Withdrawal Limit Info Card */}
-            <div className="bg-white dark:bg-[#181a20] rounded-lg p-6">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">
+            <div className="bg-card rounded-lg p-6">
+              <h2 className="text-xl font-semibold text-foreground mb-6">
                 Withdrawal Limit Info
               </h2>
 
               {/* Table Header */}
               <div className="grid grid-cols-2 gap-4 mb-4">
-                <div className="text-sm text-gray-500 dark:text-gray-400">
+                <div className="text-sm text-muted-foreground">
                   Identity Verification
                 </div>
-                <div className="text-sm text-gray-500 dark:text-gray-400">
+                <div className="text-sm text-muted-foreground">
                   VIP
                 </div>
               </div>
@@ -383,28 +383,28 @@ export default function WithdrawalLimitsPage() {
               {/* Table Row */}
               <div className="grid grid-cols-2 gap-4 mb-6">
                 <div className="flex items-center gap-3">
-                  <span className="text-gray-900 dark:text-white font-medium">Basic</span>
+                  <span className="text-foreground font-medium">Basic</span>
                   <button 
                     onClick={() => router.push('/dashboard/identity')}
-                    className="text-blue-500 hover:text-blue-600 text-sm"
+                    className="text-primary hover:text-primary/85 text-sm"
                   >
                     Upgrade Now
                   </button>
                 </div>
                 <div>
-                  <button className="text-blue-500 hover:text-blue-600 text-sm">
+                  <button className="text-primary hover:text-primary/85 text-sm">
                     Apply for VIP
                   </button>
                 </div>
               </div>
 
               {/* Info Text */}
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              <p className="text-sm text-muted-foreground mb-4">
                 The withdrawal limits associated with the VIP level will only be valid after completing Identity Verification at Lv. 1 or above.
               </p>
 
               {/* View More Link */}
-              <button className="text-blue-500 hover:text-blue-600 text-sm flex items-center gap-1">
+              <button className="text-primary hover:text-primary/85 text-sm flex items-center gap-1">
                 View More
                 <ChevronRight className="w-4 h-4" />
               </button>
@@ -416,10 +416,10 @@ export default function WithdrawalLimitsPage() {
       {/* Security Verification Modal */}
       {showVerifyModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-[#1e2329] rounded-xl w-full max-w-md shadow-xl">
+          <div className="bg-card rounded-xl w-full max-w-md shadow-xl">
             {/* Header */}
-            <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+            <div className="flex items-center justify-between p-6 border-b border-border">
+              <h2 className="text-xl font-semibold text-foreground">
                 Security Verification
               </h2>
               <button
@@ -442,8 +442,8 @@ export default function WithdrawalLimitsPage() {
                       <Square className="w-5 h-5 text-gray-400" />
                     )}
                   </button>
-                  <span className="text-sm text-gray-600 dark:text-gray-400">
-                    A verification code will be sent to <span className="font-semibold text-gray-900 dark:text-white">{maskPhone(userPhone)}</span>
+                  <span className="text-sm text-muted-foreground">
+                    A verification code will be sent to <span className="font-semibold text-foreground">{maskPhone(userPhone)}</span>
                   </span>
                 </div>
                 <div className="relative">
@@ -452,12 +452,12 @@ export default function WithdrawalLimitsPage() {
                     value={smsOtp}
                     onChange={e => setSmsOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     placeholder="Please enter the SMS verification code"
-                    className="w-full px-4 py-3 pr-40 bg-gray-50 dark:bg-[#181a20] border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-blue-500"
+                    className="w-full px-4 py-3 pr-40 bg-gray-50 dark:bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground outline-none focus:border-blue-500"
                   />
                   <button
                     onClick={sendSmsOtp}
                     disabled={smsOtpTimer > 0 || sendingSmsOtp}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 text-blue-500 hover:text-blue-600 disabled:text-gray-400 font-medium text-sm"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 text-primary hover:text-primary/85 disabled:text-gray-400 font-medium text-sm"
                   >
                     {sendingSmsOtp ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
@@ -477,14 +477,14 @@ export default function WithdrawalLimitsPage() {
                     <svg className="w-5 h-5 text-gray-400" viewBox="0 0 24 24" fill="currentColor">
                       <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
                     </svg>
-                    <span className="text-sm text-gray-600 dark:text-gray-400">Google 2FA Code</span>
+                    <span className="text-sm text-muted-foreground">Google 2FA Code</span>
                   </div>
                   <input
                     type="text"
                     value={google2faCode}
                     onChange={e => setGoogle2faCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     placeholder="Please enter the Google Authenticator code"
-                    className="w-full px-4 py-3 bg-gray-50 dark:bg-[#181a20] border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-blue-500"
+                    className="w-full px-4 py-3 bg-gray-50 dark:bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground outline-none focus:border-blue-500"
                   />
                 </div>
               )}
@@ -495,7 +495,7 @@ export default function WithdrawalLimitsPage() {
                 disabled={!canSubmit || verifying}
                 className={`w-full py-3 font-medium rounded-lg transition-colors flex items-center justify-center gap-2 ${
                   canSubmit && !verifying
-                    ? 'bg-blue-500 hover:bg-blue-600 text-white'
+                    ? 'bg-primary hover:bg-primary/85 text-white'
                     : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-500 cursor-not-allowed'
                 }`}
               >
@@ -511,7 +511,7 @@ export default function WithdrawalLimitsPage() {
 
               {/* Help Link */}
               <div className="text-center">
-                <button className="text-blue-500 hover:text-blue-600 text-sm">
+                <button className="text-primary hover:text-primary/85 text-sm">
                   Having problems with verification?
                 </button>
               </div>

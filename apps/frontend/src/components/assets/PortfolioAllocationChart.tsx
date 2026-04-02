@@ -65,14 +65,14 @@ export function PortfolioAllocationChart({ items, size = 180 }: PortfolioAllocat
   const cy = size / 2;
 
   return (
-    <div className="bg-white dark:bg-[#1e2329] rounded-2xl p-5 border border-gray-100 dark:border-gray-800 card-bybit">
-      <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">Portfolio Allocation</h3>
+    <div className="bg-card rounded-xl p-5 border border-border card-bybit">
+      <h3 className="text-sm font-semibold text-foreground mb-4">Portfolio Allocation</h3>
       {paths.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-8 text-center">
-          <div className="w-24 h-24 rounded-full border-2 border-dashed border-gray-200 dark:border-gray-700 flex items-center justify-center mb-3">
+          <div className="w-24 h-24 rounded-full border-2 border-dashed border-border flex items-center justify-center mb-3">
             <span className="text-xs text-gray-400">No assets</span>
           </div>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Deposit to see allocation</p>
+          <p className="text-sm text-muted-foreground">Deposit to see allocation</p>
         </div>
       ) : (
         <div className="flex flex-col sm:flex-row items-center gap-6">
@@ -98,8 +98,8 @@ export function PortfolioAllocationChart({ items, size = 180 }: PortfolioAllocat
                   className="w-3 h-3 rounded-full flex-shrink-0"
                   style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }}
                 />
-                <span className="text-sm text-gray-700 dark:text-gray-300 truncate">{p.symbol}</span>
-                <span className="text-sm text-gray-500 dark:text-gray-400 tabular-nums">{p.percent.toFixed(1)}%</span>
+                <span className="text-sm text-foreground/80 truncate">{p.symbol}</span>
+                <span className="text-sm text-muted-foreground tabular-nums">{p.percent.toFixed(1)}%</span>
               </div>
             ))}
           </div>

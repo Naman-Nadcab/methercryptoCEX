@@ -102,7 +102,7 @@ function PaymentProofViewer({ orderId, paymentProofUrl }: { orderId: string; pay
           <img
             src={blobUrl}
             alt="Payment proof"
-            className="max-h-64 max-w-full rounded border border-gray-200 dark:border-gray-700"
+            className="max-h-64 max-w-full rounded border border-border"
           />
         )}
       </div>
@@ -151,9 +151,9 @@ export function P2POrderSummary({ order, isBuyer }: Props) {
   const isSeller = !isBuyer;
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-[#1e2329]">
+    <div className="rounded-xl border border-gray-200 bg-card p-4 dark:border-gray-800 dark:bg-card">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Order summary</h2>
+        <h2 className="text-sm font-semibold text-foreground">Order summary</h2>
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-200">
             {statusLabel(order.status)}
@@ -170,37 +170,37 @@ export function P2POrderSummary({ order, isBuyer }: Props) {
       )}
       <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
         <div>
-          <dt className="text-xs text-gray-500 dark:text-gray-400">Role</dt>
-          <dd className="font-medium text-gray-900 dark:text-white">{isBuyer ? 'Buyer' : 'Seller'}</dd>
+          <dt className="text-xs text-muted-foreground">Role</dt>
+          <dd className="font-medium text-foreground">{isBuyer ? 'Buyer' : 'Seller'}</dd>
         </div>
         <div>
-          <dt className="text-xs text-gray-500 dark:text-gray-400">Crypto</dt>
-          <dd className="font-mono font-medium text-gray-900 dark:text-white">
+          <dt className="text-xs text-muted-foreground">Crypto</dt>
+          <dd className="font-mono font-medium text-foreground">
             {order.quantity} {order.crypto_symbol ?? ''}
           </dd>
         </div>
         <div>
-          <dt className="text-xs text-gray-500 dark:text-gray-400">Fiat</dt>
-          <dd className="font-mono font-medium text-gray-900 dark:text-white">
+          <dt className="text-xs text-muted-foreground">Fiat</dt>
+          <dd className="font-mono font-medium text-foreground">
             {sym}
             {order.fiat_amount ?? '—'} {fiat}
           </dd>
         </div>
         <div>
-          <dt className="text-xs text-gray-500 dark:text-gray-400">Counterparty</dt>
-          <dd className="text-gray-900 dark:text-white">
+          <dt className="text-xs text-muted-foreground">Counterparty</dt>
+          <dd className="text-foreground">
             {isBuyer ? order.seller_username ?? '—' : order.buyer_username ?? '—'}
           </dd>
         </div>
         {!isBuyer && order.status === 'payment_confirmed' && order.transaction_reference && (
           <div className="sm:col-span-2">
-            <dt className="text-xs text-gray-500 dark:text-gray-400">Buyer transaction reference</dt>
-            <dd className="break-all font-mono text-sm text-gray-900 dark:text-white">{order.transaction_reference}</dd>
+            <dt className="text-xs text-muted-foreground">Buyer transaction reference</dt>
+            <dd className="break-all font-mono text-sm text-foreground">{order.transaction_reference}</dd>
           </div>
         )}
         {!isBuyer && order.status === 'payment_confirmed' && order.payment_proof_url && (
           <div className="sm:col-span-2">
-            <dt className="text-xs text-gray-500 dark:text-gray-400">Payment proof</dt>
+            <dt className="text-xs text-muted-foreground">Payment proof</dt>
             <dd>
               <PaymentProofViewer orderId={order.id} paymentProofUrl={order.payment_proof_url} />
             </dd>

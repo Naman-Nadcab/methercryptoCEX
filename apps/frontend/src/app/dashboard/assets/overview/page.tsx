@@ -174,10 +174,10 @@ export default function AssetsOverviewPage() {
           {/* Header */}
           <div className="flex items-center justify-between mb-8">
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Assets Overview</h1>
+              <h1 className="text-2xl font-bold text-foreground">Assets Overview</h1>
               <button
                 onClick={() => setShowBalance(!showBalance)}
-                className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+                className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-accent rounded-lg transition-colors"
               >
                 {showBalance ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
               </button>
@@ -187,28 +187,28 @@ export default function AssetsOverviewPage() {
             <div className="flex items-center gap-3">
               <Link
                 href="/wallet/deposit/crypto"
-                className="flex items-center gap-2 px-5 py-2.5 bg-blue-500 hover:bg-blue-600 text-white font-medium text-sm rounded-xl shadow-lg shadow-blue-500/25 transition-all hover:shadow-blue-500/40"
+                className="flex items-center gap-2 px-5 py-2.5 bg-primary hover:bg-primary/85 text-white font-medium text-sm rounded-xl shadow-lg shadow-blue-500/25 transition-all hover:shadow-blue-500/40"
               >
                 <Download className="w-4 h-4" />
                 Deposit
               </Link>
               <Link
                 href="/wallet/withdraw/crypto"
-                className="flex items-center gap-2 px-5 py-2.5 bg-white dark:bg-[#1e2329] text-gray-700 dark:text-gray-300 font-medium text-sm rounded-xl border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
+                className="flex items-center gap-2 px-5 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-xl border border-border hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
               >
                 <Upload className="w-4 h-4" />
                 Withdraw
               </Link>
               <Link
                 href="/wallet/transfer"
-                className="flex items-center gap-2 px-5 py-2.5 bg-white dark:bg-[#1e2329] text-gray-700 dark:text-gray-300 font-medium text-sm rounded-xl border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
+                className="flex items-center gap-2 px-5 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-xl border border-border hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
               >
                 <ArrowLeftRight className="w-4 h-4" />
                 Transfer
               </Link>
               <Link
                 href="/wallet/convert"
-                className="flex items-center gap-2 px-5 py-2.5 bg-white dark:bg-[#1e2329] text-gray-700 dark:text-gray-300 font-medium text-sm rounded-xl border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
+                className="flex items-center gap-2 px-5 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-xl border border-border hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
               >
                 <RefreshCw className="w-4 h-4" />
                 Convert
@@ -252,16 +252,16 @@ export default function AssetsOverviewPage() {
               loading={loading}
             />
             {!loading && showBalance && totalUsd === 0 && totalBtc === 0 && (
-              <div className="mt-4 p-4 bg-white dark:bg-[#1e2329] rounded-2xl border border-gray-100 dark:border-gray-800">
+              <div className="mt-4 p-4 bg-card rounded-xl border border-border">
                 <button
                   type="button"
                   onClick={() => { setShowWhyZero(!showWhyZero); if (!whyZeroReason && !whyZeroLoading) fetchWhyZero(); }}
-                  className="text-sm text-blue-500 hover:text-blue-600 dark:text-blue-400 font-medium"
+                  className="text-sm text-primary hover:text-primary/85 dark:text-blue-400 font-medium"
                 >
                   {showWhyZero ? 'Hide' : 'Why is my balance 0? Why no history?'}
                 </button>
                 {showWhyZero && (
-                  <div className="mt-3 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl text-sm text-gray-700 dark:text-gray-300 space-y-2">
+                  <div className="mt-3 p-4 bg-muted/50 rounded-xl text-sm text-foreground/80 space-y-2">
                     {whyZeroLoading && <p>Checking...</p>}
                     {whyZeroReason && !whyZeroLoading && (
                       <>
@@ -282,7 +282,7 @@ export default function AssetsOverviewPage() {
                 onClick={() => setActiveTab('account')}
                 className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === 'account'
-                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                    ? 'border-blue-500 text-primary'
                     : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
                 }`}
               >
@@ -292,7 +292,7 @@ export default function AssetsOverviewPage() {
                 onClick={() => setActiveTab('asset')}
                 className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === 'asset'
-                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                    ? 'border-blue-500 text-primary'
                     : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
                 }`}
               >
@@ -307,7 +307,7 @@ export default function AssetsOverviewPage() {
                   onClick={() => setTimePeriod(period)}
                   className={`px-4 py-2 text-xs font-medium rounded-lg transition-all ${
                     timePeriod === period
-                      ? 'bg-white dark:bg-[#1e2329] text-gray-900 dark:text-white shadow-sm'
+                      ? 'bg-card text-foreground shadow-sm'
                       : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
                   }`}
                 >
@@ -322,71 +322,71 @@ export default function AssetsOverviewPage() {
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             {/* Account-centric: Funding Account + Spot / Trading Account rows only */}
             <div>
-              <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">Where are my funds stored?</h3>
-              <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">Funding holds deposits and P2P payouts. Trading holds spot order collateral.</p>
+              <h3 className="text-sm font-medium text-muted-foreground mb-4">Where are my funds stored?</h3>
+              <p className="text-xs text-muted-foreground mb-4">Funding holds deposits and P2P payouts. Trading holds spot order collateral.</p>
               <div className="space-y-4">
-                <div className="bg-white dark:bg-[#1e2329] rounded-lg p-5 border border-gray-200 dark:border-gray-700 transition-colors">
+                <div className="bg-card rounded-lg p-5 border border-border transition-colors">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
                       <div className="w-10 h-10 rounded-full border-2 border-yellow-400 flex items-center justify-center bg-yellow-50 dark:bg-yellow-900/20">
                         <div className="w-3 h-3 rounded-full bg-yellow-400" />
                       </div>
-                      <span className="font-semibold text-gray-900 dark:text-white">Funding Account</span>
+                      <span className="font-semibold text-foreground">Funding Account</span>
                     </div>
                     <div className="flex items-center gap-4">
                       <div className="text-right">
-                        <p className="font-semibold text-gray-900 dark:text-white tabular-nums">
+                        <p className="font-semibold text-foreground tabular-nums">
                           {showBalance ? formatNumber(fundingBalance.totalUsd) : '******'} USD
                         </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                        <p className="text-xs text-muted-foreground">
                           ≈ {showBalance ? formatNumber(fundingBalance.totalBtc, 8) : '********'} BTC
                         </p>
                       </div>
                       <div className="flex items-center gap-1">
-                        <Link href="/wallet/deposit/crypto" className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors" title="Deposit">
+                        <Link href="/wallet/deposit/crypto" className="p-2 hover:bg-accent rounded-lg transition-colors" title="Deposit">
                           <Download className="w-4 h-4 text-gray-400 hover:text-blue-500" />
                         </Link>
-                        <Link href="/wallet/withdraw/crypto" className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors" title="Withdraw">
+                        <Link href="/wallet/withdraw/crypto" className="p-2 hover:bg-accent rounded-lg transition-colors" title="Withdraw">
                           <Upload className="w-4 h-4 text-gray-400 hover:text-blue-500" />
                         </Link>
-                        <Link href="/wallet/transfer" className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors" title="Transfer">
+                        <Link href="/wallet/transfer" className="p-2 hover:bg-accent rounded-lg transition-colors" title="Transfer">
                           <ArrowLeftRight className="w-4 h-4 text-gray-400 hover:text-blue-500" />
                         </Link>
-                        <Link href="/wallet/convert" className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors" title="Convert">
+                        <Link href="/wallet/convert" className="p-2 hover:bg-accent rounded-lg transition-colors" title="Convert">
                           <RefreshCw className="w-4 h-4 text-gray-400 hover:text-blue-500" />
                         </Link>
                       </div>
                     </div>
                   </div>
                 </div>
-                <div className="bg-white dark:bg-[#1e2329] rounded-lg p-5 border border-gray-200 dark:border-gray-700 transition-colors">
+                <div className="bg-card rounded-lg p-5 border border-border transition-colors">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
-                        <Wallet className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                      <div className="w-10 h-10 rounded-lg bg-accent flex items-center justify-center">
+                        <Wallet className="w-5 h-5 text-muted-foreground" />
                       </div>
                       <div>
-                        <span className="font-semibold text-gray-900 dark:text-white">Spot / Trading Account</span>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">Used for spot trading orders</p>
+                        <span className="font-semibold text-foreground">Spot / Trading Account</span>
+                        <p className="text-xs text-muted-foreground">Used for spot trading orders</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-4">
                       <div className="text-right">
-                        <p className="font-semibold text-gray-900 dark:text-white tabular-nums">
+                        <p className="font-semibold text-foreground tabular-nums">
                           {showBalance ? formatNumber(tradingBalance.totalUsd) : '******'} USD
                         </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                        <p className="text-xs text-muted-foreground">
                           ≈ {showBalance ? formatNumber(tradingBalance.totalBtc, 8) : '********'} BTC
                         </p>
                       </div>
                       <div className="flex items-center gap-1">
-                        <Link href="/wallet/deposit/crypto" className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors" title="Deposit">
+                        <Link href="/wallet/deposit/crypto" className="p-2 hover:bg-accent rounded-lg transition-colors" title="Deposit">
                           <Download className="w-4 h-4 text-gray-400 hover:text-blue-500" />
                         </Link>
-                        <Link href="/wallet/transfer" className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors" title="Transfer">
+                        <Link href="/wallet/transfer" className="p-2 hover:bg-accent rounded-lg transition-colors" title="Transfer">
                           <ArrowLeftRight className="w-4 h-4 text-gray-400 hover:text-blue-500" />
                         </Link>
-                        <Link href="/wallet/convert" className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors" title="Convert">
+                        <Link href="/wallet/convert" className="p-2 hover:bg-accent rounded-lg transition-colors" title="Convert">
                           <RefreshCw className="w-4 h-4 text-gray-400 hover:text-blue-500" />
                         </Link>
                       </div>
@@ -405,15 +405,15 @@ export default function AssetsOverviewPage() {
                 })}
               />
               {/* Portfolio value — no fabricated time series; balances above are API-sourced */}
-              <div className="bg-white dark:bg-[#1e2329] rounded-2xl p-5 border border-gray-100 dark:border-gray-800">
+              <div className="bg-card rounded-xl p-5 border border-border">
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-1 h-5 bg-yellow-400 rounded-full" />
-                  <h3 className="font-semibold text-gray-900 dark:text-white">Portfolio value</h3>
+                  <h3 className="font-semibold text-foreground">Portfolio value</h3>
                 </div>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white tabular-nums">
+                <p className="text-2xl font-bold text-foreground tabular-nums">
                   {showBalance ? `${formatNumber(totalUsd)} USD` : '******'}
                 </p>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                <p className="text-sm text-muted-foreground mt-2">
                   Historical balance charts are not shown here. Use{' '}
                   <Link href="/wallet/history" className="text-blue-500 hover:underline">
                     transaction history
@@ -426,13 +426,13 @@ export default function AssetsOverviewPage() {
               </div>
 
               {/* Recent Deposit & Withdrawal History */}
-              <div className="bg-white dark:bg-[#1e2329] rounded-2xl p-5 border border-gray-100 dark:border-gray-800">
+              <div className="bg-card rounded-xl p-5 border border-border">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
                     <div className="w-1 h-5 bg-yellow-400 rounded-full" />
-                    <h3 className="font-semibold text-gray-900 dark:text-white">Recent Deposit & Withdrawal History</h3>
+                    <h3 className="font-semibold text-foreground">Recent Deposit & Withdrawal History</h3>
                   </div>
-                  <Link href="/wallet/history" className="flex items-center gap-1 text-sm text-blue-500 hover:text-blue-600 font-medium">
+                  <Link href="/wallet/history" className="flex items-center gap-1 text-sm text-primary hover:text-primary/85 font-medium">
                     All
                     <ArrowRight className="w-4 h-4" />
                   </Link>
@@ -441,7 +441,7 @@ export default function AssetsOverviewPage() {
                 {recentTransactions.length > 0 ? (
                   <div className="space-y-3">
                     {recentTransactions.slice(0, 5).map((tx) => (
-                      <div key={tx.id} className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-800 last:border-0">
+                      <div key={tx.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                         <div className="flex items-center gap-3">
                           <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
                             tx.type === 'deposit' 
@@ -455,7 +455,7 @@ export default function AssetsOverviewPage() {
                             )}
                           </div>
                           <div>
-                            <p className="text-sm font-medium text-gray-900 dark:text-white capitalize">{tx.type}</p>
+                            <p className="text-sm font-medium text-foreground capitalize">{tx.type}</p>
                             <p className="text-xs text-gray-500">{tx.symbol}</p>
                           </div>
                         </div>
@@ -472,10 +472,10 @@ export default function AssetsOverviewPage() {
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center py-12 text-center">
-                    <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mb-4">
+                    <div className="w-16 h-16 bg-accent rounded-full flex items-center justify-center mb-4">
                       <FileText className="w-8 h-8 text-gray-400" />
                     </div>
-                    <p className="text-gray-500 dark:text-gray-400">No recent history found.</p>
+                    <p className="text-muted-foreground">No recent history found.</p>
                   </div>
                 )}
               </div>
@@ -498,12 +498,12 @@ export default function AssetsOverviewPage() {
                 }))}
               />
               <div>
-              <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">Which coins do I own?</h3>
-              <div className="bg-white dark:bg-[#1e2329] rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden transition-all duration-200 ease-out hover:border-gray-300 dark:hover:border-white/20">
+              <h3 className="text-sm font-medium text-muted-foreground mb-4">Which coins do I own?</h3>
+              <div className="bg-card rounded-lg border border-border overflow-hidden transition-all duration-200 ease-out hover:border-gray-300 dark:hover:border-white/20">
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+                      <tr className="text-left text-muted-foreground border-b border-border">
                         <th className="py-3 px-4 font-medium uppercase tracking-wide">Coin</th>
                         <th className="py-3 px-4 font-medium uppercase tracking-wide">Total</th>
                         <th className="py-3 px-4 font-medium uppercase tracking-wide">
@@ -530,11 +530,11 @@ export default function AssetsOverviewPage() {
                         <tr>
                           <td colSpan={5} className="p-0">
                             <div className="py-12 px-6 text-center">
-                              <p className="text-gray-900 dark:text-white font-medium">No assets found</p>
-                              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Deposit funds to start trading</p>
+                              <p className="text-foreground font-medium">No assets found</p>
+                              <p className="text-sm text-muted-foreground mt-1">Deposit funds to start trading</p>
                               <Link
                                 href="/wallet/deposit/crypto"
-                                className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium transition-colors"
+                                className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary hover:bg-primary/85 text-white text-sm font-medium transition-colors"
                               >
                                 <Download className="w-4 h-4" />
                                 Deposit
@@ -550,13 +550,13 @@ export default function AssetsOverviewPage() {
                             role="button"
                             tabIndex={0}
                             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); router.push(`/wallet/${encodeURIComponent(row.symbol)}`); } }}
-                            className="border-b border-gray-100 dark:border-gray-800 last:border-0 cursor-pointer hover:bg-gray-50 dark:hover:bg-white/[0.06] transition-colors duration-150"
+                            className="border-b border-border last:border-0 cursor-pointer hover:bg-gray-50 dark:hover:bg-card/[0.06] transition-colors duration-150"
                           >
-                            <td className="py-3 px-4 font-medium text-gray-900 dark:text-white">{row.symbol}</td>
-                            <td className="py-3 px-4 tabular-nums text-gray-700 dark:text-gray-300">{row.total_balance}</td>
-                            <td className="py-3 px-4 tabular-nums text-gray-700 dark:text-gray-300">{row.available_balance}</td>
-                            <td className="py-3 px-4 tabular-nums text-gray-700 dark:text-gray-300">{row.locked_balance}</td>
-                            <td className="py-3 px-4 tabular-nums text-gray-700 dark:text-gray-300">{row.usd_value}</td>
+                            <td className="py-3 px-4 font-medium text-foreground">{row.symbol}</td>
+                            <td className="py-3 px-4 tabular-nums text-foreground/80">{row.total_balance}</td>
+                            <td className="py-3 px-4 tabular-nums text-foreground/80">{row.available_balance}</td>
+                            <td className="py-3 px-4 tabular-nums text-foreground/80">{row.locked_balance}</td>
+                            <td className="py-3 px-4 tabular-nums text-foreground/80">{row.usd_value}</td>
                           </tr>
                         ))
                       )}

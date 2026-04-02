@@ -48,7 +48,7 @@ function MyAdsInner() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-xl font-semibold text-gray-900 dark:text-white">My ads</h1>
+        <h1 className="text-xl font-semibold text-foreground">My ads</h1>
         <Link href="/p2p/create-ad" className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white">
           New ad
         </Link>
@@ -59,7 +59,7 @@ function MyAdsInner() {
           {Array.from({ length: 3 }).map((_, i) => (
             <div
               key={i}
-              className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-[#1e2329]"
+              className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-card p-4 dark:border-gray-800 dark:bg-card"
             >
               <Skeleton className="h-5 w-44" />
               <Skeleton className="h-4 w-full max-w-md" />
@@ -81,11 +81,11 @@ function MyAdsInner() {
           return (
             <div
               key={id}
-              className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-[#1e2329]"
+              className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-card p-4 dark:border-gray-800 dark:bg-card"
             >
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <p className="font-mono text-sm text-gray-900 dark:text-white">
+                  <p className="font-mono text-sm text-foreground">
                     {sym} / {fiat} · {price}
                   </p>
                   <p className="text-xs text-gray-500">
@@ -143,27 +143,27 @@ function MyAdsInner() {
                     placeholder="Price"
                     value={ep.price}
                     onChange={(e) => setEp({ ...ep, price: e.target.value })}
-                    className="rounded border px-2 py-1 text-sm dark:bg-[#0b0e11]"
+                    className="rounded border px-2 py-1 text-sm dark:bg-background"
                   />
                   <div className="flex gap-2">
                     <input
                       placeholder="Min"
                       value={ep.min_amount}
                       onChange={(e) => setEp({ ...ep, min_amount: e.target.value })}
-                      className="flex-1 rounded border px-2 py-1 text-sm dark:bg-[#0b0e11]"
+                      className="flex-1 rounded border px-2 py-1 text-sm dark:bg-background"
                     />
                     <input
                       placeholder="Max"
                       value={ep.max_amount}
                       onChange={(e) => setEp({ ...ep, max_amount: e.target.value })}
-                      className="flex-1 rounded border px-2 py-1 text-sm dark:bg-[#0b0e11]"
+                      className="flex-1 rounded border px-2 py-1 text-sm dark:bg-background"
                     />
                   </div>
                   <input
                     placeholder="Remarks"
                     value={ep.remarks}
                     onChange={(e) => setEp({ ...ep, remarks: e.target.value })}
-                    className="rounded border px-2 py-1 text-sm dark:bg-[#0b0e11]"
+                    className="rounded border px-2 py-1 text-sm dark:bg-background"
                   />
                   <div className="flex gap-2">
                     <button

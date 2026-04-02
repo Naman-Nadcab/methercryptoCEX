@@ -27,7 +27,7 @@ export function SpotRecentTradesPanel({ trades, onPriceClick }: SpotRecentTrades
             key={`${i}-${t.price}-${t.time}`}
             type="button"
             onClick={() => onPriceClick?.(t.price, t.quantity)}
-            className={`w-full flex justify-between items-center px-3 py-0.5 min-h-[24px] text-xs font-mono tabular-nums text-right hover:bg-white/5 ${
+            className={`w-full flex justify-between items-center px-3 py-0.5 min-h-[24px] text-xs font-mono tabular-nums text-right hover:bg-card/5 ${
               t.side === 'buy' ? 'text-green-500' : 'text-red-500'
             }`}
           >

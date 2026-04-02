@@ -27,7 +27,7 @@ export function SpotPairHeader({
   const isNegative = changePercent24h != null && changePercent24h < 0;
 
   return (
-    <header className="h-14 flex-shrink-0 flex items-center gap-6 px-4 bg-[#0b0e11] dark:bg-[#0b0e11] border-b border-white/5">
+    <header className="h-14 flex-shrink-0 flex items-center gap-6 px-4 bg-[#0b0e11] dark:bg-background border-b border-white/5">
       <div className="flex items-center gap-3">
         <span className="text-lg font-semibold text-white font-mono tabular-nums">{display}</span>
         <span className="text-xs text-gray-500">Spot</span>

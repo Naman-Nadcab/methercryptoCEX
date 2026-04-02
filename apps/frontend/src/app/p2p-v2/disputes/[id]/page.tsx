@@ -36,14 +36,14 @@ function DisputeInner() {
       <Link href="/p2p/orders" className="text-sm text-blue-600 hover:underline dark:text-blue-400">
         ← Orders
       </Link>
-      <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Dispute</h1>
-      <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-[#1e2329] space-y-2 text-sm">
+      <h1 className="text-xl font-semibold text-foreground">Dispute</h1>
+      <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-card space-y-2 text-sm">
         <p>
           <span className="text-gray-500">Status:</span> <span className="font-medium">{d.status}</span>
         </p>
         <p>
           <span className="text-gray-500">Order:</span>{' '}
-          <Link className="text-blue-600 dark:text-blue-400" href={`/p2p/orders/${d.order_id}`}>
+          <Link className="text-primary" href={`/p2p/orders/${d.order_id}`}>
             {d.order_id.slice(0, 8)}…
           </Link>
         </p>
@@ -54,7 +54,7 @@ function DisputeInner() {
         )}
         <div>
           <p className="text-gray-500">Your reason</p>
-          <p className="whitespace-pre-wrap text-gray-900 dark:text-white">{d.reason}</p>
+          <p className="whitespace-pre-wrap text-foreground">{d.reason}</p>
         </div>
         {evidence.length > 0 && (
           <div>
@@ -77,7 +77,7 @@ function DisputeInner() {
           </div>
         )}
         {d.resolution && (
-          <p className="text-xs text-gray-600 dark:text-gray-400">
+          <p className="text-xs text-muted-foreground">
             Resolution: <span className="font-mono">{d.resolution}</span>
             {d.resolved_at && ` · ${new Date(d.resolved_at).toLocaleString()}`}
           </p>

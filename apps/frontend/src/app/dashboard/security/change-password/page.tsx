@@ -137,18 +137,18 @@ export default function ChangePasswordPage() {
   return (
     <div className="p-4 lg:p-6 max-w-2xl mx-auto">
       {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mb-6">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground mb-6">
         <Link href="/dashboard/security" className="hover:text-blue-500">
           Security
         </Link>
         <ChevronRight className="w-4 h-4" />
-        <span className="text-gray-900 dark:text-white">Change Password</span>
+        <span className="text-foreground">Change Password</span>
       </div>
 
       {/* Change Password Card */}
-      <div className="bg-white dark:bg-[#181a20] rounded-xl shadow-sm">
+      <div className="bg-card rounded-xl shadow-sm">
         <div className="p-6">
-          <h1 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+          <h1 className="text-xl font-semibold text-foreground mb-4">
             Change Password
           </h1>
 
@@ -164,7 +164,7 @@ export default function ChangePasswordPage() {
             {/* Old Password - Only show if user has password */}
             {hasPassword && (
               <div>
-                <label className="block text-sm text-gray-500 dark:text-gray-400 mb-2">
+                <label className="block text-sm text-muted-foreground mb-2">
                   Old Password
                 </label>
                 <div className="relative">
@@ -173,7 +173,7 @@ export default function ChangePasswordPage() {
                     value={oldPassword}
                     onChange={(e) => setOldPassword(e.target.value)}
                     placeholder="Enter your current password"
-                    className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-4 py-3 bg-muted/50 border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                     required
                   />
                   <button
@@ -189,7 +189,7 @@ export default function ChangePasswordPage() {
 
             {/* New Password */}
             <div>
-              <label className="block text-sm text-gray-500 dark:text-gray-400 mb-2">
+              <label className="block text-sm text-muted-foreground mb-2">
                 New Password
               </label>
               <div className="relative">
@@ -198,7 +198,7 @@ export default function ChangePasswordPage() {
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   placeholder="Please enter a new password."
-                  className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-4 py-3 bg-muted/50 border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                   required
                 />
                 <button
@@ -245,7 +245,7 @@ export default function ChangePasswordPage() {
 
             {/* Confirm New Password */}
             <div>
-              <label className="block text-sm text-gray-500 dark:text-gray-400 mb-2">
+              <label className="block text-sm text-muted-foreground mb-2">
                 Confirm New Password
               </label>
               <div className="relative">
@@ -254,7 +254,7 @@ export default function ChangePasswordPage() {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="Please enter your new password again."
-                  className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-4 py-3 bg-muted/50 border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                   required
                 />
                 <button
@@ -273,7 +273,7 @@ export default function ChangePasswordPage() {
             {/* Error Message */}
             {error && (
               <div className="p-3 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 rounded-lg">
-                <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+                <p className="text-sm text-destructive">{error}</p>
               </div>
             )}
 
@@ -287,7 +287,7 @@ export default function ChangePasswordPage() {
             {/* Success Message */}
             {success && (
               <div className="p-3 bg-green-50 dark:bg-green-500/10 border border-green-200 dark:border-green-500/30 rounded-lg">
-                <p className="text-sm text-green-600 dark:text-green-400">{success}</p>
+                <p className="text-sm text-buy">{success}</p>
               </div>
             )}
 
@@ -295,7 +295,7 @@ export default function ChangePasswordPage() {
             <button
               type="submit"
               disabled={Boolean(submitting || !isValidPassword || !(validations.passwordsMatch ?? false) || (hasPassword === true && !oldPassword))}
-              className="w-full py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+              className="w-full py-3 bg-primary hover:bg-primary/85 disabled:bg-gray-300 dark:disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
             >
               {submitting ? (
                 <>

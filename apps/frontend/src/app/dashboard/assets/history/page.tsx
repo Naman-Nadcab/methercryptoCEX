@@ -276,11 +276,11 @@ export default function AssetHistoryPage() {
 
   const getStatusBadge = (status: string) => {
     const styles: Record<string, string> = {
-      completed: 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400',
+      completed: 'bg-green-100 dark:bg-green-900/30 text-buy',
       pending: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400',
-      processing: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
-      confirming: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
-      failed: 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400',
+      processing: 'bg-blue-100 dark:bg-blue-900/30 text-primary',
+      confirming: 'bg-blue-100 dark:bg-blue-900/30 text-primary',
+      failed: 'bg-red-100 dark:bg-red-900/30 text-destructive',
     };
     return styles[status] || styles.pending;
   };
@@ -305,7 +305,7 @@ export default function AssetHistoryPage() {
             <RefreshCw className="w-3 h-3 animate-spin" />
             {confirmations}/{required} Confirmations
           </span>
-          <div className="w-24 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+          <div className="w-24 h-1.5 bg-accent rounded-full overflow-hidden">
             <div 
               className="h-full bg-yellow-500 dark:bg-yellow-400 rounded-full transition-all duration-500"
               style={{ width: `${progress}%` }}
@@ -337,15 +337,15 @@ export default function AssetHistoryPage() {
           <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
             <Link href="/wallet/funding" className="hover:text-blue-500 transition-colors">Funding</Link>
             <ChevronRight className="w-4 h-4" />
-            <span className="text-gray-900 dark:text-white font-medium">Funding Account History</span>
+            <span className="text-foreground font-medium">Funding Account History</span>
           </div>
 
           {/* Header */}
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Funding Account History</h1>
+              <h1 className="text-2xl font-bold text-foreground">Funding Account History</h1>
               {(historyTab === 'deposit' || historyTab === 'all') && (
-                <span className="px-2.5 py-1 text-xs font-medium rounded-full bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20">
+                <span className="px-2.5 py-1 text-xs font-medium rounded-full bg-green-500/10 text-buy border border-green-500/20">
                   Live
                 </span>
               )}
@@ -354,7 +354,7 @@ export default function AssetHistoryPage() {
               <button
                 onClick={() => fetchTransactions(false)}
                 disabled={loading}
-                className="flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-[#1e2329] text-gray-700 dark:text-gray-300 font-medium text-sm rounded-xl border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors disabled:opacity-50"
+                className="flex items-center gap-2 px-4 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-xl border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors disabled:opacity-50"
                 title="Refresh now"
               >
                 <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
@@ -363,7 +363,7 @@ export default function AssetHistoryPage() {
               <div className="relative">
                 <button
                   onClick={() => setShowExportDropdown(!showExportDropdown)}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-[#1e2329] text-gray-700 dark:text-gray-300 font-medium text-sm rounded-xl border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
+                  className="flex items-center gap-2 px-4 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-xl border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
                 >
                   <Download className="w-4 h-4" />
                   Export <ChevronDown className={`w-4 h-4 ${showExportDropdown ? 'rotate-180' : ''}`} />
@@ -371,11 +371,11 @@ export default function AssetHistoryPage() {
                 {showExportDropdown && (
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setShowExportDropdown(false)} aria-hidden />
-                    <div className="absolute right-0 top-full mt-2 py-1 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-20 min-w-[140px]">
-                      <button onClick={exportCSV} className="w-full px-4 py-2.5 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                    <div className="absolute right-0 top-full mt-2 py-1 bg-card border border-border rounded-xl shadow-xl z-20 min-w-[140px]">
+                      <button onClick={exportCSV} className="w-full px-4 py-2.5 text-left text-sm text-foreground/80 hover:bg-accent transition-colors">
                         CSV
                       </button>
-                      <button onClick={exportExcel} className="w-full px-4 py-2.5 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                      <button onClick={exportExcel} className="w-full px-4 py-2.5 text-left text-sm text-foreground/80 hover:bg-accent transition-colors">
                         Excel
                       </button>
                     </div>
@@ -386,14 +386,14 @@ export default function AssetHistoryPage() {
           </div>
 
           {/* Main Tabs Card */}
-          <div className="bg-white dark:bg-[#1e2329] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
+          <div className="bg-card rounded-xl border border-border overflow-hidden">
             {/* Main Tab Selector */}
-            <div className="flex border-b border-gray-100 dark:border-gray-800">
+            <div className="flex border-b border-border">
               <button
                 onClick={() => setMainTab('transactions')}
                 className={`flex items-center gap-2 px-6 py-4 text-sm font-medium border-b-2 -mb-px transition-colors ${
                   mainTab === 'transactions'
-                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                    ? 'border-blue-500 text-primary'
                     : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
                 }`}
               >
@@ -404,7 +404,7 @@ export default function AssetHistoryPage() {
                 onClick={() => setMainTab('history')}
                 className={`flex items-center gap-2 px-6 py-4 text-sm font-medium border-b-2 -mb-px transition-colors ${
                   mainTab === 'history'
-                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                    ? 'border-blue-500 text-primary'
                     : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
                 }`}
               >
@@ -421,19 +421,19 @@ export default function AssetHistoryPage() {
                   {/* Date Range */}
                   <div>
                     <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Date Range</p>
-                    <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] rounded-xl border border-gray-200 dark:border-gray-700">
+                    <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] rounded-xl border border-border">
                       <input
                         type="date"
                         value={startDate}
                         onChange={(e) => setStartDate(e.target.value)}
-                        className="bg-transparent text-sm text-gray-900 dark:text-white focus:outline-none flex-1 min-w-0"
+                        className="bg-transparent text-sm text-foreground focus:outline-none flex-1 min-w-0"
                       />
                       <span className="text-gray-400">→</span>
                       <input
                         type="date"
                         value={endDate}
                         onChange={(e) => setEndDate(e.target.value)}
-                        className="bg-transparent text-sm text-gray-900 dark:text-white focus:outline-none flex-1 min-w-0"
+                        className="bg-transparent text-sm text-foreground focus:outline-none flex-1 min-w-0"
                       />
                       <Calendar className="w-4 h-4 text-gray-400 flex-shrink-0" />
                     </div>
@@ -444,21 +444,21 @@ export default function AssetHistoryPage() {
                     <div className="relative">
                       <button
                         onClick={() => setShowCoinDropdown(!showCoinDropdown)}
-                        className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] rounded-xl text-sm text-gray-900 dark:text-white border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
+                        className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] rounded-xl text-sm text-foreground border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
                       >
                         <span>{coinFilter === 'all' ? 'All' : coinFilter}</span>
                         <ChevronDown className={`w-4 h-4 transition-transform ${showCoinDropdown ? 'rotate-180' : ''}`} />
                       </button>
                       {showCoinDropdown && (
-                        <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl z-10 overflow-hidden">
+                        <div className="absolute top-full left-0 right-0 mt-2 bg-card border border-border rounded-xl shadow-2xl z-10 overflow-hidden">
                           {coins.map((coin) => (
                             <button
                               key={coin}
                               onClick={() => { setCoinFilter(coin === 'All' ? 'all' : coin); setShowCoinDropdown(false); }}
                               className={`w-full px-4 py-3 text-left text-sm transition-colors ${
                                 (coin === 'All' && coinFilter === 'all') || coin === coinFilter
-                                  ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
-                                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                                  ? 'bg-blue-50 dark:bg-blue-900/20 text-primary'
+                                  : 'text-foreground/80 hover:bg-accent'
                               }`}
                             >
                               {coin}
@@ -475,21 +475,21 @@ export default function AssetHistoryPage() {
                     <div className="relative">
                       <button
                         onClick={() => setShowMethodDropdown(!showMethodDropdown)}
-                        className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] rounded-xl text-sm text-gray-900 dark:text-white border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
+                        className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] rounded-xl text-sm text-foreground border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
                       >
                         <span>{methodFilter === 'all' ? 'All' : methodFilter}</span>
                         <ChevronDown className={`w-4 h-4 transition-transform ${showMethodDropdown ? 'rotate-180' : ''}`} />
                       </button>
                       {showMethodDropdown && (
-                        <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl z-10 overflow-hidden">
+                        <div className="absolute top-full left-0 right-0 mt-2 bg-card border border-border rounded-xl shadow-2xl z-10 overflow-hidden">
                           {['All', 'Deposit', 'Withdraw', 'Transfer'].map((type) => (
                             <button
                               key={type}
                               onClick={() => { setMethodFilter(type === 'All' ? 'all' : type.toLowerCase()); setShowMethodDropdown(false); }}
                               className={`w-full px-4 py-3 text-left text-sm transition-colors ${
                                 (type === 'All' && methodFilter === 'all') || type.toLowerCase() === methodFilter
-                                  ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
-                                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                                  ? 'bg-blue-50 dark:bg-blue-900/20 text-primary'
+                                  : 'text-foreground/80 hover:bg-accent'
                               }`}
                             >
                               {type}
@@ -506,21 +506,21 @@ export default function AssetHistoryPage() {
                     <div className="relative">
                       <button
                         onClick={() => setShowStatusDropdown(!showStatusDropdown)}
-                        className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] rounded-xl text-sm text-gray-900 dark:text-white border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
+                        className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] rounded-xl text-sm text-foreground border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
                       >
                         <span>{statusFilter === 'all' ? 'All' : statusFilter}</span>
                         <ChevronDown className={`w-4 h-4 transition-transform ${showStatusDropdown ? 'rotate-180' : ''}`} />
                       </button>
                       {showStatusDropdown && (
-                        <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl z-10 overflow-hidden">
+                        <div className="absolute top-full left-0 right-0 mt-2 bg-card border border-border rounded-xl shadow-2xl z-10 overflow-hidden">
                           {statuses.map((status) => (
                             <button
                               key={status}
                               onClick={() => { setStatusFilter(status === 'All' ? 'all' : status.toLowerCase()); setShowStatusDropdown(false); }}
                               className={`w-full px-4 py-3 text-left text-sm transition-colors ${
                                 (status === 'All' && statusFilter === 'all') || status.toLowerCase() === statusFilter
-                                  ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
-                                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                                  ? 'bg-blue-50 dark:bg-blue-900/20 text-primary'
+                                  : 'text-foreground/80 hover:bg-accent'
                               }`}
                             >
                               {status}
@@ -535,7 +535,7 @@ export default function AssetHistoryPage() {
                 {/* Table */}
                 <table className="w-full">
                   <thead>
-                    <tr className="border-b border-gray-100 dark:border-gray-800">
+                    <tr className="border-b border-border">
                       <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase">Date & Time</th>
                       <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase">Coin</th>
                       <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400 uppercase">Qty</th>
@@ -549,19 +549,19 @@ export default function AssetHistoryPage() {
                       <SkeletonTableBody rows={8} columns={6} />
                     ) : filteredTransactions.length > 0 ? (
                       filteredTransactions.map((tx) => (
-                        <tr key={tx.id} className="border-b border-gray-50 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
-                          <td className="px-4 py-4 text-sm text-gray-600 dark:text-gray-400">{formatDate(tx.date_time)}</td>
+                        <tr key={tx.id} className="border-b border-gray-50 dark:border-gray-800/50 hover:bg-accent/30 transition-colors">
+                          <td className="px-4 py-4 text-sm text-muted-foreground">{formatDate(tx.date_time)}</td>
                           <td className="px-4 py-4">
                             <div className="flex items-center gap-2">
                               {tx.coin_logo && (
                                 <Image src={tx.coin_logo} alt={tx.coin} width={24} height={24} className="rounded-full" unoptimized />
                               )}
-                              <span className="font-medium text-gray-900 dark:text-white">{tx.coin}</span>
+                              <span className="font-medium text-foreground">{tx.coin}</span>
                             </div>
                           </td>
-                          <td className="px-4 py-4 text-right font-mono text-sm text-gray-900 dark:text-white">{tx.quantity}</td>
-                          <td className="px-4 py-4 text-sm capitalize text-gray-600 dark:text-gray-400">{tx.type}</td>
-                          <td className="px-4 py-4 text-right font-mono text-sm text-gray-900 dark:text-white">{tx.available_balance || '-'}</td>
+                          <td className="px-4 py-4 text-right font-mono text-sm text-foreground">{tx.quantity}</td>
+                          <td className="px-4 py-4 text-sm capitalize text-muted-foreground">{tx.type}</td>
+                          <td className="px-4 py-4 text-right font-mono text-sm text-foreground">{tx.available_balance || '-'}</td>
                           <td className="px-4 py-4 text-sm text-gray-500">{tx.description || '-'}</td>
                         </tr>
                       ))
@@ -569,7 +569,7 @@ export default function AssetHistoryPage() {
                       <tr>
                         <td colSpan={6} className="py-20 text-center">
                           <div className="flex flex-col items-center">
-                            <div className="w-24 h-24 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-2xl flex items-center justify-center mb-4">
+                            <div className="w-24 h-24 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl flex items-center justify-center mb-4">
                               <FileText className="w-12 h-12 text-blue-300 dark:text-blue-600" />
                             </div>
                             <p className="text-gray-500 font-medium">No Data</p>
@@ -585,15 +585,15 @@ export default function AssetHistoryPage() {
               /* History View */
               <div>
                 {/* History Sub-tabs */}
-                <div className="flex items-center gap-1 px-4 pt-4 pb-2 border-b border-gray-100 dark:border-gray-800 overflow-x-auto">
+                <div className="flex items-center gap-1 px-4 pt-4 pb-2 border-b border-border overflow-x-auto">
                   {HISTORY_TABS.map((tab) => (
                     <button
                       key={tab.id}
                       onClick={() => setHistoryTab(tab.id)}
                       className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium whitespace-nowrap rounded-lg transition-all ${
                         historyTab === tab.id
-                          ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-800/30'
-                          : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                          ? 'bg-blue-50 dark:bg-blue-900/20 text-primary border border-blue-100 dark:border-blue-800/30'
+                          : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-accent/50'
                       }`}
                     >
                       {tab.label}
@@ -608,19 +608,19 @@ export default function AssetHistoryPage() {
                     {/* Date Range */}
                     <div>
                       <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Date Range</p>
-                      <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] rounded-xl border border-gray-200 dark:border-gray-700">
+                      <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] rounded-xl border border-border">
                         <input
                           type="date"
                           value={startDate}
                           onChange={(e) => setStartDate(e.target.value)}
-                          className="bg-transparent text-sm text-gray-900 dark:text-white focus:outline-none flex-1 min-w-0"
+                          className="bg-transparent text-sm text-foreground focus:outline-none flex-1 min-w-0"
                         />
                         <span className="text-gray-400">→</span>
                         <input
                           type="date"
                           value={endDate}
                           onChange={(e) => setEndDate(e.target.value)}
-                          className="bg-transparent text-sm text-gray-900 dark:text-white focus:outline-none flex-1 min-w-0"
+                          className="bg-transparent text-sm text-foreground focus:outline-none flex-1 min-w-0"
                         />
                         <Calendar className="w-4 h-4 text-gray-400 flex-shrink-0" />
                       </div>
@@ -631,21 +631,21 @@ export default function AssetHistoryPage() {
                       <div className="relative">
                         <button
                           onClick={() => setShowCoinDropdown(!showCoinDropdown)}
-                          className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] rounded-xl text-sm text-gray-900 dark:text-white border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
+                          className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] rounded-xl text-sm text-foreground border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
                         >
                           <span>{coinFilter === 'all' ? 'All' : coinFilter}</span>
                           <ChevronDown className={`w-4 h-4 transition-transform ${showCoinDropdown ? 'rotate-180' : ''}`} />
                         </button>
                         {showCoinDropdown && (
-                          <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl z-10 overflow-hidden">
+                          <div className="absolute top-full left-0 right-0 mt-2 bg-card border border-border rounded-xl shadow-2xl z-10 overflow-hidden">
                             {coins.map((coin) => (
                               <button
                                 key={coin}
                                 onClick={() => { setCoinFilter(coin === 'All' ? 'all' : coin); setShowCoinDropdown(false); }}
                                 className={`w-full px-4 py-3 text-left text-sm transition-colors ${
                                   (coin === 'All' && coinFilter === 'all') || coin === coinFilter
-                                    ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
-                                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                                    ? 'bg-blue-50 dark:bg-blue-900/20 text-primary'
+                                    : 'text-foreground/80 hover:bg-accent'
                                 }`}
                               >
                                 {coin}
@@ -664,21 +664,21 @@ export default function AssetHistoryPage() {
                       <div className="relative">
                         <button
                           onClick={() => setShowMethodDropdown(!showMethodDropdown)}
-                          className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] rounded-xl text-sm text-gray-900 dark:text-white border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
+                          className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] rounded-xl text-sm text-foreground border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
                         >
                           <span>{methodFilter === 'all' ? 'All' : methodFilter}</span>
                           <ChevronDown className={`w-4 h-4 transition-transform ${showMethodDropdown ? 'rotate-180' : ''}`} />
                         </button>
                       {showMethodDropdown && (
-                        <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl z-10 overflow-hidden">
+                        <div className="absolute top-full left-0 right-0 mt-2 bg-card border border-border rounded-xl shadow-2xl z-10 overflow-hidden">
                           {methods.map((method) => (
                               <button
                                 key={method}
                                 onClick={() => { setMethodFilter(method === 'All' ? 'all' : method.toLowerCase()); setShowMethodDropdown(false); }}
                                 className={`w-full px-4 py-3 text-left text-sm transition-colors ${
                                   (method === 'All' && methodFilter === 'all') || method.toLowerCase() === methodFilter
-                                    ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
-                                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                                    ? 'bg-blue-50 dark:bg-blue-900/20 text-primary'
+                                    : 'text-foreground/80 hover:bg-accent'
                                 }`}
                               >
                                 {method}
@@ -695,21 +695,21 @@ export default function AssetHistoryPage() {
                       <div className="relative">
                         <button
                           onClick={() => setShowStatusDropdown(!showStatusDropdown)}
-                          className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] rounded-xl text-sm text-gray-900 dark:text-white border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
+                          className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 dark:bg-[#2b2f36] rounded-xl text-sm text-foreground border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
                         >
                           <span>{statusFilter === 'all' ? 'All' : statusFilter}</span>
                           <ChevronDown className={`w-4 h-4 transition-transform ${showStatusDropdown ? 'rotate-180' : ''}`} />
                         </button>
                         {showStatusDropdown && (
-                          <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl z-10 overflow-hidden">
+                          <div className="absolute top-full left-0 right-0 mt-2 bg-card border border-border rounded-xl shadow-2xl z-10 overflow-hidden">
                             {statuses.map((status) => (
                               <button
                                 key={status}
                                 onClick={() => { setStatusFilter(status === 'All' ? 'all' : status.toLowerCase()); setShowStatusDropdown(false); }}
                                 className={`w-full px-4 py-3 text-left text-sm transition-colors ${
                                   (status === 'All' && statusFilter === 'all') || status.toLowerCase() === statusFilter
-                                    ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
-                                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                                    ? 'bg-blue-50 dark:bg-blue-900/20 text-primary'
+                                    : 'text-foreground/80 hover:bg-accent'
                                 }`}
                               >
                                 {status}
@@ -725,7 +725,7 @@ export default function AssetHistoryPage() {
                   {historyTab === 'deposit' && (
                     <div className="flex items-center gap-2 mb-6">
                       <span className="text-sm text-gray-500">Deposits yet to be credited?</span>
-                      <Link href="/dashboard/help#self-service" className="text-sm text-blue-500 hover:text-blue-600 font-medium flex items-center gap-1">
+                      <Link href="/dashboard/help#self-service" className="text-sm text-primary hover:text-primary/85 font-medium flex items-center gap-1">
                         Self-Service <ChevronRight className="w-4 h-4" />
                       </Link>
                     </div>
@@ -734,7 +734,7 @@ export default function AssetHistoryPage() {
                   {/* Table */}
                   <table className="w-full">
                     <thead>
-                      <tr className="border-b border-gray-100 dark:border-gray-800">
+                      <tr className="border-b border-border">
                         <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase">Coin</th>
                         <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase">Chain Type</th>
                         <th className="text-right px-4 py-3 text-xs font-semibold text-gray-400 uppercase">Qty</th>
@@ -760,24 +760,24 @@ export default function AssetHistoryPage() {
                         </tr>
                       ) : filteredTransactions.length > 0 ? (
                         filteredTransactions.map((tx) => (
-                          <tr key={tx.id} className="border-b border-gray-50 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
+                          <tr key={tx.id} className="border-b border-gray-50 dark:border-gray-800/50 hover:bg-accent/30 transition-colors">
                             <td className="px-4 py-4">
                               <div className="flex items-center gap-2">
                                 {tx.coin_logo && (
                                   <Image src={tx.coin_logo} alt={tx.coin} width={24} height={24} className="rounded-full" unoptimized />
                                 )}
-                                <span className="font-medium text-gray-900 dark:text-white">{tx.coin}</span>
+                                <span className="font-medium text-foreground">{tx.coin}</span>
                               </div>
                             </td>
-                            <td className="px-4 py-4 text-sm text-gray-600 dark:text-gray-400">{tx.chain_type || '-'}</td>
-                            <td className="px-4 py-4 text-right font-mono text-sm text-gray-900 dark:text-white">{tx.quantity}</td>
+                            <td className="px-4 py-4 text-sm text-muted-foreground">{tx.chain_type || '-'}</td>
+                            <td className="px-4 py-4 text-right font-mono text-sm text-foreground">{tx.quantity}</td>
                             <td className="px-4 py-4">
                               <div className="flex items-center gap-2">
-                                <span className="text-sm text-gray-600 dark:text-gray-400 font-mono">{truncateAddress(tx.address)}</span>
+                                <span className="text-sm text-muted-foreground font-mono">{truncateAddress(tx.address)}</span>
                                 {tx.address && (
                                   <button 
                                     onClick={() => copyToClipboard(tx.address, `addr-${tx.id}`)}
-                                    className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
+                                    className="p-1 hover:bg-accent rounded"
                                   >
                                     {copiedTxid === `addr-${tx.id}` ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3 text-gray-400" />}
                                   </button>
@@ -786,16 +786,16 @@ export default function AssetHistoryPage() {
                             </td>
                             <td className="px-4 py-4">
                               <div className="flex items-center gap-2">
-                                <span className="text-sm text-gray-600 dark:text-gray-400 font-mono">{truncateAddress(tx.txid)}</span>
+                                <span className="text-sm text-muted-foreground font-mono">{truncateAddress(tx.txid)}</span>
                                 {tx.txid && (
                                   <>
                                     <button 
                                       onClick={() => copyToClipboard(tx.txid, `txid-${tx.id}`)}
-                                      className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
+                                      className="p-1 hover:bg-accent rounded"
                                     >
                                       {copiedTxid === `txid-${tx.id}` ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3 text-gray-400" />}
                                     </button>
-                                    <a href={`https://etherscan.io/tx/${tx.txid}`} target="_blank" rel="noopener noreferrer" className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded">
+                                    <a href={`https://etherscan.io/tx/${tx.txid}`} target="_blank" rel="noopener noreferrer" className="p-1 hover:bg-accent rounded">
                                       <ExternalLink className="w-3 h-3 text-gray-400" />
                                     </a>
                                   </>
@@ -805,19 +805,19 @@ export default function AssetHistoryPage() {
                             <td className="px-4 py-4">
                               {renderConfirmationStatus(tx)}
                             </td>
-                            <td className="px-4 py-4 text-sm text-gray-600 dark:text-gray-400">{formatDate(tx.date_time)}</td>
+                            <td className="px-4 py-4 text-sm text-muted-foreground">{formatDate(tx.date_time)}</td>
                             <td className="px-4 py-4 text-right">
                               {tx.explorerUrl ? (
                                 <a 
                                   href={tx.explorerUrl} 
                                   target="_blank" 
                                   rel="noopener noreferrer"
-                                  className="text-sm text-blue-500 hover:text-blue-600 font-medium inline-flex items-center gap-1"
+                                  className="text-sm text-primary hover:text-primary/85 font-medium inline-flex items-center gap-1"
                                 >
                                   View <ExternalLink className="w-3 h-3" />
                                 </a>
                               ) : (
-                                <button className="text-sm text-blue-500 hover:text-blue-600 font-medium">
+                                <button className="text-sm text-primary hover:text-primary/85 font-medium">
                                   Details
                                 </button>
                               )}
@@ -828,7 +828,7 @@ export default function AssetHistoryPage() {
                         <tr>
                           <td colSpan={8} className="py-20 text-center">
                             <div className="flex flex-col items-center">
-                              <div className="w-24 h-24 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-2xl flex items-center justify-center mb-4">
+                              <div className="w-24 h-24 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl flex items-center justify-center mb-4">
                                 <FileText className="w-12 h-12 text-blue-300 dark:text-blue-600" />
                               </div>
                               <p className="text-gray-500 font-medium">No Data</p>
