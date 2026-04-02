@@ -16,7 +16,7 @@ export default function AuthSplitLayout({
   return (
     <div className="min-h-screen flex bg-background">
       {/* Left - Brand panel with subtle grid pattern */}
-      <div className="hidden lg:flex lg:w-[48%] relative overflow-hidden bg-gradient-to-br from-gray-900 via-[#0f172a] to-blue-950/40 p-12 flex-col justify-between">
+      <div className="hidden lg:flex lg:w-[48%] relative overflow-hidden bg-gradient-to-br from-[#181A20] via-[#1E2329] to-[#2B3139] p-12 flex-col justify-between">
         {/* Subtle grid overlay */}
         <div className="absolute inset-0 opacity-[0.07]" style={{
           backgroundImage: `linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
@@ -24,12 +24,12 @@ export default function AuthSplitLayout({
           backgroundSize: '48px 48px',
         }} />
         <Link href={ROUTES.home} className="relative text-2xl font-bold text-white flex items-center gap-1.5 transition-opacity hover:opacity-90">
-          <span className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-blue-500/30">M</span>
+          <span className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-bold text-sm shadow-lg shadow-primary/30">M</span>
           Methereum
         </Link>
         <div className="relative flex-1 flex flex-col justify-center">
           <h1 className="text-3xl xl:text-4xl font-semibold text-white leading-tight mb-3">
-            Trade crypto with <span className="text-blue-400">confidence</span>
+            Trade crypto with <span className="text-primary">confidence</span>
           </h1>
           <p className="text-muted-foreground text-lg mb-12 max-w-sm">
             Secure spot trading and P2P — built for speed and reliability.
@@ -41,8 +41,8 @@ export default function AuthSplitLayout({
               { icon: Coins, label: 'Assets', value: '300+', sub: '10k+ daily orders' },
             ].map(({ icon: Icon, label, value, sub }) => (
               <div key={label} className="group">
-                <div className="w-11 h-11 rounded-xl bg-card/5 border border-white/10 flex items-center justify-center mb-3 group-hover:bg-blue-500/20 group-hover:border-blue-500/30 transition-colors">
-                  <Icon className="w-5 h-5 text-blue-400" />
+                <div className="w-11 h-11 rounded-xl bg-card/5 border border-white/10 flex items-center justify-center mb-3 group-hover:bg-primary/20 group-hover:border-primary/30 transition-colors">
+                  <Icon className="w-5 h-5 text-primary" />
                 </div>
                 <p className="text-muted-foreground text-xs font-medium uppercase tracking-wider mb-0.5">{label}</p>
                 <p className="text-2xl font-bold text-white">{value}</p>
@@ -65,8 +65,8 @@ export default function AuthSplitLayout({
             <ThemeToggle variant="icon" size="sm" />
           </div>
         </div>
-        <div className="flex-1 flex items-center justify-center p-5 lg:p-8">
-          <div className="w-full max-w-[400px]">{children}</div>
+          <div className="flex-1 flex items-center justify-center px-5 lg:px-8 py-6">
+          <div className="w-full max-w-[420px]">{children}</div>
         </div>
         {showCookieBanner && (
           <div className="p-4 border-t border-border bg-gray-50/50 dark:bg-background">

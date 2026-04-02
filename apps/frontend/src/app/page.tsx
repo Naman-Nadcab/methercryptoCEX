@@ -212,7 +212,7 @@ export default function HomePage() {
               <Link
                 key={link.href}
                 href={link.href}
-                className="px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground dark:hover:text-white rounded-lg hover:bg-accent dark:hover:bg-[#181a20] transition-colors"
+                className="px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground dark:hover:text-white rounded-lg hover:bg-accent dark:hover:bg-accent transition-colors"
               >
                 {link.label}
               </Link>
@@ -223,7 +223,7 @@ export default function HomePage() {
             <ThemeToggle variant="icon" size="sm" />
             <Link
               href={ROUTES.login}
-              className="text-sm font-medium text-foreground/80 hover:text-foreground px-3 py-2 rounded-lg hover:bg-accent dark:hover:bg-[#181a20] transition-colors"
+              className="text-sm font-medium text-foreground/80 hover:text-foreground px-3 py-2 rounded-lg hover:bg-accent dark:hover:bg-accent transition-colors"
             >
               Log In
             </Link>
@@ -256,7 +256,7 @@ export default function HomePage() {
               </Link>
               <Link
                 href={ROUTES.markets}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-foreground/80 border border-border dark:border-gray-600 hover:bg-muted dark:hover:bg-[#181a20] transition-colors"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-foreground/80 border border-border dark:border-border hover:bg-muted dark:hover:bg-accent transition-colors"
               >
                 View Markets
               </Link>
@@ -272,7 +272,7 @@ export default function HomePage() {
                 ))}
               </div>
             ) : tickersError ? (
-              <div className="rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50/80 dark:bg-amber-950/20 p-4 text-sm text-foreground dark:text-gray-200">
+              <div className="rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50/80 dark:bg-amber-950/20 p-4 text-sm text-foreground dark:text-foreground">
                 <p>{tickersError}</p>
                 <button
                   type="button"
@@ -367,7 +367,7 @@ export default function HomePage() {
                 <Link
                   key={m.symbol}
                   href={tradeSpotWithSymbol(m.symbol)}
-                  className="w-28 h-20 rounded-xl bg-background border border-border flex items-center justify-center text-sm font-semibold text-foreground dark:text-gray-200 hover:border-blue-500/50 hover:bg-blue-50/50 dark:hover:bg-blue-500/10 transition-colors"
+                  className="w-28 h-20 rounded-xl bg-background border border-border flex items-center justify-center text-sm font-semibold text-foreground dark:text-foreground hover:border-blue-500/50 hover:bg-blue-50/50 dark:hover:bg-blue-500/10 transition-colors"
                 >
                   {m.base_asset}/{m.quote_asset}
                 </Link>
@@ -531,7 +531,7 @@ export default function HomePage() {
             </Link>
             <Link
               href={ROUTES.login}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-foreground/80 border border-border dark:border-gray-600 hover:bg-muted dark:hover:bg-[#0b0e11] transition-colors"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-foreground/80 border border-border dark:border-border hover:bg-muted dark:hover:bg-accent transition-colors"
             >
               Log In
             </Link>
