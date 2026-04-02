@@ -426,7 +426,7 @@ function ChartPanelInner({
     >
       {/* Tier-1 market strip — optional when pair header is outside; OHLC row only in chart mode */}
       {(!hideDuplicatePairSummary || viewMode === 'chart') && (
-      <div className="flex-shrink-0 border-b border-gray-200/90 bg-gray-50/95 dark:border-border/90 dark:bg-[#14161c]/95">
+      <div className="flex-shrink-0 border-b border-border/90 bg-muted/95 dark:border-border/90 dark:bg-card/95">
         {!hideDuplicatePairSummary && (
           <div className="flex flex-wrap items-start justify-between gap-2 px-2.5 py-2">
             <div className="flex min-w-0 flex-wrap items-end gap-x-4 gap-y-1">
@@ -453,7 +453,7 @@ function ChartPanelInner({
                     {changePct != null ? `${changePct > 0 ? '+' : ''}${changePct.toFixed(2)}%` : '—'}
                   </span>
                 </div>
-                <div className="hidden h-3 w-px bg-gray-300 dark:bg-accent sm:block" aria-hidden />
+                <div className="hidden h-3 w-px bg-border dark:bg-border sm:block" aria-hidden />
                 <div className="flex min-w-0 max-w-[5rem] items-baseline gap-1" title={TOOLTIP_24H_HIGH}>
                   <span className="shrink-0 text-muted-foreground">H</span>
                   <span className="min-w-0 truncate font-mono font-semibold tabular-nums text-foreground">
@@ -530,7 +530,7 @@ function ChartPanelInner({
       )}
 
       {/* Toolbar: row 1 = modes + overlay/indicators + intervals; row 2 = optional compact stack (collapsed by default) */}
-      <div className="flex flex-shrink-0 flex-col gap-1 border-b border-gray-200/90 bg-background/80 px-2 py-1 dark:border-border/90 dark:bg-card/40">
+      <div className="flex flex-shrink-0 flex-col gap-1 border-b border-border/90 bg-background/80 px-2 py-1 dark:border-border/90 dark:bg-card/40">
         <div className="flex w-full min-w-0 flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           {onViewModeChange && (
@@ -593,7 +593,7 @@ function ChartPanelInner({
               <select
                 value={overlayStudy}
                 onChange={(e) => setOverlayStudy(e.target.value as OverlayStudyId)}
-                className="max-w-[11rem] shrink-0 cursor-pointer rounded-md border border-border bg-card px-1.5 py-1 text-[10px] font-semibold text-foreground dark:border-border dark:bg-background dark:text-gray-200"
+                className="max-w-[11rem] shrink-0 cursor-pointer rounded-md border border-border bg-card px-1.5 py-1 text-[10px] font-semibold text-foreground dark:border-border dark:bg-background dark:text-foreground/90"
                 title="Price overlay (SMA, EMA, VWAP, Bollinger)"
               >
                 {OVERLAY_OPTIONS.map(({ id, label }) => (
@@ -607,7 +607,7 @@ function ChartPanelInner({
                   type="checkbox"
                   checked={showVolumeMa}
                   onChange={(e) => setShowVolumeMa(e.target.checked)}
-                  className="h-3.5 w-3.5 rounded border-border accent-amber-600 dark:border-gray-600"
+                  className="h-3.5 w-3.5 rounded border-border accent-amber-600 dark:border-border"
                 />
                 Vol SMA 9
               </label>
@@ -616,7 +616,7 @@ function ChartPanelInner({
                   type="checkbox"
                   checked={showRsi}
                   onChange={(e) => setShowRsi(e.target.checked)}
-                  className="h-3.5 w-3.5 rounded border-border accent-blue-600 dark:border-gray-600"
+                  className="h-3.5 w-3.5 rounded border-border accent-blue-600 dark:border-border"
                 />
                 RSI(14)
               </label>
@@ -632,7 +632,7 @@ function ChartPanelInner({
                   className={`shrink-0 rounded px-2 py-1 text-[10px] font-bold tabular-nums transition-colors sm:text-[11px] ${
                     intervalSeconds === seconds
                       ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100'
-                      : 'text-muted-foreground hover:bg-gray-200/80 dark:text-muted-foreground dark:hover:bg-accent'
+                      : 'text-muted-foreground hover:bg-accent/80 dark:text-muted-foreground dark:hover:bg-accent'
                   }`}
                 >
                   {label}
@@ -644,7 +644,7 @@ function ChartPanelInner({
         <div className="flex shrink-0 flex-wrap items-center gap-1 sm:justify-end">
           <button
             type="button"
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold text-muted-foreground hover:bg-gray-200/80 dark:text-muted-foreground dark:hover:bg-accent"
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold text-muted-foreground hover:bg-accent/80 dark:text-muted-foreground dark:hover:bg-accent"
             title="Indicators (coming soon)"
           >
             <SlidersHorizontal className="h-3.5 w-3.5" />
@@ -653,7 +653,7 @@ function ChartPanelInner({
           <button
             type="button"
             onClick={handleReset}
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold text-muted-foreground hover:bg-gray-200/80 dark:text-muted-foreground dark:hover:bg-accent"
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold text-muted-foreground hover:bg-accent/80 dark:text-muted-foreground dark:hover:bg-accent"
             title="Fit content"
           >
             <RefreshCw className="h-3.5 w-3.5" />
@@ -662,7 +662,7 @@ function ChartPanelInner({
           <button
             type="button"
             onClick={handleFullscreen}
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold text-muted-foreground hover:bg-gray-200/80 dark:text-muted-foreground dark:hover:bg-accent"
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold text-muted-foreground hover:bg-accent/80 dark:text-muted-foreground dark:hover:bg-accent"
             title="Fullscreen"
             aria-pressed={isFullscreen}
           >
@@ -671,7 +671,7 @@ function ChartPanelInner({
           <button
             type="button"
             onClick={handleScreenshot}
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold text-muted-foreground hover:bg-gray-200/80 dark:text-muted-foreground dark:hover:bg-accent"
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold text-muted-foreground hover:bg-accent/80 dark:text-muted-foreground dark:hover:bg-accent"
             title="Download chart as PNG"
           >
             <Camera className="h-3.5 w-3.5" aria-hidden />
@@ -682,7 +682,7 @@ function ChartPanelInner({
           <button
             type="button"
             onClick={() => setExtStackOpen(true)}
-            className="flex w-full min-w-0 items-center justify-between gap-2 rounded border border-dashed border-gray-300/90 bg-card/60 px-2 py-0.5 text-left text-[10px] font-medium text-muted-foreground hover:bg-gray-100/90 dark:border-gray-600 dark:bg-card/50 dark:text-muted-foreground dark:hover:bg-accent/80"
+            className="flex w-full min-w-0 items-center justify-between gap-2 rounded border border-dashed border-border/90 bg-card/60 px-2 py-0.5 text-left text-[10px] font-medium text-muted-foreground hover:bg-accent/90 dark:border-border dark:bg-card/50 dark:text-muted-foreground dark:hover:bg-accent/80"
             title="Multi-EMA, extra VWAP, volume bar toggle, drawing tools"
           >
             <span className="truncate">▸ Multi-EMA · VWAP² · Vol · Draw</span>
@@ -690,12 +690,12 @@ function ChartPanelInner({
           </button>
         )}
         {viewMode === 'chart' && extStackOpen && (
-          <div className="w-full min-w-0 rounded border border-gray-200/90 bg-card/80 px-1.5 py-1 dark:border-border/80 dark:bg-card/55">
+          <div className="w-full min-w-0 rounded border border-border/90 bg-card/80 px-1.5 py-1 dark:border-border/80 dark:bg-card/55">
             <div className="flex min-h-0 w-full min-w-0 flex-nowrap items-center gap-x-2 gap-y-0.5 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1">
               <button
                 type="button"
                 onClick={() => setExtStackOpen(false)}
-                className="shrink-0 rounded px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground hover:bg-gray-200/80 dark:text-muted-foreground dark:hover:bg-accent"
+                className="shrink-0 rounded px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground hover:bg-accent/80 dark:text-muted-foreground dark:hover:bg-accent"
                 title="Hide toolbar — more chart height"
               >
                 ▴ Hide
@@ -704,7 +704,7 @@ function ChartPanelInner({
               {([7, 20, 50, 200] as const).map((p) => (
                 <label
                   key={p}
-                  className="flex shrink-0 cursor-pointer items-center gap-0.5 whitespace-nowrap text-[10px] font-semibold leading-none text-foreground dark:text-gray-200"
+                  className="flex shrink-0 cursor-pointer items-center gap-0.5 whitespace-nowrap text-[10px] font-semibold leading-none text-foreground dark:text-foreground/90"
                 >
                   <input
                     type="checkbox"
@@ -712,31 +712,31 @@ function ChartPanelInner({
                     onChange={(e) =>
                       setExtConfig((prev) => ({ ...prev, [`ema${p}`]: e.target.checked }) as ChartExtensionsConfig)
                     }
-                    className="h-3.5 w-3.5 rounded border-border accent-orange-600 dark:border-gray-600"
+                    className="h-3.5 w-3.5 rounded border-border accent-orange-600 dark:border-border"
                   />
                   {p}
                 </label>
               ))}
-              <span className="mx-0.5 h-3.5 w-px shrink-0 bg-gray-300 dark:bg-gray-600" aria-hidden />
-              <label className="flex shrink-0 cursor-pointer items-center gap-0.5 whitespace-nowrap text-[10px] font-semibold leading-none text-foreground dark:text-gray-200">
+              <span className="mx-0.5 h-3.5 w-px shrink-0 bg-border dark:bg-border" aria-hidden />
+              <label className="flex shrink-0 cursor-pointer items-center gap-0.5 whitespace-nowrap text-[10px] font-semibold leading-none text-foreground dark:text-foreground/90">
                 <input
                   type="checkbox"
                   checked={Boolean(extConfig.modularVwap)}
                   onChange={(e) => setExtConfig((prev) => ({ ...prev, modularVwap: e.target.checked }))}
-                  className="h-3.5 w-3.5 rounded border-border accent-sky-600 dark:border-gray-600"
+                  className="h-3.5 w-3.5 rounded border-border accent-sky-600 dark:border-border"
                 />
                 VWAP²
               </label>
-              <label className="flex shrink-0 cursor-pointer items-center gap-0.5 whitespace-nowrap text-[10px] font-semibold leading-none text-foreground dark:text-gray-200">
+              <label className="flex shrink-0 cursor-pointer items-center gap-0.5 whitespace-nowrap text-[10px] font-semibold leading-none text-foreground dark:text-foreground/90">
                 <input
                   type="checkbox"
                   checked={extConfig.volumeHistogram !== false}
                   onChange={(e) => setExtConfig((prev) => ({ ...prev, volumeHistogram: e.target.checked }))}
-                  className="h-3.5 w-3.5 rounded border-border accent-gray-600 dark:border-gray-600"
+                  className="h-3.5 w-3.5 rounded border-border accent-gray-600 dark:border-border"
                 />
                 Vol bars
               </label>
-              <span className="mx-0.5 h-3.5 w-px shrink-0 bg-gray-300 dark:bg-gray-600" aria-hidden />
+              <span className="mx-0.5 h-3.5 w-px shrink-0 bg-border dark:bg-border" aria-hidden />
               <span
                 className="shrink-0 text-[9px] font-bold uppercase text-muted-foreground"
                 title="Draw: H / V / ∠ / Fib. Esc: cancel or deselect. Del removes. Drawings save per symbol (this browser)."
@@ -769,8 +769,8 @@ function ChartPanelInner({
                   onClick={() => setDrawTool(id)}
                   className={`inline-flex shrink-0 rounded border border-transparent px-1.5 py-0.5 text-[10px] font-bold leading-none ${
                     drawTool === id
-                      ? 'border-border bg-zinc-200 text-zinc-900 dark:border-gray-600 dark:bg-zinc-600 dark:text-zinc-100'
-                      : 'text-foreground/80 hover:border-border hover:bg-accent dark:text-foreground/80 dark:hover:border-gray-600 dark:hover:bg-accent'
+                      ? 'border-border bg-zinc-200 text-zinc-900 dark:border-border dark:bg-zinc-600 dark:text-zinc-100'
+                      : 'text-foreground/80 hover:border-border hover:bg-accent dark:text-foreground/80 dark:hover:border-border dark:hover:bg-accent'
                   }`}
                 >
                   {label}
@@ -783,7 +783,7 @@ function ChartPanelInner({
                   const ad = adapterRef.current;
                   if (ad instanceof LightweightChartsAdapter) ad.clearDrawings();
                 }}
-                className="inline-flex shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] font-semibold leading-none text-foreground/80 hover:bg-accent dark:border-gray-600 dark:text-foreground/80 dark:hover:bg-accent"
+                className="inline-flex shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] font-semibold leading-none text-foreground/80 hover:bg-accent dark:border-border dark:text-foreground/80 dark:hover:bg-accent"
               >
                 Clr
               </button>
@@ -799,13 +799,13 @@ function ChartPanelInner({
       ) : (
         <div
           className={`relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${
-            theme === 'dark' ? 'bg-[#0b0e11]' : 'bg-[#fafafa]'
+            theme === 'dark' ? 'bg-background' : 'bg-background'
           }`}
         >
           {chartLoading && !chartError && (
             <div
               className={`absolute inset-0 z-10 flex items-center justify-center ${
-                theme === 'dark' ? 'bg-[#0b0e11]/90' : 'bg-[#fafafa]/95'
+                theme === 'dark' ? 'bg-background/90' : 'bg-background/95'
               }`}
             >
               <div className="flex flex-col items-center gap-2">
@@ -821,7 +821,7 @@ function ChartPanelInner({
               <button
                 type="button"
                 onClick={retryChart}
-                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/85"
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-foreground hover:bg-primary/85"
               >
                 Retry
               </button>
@@ -842,8 +842,8 @@ function ChartPanelInner({
           <div
             className={`flex flex-shrink-0 items-center justify-between border-t px-2 py-0.5 text-[10px] font-mono ${
               theme === 'dark'
-                ? 'border-gray-800/90 bg-[#0b0e11] text-muted-foreground'
-                : 'border-gray-200/90 bg-[#fafafa] text-muted-foreground'
+                ? 'border-border/90 bg-background text-muted-foreground'
+                : 'border-border/90 bg-background text-muted-foreground'
             }`}
           >
             <span className="flex items-center gap-1 tabular-nums">

@@ -95,7 +95,7 @@ function InsetField({
   children: ReactNode;
 }) {
   return (
-    <div className="rounded-md border border-gray-200/95 bg-gray-50/95 px-2 pb-1.5 pt-1 dark:border-border/90 dark:bg-background">
+    <div className="rounded-md border border-border/95 bg-muted/95 px-2 pb-1.5 pt-1 dark:border-border/90 dark:bg-background">
       <div className="mb-0 flex items-center justify-between gap-2">
         <span className="text-[9px] font-bold uppercase tracking-wide text-muted-foreground">{label}</span>
         {headerRight}
@@ -277,7 +277,7 @@ export function SpotOrderEntryPanel({
   return (
     <div id="spot-order-entry-panel" className="flex h-full min-h-0 flex-col bg-card">
       {/* Header — Bybit-style: title + activity shortcut (theme: blue) */}
-      <div className="flex flex-shrink-0 items-center justify-between border-b border-gray-200/90 px-2.5 py-2 dark:border-border/90">
+      <div className="flex flex-shrink-0 items-center justify-between border-b border-border/90 px-2.5 py-2 dark:border-border/90">
         <div className="flex items-center gap-2">
           <span className="text-sm font-bold tracking-tight text-foreground">Trade</span>
           <span className="rounded-md bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-700 dark:bg-blue-950/60 dark:text-blue-300">
@@ -287,7 +287,7 @@ export function SpotOrderEntryPanel({
         <div className="flex items-center gap-1">
           <Link
             href="#spot-terminal-activity"
-            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-primary dark:text-muted-foreground dark:hover:bg-accent dark:hover:text-blue-400"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-primary dark:text-muted-foreground dark:hover:bg-accent dark:hover:text-primary"
             title="Open orders & history"
             aria-label="Scroll to orders and history"
           >
@@ -295,7 +295,7 @@ export function SpotOrderEntryPanel({
           </Link>
           <Link
             href={walletPath.convert}
-            className="rounded-md px-2 py-1 text-[10px] font-bold text-primary hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/40"
+            className="rounded-md px-2 py-1 text-[10px] font-bold text-primary hover:bg-blue-50 dark:text-primary dark:hover:bg-blue-950/40"
           >
             Convert
           </Link>
@@ -304,15 +304,15 @@ export function SpotOrderEntryPanel({
 
       {/* Buy / Sell — pill segment (theme colors) */}
       <div className="flex-shrink-0 px-2 pb-1.5 pt-0.5">
-        <div className="grid grid-cols-2 gap-1 rounded-full bg-gray-200/90 p-0.5 dark:bg-accent/90">
+        <div className="grid grid-cols-2 gap-1 rounded-full bg-accent/90 p-0.5 dark:bg-accent/90">
           <button
             type="button"
             onClick={() => onSideChange('buy')}
             aria-pressed={side === 'buy'}
             className={`rounded-full py-1.5 text-sm font-bold transition-all ${
               side === 'buy'
-                ? 'bg-buy text-white shadow-sm ring-1 ring-black/5 dark:ring-white/10'
-                : 'text-muted-foreground hover:text-foreground dark:text-muted-foreground dark:hover:text-gray-200'
+                ? 'bg-buy text-foreground shadow-sm ring-1 ring-black/5 dark:ring-white/10'
+                : 'text-muted-foreground hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground/90'
             }`}
           >
             Buy
@@ -323,8 +323,8 @@ export function SpotOrderEntryPanel({
             aria-pressed={side === 'sell'}
             className={`rounded-full py-1.5 text-sm font-bold transition-all ${
               side === 'sell'
-                ? 'bg-sell text-white shadow-sm ring-1 ring-black/5 dark:ring-white/10'
-                : 'text-muted-foreground hover:text-foreground dark:text-muted-foreground dark:hover:text-gray-200'
+                ? 'bg-sell text-foreground shadow-sm ring-1 ring-black/5 dark:ring-white/10'
+                : 'text-muted-foreground hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground/90'
             }`}
           >
             Sell
@@ -333,7 +333,7 @@ export function SpotOrderEntryPanel({
       </div>
 
       {/* Order type — Limit | Market tabs + More… (precision layout) */}
-      <div className="flex-shrink-0 border-b border-gray-200/90 px-2.5 pb-0 dark:border-border/90">
+      <div className="flex-shrink-0 border-b border-border/90 px-2.5 pb-0 dark:border-border/90">
         <div className="flex items-stretch gap-0">
           {(['limit', 'market'] as const).map((t) => {
             const label = t === 'limit' ? 'Limit' : 'Market';
@@ -346,7 +346,7 @@ export function SpotOrderEntryPanel({
                 className={`relative flex-1 pb-2.5 pt-1 text-center text-[11px] font-bold transition-colors ${
                   active
                     ? 'text-blue-700 dark:text-blue-300'
-                    : 'text-muted-foreground hover:text-foreground dark:text-muted-foreground dark:hover:text-gray-200'
+                    : 'text-muted-foreground hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground/90'
                 }`}
               >
                 {label}
@@ -385,7 +385,7 @@ export function SpotOrderEntryPanel({
       </div>
 
       {rulesLine ? (
-        <div className="flex-shrink-0 border-b border-gray-200/90 px-2.5 py-1 dark:border-border/90">
+        <div className="flex-shrink-0 border-b border-border/90 px-2.5 py-1 dark:border-border/90">
           <p className="text-[10px] font-mono leading-snug text-muted-foreground">{rulesLine}</p>
         </div>
       ) : null}
@@ -451,7 +451,7 @@ export function SpotOrderEntryPanel({
                         <button
                           type="button"
                           onClick={() => onPriceChange(bestBid!)}
-                          className="rounded px-1.5 py-0.5 font-mono text-[9px] font-bold text-price-up hover:bg-gray-200/80 dark:hover:bg-accent"
+                          className="rounded px-1.5 py-0.5 font-mono text-[9px] font-bold text-price-up hover:bg-accent/80 dark:hover:bg-accent"
                         >
                           B
                         </button>
@@ -460,7 +460,7 @@ export function SpotOrderEntryPanel({
                         <button
                           type="button"
                           onClick={() => onPriceChange(lastPrice!)}
-                          className="rounded px-1.5 py-0.5 font-mono text-[9px] font-bold text-foreground/80 hover:bg-gray-200/80 dark:text-foreground/80 dark:hover:bg-accent"
+                          className="rounded px-1.5 py-0.5 font-mono text-[9px] font-bold text-foreground/80 hover:bg-accent/80 dark:text-foreground/80 dark:hover:bg-accent"
                         >
                           L
                         </button>
@@ -469,7 +469,7 @@ export function SpotOrderEntryPanel({
                         <button
                           type="button"
                           onClick={() => onPriceChange(bestAsk!)}
-                          className="rounded px-1.5 py-0.5 font-mono text-[9px] font-bold text-price-down hover:bg-gray-200/80 dark:hover:bg-accent"
+                          className="rounded px-1.5 py-0.5 font-mono text-[9px] font-bold text-price-down hover:bg-accent/80 dark:hover:bg-accent"
                         >
                           A
                         </button>
@@ -545,7 +545,7 @@ export function SpotOrderEntryPanel({
                 <div className="relative h-2 rounded-full bg-accent">
                   <div className="absolute inset-x-0 top-1/2 flex -translate-y-1/2 justify-between px-[6%]">
                     {[25, 50, 75].map((m) => (
-                      <span key={m} className="h-1.5 w-px bg-gray-400/50 dark:bg-gray-600" aria-hidden />
+                      <span key={m} className="h-1.5 w-px bg-border dark:bg-border" aria-hidden />
                     ))}
                   </div>
                   <input
@@ -588,14 +588,14 @@ export function SpotOrderEntryPanel({
                 {total}
               </span>
             ) : (
-              <span className={`${insetInputClass} text-muted-foreground dark:text-gray-600`} aria-label={`Total ${quoteAsset}`}>
+              <span className={`${insetInputClass} text-muted-foreground dark:text-muted-foreground`} aria-label={`Total ${quoteAsset}`}>
                 —
               </span>
             )}
           </InsetField>
 
           {(showTif && onTimeInForceChange) || (orderType === 'limit' && onPostOnlyChange) ? (
-            <div className="flex flex-col gap-1.5 rounded-md border border-gray-200/90 bg-card px-2 py-1.5 dark:border-border/90 dark:bg-background/80">
+            <div className="flex flex-col gap-1.5 rounded-md border border-border/90 bg-card px-2 py-1.5 dark:border-border/90 dark:bg-background/80">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
                 {orderType === 'limit' && onPostOnlyChange && (
                   <label className="flex cursor-pointer items-center gap-1.5">
@@ -603,9 +603,9 @@ export function SpotOrderEntryPanel({
                       type="checkbox"
                       checked={postOnly}
                       onChange={(e) => onPostOnlyChange(e.target.checked)}
-                      className="h-3.5 w-3.5 rounded border-border text-buy accent-buy focus:ring-2 focus:ring-buy/25 dark:border-gray-600 dark:accent-buy"
+                      className="h-3.5 w-3.5 rounded border-border text-buy accent-buy focus:ring-2 focus:ring-buy/25 dark:border-border dark:accent-buy"
                     />
-                    <span className="text-[10px] font-semibold text-foreground dark:text-gray-200">Post-only</span>
+                    <span className="text-[10px] font-semibold text-foreground dark:text-foreground/90">Post-only</span>
                   </label>
                 )}
                 {showTif && onTimeInForceChange && (
@@ -636,7 +636,7 @@ export function SpotOrderEntryPanel({
           ) : null}
 
           {orderType === 'market' && estimatedFillPrice && qtyNum > 0 && (
-            <div className="rounded-lg border border-dashed border-border bg-card/90 px-2.5 py-2 dark:border-gray-600 dark:bg-background/90">
+            <div className="rounded-lg border border-dashed border-border bg-card/90 px-2.5 py-2 dark:border-border dark:bg-background/90">
               <SummaryRow label="Est. avg fill" value={estimatedFillPrice} valueClassName="text-foreground" />
               {estimatedSlippagePct != null && (
                 <div className="mt-1">
@@ -653,7 +653,7 @@ export function SpotOrderEntryPanel({
       </div>
 
       {/* Sticky action + summary (always visible) */}
-      <div className="flex-shrink-0 border-t border-gray-200/90 bg-card px-2 pb-1.5 pt-1.5 dark:border-border/90 dark:bg-card">
+      <div className="flex-shrink-0 border-t border-border/90 bg-card px-2 pb-1.5 pt-1.5 dark:border-border/90 dark:bg-card">
         {slippageWarning && (
           <div className="mb-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[10px] font-medium text-amber-800 dark:text-amber-200">
             High slippage — consider a limit order.
@@ -668,7 +668,7 @@ export function SpotOrderEntryPanel({
         {!isAuth ? (
           <Link
             href={loginWithRedirect(SPOT_TRADE_HREF)}
-            className="flex min-h-[48px] h-12 w-full items-center justify-center rounded-md bg-primary text-sm font-bold text-white transition-colors hover:bg-primary/85 sm:h-11 sm:min-h-0"
+            className="flex min-h-[48px] h-12 w-full items-center justify-center rounded-md bg-primary text-sm font-bold text-foreground transition-colors hover:bg-primary/85 sm:h-11 sm:min-h-0"
           >
             Sign in to trade
           </Link>
@@ -679,7 +679,7 @@ export function SpotOrderEntryPanel({
             disabled={!canSubmit || loading}
             onClick={() => setConfirmOpen(true)}
             aria-busy={loading}
-            className={`flex min-h-[48px] h-12 w-full items-center justify-center gap-2 rounded-md text-sm font-bold text-white shadow-sm ring-1 ring-black/10 transition-[transform,opacity,background-color] duration-200 active:scale-[0.99] dark:ring-white/10 sm:h-11 sm:min-h-0 ${
+            className={`flex min-h-[48px] h-12 w-full items-center justify-center gap-2 rounded-md text-sm font-bold text-foreground shadow-sm ring-1 ring-black/10 transition-[transform,opacity,background-color] duration-200 active:scale-[0.99] dark:ring-white/10 sm:h-11 sm:min-h-0 ${
               side === 'buy'
                 ? 'bg-buy hover:bg-buy-hover disabled:saturate-50'
                 : 'bg-sell hover:bg-sell-hover disabled:saturate-50'
@@ -690,7 +690,7 @@ export function SpotOrderEntryPanel({
           </button>
         )}
 
-        <div className="space-y-1 rounded-md bg-gray-50/90 px-2.5 py-2 dark:bg-card/50">
+        <div className="space-y-1 rounded-md bg-muted/90 px-2.5 py-2 dark:bg-card/50">
           <div className="flex items-start gap-1.5 text-[10px] text-muted-foreground">
             <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
             <span>
@@ -720,24 +720,24 @@ export function SpotOrderEntryPanel({
         </div>
       </div>
 
-      <div className="flex-shrink-0 border-t border-gray-200/90 bg-gray-100/60 px-2.5 py-2.5 dark:border-border/90 dark:bg-black/20">
+      <div className="flex-shrink-0 border-t border-border/90 bg-accent/60 px-2.5 py-2.5 dark:border-border/90 dark:bg-black/20">
         <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Account</p>
         <div className="flex flex-wrap gap-1.5">
           <Link
             href={walletPath.depositCrypto}
-            className="inline-flex min-h-9 items-center justify-center rounded-full bg-primary px-4 py-2 text-center text-[10px] font-bold text-white transition-colors hover:bg-primary/85 sm:min-h-0 sm:px-3 sm:py-1.5"
+            className="inline-flex min-h-9 items-center justify-center rounded-full bg-primary px-4 py-2 text-center text-[10px] font-bold text-foreground transition-colors hover:bg-primary/85 sm:min-h-0 sm:px-3 sm:py-1.5"
           >
             Deposit
           </Link>
           <Link
             href={walletPath.transfer}
-            className="inline-flex min-h-9 items-center justify-center rounded-full border border-border bg-card px-4 py-2 text-[10px] font-bold text-foreground transition-colors hover:bg-muted dark:border-gray-600 dark:bg-background dark:text-gray-200 dark:hover:bg-accent sm:min-h-0 sm:px-3 sm:py-1.5"
+            className="inline-flex min-h-9 items-center justify-center rounded-full border border-border bg-card px-4 py-2 text-[10px] font-bold text-foreground transition-colors hover:bg-muted dark:border-border dark:bg-background dark:text-foreground/90 dark:hover:bg-accent sm:min-h-0 sm:px-3 sm:py-1.5"
           >
             Transfer
           </Link>
           <Link
             href={walletPath.depositCrypto}
-            className="inline-flex min-h-9 items-center justify-center gap-0.5 rounded-full border border-border px-4 py-2 text-[10px] font-bold text-primary transition-colors hover:bg-muted dark:border-gray-600 dark:text-blue-400 dark:hover:bg-accent/50 sm:min-h-0 sm:px-3 sm:py-1.5"
+            className="inline-flex min-h-9 items-center justify-center gap-0.5 rounded-full border border-border px-4 py-2 text-[10px] font-bold text-primary transition-colors hover:bg-muted dark:border-border dark:text-primary dark:hover:bg-accent/50 sm:min-h-0 sm:px-3 sm:py-1.5"
           >
             Buy crypto
             <ArrowRight className="h-3 w-3" />
@@ -800,7 +800,7 @@ export function SpotOrderEntryPanel({
                   setConfirmLoading(false);
                 }
               }}
-              className={`flex min-h-11 w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-bold text-white shadow-sm ring-1 ring-black/10 transition-opacity disabled:opacity-60 dark:ring-white/10 sm:min-h-10 sm:w-auto ${
+              className={`flex min-h-11 w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-bold text-foreground shadow-sm ring-1 ring-black/10 transition-opacity disabled:opacity-60 dark:ring-white/10 sm:min-h-10 sm:w-auto ${
                 side === 'buy' ? 'bg-buy hover:bg-buy-hover' : 'bg-sell hover:bg-sell-hover'
               }`}
             >

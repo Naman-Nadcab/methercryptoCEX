@@ -40,7 +40,7 @@ export class ChartErrorBoundary extends Component<Props, State> {
           <button
             type="button"
             onClick={() => this.setState({ hasError: false })}
-            className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 dark:bg-amber-700 dark:hover:bg-amber-600"
+            className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-foreground hover:bg-amber-700 dark:bg-amber-700 dark:hover:bg-amber-600"
           >
             Try again
           </button>

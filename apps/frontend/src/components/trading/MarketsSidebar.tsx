@@ -60,8 +60,8 @@ export function MarketsSidebar({
   ];
 
   return (
-    <div className="exchange-ui flex flex-col h-full bg-[#161A1F] border-r border-[#2B3139] min-w-0">
-      <div className="flex border-b border-[#2B3139]">
+    <div className="exchange-ui flex flex-col h-full bg-card border-r border-border min-w-0">
+      <div className="flex border-b border-border">
         {tabs.map((t) => (
           <button
             key={t.id}
@@ -75,7 +75,7 @@ export function MarketsSidebar({
           </button>
         ))}
       </div>
-      <div className="p-2 border-b border-[#2B3139]">
+      <div className="p-2 border-b border-border">
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#848E9C]" />
           <input
@@ -83,13 +83,13 @@ export function MarketsSidebar({
             placeholder="Search pair"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full h-8 pl-8 pr-3 rounded bg-[#0B0E11] border border-[#2B3139] text-[#EAECEF] text-small placeholder:text-[#848E9C] focus:outline-none focus:border-[#2B3139] focus:ring-1 focus:ring-[#16C784]/30"
+            className="w-full h-8 pl-8 pr-3 rounded bg-background border border-border text-[#EAECEF] text-small placeholder:text-[#848E9C] focus:outline-none focus:border-border focus:ring-1 focus:ring-[#16C784]/30"
           />
         </div>
       </div>
       <div className="flex-1 min-h-0 overflow-auto">
         <table className="w-full text-small">
-          <thead className="sticky top-0 bg-[#161A1F] z-10">
+          <thead className="sticky top-0 bg-card z-10">
             <tr className="text-[#848E9C] font-medium">
               <th className="text-left py-2 px-2">Pair</th>
               <th className="text-right py-2 px-2">Last</th>
@@ -101,18 +101,18 @@ export function MarketsSidebar({
           <tbody>
             {loading ? (
               Array.from({ length: 10 }).map((_, i) => (
-                <tr key={i} className="border-b border-[#2B3139]/50">
+                <tr key={i} className="border-b border-border/50">
                   <td className="py-1.5 px-2">
-                    <Skeleton className="h-4 w-20 bg-[#2B3139]" />
+                    <Skeleton className="h-4 w-20 bg-accent" />
                   </td>
                   <td className="py-1.5 px-2 text-right">
-                    <Skeleton className="ml-auto h-4 w-14 bg-[#2B3139]" />
+                    <Skeleton className="ml-auto h-4 w-14 bg-accent" />
                   </td>
                   <td className="py-1.5 px-2 text-right">
-                    <Skeleton className="ml-auto h-4 w-10 bg-[#2B3139]" />
+                    <Skeleton className="ml-auto h-4 w-10 bg-accent" />
                   </td>
                   <td className="py-1.5 px-2 text-right">
-                    <Skeleton className="ml-auto h-4 w-12 bg-[#2B3139]" />
+                    <Skeleton className="ml-auto h-4 w-12 bg-accent" />
                   </td>
                   <td className="w-6" />
                 </tr>
@@ -120,12 +120,12 @@ export function MarketsSidebar({
             ) : errorMessage ? (
               <tr>
                 <td colSpan={5} className="px-3 py-6 text-center">
-                  <p className="mb-3 text-sm text-red-400">{errorMessage}</p>
+                  <p className="mb-3 text-sm text-sell">{errorMessage}</p>
                   {onRetry ? (
                     <button
                       type="button"
                       onClick={onRetry}
-                      className="rounded-lg bg-[#16C784] px-4 py-2 text-sm font-medium text-[#0B0E11] min-h-[44px]"
+                      className="rounded-lg bg-buy px-4 py-2 text-sm font-medium text-background min-h-[44px]"
                     >
                       Retry
                     </button>
@@ -147,8 +147,8 @@ export function MarketsSidebar({
                 return (
                   <tr
                     key={m.symbol}
-                    className={`border-b border-[#2B3139]/50 hover:bg-card/5 transition-colors cursor-pointer ${
-                      isSelected ? 'bg-[#16C784]/10' : ''
+                    className={`border-b border-border/50 hover:bg-card/5 transition-colors cursor-pointer ${
+                      isSelected ? 'bg-buy/10' : ''
                     }`}
                     onClick={() => onSelectSymbol(m.symbol)}
                   >

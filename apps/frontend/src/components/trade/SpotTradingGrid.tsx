@@ -413,7 +413,7 @@ export function SpotTradingGrid() {
               type="button"
               onClick={() => fetchMarkets()}
               disabled={marketsLoading}
-              className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/85 disabled:opacity-50"
+              className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-foreground hover:bg-primary/85 disabled:opacity-50"
             >
               Retry
             </button>

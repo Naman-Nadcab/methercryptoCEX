@@ -61,10 +61,10 @@ function executionStatusPill(status: string) {
   }
   if (u === 'CANCELLED' || u === 'REJECTED') {
     return (
-      <span className={`${base} bg-gray-200/90 text-foreground/80 dark:bg-accent/40 dark:text-foreground/80`}>{displayStatus(status)}</span>
+      <span className={`${base} bg-accent/90 text-foreground/80 dark:bg-accent/40 dark:text-foreground/80`}>{displayStatus(status)}</span>
     );
   }
-  return <span className={`${base} bg-gray-200/80 text-foreground/80 dark:bg-gray-600/30 dark:text-gray-200`}>{displayStatus(status)}</span>;
+  return <span className={`${base} bg-accent/80 text-foreground/80 dark:bg-accent/30 dark:text-foreground/90`}>{displayStatus(status)}</span>;
 }
 
 function OpenOrderRow({
@@ -93,8 +93,8 @@ function OpenOrderRow({
   const filledQtyStr = filled > 0 && qty > 0 ? `${filled.toFixed(4)}/${qty.toFixed(4)}` : (o.quantity ?? '—');
   return (
     <tr
-      className={`min-h-[36px] border-b border-gray-200/80 transition-[background-color,box-shadow] duration-500 ease-out hover:bg-background/80 dark:border-border/80 dark:hover:bg-gray-900/40 sm:min-h-[30px] ${
-        pulse ? 'bg-blue-500/12 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.35)] dark:bg-blue-500/10 dark:shadow-[inset_0_0_0_1px_rgba(96,165,250,0.3)]' : ''
+      className={`min-h-[36px] border-b border-border/80 transition-[background-color,box-shadow] duration-500 ease-out hover:bg-background/80 dark:border-border/80 dark:hover:bg-card/40 sm:min-h-[30px] ${
+        pulse ? 'bg-primary/12 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.35)] dark:bg-primary/10 dark:shadow-[inset_0_0_0_1px_rgba(96,165,250,0.3)]' : ''
       }`}
     >
       <td className="py-1.5 px-2 align-middle font-mono text-[11px] tabular-nums text-foreground">{o.market}</td>
@@ -233,12 +233,12 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
     `min-h-[40px] flex items-center px-3 py-2 text-[11px] font-semibold border-b-2 -mb-px transition-colors duration-150 touch-manipulation sm:px-4 ${
       active
         ? 'border-blue-600 text-blue-700 dark:border-blue-400 dark:text-blue-300'
-        : 'border-transparent text-muted-foreground hover:text-foreground dark:text-muted-foreground dark:hover:text-white'
+        : 'border-transparent text-muted-foreground hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground'
     }`;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-card">
-      <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 border-b border-gray-200/90 bg-gray-50/90 px-1 dark:border-border/90 dark:bg-card/30">
+      <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 border-b border-border/90 bg-muted/90 px-1 dark:border-border/90 dark:bg-card/30">
         <div className="flex flex-wrap items-center gap-0.5 sm:gap-1">
           <button type="button" onClick={() => data.setTab('open')} className={tabBtn(data.tab === 'open')}>Open ({data.openOrders.length})</button>
           <button type="button" onClick={() => data.setTab('orders')} className={tabBtn(data.tab === 'orders')}>History</button>
@@ -288,8 +288,8 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
             <div className="p-4 text-center text-muted-foreground text-xs">No open orders</div>
           ) : (
             <table className="w-full text-[11px] table-fixed">
-              <thead className="sticky top-0 z-10 bg-gray-50/95 backdrop-blur-sm dark:bg-card/95">
-                <tr className="border-b border-gray-200/90 text-left text-[11px] font-medium text-muted-foreground dark:border-border/90 dark:text-muted-foreground">
+              <thead className="sticky top-0 z-10 bg-muted/95 backdrop-blur-sm dark:bg-card/95">
+                <tr className="border-b border-border/90 text-left text-[11px] font-medium text-muted-foreground dark:border-border/90 dark:text-muted-foreground">
                   <th className="py-2 px-2 font-medium cursor-pointer w-24" onClick={() => toggleSort('market')}>Market{sortGlyph('market')}</th>
                   <th className="py-2 px-2 font-medium cursor-pointer w-16" onClick={() => toggleSort('type')}>Type{sortGlyph('type')}</th>
                   <th className="py-2 px-2 font-medium cursor-pointer w-12" onClick={() => toggleSort('side')}>Side{sortGlyph('side')}</th>
@@ -375,7 +375,7 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
                 ))}
               </div>
             )}
-            <Link href={walletPath.overview} className="mt-2 block text-center text-[11px] font-medium text-primary hover:underline dark:text-blue-400">
+            <Link href={walletPath.overview} className="mt-2 block text-center text-[11px] font-medium text-primary hover:underline dark:text-primary">
               View all assets →
             </Link>
           </div>

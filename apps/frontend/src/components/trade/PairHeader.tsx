@@ -176,7 +176,7 @@ export function PairHeader({
     phaseForBadge === 'live'
       ? 'bg-[hsl(var(--price-up))]'
       : phaseForBadge === 'disconnected'
-        ? 'bg-red-500'
+        ? 'bg-sell'
         : 'animate-pulse bg-amber-500';
   const streamLabel =
     phaseForBadge === 'live' ? 'Live' : phaseForBadge === 'disconnected' ? 'Off' : phaseForBadge === 'reconnecting' ? 'Sync' : '…';
@@ -195,16 +195,16 @@ export function PairHeader({
 
   return (
     <header
-      className={`flex h-11 min-h-11 shrink-0 border-b border-gray-200/90 bg-card dark:border-border/90 dark:bg-card ${
+      className={`flex h-11 min-h-11 shrink-0 border-b border-border/90 bg-card dark:border-border/90 dark:bg-card ${
         embedded ? 'rounded-t-lg' : ''
       }`}
     >
-      <div className="flex h-full shrink-0 items-center gap-1 border-r border-gray-200/80 bg-gray-50/40 px-1.5 dark:border-border/80 dark:bg-card/[0.03] sm:gap-1.5 sm:px-2">
+      <div className="flex h-full shrink-0 items-center gap-1 border-r border-border/80 bg-muted/40 px-1.5 dark:border-border/80 dark:bg-card/[0.03] sm:gap-1.5 sm:px-2">
         {mkt.length > 1 ? (
           <select
             value={sym}
             onChange={(e) => onChange(e.target.value)}
-            className="h-7 max-w-[7.5rem] min-w-0 shrink cursor-pointer truncate rounded border border-gray-200/90 bg-card py-0 pl-1.5 pr-6 text-[11px] font-bold leading-7 text-foreground shadow-sm outline-none focus:ring-1 focus:ring-primary/30 dark:border-gray-600 dark:bg-card/80 dark:text-foreground sm:max-w-[9.5rem] sm:text-xs"
+            className="h-7 max-w-[7.5rem] min-w-0 shrink cursor-pointer truncate rounded border border-border/90 bg-card py-0 pl-1.5 pr-6 text-[11px] font-bold leading-7 text-foreground shadow-sm outline-none focus:ring-1 focus:ring-primary/30 dark:border-border dark:bg-card/80 dark:text-foreground sm:max-w-[9.5rem] sm:text-xs"
           >
             {mkt.map((m) => (
               <option key={m.symbol} value={m.symbol}>
@@ -217,14 +217,14 @@ export function PairHeader({
             {pairLabel}
           </span>
         )}
-        <span className="inline-flex h-5 shrink-0 items-center rounded border border-gray-200/80 bg-card px-1 text-[8px] font-bold uppercase text-muted-foreground dark:border-gray-600 dark:bg-card/60 dark:text-muted-foreground">
+        <span className="inline-flex h-5 shrink-0 items-center rounded border border-border/80 bg-card px-1 text-[8px] font-bold uppercase text-muted-foreground dark:border-border dark:bg-card/60 dark:text-muted-foreground">
           Spot
         </span>
         {onToggleFavorite && sym && (
           <button
             type="button"
             onClick={() => onToggleFavorite(sym)}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-gray-200/60 hover:text-amber-500 dark:hover:bg-accent dark:hover:text-amber-400"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-amber-500 dark:hover:bg-accent dark:hover:text-amber-400"
             title={isFavorite?.(sym) ? 'Remove from favorites' : 'Add to favorites'}
             aria-label="Toggle favorite"
           >
@@ -241,7 +241,7 @@ export function PairHeader({
         )}
         {showStreamBadge && (
           <span
-            className="inline-flex h-5 shrink-0 items-center gap-1 rounded border border-gray-200/70 bg-card/80 px-1 text-[8px] font-bold uppercase text-muted-foreground dark:border-gray-600 dark:bg-card/40 dark:text-muted-foreground"
+            className="inline-flex h-5 shrink-0 items-center gap-1 rounded border border-border/70 bg-card/80 px-1 text-[8px] font-bold uppercase text-muted-foreground dark:border-border dark:bg-card/40 dark:text-muted-foreground"
             title={streamTitle}
           >
             <span className={`h-1 w-1 shrink-0 rounded-full ${streamDotClass}`} aria-hidden />

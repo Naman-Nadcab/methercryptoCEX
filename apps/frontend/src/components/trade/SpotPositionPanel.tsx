@@ -114,7 +114,7 @@ export function SpotPositionPanel({
 
   if (!isAuth || !symbol) {
     return (
-      <div className="shrink-0 rounded-lg border border-gray-200/90 bg-background/80 px-3 py-2.5 text-[11px] text-muted-foreground dark:border-border/90 dark:bg-card/40 dark:text-muted-foreground">
+      <div className="shrink-0 rounded-lg border border-border/90 bg-background/80 px-3 py-2.5 text-[11px] text-muted-foreground dark:border-border/90 dark:bg-card/40 dark:text-muted-foreground">
         Sign in to see position and balances for this pair.
       </div>
     );
@@ -125,7 +125,7 @@ export function SpotPositionPanel({
   const avg = fifo?.avgEntry;
 
   return (
-    <div className="shrink-0 space-y-2 rounded-lg border border-gray-200/90 bg-gradient-to-b from-gray-50/90 to-white px-3 py-2.5 dark:border-border/90 dark:from-gray-900/50 dark:to-[#181a20]">
+    <div className="shrink-0 space-y-2 rounded-lg border border-border/90 bg-gradient-to-b from-gray-50/90 to-white px-3 py-2.5 dark:border-border/90 dark:from-gray-900/50 dark:to-[#181a20]">
       <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
         <Wallet className="h-3.5 w-3.5" aria-hidden />
         Position · {baseAsset}/{quoteAsset}
@@ -143,7 +143,7 @@ export function SpotPositionPanel({
             {formatValueFixedTrim(quoteBal, Math.min(10, pricePrecision + 2))}
           </p>
         </div>
-        <div className="col-span-2 border-t border-gray-200/80 pt-1.5 dark:border-border/80">
+        <div className="col-span-2 border-t border-border/80 pt-1.5 dark:border-border/80">
           <span className="text-muted-foreground">Avg entry (FIFO, fills)</span>
           <p className="font-mono tabular-nums text-foreground">
             {avg != null && avg > 0 ? formatValueFixedTrim(String(avg), pricePrecision) : '—'}{' '}
