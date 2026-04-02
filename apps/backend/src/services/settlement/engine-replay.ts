@@ -9,6 +9,7 @@
 import { db } from '../../lib/database.js';
 import { logger } from '../../lib/logger.js';
 import { placeOrderRust, type RustOrder } from './engine-client.js';
+import { resolvePlaceTargetForMarket } from './matching-engine-shard-router.js';
 
 const REPLAY_RETRY_COUNT = 2;
 const REPLAY_RETRY_DELAY_MS = 1_000;
@@ -95,9 +96,21 @@ export async function replayOpenOrdersToRustEngine(): Promise<ReplayResult> {
     };
 
     let lastErr: Error | null = null;
+    let target: { engineId: string; baseUrl: string };
+    try {
+      target = resolvePlaceTargetForMarket(row.market);
+    } catch (e) {
+      result.failed++;
+      logger.warn('Engine replay: market routing resolution failed', {
+        orderId: row.id,
+        market: row.market,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      continue;
+    }
     for (let attempt = 0; attempt <= REPLAY_RETRY_COUNT; attempt++) {
       try {
-        await placeOrderRust(rustOrder);
+        await placeOrderRust(rustOrder, { baseUrl: target.baseUrl, engineId: target.engineId });
         result.replayed++;
         break;
       } catch (e) {

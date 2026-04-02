@@ -1389,7 +1389,7 @@ const migrations = [
     expires_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    created_by UUID REFERENCES admin_users(id)
+    created_by UUID
   );`,
   `CREATE INDEX IF NOT EXISTS idx_system_announcements_published ON system_announcements(is_published, published_at DESC);`,
   `CREATE TABLE IF NOT EXISTS email_templates (
@@ -1742,6 +1742,26 @@ const migrations = [
   );`,
   `CREATE INDEX IF NOT EXISTS idx_admin_users_email ON admin_users(email);`,
   `CREATE INDEX IF NOT EXISTS idx_admin_users_active ON admin_users(is_active) WHERE is_active = TRUE;`,
+
+  // system_announcements.created_by FK (table is created earlier; admin_users must exist first)
+  `DO $$
+  BEGIN
+    IF to_regclass('public.system_announcements') IS NOT NULL
+       AND to_regclass('public.admin_users') IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM pg_constraint c
+         JOIN pg_class t ON t.oid = c.conrelid
+         WHERE t.relname = 'system_announcements' AND c.conname = 'system_announcements_created_by_fkey'
+       ) THEN
+      ALTER TABLE system_announcements
+        ADD CONSTRAINT system_announcements_created_by_fkey
+        FOREIGN KEY (created_by) REFERENCES admin_users(id);
+    END IF;
+  EXCEPTION
+    WHEN duplicate_object THEN NULL;
+    WHEN undefined_column THEN NULL;
+    WHEN undefined_table THEN NULL;
+  END $$;`,
 
   // ============================================
   // ADMIN SESSIONS
@@ -2351,6 +2371,14 @@ const migrations = [
 
   // P2P payment proof upload (buyer uploads receipt when confirming payment)
   `ALTER TABLE p2p_orders ADD COLUMN IF NOT EXISTS payment_proof_url TEXT;`,
+  // P2P payment verification (fraud prevention): seller must verify before release (unless SLA / admin).
+  `ALTER TABLE p2p_orders ADD COLUMN IF NOT EXISTS transaction_reference TEXT;`,
+  `ALTER TABLE p2p_orders ADD COLUMN IF NOT EXISTS payment_proof_uploaded_at TIMESTAMPTZ;`,
+  `ALTER TABLE p2p_orders ADD COLUMN IF NOT EXISTS payment_verification_status VARCHAR(20);`,
+  `ALTER TABLE p2p_orders ADD COLUMN IF NOT EXISTS payment_verified_at TIMESTAMPTZ;`,
+  `ALTER TABLE p2p_orders ADD COLUMN IF NOT EXISTS payment_verified_by UUID REFERENCES users(id);`,
+  `ALTER TABLE p2p_orders ADD COLUMN IF NOT EXISTS payment_metadata JSONB DEFAULT '{}'::jsonb;`,
+  `ALTER TABLE p2p_disputes ADD COLUMN IF NOT EXISTS payment_context JSONB DEFAULT '{}'::jsonb;`,
 
   // P4: trailing_stop_market, trailing_delta, trailing_best_price, oco_group_id
   `ALTER TABLE spot_orders ADD COLUMN IF NOT EXISTS trailing_delta DECIMAL(36,18);`,
@@ -2417,6 +2445,51 @@ const migrations = [
       CREATE INDEX IF NOT EXISTS idx_spot_trades_pair_created ON spot_trades(trading_pair_id, created_at DESC);
     END IF;
   END $$;`,
+
+  // Tier-1 multi-engine: per-engine identity, composite settlement idempotency, per-engine poller cursors
+  `ALTER TABLE settlement_events ADD COLUMN IF NOT EXISTS match_engine_id VARCHAR(128) NOT NULL DEFAULT 'default';`,
+  `UPDATE settlement_events SET match_engine_id = 'default' WHERE match_engine_id IS NULL OR trim(match_engine_id) = '';`,
+  `ALTER TABLE spot_orders ADD COLUMN IF NOT EXISTS match_engine_id VARCHAR(128) NOT NULL DEFAULT 'default';`,
+  `UPDATE spot_orders SET match_engine_id = 'default' WHERE match_engine_id IS NULL OR trim(match_engine_id) = '';`,
+  `CREATE TABLE IF NOT EXISTS settlement_engine_poll_cursor (
+    engine_id VARCHAR(128) PRIMARY KEY,
+    last_after_id BIGINT NOT NULL DEFAULT 0
+  );`,
+  `INSERT INTO settlement_engine_poll_cursor (engine_id, last_after_id)
+   SELECT 'default', COALESCE(last_engine_event_id, 0) FROM settlement_poller_cursor WHERE id = 1
+   ON CONFLICT (engine_id) DO NOTHING;`,
+  `ALTER TABLE settlement_events DROP CONSTRAINT IF EXISTS settlement_events_engine_event_id_key;`,
+  `DROP INDEX IF EXISTS settlement_events_engine_event_id_key;`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS settlement_events_match_engine_event_uidx ON settlement_events(match_engine_id, engine_event_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_settlement_events_match_engine ON settlement_events(match_engine_id, engine_event_id);`,
+
+  // security_risk_signal_weights (moved from stray tail migration)
+  `CREATE TABLE IF NOT EXISTS security_risk_signal_weights (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    scope TEXT NOT NULL,
+    signal TEXT NOT NULL,
+    weight INT NOT NULL CHECK (weight >= 0),
+    enabled BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (scope, signal)
+  );`,
+
+  // balance_ledger: allow genesis / reconciliation backfill lines (idempotent inserts)
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'ledger_reference_type') THEN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_enum e
+        JOIN pg_type t ON e.enumtypid = t.oid
+        WHERE t.typname = 'ledger_reference_type' AND e.enumlabel = 'opening_balance'
+      ) THEN
+        ALTER TYPE ledger_reference_type ADD VALUE 'opening_balance';
+      END IF;
+    END IF;
+  END $$;`,
+
+  // P2P escrow + canonical balance reads: readUserBalances selects escrow_balance
+  `ALTER TABLE user_balances ADD COLUMN IF NOT EXISTS escrow_balance NUMERIC(36,18) NOT NULL DEFAULT 0;`,
 ];
 
 /** True if this migration SQL touches the legacy "balances" table (not user_balances). Run such steps via raw pool so runtime guard does not block. */
@@ -2482,6 +2555,7 @@ async function migrate(direction: 'up' | 'down' = 'up'): Promise<void> {
           ledger_checkpoints,
           settlement_ledger_entries,
           settlement_events,
+          settlement_engine_poll_cursor,
           settlement_poller_cursor,
           settlement_trades,
           trades,
@@ -2525,14 +2599,3 @@ const direction = args[0] === 'down' ? 'down' : 'up';
 migrate(direction);
 
 export { migrate };
-await db.query(`
-  CREATE TABLE IF NOT EXISTS security_risk_signal_weights (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    scope TEXT NOT NULL,
-    signal TEXT NOT NULL,
-    weight INT NOT NULL CHECK (weight >= 0),
-    enabled BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMPTZ DEFAULT now(),
-    UNIQUE (scope, signal)
-  );
-`);

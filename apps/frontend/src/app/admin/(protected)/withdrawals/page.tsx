@@ -332,7 +332,8 @@ export default function WithdrawalsCommandCenter() {
         pageSize={pageSize}
         pagination={{ pageIndex: page - 1, pageSize }}
         onPaginationChange={(updater) => {
-          const next = updater({ pageIndex: page - 1, pageSize });
+          const prev = { pageIndex: page - 1, pageSize };
+          const next = typeof updater === 'function' ? updater(prev) : updater;
           setPage(next.pageIndex + 1);
           setPageSize(next.pageSize);
         }}

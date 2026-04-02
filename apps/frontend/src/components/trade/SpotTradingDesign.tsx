@@ -11,6 +11,7 @@ import {
   Maximize2,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
+import { ROUTES, walletPath } from '@/lib/routes';
 
 /** Design-only Spot Trading page – Bybit-style layout. Logged-in vs logged-out states. Data will be wired later. */
 
@@ -376,13 +377,13 @@ export function SpotTradingDesign() {
                     {side === 'buy' ? 'Buy' : 'Sell'} BTC
                   </button>
                   <div className="flex justify-center gap-3 text-xs">
-                    <Link href="/dashboard/help#fee-rate" className="text-gray-500 hover:text-gray-400">Fee Rate ⓘ</Link>
+                    <Link href={`${ROUTES.dashboard.help}#fee-rate`} className="text-gray-500 hover:text-gray-400">Fee Rate ⓘ</Link>
                   </div>
                   <div className="flex gap-2 pt-2 border-t border-white/[0.06]">
-                    <Link href="/dashboard/deposit/crypto" className="flex-1 py-2 text-center text-xs font-medium bg-white/5 hover:bg-white/10 rounded text-gray-300 transition-colors">
+                    <Link href={walletPath.depositCrypto} className="flex-1 py-2 text-center text-xs font-medium bg-white/5 hover:bg-white/10 rounded text-gray-300 transition-colors">
                       Deposit
                     </Link>
-                    <Link href="/dashboard/transfer" className="flex-1 py-2 text-center text-xs font-medium bg-white/5 hover:bg-white/10 rounded text-gray-300 transition-colors">
+                    <Link href={walletPath.transfer} className="flex-1 py-2 text-center text-xs font-medium bg-white/5 hover:bg-white/10 rounded text-gray-300 transition-colors">
                       Transfer
                     </Link>
                   </div>
@@ -424,18 +425,18 @@ export function SpotTradingDesign() {
                     Max. {side === 'buy' ? 'buying' : 'selling'} amount <span className="font-mono text-gray-500">— BTC</span>
                   </div>
                   <Link
-                    href="/signup"
+                    href={ROUTES.signup}
                     className="block w-full h-11 rounded-lg text-sm font-semibold flex items-center justify-center bg-warning text-gray-900 hover:opacity-90"
                   >
                     Sign Up
                   </Link>
                   <Link
-                    href="/login"
+                    href={ROUTES.login}
                     className="block w-full h-10 rounded-lg text-sm font-medium flex items-center justify-center bg-white/10 text-gray-300 hover:bg-white/15"
                   >
                     Log In
                   </Link>
-                  <Link href="/dashboard/demo-trading" className="block text-center text-xs text-gray-500 hover:text-gray-400">
+                  <Link href={ROUTES.dashboard.demoTrading} className="block text-center text-xs text-gray-500 hover:text-gray-400">
                     Demo Trading
                   </Link>
                 </>
@@ -536,8 +537,8 @@ export function SpotTradingDesign() {
         <div className="flex items-center justify-between px-4 py-2 border-t border-white/[0.06] text-xs text-gray-500">
           <span>BTC/USDT <span className="text-buy font-medium">+1.04%</span></span>
           <div className="flex gap-4">
-            <Link href="/dashboard/help" className="hover:text-gray-400">Rewards Hub</Link>
-            <Link href="/dashboard/help" className="hover:text-gray-400">Customer Service</Link>
+            <Link href={ROUTES.dashboard.help} className="hover:text-gray-400">Rewards Hub</Link>
+            <Link href={ROUTES.dashboard.help} className="hover:text-gray-400">Customer Service</Link>
           </div>
         </div>
       </div>

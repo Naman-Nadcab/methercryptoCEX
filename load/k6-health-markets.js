@@ -14,7 +14,7 @@ export const options = {
   vus: VUS,
   duration: DURATION,
   thresholds: {
-    http_req_duration: ['p95<3000', 'p99<5000'],
+    http_req_duration: ['p(95)<3000', 'p(99)<5000'],
     http_req_failed: ['rate<0.01'],
   },
 };

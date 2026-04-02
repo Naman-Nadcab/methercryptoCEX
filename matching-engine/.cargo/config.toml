@@ -1,0 +1,3 @@
+# Keep build artifacts inside the repo (avoids Cursor/sandbox redirecting target-dir elsewhere).
+[build]
+target-dir = "target"

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { useAuthStore } from '@/store/auth';
 import Link from 'next/link';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
@@ -35,6 +35,7 @@ import {
 import { useBalancesSummary } from '@/lib/balances';
 import { EXCHANGE_PROGRESS_STEPS } from '@/data/exchangeProgressSteps';
 import { InfoTooltip } from '@/components/ui/InfoTooltip';
+import { TOOLTIP_PAIR, TOOLTIP_LAST_PRICE, TOOLTIP_24H_CHANGE } from '@/lib/marketDataUxCopy';
 import { MiniSparkline } from '@/components/dashboard/MiniSparkline';
 import { DashboardPageShell } from '@/components/dashboard/DashboardPageShell';
 
@@ -58,13 +59,20 @@ interface AnnouncementItem {
   created_at: string;
 }
 
-type TickerRow = { pair: string; quote: string; price: number; change: number; icon: string; color: string };
+type TickerRow = { pair: string; quote: string; price: number; change: number | null; icon: string; color: string };
+
+function parseTickerChangePct(ch: unknown): number | null {
+  if (typeof ch === 'number' && Number.isFinite(ch)) return ch;
+  if (ch == null || ch === '') return null;
+  const n = Number(ch);
+  return Number.isFinite(n) ? n : null;
+}
 
 const OVERVIEW_SHORTCUTS: { href: string; label: string; icon: typeof BarChart3; desc: string }[] = [
-  { href: '/dashboard/markets', label: 'Markets', icon: LineChart, desc: 'All pairs' },
-  { href: '/dashboard/spot', label: 'Spot', icon: BarChart3, desc: 'Trade' },
-  { href: '/dashboard/p2p', label: 'P2P', icon: Users, desc: 'Buy / Sell' },
-  { href: '/dashboard/orders', label: 'Orders', icon: ClipboardList, desc: 'History' },
+  { href: '/markets', label: 'Markets', icon: LineChart, desc: 'All pairs' },
+  { href: '/trade/spot', label: 'Spot', icon: BarChart3, desc: 'Trade' },
+  { href: '/p2p', label: 'P2P', icon: Users, desc: 'Buy / Sell' },
+  { href: '/orders', label: 'Orders', icon: ClipboardList, desc: 'History' },
   { href: '/dashboard/fee-rates', label: 'Fees', icon: Receipt, desc: 'Your tier' },
 ];
 
@@ -256,8 +264,7 @@ export default function DashboardPage() {
         const info = PAIR_ICONS[base] ?? { icon: base.slice(0, 1), color: '#6B7280' };
         const lp = (t.last_price ?? t.lastPrice) as string | null | undefined;
         const price = parseFloat(String(lp || '0')) || 0;
-        const ch = t.change_pct ?? t.changePct;
-        const change = typeof ch === 'number' ? ch : parseFloat(String(ch)) || 0;
+        const change = parseTickerChangePct(t.change_pct ?? t.changePct);
         rows.push({ pair: base, quote, price, change, icon: info.icon, color: info.color });
       }
       setMarketData(rows);
@@ -443,13 +450,50 @@ export default function DashboardPage() {
       return data.filter((d) => favorites.includes(d.pair));
     }
     if (activeMarketTab === 'gainers') {
-      return data.sort((a, b) => b.change - a.change);
+      return data.sort((a, b) => {
+        const av = a.change;
+        const bv = b.change;
+        if (av == null && bv == null) return 0;
+        if (av == null) return 1;
+        if (bv == null) return -1;
+        return bv - av;
+      });
     }
     if (activeMarketTab === 'losers') {
-      return data.sort((a, b) => a.change - b.change);
+      return data.sort((a, b) => {
+        const av = a.change;
+        const bv = b.change;
+        if (av == null && bv == null) return 0;
+        if (av == null) return 1;
+        if (bv == null) return -1;
+        return av - bv;
+      });
     }
     return data;
   }, [marketData, activeMarketTab, favorites]);
+
+  const prevDashPriceRef = useRef<Record<string, number>>({});
+  const [dashPriceFlash, setDashPriceFlash] = useState<Record<string, 'up' | 'down'>>({});
+  useEffect(() => {
+    const prev = prevDashPriceRef.current;
+    const next: Record<string, 'up' | 'down'> = {};
+    displayedMarketData.forEach((item) => {
+      const k = `${item.pair}_${item.quote}`;
+      const old = prev[k];
+      const p = item.price;
+      if (old !== undefined && Number.isFinite(old) && Number.isFinite(p) && p !== old) {
+        if (p > old) next[k] = 'up';
+        else if (p < old) next[k] = 'down';
+      }
+    });
+    displayedMarketData.forEach((item) => {
+      prev[`${item.pair}_${item.quote}`] = item.price;
+    });
+    if (Object.keys(next).length === 0) return;
+    setDashPriceFlash(next);
+    const id = window.setTimeout(() => setDashPriceFlash({}), 1000);
+    return () => clearTimeout(id);
+  }, [displayedMarketData]);
 
   const maskEmail = (email: string) => {
     if (!email) return '***@****';
@@ -550,19 +594,19 @@ export default function DashboardPage() {
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <Link
-                          href="/dashboard/deposit/crypto"
+                          href="/wallet/deposit/crypto"
                           className="inline-flex items-center gap-2 rounded-xl bg-blue-500 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-blue-500/25 transition hover:bg-blue-600 hover:shadow-lg hover:shadow-blue-500/30"
                         >
                           <Wallet className="h-4 w-4" /> Deposit
                         </Link>
                         <Link
-                          href="/dashboard/withdraw/crypto"
+                          href="/wallet/withdraw/crypto"
                           className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 shadow-sm transition hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
                         >
                           <Send className="h-4 w-4" /> Withdraw
                         </Link>
                         <Link
-                          href="/dashboard/spot"
+                          href="/trade/spot"
                           className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-emerald-500/20 transition hover:bg-emerald-600"
                         >
                           <BarChart3 className="h-4 w-4" /> Trade
@@ -755,7 +799,7 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <Link
-                  href="/dashboard/markets"
+                  href="/markets"
                   className="inline-flex items-center gap-1 text-sm font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
                 >
                   All markets <ExternalLink className="h-3.5 w-3.5 opacity-70" />
@@ -770,7 +814,7 @@ export default function DashboardPage() {
                       key={tab.id}
                       type="button"
                       onClick={() => setActiveMarketTab(tab.id)}
-                      className={`flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold transition-all sm:text-sm ${
+                      className={`flex min-h-11 shrink-0 items-center gap-2 rounded-xl px-3.5 py-2.5 text-xs font-semibold transition-all sm:min-h-0 sm:py-2 sm:text-sm ${
                         activeMarketTab === tab.id
                           ? 'bg-blue-500 text-white shadow-md shadow-blue-500/25'
                           : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700'
@@ -835,7 +879,7 @@ export default function DashboardPage() {
                     <p className="mt-1 max-w-sm text-sm text-gray-500 dark:text-gray-400">
                       Star pairs in the table below once markets load, or browse Spot to add them.
                     </p>
-                    <Link href="/dashboard/spot" className="mt-4 text-sm font-semibold text-blue-600 dark:text-blue-400 hover:underline">
+                    <Link href="/trade/spot" className="mt-4 text-sm font-semibold text-blue-600 dark:text-blue-400 hover:underline">
                       Open Spot
                     </Link>
                   </div>
@@ -865,7 +909,7 @@ export default function DashboardPage() {
                                 const rows: TickerRow[] = data.data.slice(0, 12).map((t: { base_asset: string; quote_asset: string; last_price: string | null; change_pct?: number }) => {
                                   const info = PAIR_ICONS[t.base_asset] ?? { icon: t.base_asset.slice(0, 1), color: '#6B7280' };
                                   const price = parseFloat(t.last_price || '0') || 0;
-                                  const change = typeof t.change_pct === 'number' ? t.change_pct : 0;
+                                  const change = parseTickerChangePct(t.change_pct);
                                   return { pair: t.base_asset, quote: t.quote_asset, price, change, icon: info.icon, color: info.color };
                                 });
                                 setMarketData(rows);
@@ -879,7 +923,7 @@ export default function DashboardPage() {
                         Retry
                       </button>
                       <Link
-                        href="/dashboard/spot"
+                        href="/trade/spot"
                         className="rounded-xl bg-blue-500 px-4 py-2 text-sm font-semibold text-white shadow-md hover:bg-blue-600"
                       >
                         Go to Spot
@@ -887,87 +931,127 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 ) : (
-                  <table className="w-full min-w-[640px]">
-                    <thead>
-                      <tr className="bg-gray-50/95 dark:bg-[#1e2329]/90">
-                        <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                          Pair
-                        </th>
-                        <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                          Last price
-                        </th>
-                        <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                          24h change
-                        </th>
-                        <th className="w-28 px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                          Action
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100 dark:divide-gray-800/80">
-                      {displayedMarketData.map((item, idx) => (
-                        <tr
-                          key={`${item.pair}-${item.quote}`}
-                          className={`transition-colors hover:bg-gray-50/90 dark:hover:bg-gray-800/40 ${idx % 2 === 1 ? 'bg-gray-50/40 dark:bg-gray-900/20' : ''}`}
-                        >
-                          <td className="px-5 py-3">
-                            <div className="flex items-center gap-3">
-                              <button
-                                type="button"
-                                onClick={() => toggleFavorite(item.pair)}
-                                className="rounded p-0.5 text-gray-300 transition hover:text-amber-400 dark:text-gray-600"
-                                aria-label={favorites.includes(item.pair) ? 'Remove from favorites' : 'Add to favorites'}
-                              >
-                                <Star className={`h-5 w-5 ${favorites.includes(item.pair) ? 'fill-amber-400 text-amber-400' : ''}`} />
-                              </button>
-                              <div
-                                className="flex h-9 w-9 items-center justify-center rounded-lg text-sm font-bold text-white shadow-sm"
-                                style={{ backgroundColor: item.color }}
-                              >
-                                {item.icon}
-                              </div>
-                              <div>
-                                <span className="font-semibold text-gray-900 dark:text-white">{item.pair}</span>
-                                <span className="text-sm text-gray-400 dark:text-gray-500">/{item.quote}</span>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-5 py-3 text-right">
-                            <span className="font-mono text-sm font-semibold tabular-nums text-gray-900 dark:text-white">
-                              $
-                              {item.price >= 1
-                                ? item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                                : item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}
+                    <table className="w-full min-w-[640px]">
+                      <thead>
+                        <tr className="bg-gray-50/95 dark:bg-[#1e2329]/90">
+                          <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                            <span className="inline-flex items-center gap-1">
+                              Pair
+                              <InfoTooltip content={TOOLTIP_PAIR} className="text-gray-400" />
                             </span>
-                          </td>
-                          <td className="px-5 py-3">
-                            <div className="flex items-center justify-end gap-2">
-                              <MiniSparkline change={item.change} />
-                              <span
-                                className={`inline-flex min-w-[4.5rem] items-center justify-end gap-1 rounded-lg px-2 py-1 text-xs font-bold tabular-nums ${
-                                  item.change >= 0
-                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/35 dark:text-emerald-400'
-                                    : 'bg-red-100 text-red-700 dark:bg-red-900/35 dark:text-red-400'
-                                }`}
-                              >
-                                {item.change >= 0 ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
-                                {item.change >= 0 ? '+' : ''}
-                                {item.change.toFixed(2)}%
-                              </span>
-                            </div>
-                          </td>
-                          <td className="px-5 py-3 text-right">
-                            <Link
-                              href={`/dashboard/spot?symbol=${item.pair}_${item.quote}`}
-                              className="inline-flex items-center rounded-lg bg-blue-500 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-blue-600"
-                            >
-                              Trade
-                            </Link>
-                          </td>
+                          </th>
+                          <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                            <span className="inline-flex items-center justify-end gap-1">
+                              Last price
+                              <InfoTooltip content={TOOLTIP_LAST_PRICE} className="text-gray-400" />
+                            </span>
+                          </th>
+                          <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                            <span className="inline-flex items-center justify-end gap-1">
+                              24h change
+                              <InfoTooltip content={TOOLTIP_24H_CHANGE} className="text-gray-400" />
+                            </span>
+                          </th>
+                          <th className="w-28 px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                            Action
+                          </th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 dark:divide-gray-800/80">
+                        {displayedMarketData.map((item, idx) => {
+                          const rowKey = `${item.pair}_${item.quote}`;
+                          const flash = dashPriceFlash[rowKey];
+                          const rowFlash =
+                            flash === 'up'
+                              ? 'bg-emerald-500/10'
+                              : flash === 'down'
+                                ? 'bg-red-500/10'
+                                : '';
+                          const chgUp = item.change != null && item.change > 0;
+                          const chgDown = item.change != null && item.change < 0;
+                          const chgNull = item.change == null;
+                          const chgBadge =
+                            chgNull
+                              ? 'bg-gray-100 text-gray-500 dark:bg-gray-800/80 dark:text-gray-500'
+                              : chgUp
+                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/35 dark:text-emerald-400'
+                                : chgDown
+                                  ? 'bg-red-100 text-red-700 dark:bg-red-900/35 dark:text-red-400'
+                                  : 'bg-gray-100 text-gray-600 dark:bg-gray-800/80 dark:text-gray-400';
+                          const priceCls =
+                            flash === 'up'
+                              ? 'text-emerald-600 dark:text-emerald-400'
+                              : flash === 'down'
+                                ? 'text-red-600 dark:text-red-400'
+                                : 'text-gray-900 dark:text-white';
+                          return (
+                            <tr
+                              key={`${item.pair}-${item.quote}`}
+                              className={`transition-[background-color,color] duration-300 ease-out hover:bg-gray-50/90 dark:hover:bg-gray-800/40 ${idx % 2 === 1 ? 'bg-gray-50/40 dark:bg-gray-900/20' : ''} ${rowFlash}`}
+                            >
+                              <td className="px-5 py-3">
+                                <div className="flex items-center gap-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleFavorite(item.pair)}
+                                    className="min-h-11 min-w-11 rounded-md p-2 text-gray-300 transition hover:bg-gray-100 hover:text-amber-400 dark:text-gray-600 dark:hover:bg-gray-800 sm:min-h-0 sm:min-w-0 sm:p-0.5"
+                                    aria-label={favorites.includes(item.pair) ? 'Remove from favorites' : 'Add to favorites'}
+                                  >
+                                    <Star className={`h-5 w-5 ${favorites.includes(item.pair) ? 'fill-amber-400 text-amber-400' : ''}`} />
+                                  </button>
+                                  <div
+                                    className="flex h-9 w-9 items-center justify-center rounded-lg text-sm font-bold text-white shadow-sm"
+                                    style={{ backgroundColor: item.color }}
+                                  >
+                                    {item.icon}
+                                  </div>
+                                  <div>
+                                    <span className="font-semibold text-gray-900 dark:text-white">{item.pair}</span>
+                                    <span className="text-sm text-gray-400 dark:text-gray-500">/{item.quote}</span>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-5 py-3 text-right">
+                                <span
+                                  className={`font-mono text-sm font-semibold tabular-nums transition-colors duration-300 ${priceCls}`}
+                                >
+                                  $
+                                  {item.price >= 1
+                                    ? item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                    : item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}
+                                </span>
+                              </td>
+                              <td className="px-5 py-3">
+                                <div className="flex items-center justify-end gap-2">
+                                  <MiniSparkline change={item.change} />
+                                  <span
+                                    className={`inline-flex min-w-[4.5rem] items-center justify-end gap-1 rounded-lg px-2 py-1 text-xs font-bold tabular-nums transition-colors duration-200 ${chgBadge}`}
+                                  >
+                                    {item.change == null ? (
+                                      '—'
+                                    ) : (
+                                      <>
+                                        {chgUp ? <TrendingUp className="h-3.5 w-3.5" /> : chgDown ? <TrendingDown className="h-3.5 w-3.5" /> : null}
+                                        {chgUp ? '+' : ''}
+                                        {item.change.toFixed(2)}%
+                                      </>
+                                    )}
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="px-5 py-3 text-right">
+                                <Link
+                                  href={`/trade/spot?symbol=${item.pair}_${item.quote}`}
+                                  className="inline-flex min-h-11 min-w-[5.5rem] items-center justify-center rounded-lg bg-blue-500 px-4 text-xs font-bold text-white shadow-sm transition-colors hover:bg-blue-600 sm:min-h-0 sm:min-w-0 sm:px-3 sm:py-1.5"
+                                >
+                                  Trade
+                                </Link>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                 )}
               </div>
             </div>
@@ -1177,7 +1261,7 @@ export default function DashboardPage() {
             </Link>
 
             <Link
-              href="/dashboard/p2p"
+              href="/p2p"
               className="group relative flex min-h-[268px] flex-col overflow-hidden rounded-2xl border border-gray-200/90 bg-white p-4 shadow-sm transition hover:border-blue-300 hover:shadow-md sm:min-h-[280px] sm:p-5 dark:border-gray-800 dark:bg-[#181a20] dark:hover:border-blue-800"
             >
               <div className="pointer-events-none absolute -right-6 -top-6 h-20 w-20 rounded-full bg-blue-500/10 blur-2xl" />

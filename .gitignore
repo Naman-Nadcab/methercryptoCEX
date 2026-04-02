@@ -57,6 +57,10 @@ tmp/
 temp/
 .cache/
 
+# P2P payment proofs (Tier-1 secure storage; never commit)
+apps/backend/data/p2p-payment-proofs/
+data/p2p-payment-proofs/
+
 # Docker
 docker-compose.override.yml
 

@@ -32,12 +32,12 @@ import {
 } from 'lucide-react';
 
 const SIDEBAR_LINKS = [
-  { label: 'Asset Dashboard', href: '/dashboard/assets/overview', icon: LayoutGrid },
-  { label: 'Deposit', href: '/dashboard/deposit/crypto', icon: TrendingUp, active: true },
-  { label: 'Withdraw', href: '/dashboard/withdraw/crypto', icon: Send },
-  { label: 'Transfer', href: '/dashboard/transfer', icon: ArrowLeftRight },
-  { label: 'Convert', href: '/dashboard/assets/convert', icon: RefreshCw },
-  { label: 'History', href: '/dashboard/assets/history', icon: Clock },
+  { label: 'Asset Dashboard', href: '/wallet', icon: LayoutGrid },
+  { label: 'Deposit', href: '/wallet/deposit/crypto', icon: TrendingUp, active: true },
+  { label: 'Withdraw', href: '/wallet/withdraw/crypto', icon: Send },
+  { label: 'Transfer', href: '/wallet/transfer', icon: ArrowLeftRight },
+  { label: 'Convert', href: '/wallet/convert', icon: RefreshCw },
+  { label: 'History', href: '/wallet/history', icon: Clock },
 ];
 
 interface Chain {
@@ -835,7 +835,7 @@ export default function DepositCryptoPage() {
 
           {recentDeposits.length > 0 && (
             <Link
-              href="/dashboard/assets/history?tab=deposit"
+              href="/wallet/history?tab=deposit"
               className="inline-flex items-center gap-1 mt-4 text-sm text-yellow-500 hover:text-yellow-600"
             >
               View More <ExternalLink className="w-4 h-4" />

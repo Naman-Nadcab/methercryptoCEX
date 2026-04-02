@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { ROUTES } from '@/lib/routes';
 
 interface SpotPairHeaderProps {
   symbol: string;
@@ -30,7 +31,7 @@ export function SpotPairHeader({
       <div className="flex items-center gap-3">
         <span className="text-lg font-semibold text-white font-mono tabular-nums">{display}</span>
         <span className="text-xs text-gray-500">Spot</span>
-        <Link href="/dashboard/markets" className="text-xs text-gray-400 hover:text-white">Markets</Link>
+        <Link href={ROUTES.markets} className="text-xs text-gray-400 hover:text-white">Markets</Link>
       </div>
       <div className="flex items-center gap-4 text-sm font-mono tabular-nums">
         <div className="flex items-baseline gap-2">

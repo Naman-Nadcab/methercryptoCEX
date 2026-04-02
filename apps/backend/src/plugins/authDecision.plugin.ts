@@ -44,7 +44,7 @@ function isAuthDecisionShape(v: unknown): v is AuthDecision {
 
 async function authDecisionPlugin(app: FastifyInstance) {
   app.addHook('onRequest', async (request: FastifyRequest, _reply: FastifyReply) => {
-    const path = (request.url || '').split('?')[0];
+    const path = (request.url || '').split('?')[0] ?? '';
     if (PUBLIC_AUTH_ROUTES.has(path)) {
       (request as FastifyRequest & { authDecision: Readonly<AuthDecision> }).authDecision = FALLBACK_AUTH_DECISION;
       return;

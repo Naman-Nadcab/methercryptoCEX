@@ -1,12 +1,23 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, memo } from 'react';
 import { Maximize2, RefreshCw, SlidersHorizontal, BarChart3, CandlestickChart, Camera, AlertCircle, Clock } from 'lucide-react';
 import { useChartAdapter } from './chart';
 import type { ChartTheme } from './chart/ChartAdapter';
 import { LightweightChartsAdapter } from './chart/LightweightChartsAdapter';
 import { SpotDepthChart } from './SpotDepthChart';
 import { formatValueFixedTrim, formatCompactNumber } from './terminalFormat';
+import {
+  NO_TRADES_ACTIONABLE,
+  NO_ACTIVITY_SHORT,
+  NO_TRADES_TINY,
+  TOOLTIP_CHANGE_UNAVAILABLE,
+  TOOLTIP_24H_CHANGE,
+  TOOLTIP_24H_HIGH,
+  TOOLTIP_24H_LOW,
+  TOOLTIP_QUOTE_VOLUME_24H,
+  TOOLTIP_BASE_VOLUME_24H,
+} from '@/lib/marketDataUxCopy';
 import type { OverlayStudyId } from './chart/indicators';
 import type { ChartExtensionsConfig, DrawingToolMode, SerializedDrawing } from './chart/extension/types';
 
@@ -72,7 +83,7 @@ interface ChartPanelProps {
   hideDuplicatePairSummary?: boolean;
 }
 
-export function ChartPanel({
+function ChartPanelInner({
   symbol = 'BTC_USDT',
   intervalSeconds = 60,
   theme = 'dark',
@@ -264,14 +275,17 @@ export function ChartPanel({
   }, [viewMode, chartLoading, intervalSeconds, symbol, livePrice]);
 
   const lastTradeIdRef = useRef<string | null>(null);
+  const prevMarkersSigRef = useRef<string>('');
+
+  useEffect(() => {
+    prevMarkersSigRef.current = '';
+    lastTradeIdRef.current = null;
+  }, [symbol]);
 
   const changePct = useMemo(() => {
     if (dayChangePct24h != null && Number.isFinite(dayChangePct24h)) return dayChangePct24h;
-    const last = lastPrice != null ? Number(lastPrice) : NaN;
-    const low = low24h != null ? Number(low24h) : NaN;
-    if (!Number.isFinite(last) || !Number.isFinite(low) || low <= 0) return null;
-    return ((last - low) / low) * 100;
-  }, [dayChangePct24h, lastPrice, low24h]);
+    return null;
+  }, [dayChangePct24h]);
 
   const spreadInfo = useMemo(() => {
     const b = bid != null && bid !== '' ? Number(bid) : NaN;
@@ -309,16 +323,37 @@ export function ChartPanel({
     };
   }, [viewMode, symbol, intervalSeconds, chartLoading, chartError]);
 
+  const livePriceRafRef = useRef<number | null>(null);
+  const pendingLivePriceRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!adapterRef.current) return;
     if (!livePrice) return;
-    const p = Number(livePrice);
-    if (!Number.isFinite(p) || p <= 0) return;
-    adapterRef.current.updatePrice(Math.floor(Date.now() / 1000), p);
+    pendingLivePriceRef.current = livePrice;
+    if (livePriceRafRef.current != null) return;
+    livePriceRafRef.current = requestAnimationFrame(() => {
+      livePriceRafRef.current = null;
+      const ad = adapterRef.current;
+      const lp = pendingLivePriceRef.current;
+      if (!ad || !lp) return;
+      const p = Number(lp);
+      if (!Number.isFinite(p) || p <= 0) return;
+      ad.updatePrice(Math.floor(Date.now() / 1000), p);
+    });
+    return () => {
+      if (livePriceRafRef.current != null) {
+        cancelAnimationFrame(livePriceRafRef.current);
+        livePriceRafRef.current = null;
+      }
+    };
   }, [livePrice, adapterRef]);
 
   useEffect(() => {
     if (!adapterRef.current || !Array.isArray(liveTrades) || liveTrades.length === 0) return;
+    const latest = liveTrades[0];
+    const markersSig = liveTrades.slice(0, 40).map((t) => t.id).join('|');
+    const latestUnchanged = latest?.id === lastTradeIdRef.current;
+    if (markersSig === prevMarkersSigRef.current && latestUnchanged) return;
+    prevMarkersSigRef.current = markersSig;
+
     const markers = liveTrades.slice(0, 40).map((t) => ({
       time: Math.floor(new Date(t.time).getTime() / 1000),
       price: Number(t.price),
@@ -326,7 +361,6 @@ export function ChartPanel({
     })).filter((m) => Number.isFinite(m.time) && Number.isFinite(m.price));
     adapterRef.current.setTradeMarkers?.(markers);
 
-    const latest = liveTrades[0];
     if (!latest || latest.id === lastTradeIdRef.current) return;
     lastTradeIdRef.current = latest.id;
     const tt = Math.floor(new Date(latest.time).getTime() / 1000);
@@ -370,8 +404,20 @@ export function ChartPanel({
     return /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent) ? '⌘ + scroll: zoom chart' : 'Ctrl + scroll: zoom chart';
   }, []);
 
-  const lastColor =
-    changePct == null ? 'text-gray-900 dark:text-gray-100' : changePct >= 0 ? 'text-price-up' : 'text-price-down';
+  const lastColor = 'text-gray-900 dark:text-gray-100';
+
+  const hasLastTrade = lastPrice != null && lastPrice !== '';
+
+  const changeTone24h =
+    changePct == null ? 'none' : changePct > 0 ? 'up' : changePct < 0 ? 'down' : 'flat';
+  const changeClass24h =
+    changeTone24h === 'none'
+      ? 'text-gray-400'
+      : changeTone24h === 'up'
+        ? 'text-price-up'
+        : changeTone24h === 'down'
+          ? 'text-price-down'
+          : 'text-gray-500 dark:text-gray-400';
 
   return (
     <div
@@ -397,42 +443,56 @@ export function ChartPanel({
                   </div>
                 )}
               </div>
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] sm:text-[11px]">
-                <div className="flex items-baseline gap-1">
-                  <span className="font-semibold text-gray-500 dark:text-gray-500">24h</span>
-                  <span
-                    className={`font-mono font-bold tabular-nums ${
-                      changePct == null ? 'text-gray-400' : changePct >= 0 ? 'text-price-up' : 'text-price-down'
-                    }`}
-                  >
-                    {changePct == null ? '—' : `${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%`}
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] sm:text-[11px]">
+                <div
+                  className="flex min-w-0 max-w-[11rem] items-baseline gap-1 sm:max-w-none"
+                  title={changePct != null ? TOOLTIP_24H_CHANGE : TOOLTIP_CHANGE_UNAVAILABLE}
+                >
+                  <span className="shrink-0 font-semibold text-gray-500 dark:text-gray-500">24h</span>
+                  <span className={`min-w-0 truncate font-mono font-bold tabular-nums transition-colors duration-300 ${changeClass24h}`}>
+                    {changePct != null ? `${changePct > 0 ? '+' : ''}${changePct.toFixed(2)}%` : '—'}
                   </span>
                 </div>
                 <div className="hidden h-3 w-px bg-gray-300 dark:bg-gray-700 sm:block" aria-hidden />
-                <div className="flex items-baseline gap-1">
-                  <span className="text-gray-500 dark:text-gray-500">H</span>
-                  <span className="font-mono font-semibold tabular-nums text-gray-900 dark:text-gray-100">
-                    {formatValueFixedTrim(high24h, pricePrecision)}
+                <div className="flex min-w-0 max-w-[5rem] items-baseline gap-1" title={TOOLTIP_24H_HIGH}>
+                  <span className="shrink-0 text-gray-500 dark:text-gray-500">H</span>
+                  <span className="min-w-0 truncate font-mono font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+                    {(() => {
+                      const s = formatValueFixedTrim(high24h, pricePrecision);
+                      return s === '—' ? (hasLastTrade ? NO_ACTIVITY_SHORT : NO_TRADES_TINY) : s;
+                    })()}
                   </span>
                 </div>
-                <div className="flex items-baseline gap-1">
-                  <span className="text-gray-500 dark:text-gray-500">L</span>
-                  <span className="font-mono font-semibold tabular-nums text-gray-900 dark:text-gray-100">
-                    {formatValueFixedTrim(low24h, pricePrecision)}
+                <div className="flex min-w-0 max-w-[5rem] items-baseline gap-1" title={TOOLTIP_24H_LOW}>
+                  <span className="shrink-0 text-gray-500 dark:text-gray-500">L</span>
+                  <span className="min-w-0 truncate font-mono font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+                    {(() => {
+                      const s = formatValueFixedTrim(low24h, pricePrecision);
+                      return s === '—' ? (hasLastTrade ? NO_ACTIVITY_SHORT : NO_TRADES_TINY) : s;
+                    })()}
                   </span>
                 </div>
-                <div className="hidden items-baseline gap-1 md:flex">
-                  <span className="text-gray-500 dark:text-gray-500">Vol</span>
-                  <span className="font-mono font-semibold tabular-nums text-gray-900 dark:text-gray-100">
-                    {formatCompactNumber(volume24h)}
-                    {baseAsset ? ` ${baseAsset}` : ''}
+                <div className="hidden min-w-0 max-w-[6rem] items-baseline gap-1 md:flex" title={TOOLTIP_BASE_VOLUME_24H}>
+                  <span className="shrink-0 text-gray-500 dark:text-gray-500">Vol</span>
+                  <span className="min-w-0 truncate font-mono font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+                    {(() => {
+                      const s = formatCompactNumber(volume24h);
+                      const body = s === '—' ? (hasLastTrade ? NO_ACTIVITY_SHORT : NO_TRADES_TINY) : s;
+                      return `${body}${s !== '—' && baseAsset ? ` ${baseAsset}` : ''}`;
+                    })()}
                   </span>
                 </div>
-                <div className="hidden items-baseline gap-1 lg:flex">
-                  <span className="text-gray-500 dark:text-gray-500">Turn.</span>
-                  <span className="font-mono font-semibold tabular-nums text-gray-900 dark:text-gray-100">
-                    {formatCompactNumber(turnoverQuote24h)}
-                    {quoteAsset ? ` ${quoteAsset}` : ''}
+                <div
+                  className="hidden min-w-0 max-w-[6rem] items-baseline gap-1 lg:flex"
+                  title={TOOLTIP_QUOTE_VOLUME_24H}
+                >
+                  <span className="shrink-0 text-gray-500 dark:text-gray-500">Turn.</span>
+                  <span className="min-w-0 truncate font-mono font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+                    {(() => {
+                      const s = formatCompactNumber(turnoverQuote24h);
+                      const body = s === '—' ? (hasLastTrade ? NO_ACTIVITY_SHORT : NO_TRADES_TINY) : s;
+                      return `${body}${s !== '—' && quoteAsset ? ` ${quoteAsset}` : ''}`;
+                    })()}
                   </span>
                 </div>
               </div>
@@ -801,3 +861,6 @@ export function ChartPanel({
     </div>
   );
 }
+
+export const ChartPanel = memo(ChartPanelInner);
+ChartPanelInner.displayName = 'ChartPanelInner';

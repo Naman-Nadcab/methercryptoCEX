@@ -74,14 +74,18 @@ export default function RateLimitsPage() {
     suspiciousApiKeys: [],
   };
 
-  const chartData = d.series24h.length > 0
-    ? d.series24h
-    : Array.from({ length: 24 }, (_, i) => ({
-        hour: i,
-        name: `${i}:00`,
-        requests: Math.round((d.requestVolume24h / 24) * (0.7 + Math.random() * 0.6)),
-        violations: Math.round(d.rateLimitViolations / 24),
-      }));
+  /** No random filler: use API series, or a uniform per-hour estimate from totals (clearly not measured per-hour). */
+  const chartData =
+    d.series24h.length > 0
+      ? d.series24h
+      : d.requestVolume24h > 0
+        ? Array.from({ length: 24 }, (_, i) => ({
+            hour: i,
+            name: `${i}:00`,
+            requests: Math.round(d.requestVolume24h / 24),
+            violations: Math.round(d.rateLimitViolations / 24),
+          }))
+        : [];
 
   return (
     <div className="space-y-6">
@@ -151,18 +155,22 @@ export default function RateLimitsPage() {
         <Col xs={24} md={12}>
           <Panel title="Violations Trend" subtitle="Rate limit hits by hour">
             <div className="h-[200px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                  <XAxis dataKey="hour" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip
-                    contentStyle={{ background: 'var(--card-bg)', borderRadius: 8 }}
-                    formatter={(v: number) => [v, 'Violations']}
-                  />
-                  <Area type="monotone" dataKey="violations" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.3} />
-                </AreaChart>
-              </ResponsiveContainer>
+              {chartData.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-sm text-gray-500">No violation trend data.</div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                    <XAxis dataKey="hour" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} />
+                    <Tooltip
+                      contentStyle={{ background: 'var(--card-bg)', borderRadius: 8 }}
+                      formatter={(v: number) => [v, 'Violations']}
+                    />
+                    <Area type="monotone" dataKey="violations" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.3} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </Panel>
         </Col>

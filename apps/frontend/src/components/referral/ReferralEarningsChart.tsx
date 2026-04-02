@@ -13,31 +13,16 @@ export interface ReferralEarningsChartProps {
   loading?: boolean;
 }
 
-const DEFAULT_DAYS = 30;
-
-function generatePlaceholderData(): EarningsDay[] {
-  const now = new Date();
-  const out: EarningsDay[] = [];
-  for (let i = DEFAULT_DAYS - 1; i >= 0; i--) {
-    const d = new Date(now);
-    d.setDate(d.getDate() - i);
-    out.push({
-      date: d.toISOString().split('T')[0],
-      earnings: Math.random() * 20 + (i < 7 ? 5 : 0),
-    });
-  }
-  return out;
-}
-
 export function ReferralEarningsChart({ data, loading = false }: ReferralEarningsChartProps) {
-  const chartData = useMemo(() => {
-    if (data && data.length > 0) return data;
-    return generatePlaceholderData();
-  }, [data]);
+  const chartData = useMemo(() => (data && data.length > 0 ? data : []), [data]);
 
-  const maxEarnings = useMemo(() => Math.max(1, ...chartData.map((d) => d.earnings)), [chartData]);
+  const maxEarnings = useMemo(
+    () => Math.max(1, ...chartData.map((d) => d.earnings)),
+    [chartData]
+  );
   const points = useMemo(() => {
     const len = chartData.length;
+    if (len === 0) return [];
     return chartData.map((d, i) => ({
       x: (i / (len - 1 || 1)) * 100,
       y: 100 - (d.earnings / maxEarnings) * 90,
@@ -47,11 +32,14 @@ export function ReferralEarningsChart({ data, loading = false }: ReferralEarning
   }, [chartData, maxEarnings]);
 
   const pathD = useMemo(
-    () => `M 0,100 ${points.map((p) => `L ${p.x},${p.y}`).join(' ')} L 100,100 Z`,
+    () => (points.length ? `M 0,100 ${points.map((p) => `L ${p.x},${p.y}`).join(' ')} L 100,100 Z` : ''),
     [points]
   );
   const lineD = useMemo(
-    () => `M ${points[0]?.x ?? 0},${points[0]?.y ?? 100} ${points.slice(1).map((p) => `L ${p.x},${p.y}`).join(' ')}`,
+    () =>
+      points.length
+        ? `M ${points[0]!.x},${points[0]!.y} ${points.slice(1).map((p) => `L ${p.x},${p.y}`).join(' ')}`
+        : '',
     [points]
   );
 
@@ -62,6 +50,11 @@ export function ReferralEarningsChart({ data, loading = false }: ReferralEarning
       {loading ? (
         <div className="h-48 flex items-center justify-center">
           <Skeleton className="h-full w-full rounded-lg" />
+        </div>
+      ) : chartData.length === 0 ? (
+        <div className="h-48 flex flex-col items-center justify-center rounded-lg border border-dashed border-gray-200 dark:border-gray-700 text-center px-4">
+          <p className="text-sm text-gray-600 dark:text-gray-400">No daily earnings history yet.</p>
+          <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">Totals above reflect your live referral account.</p>
         </div>
       ) : (
         <div className="h-48 relative">

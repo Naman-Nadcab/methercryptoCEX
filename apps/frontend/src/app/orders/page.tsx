@@ -1,5 +1,5 @@
-import { redirect } from 'next/navigation';
+'use client';
 
-export default function OrdersRedirect() {
-  redirect('/dashboard/orders');
-}
+import OrdersHubPage from '../dashboard/orders/page';
+
+export default OrdersHubPage;

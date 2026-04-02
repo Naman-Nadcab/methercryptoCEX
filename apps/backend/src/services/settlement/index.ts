@@ -2,7 +2,11 @@
  * Phase-8 Step-5: Settlement pipeline exports.
  */
 export { startMatchPoller, stopMatchPoller } from './match-poller.js';
-export { startSettlementWorker, stopSettlementWorker } from './settlement-worker.js';
+export {
+  startSettlementWorker,
+  stopSettlementWorker,
+  runSettlementWorkerOnce,
+} from './settlement-worker.js';
 export { startWalletReconciliationScheduler, stopWalletReconciliationScheduler } from './wallet-reconciliation-scheduler.js';
 export { fetchMatches } from './engine-client.js';
 export type { EngineMatchEvent, EngineMatchesResponse } from './engine-client.js';

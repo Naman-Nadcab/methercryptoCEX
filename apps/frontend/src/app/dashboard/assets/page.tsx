@@ -7,7 +7,7 @@ export default function AssetsPage() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace('/dashboard/assets/overview');
+    router.replace('/wallet');
   }, [router]);
 
   return (

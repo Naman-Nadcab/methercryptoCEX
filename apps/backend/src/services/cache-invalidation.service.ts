@@ -8,7 +8,7 @@ import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
 
 const CHANNEL = 'cache:invalidate';
-const TICKERS_KEY = 'spot:tickers';
+const TICKERS_KEYS = ['spot:tickers:v2', 'spot:tickers'] as const;
 const CURRENCIES_ACTIVE_KEY = 'currencies:active:ids';
 const BALANCE_PREFIX = 'balance:user:';
 
@@ -32,7 +32,7 @@ async function handleInvalidation(event: InvalidationEvent): Promise<void> {
     switch (event.type) {
       case 'tickers':
       case 'tickers_symbol':
-        await redis.del(TICKERS_KEY);
+        await Promise.all(TICKERS_KEYS.map((k) => redis.del(k)));
         break;
       case 'orderbook':
         await redis.del(`spot:orderbook:${event.symbol}`);

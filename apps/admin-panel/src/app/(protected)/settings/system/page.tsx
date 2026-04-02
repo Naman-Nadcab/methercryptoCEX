@@ -241,13 +241,6 @@ export default function SystemSettingsPage() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  useEffect(() => {
-    const el = selectAllCheckboxRef.current;
-    if (!el) return;
-    const ind = filteredFeatures.length > 0 && selectedFeatureKeys.size > 0 && selectedFeatureKeys.size < filteredFeatures.length;
-    el.indeterminate = ind;
-  }, [filteredFeatures.length, selectedFeatureKeys.size]);
-
   const handleBulkConfirm = async () => {
     if (!bulkConfirm) return;
     const keys = Array.from(selectedFeatureKeys);
@@ -321,6 +314,13 @@ export default function SystemSettingsPage() {
       return true;
     });
   }, [features, featureSearchDebounced, featureStatusFilter, featureRolloutFilter]);
+
+  useEffect(() => {
+    const el = selectAllCheckboxRef.current;
+    if (!el) return;
+    const ind = filteredFeatures.length > 0 && selectedFeatureKeys.size > 0 && selectedFeatureKeys.size < filteredFeatures.length;
+    el.indeterminate = ind;
+  }, [filteredFeatures.length, selectedFeatureKeys.size]);
 
   const limitsErrors = useMemo(() => getLimitsErrors(limitsForm), [limitsForm]);
   const limitsFormValid = Object.keys(limitsErrors).length === 0;
@@ -447,7 +447,9 @@ export default function SystemSettingsPage() {
 
   const versions = (historyData?.data?.versions ?? []) as ConfigVersionRow[];
   const historyUniqueAdmins = useMemo(() => {
-    const names = [...new Set(versions.map((v) => v.updated_by).filter((x): x is string => x != null && x !== ''))];
+    const names = Array.from(
+      new Set(versions.map((v) => v.updated_by).filter((x): x is string => x != null && x !== ''))
+    );
     return names.sort((a, b) => a.localeCompare(b));
   }, [versions]);
 
@@ -1286,7 +1288,7 @@ export default function SystemSettingsPage() {
             {diffData?.data ? (() => {
               const before = diffData.data.before ?? {};
               const after = diffData.data.after ?? {};
-              const allKeys = [...new Set([...Object.keys(before), ...Object.keys(after)])];
+              const allKeys = Array.from(new Set([...Object.keys(before), ...Object.keys(after)]));
               const changedKeys = allKeys
                 .filter((k) => (before[k] ?? '') !== (after[k] ?? ''))
                 .sort((a, b) => a.localeCompare(b));

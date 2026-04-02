@@ -395,7 +395,11 @@ export default function AdminUserDetailPage() {
                   <div>
                     <dt className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">KYC / Tier</dt>
                     <dd className="mt-1 text-gray-900 dark:text-white">
-                      {user?.tier_level != null ? `Tier ${user.tier_level}` : user?.kyc_status ?? '—'}
+                      {user?.tier_level != null
+                        ? `Tier ${user.tier_level}`
+                        : typeof user?.kyc_status === 'string'
+                          ? user.kyc_status
+                          : '—'}
                     </dd>
                   </div>
                   <div>
@@ -574,7 +578,11 @@ export default function AdminUserDetailPage() {
             label: 'KYC Documents',
             children: (
               <Panel title="KYC documents" subtitle="Verification status and documents">
-                <p className="text-sm text-gray-500 dark:text-gray-400 py-4">KYC status: {user?.kyc_status ?? '—'}. Full KYC list is available in KYC Verification.</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 py-4">
+                  KYC status:{' '}
+                  {typeof user?.kyc_status === 'string' ? user.kyc_status : '—'}. Full KYC list is available in KYC
+                  Verification.
+                </p>
               </Panel>
             ),
           },

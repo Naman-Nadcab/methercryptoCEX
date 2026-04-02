@@ -12,7 +12,7 @@ export default function OrdersHubPage() {
       </p>
       <div className="space-y-3">
         <Link
-          href="/dashboard/orders/spot"
+          href="/orders/spot"
           className="flex items-center gap-4 p-4 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
         >
           <div className="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
@@ -25,7 +25,7 @@ export default function OrdersHubPage() {
           <span className="text-gray-400">→</span>
         </Link>
         <Link
-          href="/dashboard/orders/p2p"
+          href="/orders/p2p"
           className="flex items-center gap-4 p-4 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
         >
           <div className="w-10 h-10 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
@@ -38,7 +38,7 @@ export default function OrdersHubPage() {
           <span className="text-gray-400">→</span>
         </Link>
         <Link
-          href="/dashboard/assets/convert"
+          href="/wallet/convert"
           className="flex items-center gap-4 p-4 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
         >
           <div className="w-10 h-10 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">

@@ -13,6 +13,7 @@ import {
   isTradingHalted,
   assertP2PEscrowCapInTransaction,
   assertP2POrderVelocityInTransaction,
+  assertP2PTradeTierLimitsInTransaction,
 } from './abuse-resilience.service.js';
 import {
   P2PAd,
@@ -28,15 +29,49 @@ import {
 } from '../types/index.js';
 import { PoolClient } from 'pg';
 import * as spotWs from './spot-ws.service.js';
+import { publishP2POrderRoom } from './p2p-ws-publish.service.js';
+import { bumpP2PAdsListCacheGen } from './p2p-ads-cache.service.js';
+import {
+  applyFloatingMargin,
+  getP2PReferencePriceDecimal,
+} from './p2p-reference-price.service.js';
 
 Decimal.set({ precision: 36, rounding: Decimal.ROUND_DOWN });
 
+function rowUserIds(order: P2POrder): { buyerId: string; sellerId: string } {
+  const o = order as unknown as Record<string, unknown>;
+  const buyerId = String(o.buyer_id ?? o.buyerId ?? '');
+  const sellerId = String(o.seller_id ?? o.sellerId ?? '');
+  return { buyerId, sellerId };
+}
+
 function emitP2POrderUpdate(order: P2POrder): void {
   try {
-    const payload = { id: order.id, status: order.status };
-    spotWs.sendP2POrderUpdate(order.buyerId, payload);
-    if (order.sellerId !== order.buyerId) {
-      spotWs.sendP2POrderUpdate(order.sellerId, payload);
+    const { buyerId, sellerId } = rowUserIds(order);
+    const o = order as unknown as Record<string, unknown>;
+    const id = String(o.id ?? '');
+    const status = String(o.status ?? '');
+    const payload = {
+      id,
+      status,
+      buyer_id: buyerId,
+      seller_id: sellerId,
+      quantity: String(o.quantity ?? o.crypto_amount ?? ''),
+      fiat_amount: String(o.fiat_amount ?? ''),
+      fiat_currency: String(o.fiat_currency ?? ''),
+      price: String(o.price ?? ''),
+      payment_verification_status:
+        o.payment_verification_status != null ? String(o.payment_verification_status) : null,
+      transaction_reference: o.transaction_reference != null ? String(o.transaction_reference) : null,
+      payment_proof_url: o.payment_proof_url != null ? String(o.payment_proof_url) : null,
+      updated_at: o.updated_at instanceof Date ? o.updated_at.toISOString() : String(o.updated_at ?? ''),
+    };
+    const userPayload = { id, status };
+    if (buyerId) spotWs.sendP2POrderUpdate(buyerId, userPayload);
+    if (sellerId && sellerId !== buyerId) spotWs.sendP2POrderUpdate(sellerId, userPayload);
+    if (id) {
+      publishP2POrderRoom(id, 'order:updated', payload);
+      publishP2POrderRoom(id, 'order:status_changed', { id, status });
     }
   } catch {
     /* best-effort */
@@ -228,6 +263,7 @@ class P2PService {
     logger.info('P2P ad created', { adId: ad.id, userId, type });
     auditLog(AuditAction.P2P_AD_CREATED, userId, { adId: ad.id, type, tokenId }, undefined);
 
+    void bumpP2PAdsListCacheGen();
     return ad;
   }
 
@@ -307,6 +343,7 @@ class P2PService {
 
     auditLog(AuditAction.P2P_AD_UPDATED, userId, { adId, updates }, undefined);
 
+    void bumpP2PAdsListCacheGen();
     return result.rows[0]!;
   }
 
@@ -350,6 +387,9 @@ class P2PService {
       );
 
       return result.rows[0]!;
+    }).then((ad) => {
+      void bumpP2PAdsListCacheGen();
+      return ad;
     });
   }
 
@@ -506,6 +546,10 @@ class P2PService {
         if (await isTradingHalted()) {
           throw new Error('TRADING_HALTED');
         }
+        const { isMmCircuitTradingPaused } = await import('./mm-circuit-breaker.service.js');
+        if (await isMmCircuitTradingPaused()) {
+          throw new Error('MM_CIRCUIT_TRADING_PAUSED');
+        }
 
         // Lock order creator so velocity is evaluated under serialized state (no concurrent bypass).
         await client.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [userId]);
@@ -514,10 +558,33 @@ class P2PService {
         // Escrow cap MUST be checked inside this transaction with row-level lock (same tx as moveToEscrow).
         await assertP2PEscrowCapInTransaction(sellerId, quantity, client);
 
-        // Calculate fiat amount (Decimal, string)
-        const fiatAmount = qtyDec.times(ad.price).toDecimalPlaces(8, Decimal.ROUND_DOWN).toString();
+        const adFiatCurEarly =
+          (ad as { fiatCurrency?: string }).fiatCurrency ?? (ad as { fiat_currency?: string }).fiat_currency ?? 'USD';
+        const adRow = ad as unknown as Record<string, unknown>;
+        const priceTypeStr = String(adRow.price_type ?? adRow.priceType ?? 'fixed');
+        const marginRaw = adRow.floating_price_margin ?? adRow.floatingPriceMargin;
+        const tokenIdForSym =
+          (ad as { tokenId?: string }).tokenId ?? (ad as { token_id?: string }).token_id ?? '';
+        const symRes = await client.query<{ symbol: string }>(
+          `SELECT symbol FROM tokens WHERE id = $1 LIMIT 1`,
+          [tokenIdForSym]
+        );
+        const cryptoSymbol = symRes.rows[0]?.symbol ?? 'USDT';
+
+        let lockedUnitPrice = String(adRow.price ?? ad.price ?? '0');
+        if (priceTypeStr === 'floating' && marginRaw != null && String(marginRaw).length > 0) {
+          const ref = await getP2PReferencePriceDecimal(cryptoSymbol, adFiatCurEarly);
+          lockedUnitPrice = applyFloatingMargin(ref, String(marginRaw));
+          await client.query(`UPDATE p2p_ads SET price = $2, updated_at = NOW() WHERE id = $1`, [
+            adId,
+            lockedUnitPrice,
+          ]);
+        }
+
+        // Calculate fiat amount (Decimal, string) — lockedUnitPrice is server snapshot for this order
+        const fiatAmount = qtyDec.times(lockedUnitPrice).toDecimalPlaces(8, Decimal.ROUND_DOWN).toString();
         const fiatAmountDec = new Decimal(fiatAmount);
-        const adFiatCur = (ad as { fiatCurrency?: string }).fiatCurrency ?? (ad as { fiat_currency?: string }).fiat_currency ?? 'USD';
+        const adFiatCur = adFiatCurEarly;
 
         // P2P limits (FIU India compliance)
         const maxFiatInr = config.p2p.maxFiatPerOrderInr;
@@ -547,6 +614,8 @@ class P2PService {
           }
         }
 
+        await assertP2PTradeTierLimitsInTransaction(client, buyerId, sellerId, fiatInrApprox);
+
         // PHASE-11: Dedicated escrow. Move seller's available -> escrow_balance (not locked_balance).
         const tokenId = (ad as { tokenId?: string }).tokenId ?? (ad as { crypto_currency_id?: string }).crypto_currency_id;
         if (!tokenId) throw new Error('Ad missing token/crypto currency');
@@ -572,7 +641,7 @@ class P2PService {
             sellerId,
             tokenId,
             adFiat,
-            ad.price,
+            lockedUnitPrice,
             quantity,
             fiatAmount,
             paymentMethodId,
@@ -583,6 +652,8 @@ class P2PService {
         );
 
         const order = orderResult.rows[0]!;
+
+        await client.query(`UPDATE escrows SET p2p_order_id = $1 WHERE id = $2`, [order.id, escrowId]);
 
         // Update ad available amount (logical cap) — defensive: never allow negative
         const newAvailableDec = new Decimal(avail).minus(quantity).toDecimalPlaces(8, Decimal.ROUND_DOWN);
@@ -616,6 +687,7 @@ class P2PService {
         auditLog(AuditAction.P2P_ORDER_CREATED, userId, { orderId: order.id, adId }, undefined);
         logger.info('P2P_SECURITY', { event: 'p2p_security', action: 'order_created', orderId: order.id, userId, adId, timestamp: new Date().toISOString() });
 
+        void bumpP2PAdsListCacheGen();
         return order;
       });
     } finally {
@@ -625,9 +697,15 @@ class P2PService {
   }
 
   /**
-   * Confirm payment received (buyer confirms). State: pending_payment → buyer_marked_paid. Optional payment_proof_url for dispute evidence. Idempotent.
+   * Confirm payment received (buyer). With requirePaymentProof: proof file URL + transaction_reference mandatory; sets payment_verification_status = pending.
+   * Legacy mode (requirePaymentProof false): optional proof; leaves payment_verification_status NULL so release is unchanged.
    */
-  async confirmPayment(orderId: string, userId: string, requestIp?: string, proofUrl?: string): Promise<P2POrder> {
+  async confirmPayment(
+    orderId: string,
+    userId: string,
+    requestIp?: string,
+    opts?: { proofUrl: string; transactionReference: string }
+  ): Promise<P2POrder> {
     return await db.transaction(async (client) => {
       const orderResult = await client.query<P2POrder>(
         'SELECT * FROM p2p_orders WHERE id = $1 FOR UPDATE',
@@ -639,8 +717,9 @@ class P2PService {
       }
 
       const order = orderResult.rows[0]!;
+      const { buyerId } = rowUserIds(order);
 
-      if (order.buyerId !== userId) {
+      if (buyerId !== userId) {
         throw new Error('Only buyer can confirm payment');
       }
 
@@ -652,28 +731,73 @@ class P2PService {
         throw new Error('Invalid order status');
       }
 
-      const result = await client.query<P2POrder>(
-        proofUrl
-          ? `UPDATE p2p_orders 
-             SET status = 'payment_confirmed', payment_confirmed_at = NOW(), payment_proof_url = $2, updated_at = NOW()
-             WHERE id = $1
-             RETURNING *`
-          : `UPDATE p2p_orders 
-             SET status = 'payment_confirmed', payment_confirmed_at = NOW(), updated_at = NOW()
+      const strict = config.p2p.requirePaymentProof;
+      let proofUrl = opts?.proofUrl?.trim() ?? '';
+      const txRef = opts?.transactionReference?.trim() ?? '';
+
+      if (strict) {
+        if (!proofUrl) {
+          throw new Error('PAYMENT_PROOF_REQUIRED');
+        }
+        if (!txRef || txRef.length > 256) {
+          throw new Error('TRANSACTION_REFERENCE_REQUIRED');
+        }
+      } else {
+        if (txRef.length > 256) {
+          throw new Error('TRANSACTION_REFERENCE_TOO_LONG');
+        }
+      }
+
+      const result = strict
+        ? await client.query<P2POrder>(
+            `UPDATE p2p_orders 
+             SET status = 'payment_confirmed',
+                 payment_confirmed_at = NOW(),
+                 payment_proof_url = $2,
+                 transaction_reference = $3,
+                 payment_proof_uploaded_at = NOW(),
+                 payment_verification_status = 'pending',
+                 updated_at = NOW()
              WHERE id = $1
              RETURNING *`,
-        proofUrl ? [orderId, proofUrl] : [orderId]
-      );
+            [orderId, proofUrl, txRef]
+          )
+        : await client.query<P2POrder>(
+            proofUrl || txRef
+              ? `UPDATE p2p_orders 
+                 SET status = 'payment_confirmed',
+                     payment_confirmed_at = NOW(),
+                     payment_proof_url = COALESCE($2, payment_proof_url),
+                     transaction_reference = CASE WHEN $3::text IS NOT NULL AND LENGTH(TRIM($3)) > 0 THEN TRIM($3) ELSE transaction_reference END,
+                     payment_proof_uploaded_at = CASE WHEN $2::text IS NOT NULL AND LENGTH(TRIM($2)) > 0 THEN NOW() ELSE payment_proof_uploaded_at END,
+                     updated_at = NOW()
+                 WHERE id = $1
+                 RETURNING *`
+              : `UPDATE p2p_orders 
+                 SET status = 'payment_confirmed', payment_confirmed_at = NOW(), updated_at = NOW()
+                 WHERE id = $1
+                 RETURNING *`,
+            proofUrl || txRef ? [orderId, proofUrl || null, txRef || null] : [orderId]
+          );
 
+      const { sellerId } = rowUserIds(order);
       await rabbitmq.sendToQueue(QUEUES.P2P_PAYMENT_CONFIRMED, {
         orderId: order.id,
-        buyerId: order.buyerId,
-        sellerId: order.sellerId,
+        buyerId,
+        sellerId,
         timestamp: Date.now(),
       });
 
-      auditLog(AuditAction.P2P_PAYMENT_CONFIRMED, userId, { orderId }, requestIp);
-      logger.info('P2P_SECURITY', { event: 'p2p_security', action: 'payment_confirmed', orderId, userId, ip: requestIp, timestamp: new Date().toISOString() });
+      auditLog(AuditAction.P2P_PAYMENT_CONFIRMED, userId, { orderId, strict, hasProof: !!proofUrl }, requestIp);
+      logger.info('P2P_SECURITY', {
+        event: 'p2p_security',
+        action: 'payment_confirmed',
+        orderId,
+        userId,
+        ip: requestIp,
+        strict,
+        timestamp: new Date().toISOString(),
+      });
 
       const updated = result.rows[0]!;
       emitP2POrderUpdate(updated);
@@ -682,9 +806,57 @@ class P2PService {
   }
 
   /**
-   * Release crypto (seller confirms). State: buyer_marked_paid → seller_released. Idempotent.
+   * Seller confirms fiat received in bank (payment_verification_status pending → verified).
    */
-  async releaseCrypto(orderId: string, userId: string, requestIp?: string): Promise<P2POrder> {
+  async sellerVerifyPayment(orderId: string, sellerUserId: string, requestIp?: string): Promise<P2POrder> {
+    return await db.transaction(async (client) => {
+      const orderResult = await client.query<P2POrder>(
+        'SELECT * FROM p2p_orders WHERE id = $1 FOR UPDATE',
+        [orderId]
+      );
+      if (orderResult.rows.length === 0) {
+        throw new Error('Order not found');
+      }
+      const order = orderResult.rows[0]!;
+      const { buyerId, sellerId } = rowUserIds(order);
+      if (sellerId !== sellerUserId) {
+        throw new Error('Only seller can verify payment');
+      }
+      if (order.status !== P2POrderStatus.PAYMENT_CONFIRMED) {
+        throw new Error('Invalid order status');
+      }
+      const o = order as unknown as Record<string, unknown>;
+      const pvs = o.payment_verification_status != null ? String(o.payment_verification_status) : '';
+      if (pvs !== 'pending') {
+        throw new Error('Payment is not pending seller verification');
+      }
+      const r = await client.query<P2POrder>(
+        `UPDATE p2p_orders
+         SET payment_verification_status = 'verified',
+             payment_verified_at = NOW(),
+             payment_verified_by = $2,
+             updated_at = NOW()
+         WHERE id = $1
+         RETURNING *`,
+        [orderId, sellerId]
+      );
+      const updated = r.rows[0]!;
+      auditLog(AuditAction.P2P_SELLER_VERIFIED_PAYMENT, sellerUserId, { orderId }, requestIp);
+      emitP2POrderUpdate(updated);
+      return updated;
+    });
+  }
+
+  /**
+   * Release crypto (seller confirms). State: buyer_marked_paid → seller_released. Idempotent.
+   * When options.slaAutoRelease, enforces payment_confirmed_at + SLA (seller id must still match for audit).
+   */
+  async releaseCrypto(
+    orderId: string,
+    userId: string,
+    requestIp?: string,
+    options?: { slaAutoRelease?: boolean }
+  ): Promise<P2POrder> {
     return await db.transaction(async (client) => {
       const orderResult = await client.query<P2POrder>(
         'SELECT * FROM p2p_orders WHERE id = $1 FOR UPDATE',
@@ -696,8 +868,23 @@ class P2PService {
       }
 
       const order = orderResult.rows[0]!;
+      const { buyerId, sellerId } = rowUserIds(order);
 
-      if (order.sellerId !== userId) {
+      if (options?.slaAutoRelease) {
+        if (userId !== sellerId) {
+          throw new Error('SLA release validation failed');
+        }
+        const pcat =
+          (order as { payment_confirmed_at?: Date | string | null }).payment_confirmed_at ??
+          (order as { paymentConfirmedAt?: Date | string | null }).paymentConfirmedAt;
+        if (pcat == null) {
+          throw new Error('payment_confirmed_at missing');
+        }
+        const ageMs = Date.now() - new Date(pcat).getTime();
+        if (ageMs < config.p2p.slaReleaseMinutes * 60_000) {
+          throw new Error('SLA window not elapsed');
+        }
+      } else if (sellerId !== userId) {
         throw new Error('Only seller can release crypto');
       }
 
@@ -711,6 +898,14 @@ class P2PService {
 
       if (order.status !== P2POrderStatus.PAYMENT_CONFIRMED) {
         throw new Error('Payment not yet confirmed by buyer');
+      }
+
+      if (!options?.slaAutoRelease) {
+        const o = order as unknown as Record<string, unknown>;
+        const pvs = o.payment_verification_status != null ? String(o.payment_verification_status) : '';
+        if (pvs === 'pending' || pvs === 'rejected') {
+          throw new Error('PAYMENT_NOT_VERIFIED');
+        }
       }
 
       const escrowId = (order as { escrowId?: string }).escrowId ?? (order as { escrow_id?: string }).escrow_id;
@@ -735,7 +930,7 @@ class P2PService {
         }
       }
 
-      const releaseResult = await releaseFromEscrow(escrowId, order.buyerId, client);
+      const releaseResult = await releaseFromEscrow(escrowId, buyerId, client);
       if (releaseResult.alreadyReleased) {
         await client.query(
           `UPDATE p2p_orders SET status = 'completed', released_at = COALESCE(released_at, NOW()), updated_at = NOW() WHERE id = $1`,
@@ -756,32 +951,33 @@ class P2PService {
         [orderId]
       );
 
+      const adIdForComplete = String((order as { ad_id?: string }).ad_id ?? (order as { adId?: string }).adId ?? '');
       // Update ad completed orders count
       await client.query(
         `UPDATE p2p_ads SET completed_orders = completed_orders + 1 WHERE id = $1`,
-        [order.adId]
+        [adIdForComplete]
       );
 
       // Record transaction
       await client.query(
         `INSERT INTO transactions (user_id, token_id, type, status, amount, reference_id, reference_type)
          VALUES ($1, $2, 'p2p_escrow_release', 'completed', $3, $4, 'p2p_order')`,
-        [order.buyerId, order.tokenId, order.quantity, orderId]
+        [buyerId, order.tokenId, order.quantity, orderId]
       );
 
       await rabbitmq.sendToQueue(QUEUES.P2P_ESCROW_RELEASED, {
         escrowId,
         orderId: order.id,
-        sellerId: order.sellerId,
-        buyerId: order.buyerId,
+        sellerId,
+        buyerId,
         asset: order.tokenId,
         amount: order.quantity,
         action: 'released',
         timestamp: Date.now(),
       } as P2PEscrowMessage);
 
-      auditLog(AuditAction.P2P_ORDER_RELEASED, userId, { orderId }, requestIp);
-      logger.info('P2P crypto released', { orderId, userId });
+      auditLog(AuditAction.P2P_ORDER_RELEASED, userId, { orderId, sla_auto: options?.slaAutoRelease === true }, requestIp);
+      logger.info('P2P crypto released', { orderId, userId, slaAuto: options?.slaAutoRelease === true });
       logger.info('P2P_SECURITY', { event: 'p2p_security', action: 'order_released', orderId, userId, ip: requestIp, timestamp: new Date().toISOString() });
 
       const released = result.rows[0]!;
@@ -794,7 +990,8 @@ class P2PService {
    * Cancel P2P order. Idempotent: if already cancelled, no liquidity change.
    */
   async cancelOrder(orderId: string, userId: string, reason: string, requestIp?: string): Promise<P2POrder> {
-    const CANCELLABLE_STATUSES = [P2POrderStatus.PAYMENT_PENDING, P2POrderStatus.PAYMENT_CONFIRMED] as const;
+    /** Tier-1: never cancel after buyer marks paid — only release, dispute, or admin resolution may move escrow then. */
+    const CANCELLABLE_STATUSES = [P2POrderStatus.PAYMENT_PENDING] as const;
 
     return await db.transaction(async (client) => {
       const orderResult = await client.query<P2POrder>(
@@ -884,6 +1081,7 @@ class P2PService {
 
       const cancelled = result.rows[0]!;
       emitP2POrderUpdate(cancelled);
+      void bumpP2PAdsListCacheGen();
       return cancelled;
     });
   }
@@ -909,8 +1107,8 @@ class P2PService {
 
       const order = orderResult.rows[0]!;
 
-      // Check if user is part of this order
-      if (order.buyerId !== userId && order.sellerId !== userId) {
+      const { buyerId, sellerId } = rowUserIds(order);
+      if (buyerId !== userId && sellerId !== userId) {
         throw new Error('Not authorized to open dispute');
       }
 
@@ -929,21 +1127,37 @@ class P2PService {
         throw new Error('Dispute already exists for this order');
       }
 
-      // Create dispute
+      const o = order as unknown as Record<string, unknown>;
+      const proofUrl = o.payment_proof_url;
+      const txRef = o.transaction_reference;
+      const pvs = o.payment_verification_status != null ? String(o.payment_verification_status) : '';
+      const paymentContext = {
+        payment_proof_url: proofUrl ?? null,
+        transaction_reference: txRef ?? null,
+        payment_verification_status: pvs || null,
+      };
+      const mergedEvidence = [...(evidence ?? [])];
+      if (proofUrl) mergedEvidence.push(`payment_proof_url:${String(proofUrl)}`);
+      if (txRef) mergedEvidence.push(`transaction_reference:${String(txRef)}`);
+
       const disputeResult = await client.query<P2PDispute>(
-        `INSERT INTO p2p_disputes (order_id, initiator_id, reason, evidence, status)
-         VALUES ($1, $2, $3, $4, 'open')
+        `INSERT INTO p2p_disputes (order_id, initiator_id, reason, evidence, status, payment_context)
+         VALUES ($1, $2, $3, $4, 'open', $5::jsonb)
          RETURNING *`,
-        [orderId, userId, reason, evidence || []]
+        [orderId, userId, reason, mergedEvidence, JSON.stringify(paymentContext)]
       );
 
-      // Update order status
       await client.query(
-        `UPDATE p2p_orders SET status = 'disputed', updated_at = NOW() WHERE id = $1`,
+        `UPDATE p2p_orders 
+         SET status = 'disputed',
+             payment_verification_status = CASE WHEN payment_verification_status = 'pending' THEN 'rejected' ELSE payment_verification_status END,
+             updated_at = NOW()
+         WHERE id = $1`,
         [orderId]
       );
 
-      emitP2POrderUpdate({ ...order, status: P2POrderStatus.DISPUTED });
+      const afterDispute = await client.query<P2POrder>('SELECT * FROM p2p_orders WHERE id = $1', [orderId]);
+      if (afterDispute.rows[0]) emitP2POrderUpdate(afterDispute.rows[0]!);
 
       await rabbitmq.sendToQueue(QUEUES.P2P_DISPUTE_OPENED, {
         disputeId: disputeResult.rows[0]!.id,
@@ -979,6 +1193,12 @@ class P2PService {
       }
 
       const dispute = disputeResult.rows[0]!;
+      const disputeOrderId = String(
+        (dispute as unknown as Record<string, unknown>).order_id ?? (dispute as { orderId?: string }).orderId ?? ''
+      );
+      if (!disputeOrderId) {
+        throw new Error('Dispute missing order id');
+      }
 
       if (dispute.status === 'resolved' || dispute.status === 'closed') {
         throw new Error('Dispute already resolved');
@@ -987,18 +1207,19 @@ class P2PService {
       // Get order
       const orderResult = await client.query<P2POrder>(
         'SELECT * FROM p2p_orders WHERE id = $1 FOR UPDATE',
-        [dispute.orderId]
+        [disputeOrderId]
       );
 
       const order = orderResult.rows[0]!;
+      const { buyerId: orderBuyerId } = rowUserIds(order);
       const escrowId = (order as { escrowId?: string }).escrowId ?? (order as { escrow_id?: string }).escrow_id;
       if (!escrowId) throw new Error('Order missing escrow_id');
 
       // PHASE-11: Use dedicated escrow service; idempotent release/refund.
       if (resolution === 'favor_buyer') {
-        const releaseResult = await releaseFromEscrow(escrowId, order.buyerId, client);
+        const releaseResult = await releaseFromEscrow(escrowId, orderBuyerId, client);
         await client.query(
-          `UPDATE p2p_orders SET status = 'completed', released_at = COALESCE(released_at, NOW()), updated_at = NOW() WHERE id = $1`,
+          `UPDATE p2p_orders SET status = 'completed', released_at = COALESCE(released_at, NOW()), payment_verification_status = 'verified', updated_at = NOW() WHERE id = $1`,
           [order.id]
         );
       } else {
@@ -1031,7 +1252,7 @@ class P2PService {
           }
         }
         await client.query(
-          `UPDATE p2p_orders SET status = 'cancelled', cancelled_at = COALESCE(cancelled_at, NOW()), updated_at = NOW() WHERE id = $1`,
+          `UPDATE p2p_orders SET status = 'cancelled', cancelled_at = COALESCE(cancelled_at, NOW()), payment_verification_status = 'rejected', updated_at = NOW() WHERE id = $1`,
           [order.id]
         );
       }

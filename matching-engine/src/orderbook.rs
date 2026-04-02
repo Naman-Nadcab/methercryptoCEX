@@ -101,7 +101,7 @@ impl From<&OrderKey> for AskKey {
 }
 
 /// In-memory order book per market. No matching logic.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct OrderBook {
     bids: BTreeMap<BidKey, Order>,
     asks: BTreeMap<AskKey, Order>,
@@ -222,5 +222,74 @@ impl OrderBook {
     pub fn cancel_order(&mut self, order_id: Uuid) {
         self.bids.retain(|_, o| o.id != order_id);
         self.asks.retain(|_, o| o.id != order_id);
+    }
+
+    /// Apply a single match fill (reduce remaining on bid/ask). Used for WAL replay alignment.
+    /// Strict: both orders must exist, same market, and each `remaining >= ev.quantity`.
+    pub fn apply_match_fill(&mut self, ev: &MatchEvent) -> Result<(), String> {
+        use rust_decimal::Decimal;
+        if ev.quantity <= Decimal::ZERO {
+            return Err("apply_match_fill: non-positive quantity".into());
+        }
+
+        let bid_key = self
+            .bids
+            .iter()
+            .find(|(_, o)| o.id == ev.bid_order_id)
+            .map(|(k, _)| k.clone());
+        let ask_key = self
+            .asks
+            .iter()
+            .find(|(_, o)| o.id == ev.ask_order_id)
+            .map(|(k, _)| k.clone());
+
+        let (bk, ak) = match (bid_key, ask_key) {
+            (Some(b), Some(a)) => (b, a),
+            (b, a) => {
+                return Err(format!(
+                    "apply_match_fill: missing order bid_key={} ask_key={} (bid_order_id={} ask_order_id={})",
+                    b.is_some(),
+                    a.is_some(),
+                    ev.bid_order_id,
+                    ev.ask_order_id
+                ));
+            }
+        };
+
+        let mut bid = self.bids.remove(&bk).ok_or_else(|| "apply_match_fill: bid remove".to_string())?;
+        let mut ask = self.asks.remove(&ak).ok_or_else(|| "apply_match_fill: ask remove".to_string())?;
+
+        if bid.market != ev.market || ask.market != ev.market {
+            let bm = bid.market.clone();
+            let am = ask.market.clone();
+            self.bids.insert(bk, bid);
+            self.asks.insert(ak, ask);
+            return Err(format!(
+                "apply_match_fill: market mismatch (ev={} bid={} ask={})",
+                ev.market, bm, am
+            ));
+        }
+
+        if bid.remaining < ev.quantity || ask.remaining < ev.quantity {
+            let br = bid.remaining;
+            let ar = ask.remaining;
+            self.bids.insert(bk, bid);
+            self.asks.insert(ak, ask);
+            return Err(format!(
+                "apply_match_fill: insufficient remaining bid_rem={br} ask_rem={ar} need={}",
+                ev.quantity
+            ));
+        }
+
+        bid.remaining -= ev.quantity;
+        ask.remaining -= ev.quantity;
+
+        if !bid.remaining.is_zero() {
+            self.bids.insert(bk, bid);
+        }
+        if !ask.remaining.is_zero() {
+            self.asks.insert(ak, ask);
+        }
+        Ok(())
     }
 }

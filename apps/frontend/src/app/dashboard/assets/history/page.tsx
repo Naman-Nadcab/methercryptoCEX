@@ -335,7 +335,7 @@ export default function AssetHistoryPage() {
     <div className="p-6">
           {/* Breadcrumb */}
           <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
-            <Link href="/dashboard/assets/funding" className="hover:text-blue-500 transition-colors">Funding</Link>
+            <Link href="/wallet/funding" className="hover:text-blue-500 transition-colors">Funding</Link>
             <ChevronRight className="w-4 h-4" />
             <span className="text-gray-900 dark:text-white font-medium">Funding Account History</span>
           </div>

@@ -30,7 +30,7 @@ export default function P2POrdersViewPage() {
     <div className="p-4 md:p-6 max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl font-semibold text-gray-900 dark:text-white">P2P Orders</h1>
-        <Link href="/dashboard/p2p" className="text-sm text-blue-500 dark:text-blue-400 hover:underline">P2P Trading →</Link>
+        <Link href="/p2p" className="text-sm text-blue-500 dark:text-blue-400 hover:underline">P2P Trading →</Link>
       </div>
       <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
         {loading ? (
@@ -42,7 +42,7 @@ export default function P2POrdersViewPage() {
             icon={ShoppingCart}
             title="No P2P orders yet"
             description="Buy or sell crypto with other users. Start a trade to see your orders here."
-            action={{ label: 'Start P2P trade', href: '/dashboard/p2p' }}
+            action={{ label: 'Start P2P trade', href: '/p2p' }}
           />
         ) : (
           <table className="w-full text-sm">
@@ -67,7 +67,7 @@ export default function P2POrdersViewPage() {
                   </td>
                   <td className="p-3 text-gray-500 dark:text-gray-400">{o.created_at ? new Date(o.created_at).toLocaleString() : '—'}</td>
                   <td className="p-3">
-                    <Link href={`/dashboard/p2p/orders/${o.id}`} className="text-blue-500 dark:text-blue-400 hover:underline">
+                    <Link href={`/p2p/orders/${o.id}`} className="text-blue-500 dark:text-blue-400 hover:underline">
                       View
                     </Link>
                   </td>

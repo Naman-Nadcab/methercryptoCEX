@@ -10,6 +10,8 @@ import { redis } from '../lib/redis.js';
 import { config } from '../config/index.js';
 import { CHAIN_ID_GLOBAL } from '../lib/user-balance-helper.js';
 import { logger } from '../lib/logger.js';
+import { getSpotOrdersUseMarket } from '../lib/spot-schema-cache.js';
+import { buildOpenOrdersNotionalSql } from '../lib/unified-spot-orders.js';
 
 const ROUND_DOWN = 1;
 const VELOCITY_KEY_PREFIX = 'spot:order_velocity:';
@@ -64,11 +66,9 @@ export async function checkMaxOpenNotional(userId: string, symbol: string, addit
   const maxNotional = config.preTradeRisk.spotMaxOpenNotionalUsdt;
   if (maxNotional <= 0) return { allowed: true };
   try {
+    const useMarket = await getSpotOrdersUseMarket();
     const rows = await db.query<{ price: string; remaining_quantity: string; quote_asset: string }>(
-      `SELECT o.price, o.remaining_quantity, m.quote_asset
-       FROM spot_orders o
-       JOIN spot_markets m ON m.symbol = o.market
-       WHERE o.user_id = $1 AND o.status IN ('OPEN', 'PARTIALLY_FILLED')`,
+      buildOpenOrdersNotionalSql(useMarket),
       [userId]
     );
     let totalUsdt = new Decimal(0);

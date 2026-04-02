@@ -1,8 +1,7 @@
 import crypto from 'node:crypto';
-import path from 'node:path';
 import fs from 'node:fs';
-import { pipeline } from 'node:stream/promises';
 import { FastifyInstance } from 'fastify';
+import type { MultipartFile } from '@fastify/multipart';
 import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
@@ -13,7 +12,25 @@ import { assertKycAllowed, KycRequiredError, KycPendingError } from '../services
 import { checkSanctions } from '../services/sanctions-screening.service.js';
 import { getCurrencyIdBySymbol, getTokenIdsByCurrencyId } from '../lib/currency-resolver.js';
 import { rateLimitByUser } from '../lib/rate-limit-fastify.js';
-import { P2PAdType, P2PPriceType } from '../types/index.js';
+import { P2PAdType, P2PAdStatus, P2PPriceType } from '../types/index.js';
+import { config } from '../config/index.js';
+import {
+  getP2PReferencePrice,
+  getP2PReferencePriceDecimal,
+  applyFloatingMargin,
+} from '../services/p2p-reference-price.service.js';
+import {
+  bumpP2PAdsListCacheGen,
+  fingerprintP2PAdsQuery,
+  getP2PAdsCacheGeneration,
+} from '../services/p2p-ads-cache.service.js';
+import { publishP2POrderRoom } from '../services/p2p-ws-publish.service.js';
+import {
+  saveP2pPaymentProofFromMultipart,
+  isSecureProofRef,
+  secureProofFilenameFromRef,
+  resolveSecureProofAbsolutePath,
+} from '../lib/p2p-payment-proof.js';
 
 function getRequestIp(request: { ip?: string; headers: Record<string, string | string[] | undefined> }): string | undefined {
   const ip = (request as { ip?: string }).ip ?? request.headers['x-forwarded-for'];
@@ -33,6 +50,21 @@ const P2P_ORDER_COOLDOWN_SECONDS = 3;
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+/** `p2p_ads.crypto_currency_id` + currencies join (new); else legacy `token_id` + tokens join. */
+let p2pAdsModernSchemaCache: boolean | null = null;
+
+async function detectP2PAdsModernSchema(): Promise<boolean> {
+  if (p2pAdsModernSchemaCache !== null) return p2pAdsModernSchemaCache;
+  const r = await db.query<{ e: boolean }>(
+    `SELECT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'p2p_ads' AND column_name = 'crypto_currency_id'
+    ) AS e`
+  );
+  p2pAdsModernSchemaCache = Boolean(r.rows[0]?.e);
+  return p2pAdsModernSchemaCache;
+}
+
 function buildP2POrderCreateRequestHash(body: { adId?: string; quantity?: string; paymentMethodId?: string }): string {
   const normalized = {
     adId: String(body.adId ?? '').trim(),
@@ -46,8 +78,8 @@ function buildP2PReleaseRequestHash(orderId: string): string {
   return crypto.createHash('sha256').update(String(orderId).trim()).digest('hex');
 }
 
-function buildP2PConfirmRequestHash(orderId: string, proofUrl?: string): string {
-  const payload = `${orderId}|${proofUrl ?? ''}`;
+function buildP2PConfirmRequestHash(orderId: string, proofUrl?: string, transactionReference?: string): string {
+  const payload = `${orderId}|${proofUrl ?? ''}|${transactionReference ?? ''}`;
   return crypto.createHash('sha256').update(payload).digest('hex');
 }
 
@@ -76,7 +108,37 @@ interface P2PCancelIdempotencyCache {
 }
 
 export default async function p2pRoutes(app: FastifyInstance) {
-  
+  /**
+   * GET /p2p/reference-price?asset=USDT&fiat=INR
+   * Backend reference (internal spot last trade) for P2P floating ads — cached in Redis.
+   */
+  app.get<{ Querystring: { asset?: string; fiat?: string } }>('/reference-price', async (request, reply) => {
+    const asset = String(request.query?.asset ?? 'USDT')
+      .trim()
+      .toUpperCase()
+      .slice(0, 16);
+    const fiat = String(request.query?.fiat ?? 'INR')
+      .trim()
+      .toUpperCase()
+      .slice(0, 8);
+    if (!asset || !fiat) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'asset and fiat are required' },
+      });
+    }
+    try {
+      const data = await getP2PReferencePrice(asset, fiat);
+      return reply.send({ success: true, data });
+    } catch (e) {
+      logger.warn('P2P reference price failed', { asset, fiat, error: e instanceof Error ? e.message : String(e) });
+      return reply.status(503).send({
+        success: false,
+        error: { code: 'REFERENCE_UNAVAILABLE', message: 'Reference price temporarily unavailable' },
+      });
+    }
+  });
+
   /**
    * GET /p2p/ads
    * Get P2P advertisements. Uses optional auth to exclude blocked advertisers when logged in.
@@ -93,6 +155,7 @@ export default async function p2pRoutes(app: FastifyInstance) {
           type: { type: 'string' },
           currency: { type: 'string' },
           fiat: { type: 'string' },
+          advertiser_id: { type: 'string' },
           limit: { oneOf: [{ type: 'string' }, { type: 'number' }] },
           offset: { oneOf: [{ type: 'string' }, { type: 'number' }] },
         },
@@ -104,12 +167,142 @@ export default async function p2pRoutes(app: FastifyInstance) {
       const type = q.type;
       const currency = q.currency;
       const fiat = q.fiat;
+      const advertiserId =
+        typeof (q as { advertiser_id?: string }).advertiser_id === 'string'
+          ? (q as { advertiser_id?: string }).advertiser_id!.trim()
+          : '';
       const limitRaw = q.limit != null ? q.limit : 20;
       const offsetRaw = q.offset != null ? q.offset : 0;
       const parsedLimit = typeof limitRaw === 'number' ? (Number.isFinite(limitRaw) ? Math.floor(limitRaw) : NaN) : parseInt(String(limitRaw), 10);
       const parsedOffset = typeof offsetRaw === 'number' ? (Number.isFinite(offsetRaw) ? Math.floor(offsetRaw) : NaN) : parseInt(String(offsetRaw), 10);
       const limit = Number.isFinite(parsedLimit) ? Math.min(100, Math.max(1, parsedLimit)) : 20;
       const offset = Number.isFinite(parsedOffset) ? Math.max(0, parsedOffset) : 0;
+      const userId = (request as { user?: { id: string } }).user?.id;
+      const isModernP2PAds = await detectP2PAdsModernSchema();
+
+      const ttlAds = config.p2p.adsListCacheTtlSec;
+      if (ttlAds > 0) {
+        try {
+          const gen = await getP2PAdsCacheGeneration();
+          const fp = fingerprintP2PAdsQuery({
+            schema: isModernP2PAds ? 'modern' : 'legacy',
+            type: type ?? null,
+            currency: currency ?? null,
+            fiat: fiat ?? null,
+            advertiserId,
+            limit,
+            offset,
+            userId: userId ?? '',
+          });
+          const ck = `p2p:ads:list:v1:${gen}:${fp}`;
+          const hit = await redis.getJson<{ rows: unknown[] }>(ck);
+          if (hit && Array.isArray(hit.rows)) {
+            return reply.send({ success: true, data: hit.rows });
+          }
+        } catch {
+          /* cache miss */
+        }
+      }
+
+      if (!isModernP2PAds) {
+        let legacyQuery = `
+        SELECT 
+          pa.id,
+          pa.user_id,
+          pa.type AS ad_type,
+          pa.price_type AS pricing_type,
+          NULL::numeric AS fixed_price,
+          pa.floating_price_margin AS float_percentage,
+          pa.price AS current_price,
+          pa.min_amount,
+          pa.max_amount,
+          pa.available_amount,
+          pa.payment_time_limit,
+          to_jsonb(COALESCE(pa.payment_methods, ARRAY[]::uuid[])) AS accepted_payment_methods,
+          ARRAY[]::uuid[] AS accepted_platform_method_ids,
+          NULL::int AS min_trades_required,
+          NULL::numeric AS min_completion_rate,
+          pa.remarks AS terms_and_conditions,
+          0::int AS total_orders,
+          pa.completed_orders,
+          pa.created_at,
+          pa.fiat_currency,
+          t.symbol AS crypto_symbol,
+          COALESCE(t.name, t.symbol) AS crypto_name,
+          u.username,
+          u.avatar_url,
+          pms.total_orders AS merchant_total_orders,
+          pms.completion_rate AS merchant_completion_rate,
+          pms.average_rating AS merchant_rating,
+          pms.avg_release_time AS merchant_avg_release_time_minutes
+        FROM p2p_ads pa
+        JOIN tokens t ON pa.token_id = t.id
+        JOIN users u ON pa.user_id = u.id
+        LEFT JOIN p2p_merchant_stats pms ON pa.user_id = pms.user_id
+        WHERE pa.status = 'active'
+      `;
+        const legacyParams: unknown[] = [];
+        let li = 1;
+        if (type) {
+          legacyQuery += ` AND pa.type = $${li++}`;
+          legacyParams.push(type);
+        }
+        if (currency) {
+          legacyQuery += ` AND UPPER(t.symbol) = $${li++}`;
+          legacyParams.push(currency.toUpperCase());
+        }
+        if (fiat) {
+          legacyQuery += ` AND pa.fiat_currency = $${li++}`;
+          legacyParams.push(fiat.toUpperCase());
+        }
+        if (advertiserId && UUID_REGEX.test(advertiserId)) {
+          legacyQuery += ` AND pa.user_id = $${li++}`;
+          legacyParams.push(advertiserId);
+        }
+        if (userId) {
+          legacyQuery += ` AND pa.user_id NOT IN (SELECT advertiser_id FROM p2p_blocked_advertisers WHERE user_id = $${li})`;
+          legacyParams.push(userId);
+          li++;
+        }
+        legacyQuery += ` ORDER BY pa.price ${type === 'sell' ? 'ASC' : 'DESC'}, pms.completion_rate DESC NULLS LAST`;
+        legacyQuery += ` LIMIT $${li++} OFFSET $${li}`;
+        legacyParams.push(limit, offset);
+
+        const legacyResult = await db.query(legacyQuery, legacyParams);
+        const VERIFIED_MIN_COMPLETION_L = 98;
+        const VERIFIED_MIN_ORDERS_L = 30;
+        const VERIFIED_MIN_RATING_L = 4;
+        const legacyRows = legacyResult.rows.map((r: Record<string, unknown>) => {
+          const total = parseFloat(String(r.merchant_total_orders ?? 0)) || 0;
+          const completion = parseFloat(String(r.merchant_completion_rate ?? 0)) || 0;
+          const rating = parseFloat(String(r.merchant_rating ?? 0)) || 0;
+          const verified_merchant =
+            total >= VERIFIED_MIN_ORDERS_L && completion >= VERIFIED_MIN_COMPLETION_L && rating >= VERIFIED_MIN_RATING_L;
+          return { ...r, verified_merchant };
+        });
+
+        if (ttlAds > 0) {
+          try {
+            const gen = await getP2PAdsCacheGeneration();
+            const fp = fingerprintP2PAdsQuery({
+              schema: 'legacy',
+              type: type ?? null,
+              currency: currency ?? null,
+              fiat: fiat ?? null,
+              advertiserId,
+              limit,
+              offset,
+              userId: userId ?? '',
+            });
+            const ck = `p2p:ads:list:v1:${gen}:${fp}`;
+            await redis.setJson(ck, { rows: legacyRows }, ttlAds);
+          } catch {
+            /* best-effort */
+          }
+        }
+
+        return reply.send({ success: true, data: legacyRows });
+      }
 
       let query = `
         SELECT 
@@ -127,9 +320,15 @@ export default async function p2pRoutes(app: FastifyInstance) {
           pa.accepted_payment_methods,
           (
             SELECT COALESCE(array_agg(DISTINCT upm2.payment_method_id), ARRAY[]::uuid[])
-            FROM user_p2p_payment_methods upm2,
-                 jsonb_array_elements_text(COALESCE(pa.accepted_payment_methods::jsonb, '[]'::jsonb)) elem
-            WHERE upm2.id = (elem)::uuid
+            FROM jsonb_array_elements_text(
+              CASE
+                WHEN pa.accepted_payment_methods IS NULL THEN '[]'::jsonb
+                WHEN jsonb_typeof(pa.accepted_payment_methods) = 'array' THEN pa.accepted_payment_methods
+                ELSE '[]'::jsonb
+              END
+            ) AS elems(elem_text)
+            INNER JOIN user_p2p_payment_methods upm2
+              ON upm2.id::text = lower(trim(both from elems.elem_text))
           ) AS accepted_platform_method_ids,
           pa.min_trades_required,
           pa.min_completion_rate,
@@ -170,8 +369,12 @@ export default async function p2pRoutes(app: FastifyInstance) {
         params.push(fiat.toUpperCase());
       }
 
+      if (advertiserId && UUID_REGEX.test(advertiserId)) {
+        query += ` AND pa.user_id = $${paramIndex++}`;
+        params.push(advertiserId);
+      }
+
       // Exclude blocked advertisers when user is authenticated (optional auth via preHandler)
-      const userId = (request as { user?: { id: string } }).user?.id;
       if (userId) {
         query += ` AND pa.user_id NOT IN (SELECT advertiser_id FROM p2p_blocked_advertisers WHERE user_id = $${paramIndex})`;
         params.push(userId);
@@ -193,6 +396,26 @@ export default async function p2pRoutes(app: FastifyInstance) {
         const verified_merchant = total >= VERIFIED_MIN_ORDERS && completion >= VERIFIED_MIN_COMPLETION && rating >= VERIFIED_MIN_RATING;
         return { ...r, verified_merchant };
       });
+
+      if (ttlAds > 0) {
+        try {
+          const gen = await getP2PAdsCacheGeneration();
+          const fp = fingerprintP2PAdsQuery({
+            schema: 'modern',
+            type: type ?? null,
+            currency: currency ?? null,
+            fiat: fiat ?? null,
+            advertiserId,
+            limit,
+            offset,
+            userId: userId ?? '',
+          });
+          const ck = `p2p:ads:list:v1:${gen}:${fp}`;
+          await redis.setJson(ck, { rows }, ttlAds);
+        } catch {
+          /* best-effort */
+        }
+      }
 
       return reply.send({
         success: true,
@@ -321,6 +544,152 @@ export default async function p2pRoutes(app: FastifyInstance) {
   });
 
   /**
+   * PATCH /p2p/my-ads/:adId
+   * Update own ad (price, limits, remarks, pause/resume). Backward-compatible additive route.
+   */
+  app.patch<{
+    Params: { adId: string };
+    Body: {
+      price?: string;
+      min_amount?: string;
+      max_amount?: string;
+      remarks?: string;
+      auto_reply?: string;
+      status?: string;
+    };
+  }>('/my-ads/:adId', {
+    preHandler: [app.authenticate],
+  }, async (request, reply) => {
+    const userId = request.user!.id;
+    const adId = request.params.adId?.trim();
+    if (!adId || !UUID_REGEX.test(adId)) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Valid ad id required' },
+      });
+    }
+    const body = request.body || {};
+    try {
+      const updates: {
+        price?: string;
+        minAmount?: string;
+        maxAmount?: string;
+        remarks?: string;
+        autoReply?: string;
+        status?: P2PAdStatus;
+      } = {};
+      if (typeof body.price === 'string' && body.price.trim()) {
+        const p = parseFloat(body.price);
+        if (!Number.isNaN(p) && p > 0) updates.price = body.price.trim();
+      }
+      if (typeof body.min_amount === 'string' && body.min_amount.trim()) {
+        updates.minAmount = body.min_amount.trim();
+      }
+      if (typeof body.max_amount === 'string' && body.max_amount.trim()) {
+        updates.maxAmount = body.max_amount.trim();
+      }
+      if (typeof body.remarks === 'string') {
+        updates.remarks = body.remarks.trim().slice(0, 4000);
+      }
+      if (typeof body.auto_reply === 'string') {
+        updates.autoReply = body.auto_reply.trim().slice(0, 2000);
+      }
+      if (typeof body.status === 'string') {
+        const s = body.status.trim().toLowerCase();
+        if (s === 'active') updates.status = P2PAdStatus.ACTIVE;
+        else if (s === 'paused') updates.status = P2PAdStatus.PAUSED;
+      }
+      if (Object.keys(updates).length === 0) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'No valid fields to update' },
+        });
+      }
+      const ad = await p2pService.updateAd(adId, userId, updates);
+      return reply.send({ success: true, data: ad });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Update failed';
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'UPDATE_FAILED', message: msg },
+      });
+    }
+  });
+
+  /**
+   * DELETE /p2p/my-ads/:adId
+   * Cancel (close) own ad when no active orders.
+   */
+  app.delete<{ Params: { adId: string } }>('/my-ads/:adId', {
+    preHandler: [app.authenticate],
+  }, async (request, reply) => {
+    const userId = request.user!.id;
+    const adId = request.params.adId?.trim();
+    if (!adId || !UUID_REGEX.test(adId)) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Valid ad id required' },
+      });
+    }
+    try {
+      const ad = await p2pService.cancelAd(adId, userId);
+      return reply.send({ success: true, data: ad });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Delete failed';
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'DELETE_FAILED', message: msg },
+      });
+    }
+  });
+
+  /**
+   * GET /p2p/disputes/:disputeId
+   * Dispute detail for buyer/seller on the linked order (read-only).
+   */
+  app.get<{ Params: { disputeId: string } }>('/disputes/:disputeId', {
+    preHandler: [app.authenticate],
+  }, async (request, reply) => {
+    const userId = request.user!.id;
+    const disputeId = request.params.disputeId?.trim();
+    if (!disputeId || !UUID_REGEX.test(disputeId)) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Valid dispute id required' },
+      });
+    }
+    try {
+      const r = await db.query(
+        `SELECT d.*,
+                po.status AS order_status,
+                po.fiat_amount::text AS order_fiat_amount,
+                po.quantity::text AS order_quantity,
+                po.fiat_currency AS order_fiat_currency,
+                po.payment_proof_url AS order_payment_proof_url,
+                po.transaction_reference AS order_transaction_reference,
+                po.payment_verification_status AS order_payment_verification_status
+         FROM p2p_disputes d
+         INNER JOIN p2p_orders po ON po.id = d.order_id
+         WHERE d.id = $1 AND (po.buyer_id = $2 OR po.seller_id = $2)`,
+        [disputeId, userId]
+      );
+      if (r.rows.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Dispute not found' },
+        });
+      }
+      return reply.send({ success: true, data: r.rows[0] });
+    } catch (error) {
+      logger.error('P2P dispute fetch failed', { error });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'FETCH_FAILED', message: 'Failed to load dispute' },
+      });
+    }
+  });
+
+  /**
    * POST /p2p/ads
    * Create a P2P ad (buy or sell). No balance lock; funds move to escrow at order creation.
    */
@@ -336,6 +705,11 @@ export default async function p2pRoutes(app: FastifyInstance) {
       payment_method_ids?: string[];
       payment_time_limit?: number;
       auto_release?: boolean;
+      remarks?: string;
+      auto_reply?: string;
+      /** 'fixed' | 'floating' — when floating, send float_margin_percent and price = snapshot at creation. */
+      pricing_type?: string;
+      float_margin_percent?: number;
     };
   }>('/ads', {
     preHandler: [app.authenticate],
@@ -352,6 +726,24 @@ export default async function p2pRoutes(app: FastifyInstance) {
     const paymentMethodIds = Array.isArray(body.payment_method_ids) ? body.payment_method_ids : [];
     const paymentTimeLimit = typeof body.payment_time_limit === 'number' ? body.payment_time_limit : 15;
     const autoRelease = body.auto_release === true;
+    const remarks = typeof body.remarks === 'string' ? body.remarks.trim().slice(0, 4000) : undefined;
+    const autoReply = typeof body.auto_reply === 'string' ? body.auto_reply.trim().slice(0, 2000) : undefined;
+    const pricingTypeRaw = String(body.pricing_type ?? 'fixed').trim().toLowerCase();
+    const priceType = pricingTypeRaw === 'floating' ? P2PPriceType.FLOATING : P2PPriceType.FIXED;
+    let floatingMargin: string | undefined;
+    if (priceType === P2PPriceType.FLOATING) {
+      const m = body.float_margin_percent;
+      if (typeof m !== 'number' || !Number.isFinite(m) || m < -99 || m > 500) {
+        return reply.status(400).send({
+          success: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'float_margin_percent is required for floating ads (-99 to 500)',
+          },
+        });
+      }
+      floatingMargin = String(m);
+    }
 
     if (type !== 'buy' && type !== 'sell') {
       return reply.status(400).send({
@@ -371,7 +763,22 @@ export default async function p2pRoutes(app: FastifyInstance) {
         error: { code: 'VALIDATION_ERROR', message: 'fiat is required' },
       });
     }
-    const priceNum = parseFloat(price);
+    let priceNum = parseFloat(price);
+    if (priceType === P2PPriceType.FLOATING) {
+      try {
+        const ref = await getP2PReferencePriceDecimal(currency, fiat);
+        priceNum = parseFloat(applyFloatingMargin(ref, floatingMargin!));
+      } catch (e) {
+        logger.warn('P2P create ad: reference price failed', { currency, fiat, error: e instanceof Error ? e.message : String(e) });
+        return reply.status(503).send({
+          success: false,
+          error: {
+            code: 'REFERENCE_PRICE_UNAVAILABLE',
+            message: 'Could not compute floating price from internal reference. Check spot market and try again.',
+          },
+        });
+      }
+    }
     const minNum = parseFloat(minAmount);
     const maxNum = parseFloat(maxAmount);
     const availNum = parseFloat(availableAmount);
@@ -477,14 +884,17 @@ export default async function p2pRoutes(app: FastifyInstance) {
         type: type === 'buy' ? P2PAdType.BUY : P2PAdType.SELL,
         tokenId,
         fiatCurrency: fiat,
-        priceType: P2PPriceType.FIXED,
+        priceType,
         price: String(priceNum),
+        floatingPriceMargin: floatingMargin,
         minAmount: String(minNum),
         maxAmount: String(maxNum),
         totalAmount: String(availNum),
         paymentMethodIds: validPmIds,
         paymentTimeLimit,
         autoRelease,
+        remarks: remarks || undefined,
+        autoReply: autoReply || undefined,
       });
       return reply.status(201).send({
         success: true,
@@ -600,6 +1010,59 @@ export default async function p2pRoutes(app: FastifyInstance) {
   });
 
   /**
+   * GET /p2p/orders/:orderId/payment-proof
+   * Authenticated buyer/seller only. Serves Tier-1 secure proofs (`secure:filename`); legacy `/assets/...` redirects to frontend static.
+   */
+  app.get<{ Params: { orderId: string } }>('/orders/:orderId/payment-proof', {
+    preHandler: [app.authenticate, rateLimitByUser('p2p:proof-download', 120, 3600)],
+  }, async (request, reply) => {
+    const userId = request.user!.id;
+    const orderId = request.params.orderId;
+    if (!orderId || !UUID_REGEX.test(orderId)) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Invalid order id' },
+      });
+    }
+    const r = await db.query<{ buyer_id: string; seller_id: string; payment_proof_url: string | null }>(
+      `SELECT buyer_id, seller_id, payment_proof_url FROM p2p_orders WHERE id = $1`,
+      [orderId]
+    );
+    if (r.rows.length === 0) {
+      return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Order not found' } });
+    }
+    const row = r.rows[0]!;
+    if (row.buyer_id !== userId && row.seller_id !== userId) {
+      return reply.status(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Not a party to this order' } });
+    }
+    const ref = row.payment_proof_url;
+    if (!ref) {
+      return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'No payment proof' } });
+    }
+    if (isSecureProofRef(ref)) {
+      const fname = secureProofFilenameFromRef(ref);
+      if (!fname) {
+        return reply.status(400).send({ success: false, error: { code: 'INVALID_PROOF_REF', message: 'Invalid proof reference' } });
+      }
+      const abs = resolveSecureProofAbsolutePath(fname);
+      if (!fs.existsSync(abs)) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Proof file missing' } });
+      }
+      const ct = fname.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+      reply.header('Cache-Control', 'private, no-store');
+      return reply.type(ct).send(fs.createReadStream(abs));
+    }
+    if (ref.startsWith('/assets/')) {
+      const base = config.frontendUrl.replace(/\/$/, '');
+      return reply.redirect(`${base}${ref}`, 302);
+    }
+    return reply.status(404).send({
+      success: false,
+      error: { code: 'NOT_FOUND', message: 'Proof not available via this endpoint' },
+    });
+  });
+
+  /**
    * GET /p2p/orders/:orderId/messages
    * List chat messages for a P2P order (caller must be buyer or seller).
    * Query: since=ISO timestamp — return only messages after this time (for long-poll / real-time polling).
@@ -708,22 +1171,72 @@ export default async function p2pRoutes(app: FastifyInstance) {
       const row = ins.rows[0]!;
       const userRow = await db.query<{ username: string }>(`SELECT username FROM users WHERE id = $1`, [userId]);
       const senderUsername = userRow.rows[0]?.username ?? null;
+      const payload = {
+        id: row.id,
+        orderId,
+        senderId: userId,
+        senderUsername,
+        message: text,
+        createdAt: (row.created_at as Date).toISOString(),
+      };
+      publishP2POrderRoom(orderId, 'message:new', payload);
       return reply.status(201).send({
         success: true,
-        data: {
-          id: row.id,
-          orderId,
-          senderId: userId,
-          senderUsername,
-          message: text,
-          createdAt: (row.created_at as Date).toISOString(),
-        },
+        data: payload,
       });
     } catch (error) {
       logger.error('Failed to send P2P message', { error });
       return reply.status(500).send({
         success: false,
         error: { code: 'SEND_FAILED', message: 'Failed to send message' },
+      });
+    }
+  });
+
+  /**
+   * POST /p2p/orders/:orderId/messages/read
+   * Read receipt for chat (fan-out over WS). No DB column required — optional cursor for UI.
+   */
+  app.post<{
+    Params: { orderId: string };
+    Body: { last_read_message_id?: string };
+  }>('/orders/:orderId/messages/read', {
+    preHandler: [app.authenticate, rateLimitByUser('p2p:chat-read', 120, 60)],
+  }, async (request, reply) => {
+    try {
+      const { id: userId } = request.user!;
+      const orderId = request.params.orderId;
+      const lastRead =
+        typeof request.body?.last_read_message_id === 'string'
+          ? request.body.last_read_message_id.trim()
+          : '';
+      if (!orderId || !UUID_REGEX.test(orderId)) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'orderId required and must be a valid UUID' },
+        });
+      }
+      const orderCheck = await db.query<{ id: string }>(
+        `SELECT id FROM p2p_orders WHERE id = $1 AND (buyer_id = $2 OR seller_id = $2)`,
+        [orderId, userId]
+      );
+      if (orderCheck.rows.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Order not found' },
+        });
+      }
+      publishP2POrderRoom(orderId, 'message:read', {
+        readerId: userId,
+        orderId,
+        lastReadMessageId: lastRead || null,
+      });
+      return reply.send({ success: true });
+    } catch (error) {
+      logger.error('P2P message read receipt failed', { error });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'READ_FAILED', message: 'Failed to record read receipt' },
       });
     }
   });
@@ -1183,8 +1696,17 @@ export default async function p2pRoutes(app: FastifyInstance) {
       return reply.status(201).send(response);
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Failed to create order';
-      const code = msg === 'TRADING_HALTED' ? 'TRADING_HALTED' : msg === 'Ad not found' ? 'NOT_FOUND' : 'ORDER_FAILED';
-      return reply.status(400).send({
+      const code =
+        msg === 'TRADING_HALTED'
+          ? 'TRADING_HALTED'
+          : msg === 'MM_CIRCUIT_TRADING_PAUSED'
+            ? 'MM_CIRCUIT_TRADING_PAUSED'
+            : msg === 'Ad not found'
+              ? 'NOT_FOUND'
+              : 'ORDER_FAILED';
+      const status =
+        msg === 'TRADING_HALTED' || msg === 'MM_CIRCUIT_TRADING_PAUSED' ? 503 : 400;
+      return reply.status(status).send({
         success: false,
         error: { code, message: msg },
       });
@@ -1193,18 +1715,19 @@ export default async function p2pRoutes(app: FastifyInstance) {
 
   /**
    * POST /p2p/orders/:orderId/upload-payment-proof
-   * Buyer uploads payment receipt/screenshot. Returns URL to pass to confirm-payment. Max 5MB, PNG/JPEG.
+   * Buyer uploads receipt (PNG/JPEG). Returns proof_url for JSON confirm-payment when not using /pay.
+   * When P2P_REQUIRE_PAYMENT_PROOF: cannot replace after first upload (use /pay or one upload + confirm).
    */
   app.post<{ Params: { orderId: string } }>('/orders/:orderId/upload-payment-proof', {
-    preHandler: [app.authenticate, rateLimitByUser('p2p:upload-proof', 10, 60)],
+    preHandler: [app.authenticate, rateLimitByUser('p2p:upload-proof', 8, 60)],
   }, async (request, reply) => {
     const userId = request.user!.id;
     const orderId = request.params.orderId;
     if (!orderId || !UUID_REGEX.test(orderId)) {
       return reply.status(400).send({ success: false, error: { code: 'INVALID_ORDER', message: 'Invalid order ID' } });
     }
-    const orderCheck = await db.query<{ buyer_id: string; status: string }>(
-      `SELECT buyer_id, status FROM p2p_orders WHERE id = $1`,
+    const orderCheck = await db.query<{ buyer_id: string; status: string; payment_proof_url: string | null }>(
+      `SELECT buyer_id, status, payment_proof_url FROM p2p_orders WHERE id = $1`,
       [orderId]
     );
     if (orderCheck.rows.length === 0) {
@@ -1217,35 +1740,167 @@ export default async function p2pRoutes(app: FastifyInstance) {
     if (row.status !== 'payment_pending') {
       return reply.status(400).send({ success: false, error: { code: 'INVALID_STATUS', message: 'Order must be in payment_pending to upload proof' } });
     }
+    if (config.p2p.requirePaymentProof && row.payment_proof_url) {
+      return reply.status(409).send({
+        success: false,
+        error: { code: 'PROOF_ALREADY_SUBMITTED', message: 'Proof already uploaded for this order. Use confirm-payment with transaction reference or POST /pay.' },
+      });
+    }
     const data = await request.file();
     if (!data) {
       return reply.status(400).send({ success: false, error: { code: 'NO_FILE', message: 'No file uploaded' } });
     }
-    const allowed = ['image/png', 'image/jpeg', 'image/jpg'];
-    if (!allowed.includes(data.mimetype)) {
-      return reply.status(400).send({ success: false, error: { code: 'INVALID_TYPE', message: 'Only PNG/JPEG allowed' } });
-    }
-    const ext = data.mimetype === 'image/png' ? '.png' : '.jpg';
-    const filename = `${orderId}-${crypto.randomUUID().slice(0, 8)}${ext}`;
-    const uploadDir = path.resolve(process.cwd(), '../frontend/public/assets/upload/p2p-proofs');
-    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-    const filepath = path.join(uploadDir, filename);
     try {
-      await pipeline(data.file, fs.createWriteStream(filepath));
+      const { proofUrl } = await saveP2pPaymentProofFromMultipart(orderId, data, config.p2p.maxPaymentProofBytes);
+      return reply.send({ success: true, data: { proof_url: proofUrl } });
     } catch (e) {
-      logger.warn('P2P proof upload failed', { orderId });
+      const msg = e instanceof Error ? e.message : 'UPLOAD_FAILED';
+      if (msg === 'INVALID_IMAGE_TYPE' || msg === 'INVALID_IMAGE_CONTENT') {
+        return reply.status(400).send({ success: false, error: { code: msg, message: 'Only valid PNG/JPEG images are allowed.' } });
+      }
+      if (msg === 'FILE_TOO_LARGE') {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'FILE_TOO_LARGE', message: `Image exceeds ${config.p2p.maxPaymentProofBytes} bytes` },
+        });
+      }
+      logger.warn('P2P proof upload failed', { orderId, msg });
       return reply.status(500).send({ success: false, error: { code: 'UPLOAD_FAILED', message: 'Failed to save file' } });
     }
-    const proofUrl = `/assets/upload/p2p-proofs/${filename}`;
-    return reply.send({ success: true, data: { proof_url: proofUrl } });
+  });
+
+  /**
+   * POST /p2p/orders/:orderId/pay
+   * Buyer marks paid in one step: multipart payment_proof_file + transaction_reference. Requires Idempotency-Key.
+   */
+  app.post<{ Params: { orderId: string } }>('/orders/:orderId/pay', {
+    preHandler: [app.authenticate, rateLimitByUser('p2p:mark-paid', 20, 3600)],
+  }, async (request, reply) => {
+    const userId = request.user!.id;
+    const orderId = request.params.orderId;
+    if (!orderId || !UUID_REGEX.test(orderId)) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'MISSING_PARAM', message: 'orderId required and must be a valid UUID' },
+      });
+    }
+    const idempotencyKeyRaw = (request.headers[IDEMPOTENCY_KEY_HEADER] ?? request.headers['Idempotency-Key']) as string | undefined;
+    const idempotencyKey = typeof idempotencyKeyRaw === 'string' ? idempotencyKeyRaw.trim() : '';
+    if (!idempotencyKey) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'IDEMPOTENCY_KEY_REQUIRED', message: 'Idempotency-Key header is required.' },
+      });
+    }
+    let transactionReference = '';
+    let filePart: MultipartFile | null = null;
+    try {
+      for await (const part of request.parts()) {
+        if (part.type === 'file' && part.fieldname === 'payment_proof_file') {
+          filePart = part as MultipartFile;
+        } else if (part.type === 'field' && part.fieldname === 'transaction_reference') {
+          transactionReference = String((part as { value?: string }).value ?? '').trim();
+        }
+      }
+    } catch {
+      return reply.status(400).send({ success: false, error: { code: 'INVALID_MULTIPART', message: 'Invalid multipart body' } });
+    }
+    if (!filePart) {
+      return reply.status(400).send({ success: false, error: { code: 'NO_FILE', message: 'payment_proof_file is required' } });
+    }
+    if (!transactionReference || transactionReference.length > 256) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'TRANSACTION_REFERENCE_REQUIRED', message: 'transaction_reference is required (max 256 chars)' },
+      });
+    }
+    const orderPeek = await db.query<{ buyer_id: string; status: string }>(
+      `SELECT buyer_id, status FROM p2p_orders WHERE id = $1`,
+      [orderId]
+    );
+    if (orderPeek.rows.length === 0) {
+      return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Order not found' } });
+    }
+    const peek = orderPeek.rows[0]!;
+    if (peek.buyer_id !== userId) {
+      return reply.status(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Only buyer can mark paid' } });
+    }
+    if (peek.status !== 'payment_pending') {
+      return reply.status(400).send({ success: false, error: { code: 'INVALID_STATUS', message: 'Order must be payment_pending' } });
+    }
+    const requestHash = buildP2PConfirmRequestHash(orderId, '[multipart]', transactionReference);
+    const redisKey = `p2p:confirm:idempotency:${userId}:${idempotencyKey}`;
+    const cached = await redis.getJson<P2PConfirmIdempotencyCache>(redisKey);
+    if (cached) {
+      if (cached.requestHash !== requestHash) {
+        return reply.status(409).send({
+          success: false,
+          error: {
+            code: 'IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_BODY',
+            message: 'Idempotency-Key was already used for a different request.',
+          },
+        });
+      }
+      return reply.send(cached.response);
+    }
+    const cooldownKey = `p2p:cooldown:${orderId}`;
+    if (!(await redis.setNxEx(cooldownKey, '1', P2P_ORDER_COOLDOWN_SECONDS))) {
+      return reply.status(429).send({
+        success: false,
+        error: { code: 'COOLDOWN', message: 'Please wait before retrying this order action.' },
+      });
+    }
+    const lockKey = `p2p:confirm:lock:${userId}:${idempotencyKey}`;
+    const lockAcquired = await redis.setNxEx(lockKey, '1', P2P_IDEMPOTENCY_LOCK_TTL_SECONDS);
+    if (!lockAcquired) {
+      return reply.status(409).send({
+        success: false,
+        error: { code: 'DUPLICATE_REQUEST', message: 'A payment request is already in progress.' },
+      });
+    }
+    const requestIp = getRequestIp(request);
+    try {
+      const { proofUrl } = await saveP2pPaymentProofFromMultipart(orderId, filePart, config.p2p.maxPaymentProofBytes);
+      const order = await p2pService.confirmPayment(orderId, userId, requestIp, {
+        proofUrl,
+        transactionReference,
+      });
+      const response = { success: true as const, data: order as unknown as Record<string, unknown> };
+      try {
+        await redis.setJson(redisKey, { requestHash, response }, P2P_CONFIRM_IDEMPOTENCY_TTL_SECONDS);
+      } catch {
+        /* best effort */
+      }
+      return reply.send(response);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Failed to mark paid';
+      if (msg === 'Order not found') {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: msg } });
+      }
+      const code =
+        msg === 'PAYMENT_PROOF_REQUIRED' || msg === 'TRANSACTION_REFERENCE_REQUIRED'
+          ? msg
+          : msg === 'INVALID_IMAGE_TYPE' || msg === 'INVALID_IMAGE_CONTENT'
+            ? 'INVALID_IMAGE'
+            : msg === 'FILE_TOO_LARGE' || msg === 'EMPTY_FILE'
+              ? msg
+              : 'PAY_FAILED';
+      return reply.status(400).send({
+        success: false,
+        error: { code, message: msg },
+      });
+    }
   });
 
   /**
    * POST /p2p/orders/:orderId/confirm-payment
-   * Buyer confirms payment sent. Optional body: { proof_url: string }. Requires Idempotency-Key. Cooldown per order.
+   * Buyer confirms payment. When P2P_REQUIRE_PAYMENT_PROOF: body must include proof_url + transaction_reference.
    */
-  app.post<{ Params: { orderId: string }; Body: { proof_url?: string } }>('/orders/:orderId/confirm-payment', {
-    preHandler: [app.authenticate, rateLimitByUser('p2p:confirm-payment', 60, 60)],
+  app.post<{
+    Params: { orderId: string };
+    Body: { proof_url?: string; transaction_reference?: string };
+  }>('/orders/:orderId/confirm-payment', {
+    preHandler: [app.authenticate, rateLimitByUser('p2p:confirm-payment', 30, 3600)],
   }, async (request, reply) => {
     const userId = request.user!.id;
     const orderId = request.params.orderId;
@@ -1269,8 +1924,11 @@ export default async function p2pRoutes(app: FastifyInstance) {
         error: { code: 'IDEMPOTENCY_KEY_INVALID', message: 'Idempotency-Key must be at most 256 characters.' },
       });
     }
-    const proofUrl = typeof request.body?.proof_url === 'string' ? request.body.proof_url.trim().slice(0, 2048) : undefined;
-    const requestHash = buildP2PConfirmRequestHash(orderId, proofUrl);
+    const proofUrl =
+      typeof request.body?.proof_url === 'string' ? request.body.proof_url.trim().slice(0, 2048) : '';
+    const transactionReference =
+      typeof request.body?.transaction_reference === 'string' ? request.body.transaction_reference.trim().slice(0, 256) : '';
+    const requestHash = buildP2PConfirmRequestHash(orderId, proofUrl || undefined, transactionReference || undefined);
     const redisKey = `p2p:confirm:idempotency:${userId}:${idempotencyKey}`;
     const cached = await redis.getJson<P2PConfirmIdempotencyCache>(redisKey);
     if (cached) {
@@ -1305,28 +1963,11 @@ export default async function p2pRoutes(app: FastifyInstance) {
     }
     const requestIp = getRequestIp(request);
     try {
-      const order = await p2pService.confirmPayment(orderId, userId, requestIp, proofUrl);
-      // Auto-release: if ad has auto_release, release crypto immediately (seller pre-agreed)
-      let finalOrder = order;
-      const adId = (order as { adId?: string }).adId ?? (order as { ad_id?: string }).ad_id;
-      if (adId) {
-        const adRow = await db.query<{ auto_release?: boolean }>(
-          'SELECT auto_release FROM p2p_ads WHERE id = $1',
-          [adId]
-        );
-        const ad = adRow.rows[0];
-        if (ad?.auto_release === true) {
-          const sellerId = (order as { sellerId?: string }).sellerId ?? (order as { seller_id?: string }).seller_id;
-          if (sellerId) {
-            try {
-              finalOrder = await p2pService.releaseCrypto(orderId, sellerId, requestIp);
-            } catch (e) {
-              logger.warn('P2P auto-release failed (best-effort)', { orderId, error: e instanceof Error ? e.message : String(e) });
-            }
-          }
-        }
-      }
-      const response = { success: true as const, data: finalOrder as unknown as Record<string, unknown> };
+      const order = await p2pService.confirmPayment(orderId, userId, requestIp, {
+        proofUrl,
+        transactionReference,
+      });
+      const response = { success: true as const, data: order as unknown as Record<string, unknown> };
       try {
         await redis.setJson(redisKey, { requestHash, response }, P2P_CONFIRM_IDEMPOTENCY_TTL_SECONDS);
       } catch {
@@ -1335,10 +1976,68 @@ export default async function p2pRoutes(app: FastifyInstance) {
       return reply.send(response);
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Failed to confirm payment';
+      if (msg === 'PAYMENT_PROOF_REQUIRED' || msg === 'TRANSACTION_REFERENCE_REQUIRED') {
+        return reply.status(400).send({
+          success: false,
+          error: {
+            code: msg,
+            message:
+              msg === 'PAYMENT_PROOF_REQUIRED'
+                ? 'Upload payment proof first (or use POST /pay), then send proof_url with transaction_reference.'
+                : 'transaction_reference is required (1–256 characters).',
+          },
+        });
+      }
+      if (msg === 'TRANSACTION_REFERENCE_TOO_LONG') {
+        return reply.status(400).send({
+          success: false,
+          error: { code: msg, message: 'transaction_reference must be at most 256 characters' },
+        });
+      }
+      if (msg === 'Order not found') {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: msg } });
+      }
+      if (msg === 'Only buyer can confirm payment' || msg === 'Invalid order status') {
+        return reply.status(400).send({ success: false, error: { code: 'CONFIRM_FAILED', message: msg } });
+      }
       return reply.status(400).send({
         success: false,
         error: { code: 'CONFIRM_FAILED', message: msg },
       });
+    }
+  });
+
+  /**
+   * POST /p2p/orders/:orderId/verify-payment
+   * Seller marks buyer payment as verified (pending → verified). Required before release when verification is enforced.
+   */
+  app.post<{ Params: { orderId: string } }>('/orders/:orderId/verify-payment', {
+    preHandler: [app.authenticate, rateLimitByUser('p2p:verify-payment', 40, 3600)],
+  }, async (request, reply) => {
+    const userId = request.user!.id;
+    const orderId = request.params.orderId;
+    if (!orderId || !UUID_REGEX.test(orderId)) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'MISSING_PARAM', message: 'orderId required and must be a valid UUID' },
+      });
+    }
+    const requestIp = getRequestIp(request);
+    try {
+      const order = await p2pService.sellerVerifyPayment(orderId, userId, requestIp);
+      return reply.send({ success: true, data: order as unknown as Record<string, unknown> });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Verify failed';
+      if (msg === 'Order not found') {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: msg } });
+      }
+      if (msg === 'Only seller can verify payment') {
+        return reply.status(403).send({ success: false, error: { code: 'FORBIDDEN', message: msg } });
+      }
+      if (msg === 'Invalid order status' || msg === 'Payment is not pending seller verification') {
+        return reply.status(400).send({ success: false, error: { code: 'VERIFY_FAILED', message: msg } });
+      }
+      return reply.status(400).send({ success: false, error: { code: 'VERIFY_FAILED', message: msg } });
     }
   });
 
@@ -1477,6 +2176,16 @@ export default async function p2pRoutes(app: FastifyInstance) {
       return reply.send(response);
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Failed to release crypto';
+      if (msg === 'PAYMENT_NOT_VERIFIED') {
+        return reply.status(403).send({
+          success: false,
+          error: {
+            code: 'PAYMENT_NOT_VERIFIED',
+            message:
+              'Verify the buyer payment (or wait for SLA auto-release) before releasing crypto from escrow.',
+          },
+        });
+      }
       return reply.status(400).send({
         success: false,
         error: { code: 'RELEASE_FAILED', message: msg },

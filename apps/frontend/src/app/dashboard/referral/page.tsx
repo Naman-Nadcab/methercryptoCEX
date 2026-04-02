@@ -346,8 +346,12 @@ export default function ReferralProgramPage() {
                 <div className="w-12 h-12 bg-blue-400/20 rounded-xl flex items-center justify-center mb-3">
                   <Coins className="w-6 h-6 text-blue-300" />
                 </div>
-                <p className="text-3xl font-bold">$1,720</p>
-                <p className="text-blue-200 text-sm">Max Possible</p>
+                {loading ? (
+                  <Skeleton className="h-8 w-16 mb-2 bg-white/20" />
+                ) : (
+                  <p className="text-3xl font-bold tabular-nums">—</p>
+                )}
+                <p className="text-blue-200 text-sm">Referral program cap</p>
               </div>
             </div>
           </div>

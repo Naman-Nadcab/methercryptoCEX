@@ -1,8 +1,9 @@
 import { Pool } from 'pg';
 import { logger } from '../utils/logger';
 
-const DATABASE_URL = process.env.DATABASE_URL || 
-  'postgresql://postgres:Aman%40961648@db.vhlfnekcmczlqaninefq.supabase.co:5432/postgres';
+const DATABASE_URL =
+  process.env.DATABASE_URL ||
+  'postgresql://exchange:exchange_secret@localhost:5432/exchange';
 
 export const pool = new Pool({
   connectionString: DATABASE_URL,

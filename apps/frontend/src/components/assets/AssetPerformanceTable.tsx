@@ -53,13 +53,13 @@ export function AssetPerformanceTable({ rows, showBalance }: AssetPerformanceTab
                 return (
                   <tr
                     key={row.symbol}
-                    onClick={() => router.push(`/dashboard/assets/${encodeURIComponent(row.symbol)}`)}
+                    onClick={() => router.push(`/wallet/${encodeURIComponent(row.symbol)}`)}
                     role="button"
                     tabIndex={0}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        router.push(`/dashboard/assets/${encodeURIComponent(row.symbol)}`);
+                        router.push(`/wallet/${encodeURIComponent(row.symbol)}`);
                       }
                     }}
                     className="border-b border-gray-100 dark:border-gray-800 last:border-0 cursor-pointer hover:bg-gray-50 dark:hover:bg-white/[0.04] transition-colors"

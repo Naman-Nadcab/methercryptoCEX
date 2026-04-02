@@ -48,7 +48,7 @@ export async function ensureUserBalanceRow(
     id, user_id, currency_id, chain_id, account_type,
     available_balance, locked_balance, pending_balance, total_deposited, updated_at
   )
-  VALUES (gen_random_uuid(), $1, $2, $3, $4::balance_account_type, 0, 0, 0, 0, NOW())
+  VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3, $4::balance_account_type, 0, 0, 0, 0, NOW())
   ON CONFLICT (user_id, currency_id, chain_id, account_type) DO NOTHING`;
   const params = [userId, currencyId, chainId, accountType];
   try {
@@ -82,7 +82,7 @@ export async function ensureUserBalanceRowsBulk(
   if (currencyIds.length === 0) return;
   const sql = `
     INSERT INTO user_balances (id, user_id, currency_id, chain_id, account_type, available_balance, locked_balance, pending_balance, total_deposited, updated_at)
-    SELECT gen_random_uuid(), $1, u.cid, $2, $3::balance_account_type, 0, 0, 0, 0, NOW()
+    SELECT gen_random_uuid(), $1::uuid, u.cid, $2, $3::balance_account_type, 0, 0, 0, 0, NOW()
     FROM unnest($4::uuid[]) AS u(cid)
     ON CONFLICT (user_id, currency_id, chain_id, account_type) DO NOTHING`;
   try {

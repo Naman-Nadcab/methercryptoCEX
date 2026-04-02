@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useAuthStore } from '@/store/auth';
+import { ROUTES, SPOT_TRADE_HREF, loginWithRedirect } from '@/lib/routes';
 
 export default function SpotPublicPage() {
   const { accessToken, _hasHydrated } = useAuthStore();
@@ -16,21 +17,21 @@ export default function SpotPublicPage() {
       <div className="flex flex-col sm:flex-row gap-3">
         {loggedIn ? (
           <Link
-            href="/dashboard/spot"
+            href={SPOT_TRADE_HREF}
             className="px-5 py-2.5 rounded-lg font-medium bg-blue-500 hover:bg-blue-600 text-white text-center transition-colors"
           >
             Go to Trading
           </Link>
         ) : (
           <Link
-            href="/login?redirect=/dashboard/spot"
+            href={loginWithRedirect(SPOT_TRADE_HREF)}
             className="px-5 py-2.5 rounded-lg font-medium bg-blue-500 hover:bg-blue-600 text-white text-center transition-colors"
           >
             Login to Trade
           </Link>
         )}
         <Link
-          href="/"
+          href={ROUTES.home}
           className="px-5 py-2.5 rounded-lg font-medium bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-white text-center transition-colors"
         >
           Home

@@ -57,6 +57,10 @@ export interface TimelineEventRow {
 export interface MonitoringQueues {
   withdrawal_pending: number;
   settlement_pending: number;
+  /** Age in seconds of oldest pending settlement_events row (0 if empty). */
+  settlement_lag_sec?: number;
+  /** True when backlog exists and oldest pending is older than ~30s. */
+  settlement_delayed?: boolean;
   matching_engine_pending: number;
 }
 

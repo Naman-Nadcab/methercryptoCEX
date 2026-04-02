@@ -12,7 +12,7 @@ import { db } from '../../lib/database.js';
 import { logger } from '../../lib/logger.js';
 import { tradeValue, takerFee, makerFee, toNumeric } from './decimal-utils.js';
 import { getTradingHalted, getSettlementCircuitOpen } from '../../lib/trading-halt.js';
-import { isTradingHalted, triggerCircuitIfViolation } from './settlement-circuit.js';
+import { isTradingHalted, setTradingHalted, triggerCircuitIfViolation } from './settlement-circuit.js';
 import { LEDGER_ENTRY_DOMAIN, SETTLEMENT_EVENT_DOMAIN } from './settlement-hash-constants.js';
 import { assertNonNegative, assertValidDecimal } from '../../lib/monetary-invariants.js';
 import {
@@ -23,23 +23,31 @@ import { ensureUserBalanceRow, assertBalanceInvariant, CHAIN_ID_GLOBAL } from '.
 import { config } from '../../config/index.js';
 import { publishTradeExecuted } from '../admin-ws.service.js';
 import { invalidateTickersCache, invalidateOrderbook } from '../cache-invalidation.service.js';
+import { applyCommittedEngineNotify, type EngineLiveNotifyPayload } from '../spot-engine-live-bridge.service.js';
+import { notifySpotPrivateChannelsAfterSettlement } from '../spot-settlement-private-ws.service.js';
+import { getSpotTradesShapeSync, loadSpotTradesShape } from '../../lib/spot-trades-shape.js';
+import { insertSpotTradesAfterMatch, updateSpotOrdersFilledAfterMatch } from './spot-settlement-order-writes.js';
+import { computeSettlementLedgerDeltasFromPayload } from './settlement-ledger-deltas.js';
+import { insertBalanceLedger } from '../../lib/balance-ledger.js';
 
-const WORKER_INTERVAL_MS = 1_000;
+function settlementWorkerIntervalMs(): number {
+  return config.workers?.settlementWorkerIntervalMs ?? 250;
+}
+
+function settlementWorkerVerboseLogs(): boolean {
+  const v = process.env.SETTLEMENT_WORKER_VERBOSE?.trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}
+
 const MAX_RETRIES = 10;
 
-function batchSize(): number {
-  return config.workers?.settlementBatchSize ?? 1;
-}
-const SETTLEMENT_ACCOUNT_TYPE = 'trading';
-
-interface SettlementRow {
-  id: number;
-  engine_event_id: number;
-  payload: EnginePayload;
+function errStack(err: unknown): string | undefined {
+  return err instanceof Error ? err.stack : undefined;
 }
 
 interface EnginePayload {
   event_id: number;
+  match_engine_id?: string;
   symbol: string;
   price: string;
   qty: string;
@@ -51,7 +59,72 @@ interface EnginePayload {
   timestamp: number;
 }
 
-async function resolveMarketAssets(
+export interface SettlementRow {
+  id: number;
+  engine_event_id: number;
+  match_engine_id: string;
+  payload: EnginePayload;
+}
+
+/** DB JSONB may arrive as object; tolerate string (legacy). */
+export function normalizeSettlementPayload(raw: unknown): EnginePayload {
+  let obj: unknown = raw;
+  if (typeof raw === 'string') {
+    try {
+      obj = JSON.parse(raw) as unknown;
+    } catch {
+      throw new Error('SETTLEMENT_PAYLOAD_INVALID_JSON');
+    }
+  }
+  if (!obj || typeof obj !== 'object') {
+    throw new Error('SETTLEMENT_PAYLOAD_INVALID');
+  }
+  const o = obj as Record<string, unknown>;
+  const symbol = o.symbol;
+  const price = o.price;
+  const qty = o.qty;
+  const takerOrderId = o.taker_order_id;
+  const makerOrderId = o.maker_order_id;
+  const takerUserId = o.taker_user_id;
+  const makerUserId = o.maker_user_id;
+  const takerSideRaw = o.taker_side;
+  const takerSideNorm =
+    typeof takerSideRaw === 'string' ? takerSideRaw.trim().toLowerCase() : '';
+  if (
+    typeof symbol !== 'string' ||
+    typeof price !== 'string' ||
+    typeof qty !== 'string' ||
+    typeof takerOrderId !== 'string' ||
+    typeof makerOrderId !== 'string' ||
+    typeof takerUserId !== 'string' ||
+    typeof makerUserId !== 'string' ||
+    (takerSideNorm !== 'buy' && takerSideNorm !== 'sell')
+  ) {
+    throw new Error('SETTLEMENT_PAYLOAD_MISSING_FIELDS');
+  }
+  const match_engine_id =
+    typeof o.match_engine_id === 'string' && o.match_engine_id.trim() ? o.match_engine_id.trim() : undefined;
+  return {
+    event_id: typeof o.event_id === 'number' ? o.event_id : Number(o.event_id),
+    match_engine_id,
+    symbol,
+    price,
+    qty,
+    taker_order_id: takerOrderId,
+    maker_order_id: makerOrderId,
+    taker_user_id: takerUserId,
+    maker_user_id: makerUserId,
+    taker_side: takerSideNorm as 'buy' | 'sell',
+    timestamp: typeof o.timestamp === 'number' ? o.timestamp : Number(o.timestamp),
+  };
+}
+
+function batchSize(): number {
+  return config.workers?.settlementBatchSize ?? 1;
+}
+const SETTLEMENT_ACCOUNT_TYPE = 'trading';
+
+export async function resolveMarketAssets(
   client: PoolClient,
   symbol: string
 ): Promise<{
@@ -109,7 +182,10 @@ async function resolveMarketAssets(
   };
 }
 
-async function processEvent(client: PoolClient, row: SettlementRow): Promise<void> {
+export async function processSettlementEventRow(
+  client: PoolClient,
+  row: SettlementRow
+): Promise<EngineLiveNotifyPayload | undefined> {
   /* Replay safety: if ledger entries already exist (crash after apply, before status update), only mark processed. */
   const existingLedger = await client.query<{ id: number }>(
     `SELECT id FROM settlement_ledger_entries WHERE settlement_event_id = $1 LIMIT 1`,
@@ -155,7 +231,7 @@ async function processEvent(client: PoolClient, row: SettlementRow): Promise<voi
       settlementEventId: row.id,
       engineEventId: row.engine_event_id,
     });
-    return;
+    return undefined;
   }
 
   const p = row.payload as EnginePayload;
@@ -188,6 +264,14 @@ async function processEvent(client: PoolClient, row: SettlementRow): Promise<voi
     throw new Error('SELF_TRADE_REJECTED');
   }
 
+  const usersOk = await client.query<{ id: string }>(
+    `SELECT id::text FROM users WHERE id IN ($1::uuid, $2::uuid)`,
+    [takerId, makerId]
+  );
+  if (usersOk.rows.length !== 2) {
+    throw new Error('SETTLEMENT_USER_NOT_FOUND');
+  }
+
   const pairs: [string, string][] = [
     [takerId, base],
     [takerId, quote],
@@ -207,14 +291,24 @@ async function processEvent(client: PoolClient, row: SettlementRow): Promise<voi
   const uniqueUserCurrency = Array.from(
     new Map(uniquePairs.map(([u, a]) => [`${u}:${assetToCurrency[a] ?? ''}`, [u, assetToCurrency[a]!] as [string, string]])).values()
   ).filter(([, cid]) => !!cid);
-  const lockPlaceholders = uniqueUserCurrency.map((_, i) => `($${i * 2 + 1}, $${i * 2 + 2})`).join(', ');
   const lockValues = uniqueUserCurrency.flatMap(([u, c]) => [u, c]);
+  const nPairs = uniqueUserCurrency.length;
   const lockResult =
-    lockPlaceholders === ''
+    nPairs === 0
       ? { rows: [] as { user_id: string; currency_id: string; available_balance: string; locked_balance: string }[] }
       : await client.query<{ user_id: string; currency_id: string; available_balance: string; locked_balance: string }>(
-          `SELECT user_id, currency_id, available_balance::text AS available_balance, locked_balance::text AS locked_balance
-           FROM user_balances WHERE (user_id, currency_id) IN (${lockPlaceholders}) AND COALESCE(chain_id, '') = $1 AND account_type = $2
+          `SELECT ub.user_id::text AS user_id, ub.currency_id::text AS currency_id,
+                  ub.available_balance::text AS available_balance, ub.locked_balance::text AS locked_balance
+           FROM user_balances ub
+           INNER JOIN (
+             VALUES ${uniqueUserCurrency
+               .map((_, i) => {
+                 const base = i * 2 + 1;
+                 return `($${base}::uuid, $${base + 1}::uuid)`;
+               })
+               .join(', ')}
+           ) AS t(user_id, currency_id) ON ub.user_id = t.user_id AND ub.currency_id = t.currency_id
+           WHERE COALESCE(ub.chain_id, '') = $${nPairs * 2 + 1} AND ub.account_type::text = $${nPairs * 2 + 2}
            FOR UPDATE`,
           [...lockValues, CHAIN_ID_GLOBAL, SETTLEMENT_ACCOUNT_TYPE]
         );
@@ -269,7 +363,6 @@ async function processEvent(client: PoolClient, row: SettlementRow): Promise<voi
   const takerQuoteNetCredit = tradeVal.minus(takerFeeAmt).toDecimalPlaces(quote_precision, ROUND_DOWN);
 
   const updates: { userId: string; asset: string; currencyId: string; available: DecimalInstance; locked: DecimalInstance }[] = [];
-  const ledgerDeltas: { user_id: string; asset: string; delta: DecimalInstance }[] = [];
 
   if (p.taker_side === 'buy') {
     const takerBase = getBal(takerId, base);
@@ -299,12 +392,6 @@ async function processEvent(client: PoolClient, row: SettlementRow): Promise<voi
         available: makerQuote.available.plus(makerQuoteNetCredit),
         locked: makerQuote.locked,
       },
-    );
-    ledgerDeltas.push(
-      { user_id: takerId, asset: base, delta: qty },
-      { user_id: takerId, asset: quote, delta: tradeVal.negated().minus(takerFeeAmt) },
-      { user_id: makerId, asset: base, delta: qty.negated() },
-      { user_id: makerId, asset: quote, delta: makerQuoteNetCredit },
     );
   } else {
     const takerBase = getBal(takerId, base);
@@ -341,13 +428,13 @@ async function processEvent(client: PoolClient, row: SettlementRow): Promise<voi
         locked: makerQuote.locked.minus(tradeVal),
       },
     );
-    ledgerDeltas.push(
-      { user_id: takerId, asset: base, delta: qty.negated() },
-      { user_id: takerId, asset: quote, delta: takerQuoteNetCredit },
-      { user_id: makerId, asset: base, delta: qty },
-      { user_id: makerId, asset: quote, delta: tradeVal.negated().minus(makerFeeAmt) },
-    );
   }
+
+  const ledgerDeltas = computeSettlementLedgerDeltasFromPayload(
+    p,
+    { base, quote, price_precision, qty_precision, quote_precision },
+    makerRebatesEnabled
+  );
 
   if (ledgerDeltas.length === 0) {
     throw new Error('LEDGER_CONSISTENCY_VIOLATION');
@@ -376,17 +463,78 @@ async function processEvent(client: PoolClient, row: SettlementRow): Promise<voi
     );
   }
 
-  /* Chain verification inside transaction; deterministic order by id. Mismatch → LEDGER_CHAIN_VIOLATION (fatal). */
-  const insertedRows = await client.query<{ id: number; prev_hash: string | null; entry_hash: string | null }>(
-    `SELECT id, prev_hash, entry_hash FROM settlement_ledger_entries WHERE settlement_event_id = $1 ORDER BY id ASC`,
+  /* Per-event ledger verification inside transaction; mismatch → LEDGER_CHAIN_VIOLATION (fatal). */
+  const insertedRows = await client.query<{
+    id: number;
+    user_id: string;
+    asset: string;
+    delta: string;
+    prev_hash: string | null;
+    entry_hash: string | null;
+  }>(
+    `SELECT id, user_id, asset, delta::text AS delta, prev_hash, entry_hash
+     FROM settlement_ledger_entries WHERE settlement_event_id = $1 ORDER BY id ASC`,
     [row.id]
   );
+  if (insertedRows.rows.length !== chainEntries.length) {
+    throw new Error('LEDGER_CHAIN_VIOLATION');
+  }
   const expectedFirstPrev = lastEntryRow.rows[0]?.entry_hash ?? null;
   for (let i = 0; i < insertedRows.rows.length; i++) {
     const r = insertedRows.rows[i]!;
+    const ce = chainEntries[i]!;
     const expectedPrev = i === 0 ? expectedFirstPrev : insertedRows.rows[i - 1]!.entry_hash;
-    if ((r.prev_hash ?? null) !== (expectedPrev ?? null) || !r.entry_hash) {
+    const expectedDelta = toNumeric(ce.delta);
+    if (
+      (r.prev_hash ?? null) !== (expectedPrev ?? null) ||
+      !r.entry_hash ||
+      r.user_id !== ce.user_id ||
+      r.asset !== ce.asset ||
+      toNumeric(new Decimal(r.delta)) !== expectedDelta ||
+      r.entry_hash !== ce.entry_hash
+    ) {
       throw new Error('LEDGER_CHAIN_VIOLATION');
+    }
+  }
+
+  /* balance_ledger: mirror trading bucket deltas (spot integrity sums this vs user_balances). */
+  const balanceLedgerRefId = crypto.randomUUID();
+  const balanceLedgerMeta = `settlement_event_id=${row.id};engine_event_id=${row.engine_event_id}`;
+  for (const u of updates) {
+    const old = getBal(u.userId, u.asset);
+    const dAvail = u.available.minus(old.available);
+    const dLock = u.locked.minus(old.locked);
+    if (!dAvail.isZero()) {
+      await insertBalanceLedger({
+        client,
+        userId: u.userId,
+        currencyId: u.currencyId,
+        accountType: 'trading',
+        debit: dAvail.lt(0) ? toNumeric(dAvail.abs()) : '0',
+        credit: dAvail.gt(0) ? toNumeric(dAvail) : '0',
+        balanceBefore: toNumeric(old.available),
+        balanceAfter: toNumeric(u.available),
+        referenceType: 'adjustment',
+        referenceId: balanceLedgerRefId,
+        balanceType: 'available',
+        descriptionSuffix: balanceLedgerMeta,
+      });
+    }
+    if (!dLock.isZero()) {
+      await insertBalanceLedger({
+        client,
+        userId: u.userId,
+        currencyId: u.currencyId,
+        accountType: 'trading',
+        debit: dLock.lt(0) ? toNumeric(dLock.abs()) : '0',
+        credit: dLock.gt(0) ? toNumeric(dLock) : '0',
+        balanceBefore: toNumeric(old.locked),
+        balanceAfter: toNumeric(u.locked),
+        referenceType: 'adjustment',
+        referenceId: balanceLedgerRefId,
+        balanceType: 'locked',
+        descriptionSuffix: balanceLedgerMeta,
+      });
     }
   }
 
@@ -399,7 +547,7 @@ async function processEvent(client: PoolClient, row: SettlementRow): Promise<voi
     }
     const updResult = await client.query(
       `UPDATE user_balances SET available_balance = $1, locked_balance = $2, updated_at = NOW()
-       WHERE user_id = $3 AND currency_id = $4 AND COALESCE(chain_id, '') = $5 AND account_type = $6
+       WHERE user_id = $3::uuid AND currency_id = $4::uuid AND COALESCE(chain_id, '') = $5 AND account_type::text = $6
        RETURNING *`,
       [toNumeric(u.available), toNumeric(u.locked), u.userId, u.currencyId, CHAIN_ID_GLOBAL, SETTLEMENT_ACCOUNT_TYPE]
     );
@@ -409,26 +557,9 @@ async function processEvent(client: PoolClient, row: SettlementRow): Promise<voi
     if (updResult.rows[0]) assertBalanceInvariant(updResult.rows[0]);
   }
 
-  for (const { user_id, asset } of ledgerDeltas) {
-    const currencyId = assetToCurrency[asset];
-    if (!currencyId) continue;
-    const sumResult = await client.query<{ sum: string }>(
-      `SELECT COALESCE(SUM(delta), 0)::text AS sum FROM settlement_ledger_entries WHERE user_id = $1 AND asset = $2`,
-      [user_id, asset]
-    );
-    const balResult = await client.query<{ available_balance: string; locked_balance: string }>(
-      `SELECT available_balance::text, locked_balance::text FROM user_balances
-       WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = $4`,
-      [user_id, currencyId, CHAIN_ID_GLOBAL, SETTLEMENT_ACCOUNT_TYPE]
-    );
-    const ledgerTotal = new Decimal(sumResult.rows[0]?.sum ?? '0');
-    const available = new Decimal(balResult.rows[0]?.available_balance ?? '0');
-    const locked = new Decimal(balResult.rows[0]?.locked_balance ?? '0');
-    const balanceTotal = available.plus(locked);
-    if (!ledgerTotal.eq(balanceTotal)) {
-      throw new Error('GLOBAL_LEDGER_INVARIANT_VIOLATION');
-    }
-  }
+  /* Do not compare cumulative settlement ledger to total balances here:
+     total balances include non-settlement sources (deposits/opening backfills/etc).
+     Settlement consistency is enforced by per-event ledger checks above + periodic aggregate audit. */
 
   const ledgerLines = [...ledgerDeltas]
     .sort((a, b) => (a.user_id === b.user_id ? a.asset.localeCompare(b.asset) : a.user_id.localeCompare(b.user_id)))
@@ -477,25 +608,11 @@ async function processEvent(client: PoolClient, row: SettlementRow): Promise<voi
   );
 
   const matchedQtyNum = toNumeric(qty);
-  /* Spot path: update spot_orders and insert spot_trades (symbol from spot_markets) */
-  const takerOrderUpdate = await client.query(
-    `UPDATE spot_orders SET filled_quantity = filled_quantity + $1::numeric, status = CASE
-       WHEN (quantity - filled_quantity - $1::numeric) <= 0 THEN 'FILLED' ELSE 'PARTIALLY_FILLED' END,
-     updated_at = NOW() WHERE id = $2::uuid`,
-    [matchedQtyNum, p.taker_order_id]
-  );
-  if ((takerOrderUpdate.rowCount ?? 0) === 0) {
-    throw new Error('ORDER_INVARIANT_VIOLATION');
+  let spotShape = getSpotTradesShapeSync();
+  if (!spotShape) {
+    spotShape = await loadSpotTradesShape();
   }
-  const makerOrderUpdate = await client.query(
-    `UPDATE spot_orders SET filled_quantity = filled_quantity + $1::numeric, status = CASE
-       WHEN (quantity - filled_quantity - $1::numeric) <= 0 THEN 'FILLED' ELSE 'PARTIALLY_FILLED' END,
-     updated_at = NOW() WHERE id = $2::uuid`,
-    [matchedQtyNum, p.maker_order_id]
-  );
-  if ((makerOrderUpdate.rowCount ?? 0) === 0) {
-    throw new Error('ORDER_INVARIANT_VIOLATION');
-  }
+  await updateSpotOrdersFilledAfterMatch(client, matchedQtyNum, p.taker_order_id, p.maker_order_id);
 
   const buyerId = p.taker_side === 'buy' ? p.taker_user_id : p.maker_user_id;
   const sellerId = p.taker_side === 'buy' ? p.maker_user_id : p.taker_user_id;
@@ -503,13 +620,32 @@ async function processEvent(client: PoolClient, row: SettlementRow): Promise<voi
   const sellerOrderId = p.taker_side === 'buy' ? p.maker_order_id : p.taker_order_id;
   const buyerFee = p.taker_side === 'buy' ? toNumeric(takerFeeAmt) : toNumeric(makerRebatesEnabled ? makerFeeAmt.negated() : makerFeeAmt);
   const sellerFee = p.taker_side === 'buy' ? toNumeric(makerRebatesEnabled ? makerFeeAmt.negated() : makerFeeAmt) : toNumeric(takerFeeAmt);
-  await client.query(
-    `INSERT INTO spot_trades (order_id, user_id, market, side, price, quantity, fee, fee_asset) VALUES ($1, $2, $3, 'buy', $4, $5, $6, $7)`,
-    [buyerOrderId, buyerId, p.symbol, toNumeric(price), matchedQtyNum, buyerFee, quote]
-  );
-  await client.query(
-    `INSERT INTO spot_trades (order_id, user_id, market, side, price, quantity, fee, fee_asset) VALUES ($1, $2, $3, 'sell', $4, $5, $6, $7)`,
-    [sellerOrderId, sellerId, p.symbol, toNumeric(price), matchedQtyNum, sellerFee, quote]
+  await insertSpotTradesAfterMatch(
+    client,
+    spotShape,
+    {
+      symbol: p.symbol,
+      taker_order_id: p.taker_order_id,
+      maker_order_id: p.maker_order_id,
+      taker_user_id: p.taker_user_id,
+      maker_user_id: p.maker_user_id,
+      taker_side: p.taker_side,
+    },
+    {
+      fillQty: matchedQtyNum,
+      price: toNumeric(price),
+      buyerId,
+      sellerId,
+      buyerOrderId,
+      sellerOrderId,
+      buyerFee,
+      sellerFee,
+      takerFee: toNumeric(takerFeeAmt),
+      makerFee: toNumeric(makerFeeForDb),
+      quoteAsset: quote,
+      quoteAmount: toNumeric(tradeVal),
+      quoteCurrencyId: quote_currency_id,
+    }
   );
 
   try {
@@ -530,31 +666,250 @@ async function processEvent(client: PoolClient, row: SettlementRow): Promise<voi
     `UPDATE settlement_events SET status = 'processed', processed_at = NOW(), hash = $2 WHERE id = $1`,
     [row.id, computedHash]
   );
+
+  const matchEngineId = row.match_engine_id || p.match_engine_id || 'default';
+  return {
+    matchEngineId,
+    engineEventId: row.engine_event_id,
+    symbol: p.symbol,
+    price: p.price,
+    qty: p.qty,
+    taker_side: p.taker_side,
+    taker_user_id: p.taker_user_id,
+    maker_user_id: p.maker_user_id,
+    taker_order_id: p.taker_order_id,
+    maker_order_id: p.maker_order_id,
+    base,
+    quote,
+    quoteValue: tradeVal.toString(),
+    quote_precision: quote_precision,
+  };
+}
+
+export type JetStreamSettleOutcome =
+  | { outcome: 'settled'; liveNotify?: EngineLiveNotifyPayload }
+  | { outcome: 'already_done' };
+
+/**
+ * JetStream MATCH_EVENTS consumer path: insert (idempotent) + settle in one DB transaction, ack after commit outside.
+ * Postgres + poller remain fallback when stream is off or publisher fails.
+ */
+export async function ingestAndSettleMatchEventFromJetStream(
+  raw: Record<string, unknown>
+): Promise<JetStreamSettleOutcome> {
+  const matchEngineId = String(raw.engine_id ?? raw.match_engine_id ?? 'default').trim() || 'default';
+  const eventId = Number(raw.event_id);
+  if (!Number.isFinite(eventId) || eventId < 1) {
+    throw new Error('STREAM_MATCH_EVENT_INVALID_ID');
+  }
+  const payloadObj = {
+    event_id: eventId,
+    match_engine_id: matchEngineId,
+    symbol: String(raw.symbol ?? ''),
+    price: String(raw.price ?? ''),
+    qty: String(raw.qty ?? ''),
+    taker_order_id: String(raw.taker_order_id ?? ''),
+    maker_order_id: String(raw.maker_order_id ?? ''),
+    taker_user_id: String(raw.taker_user_id ?? ''),
+    maker_user_id: String(raw.maker_user_id ?? ''),
+    taker_side: String(raw.taker_side ?? ''),
+    timestamp: typeof raw.timestamp === 'number' ? raw.timestamp : Number(raw.timestamp),
+  };
+  const payload = normalizeSettlementPayload(payloadObj);
+  const payloadJson = JSON.stringify({
+    event_id: payload.event_id,
+    match_engine_id: matchEngineId,
+    symbol: payload.symbol,
+    price: payload.price,
+    qty: payload.qty,
+    taker_order_id: payload.taker_order_id,
+    maker_order_id: payload.maker_order_id,
+    taker_user_id: payload.taker_user_id,
+    maker_user_id: payload.maker_user_id,
+    taker_side: payload.taker_side,
+    timestamp: payload.timestamp,
+  });
+
+  const client = await db.getSettlementClient();
+  try {
+    await client.query('BEGIN');
+    const ins = await client.query<{ id: number }>(
+      `INSERT INTO settlement_events (match_engine_id, engine_event_id, payload, status)
+       VALUES ($1, $2, $3::jsonb, 'pending')
+       ON CONFLICT (match_engine_id, engine_event_id) DO NOTHING
+       RETURNING id`,
+      [matchEngineId, eventId, payloadJson]
+    );
+    let rowId: number;
+    if (ins.rows.length > 0) {
+      rowId = ins.rows[0]!.id;
+    } else {
+      const ex = await client.query<{ id: number; status: string }>(
+        `SELECT id, status::text AS status FROM settlement_events
+         WHERE match_engine_id = $1 AND engine_event_id = $2 FOR UPDATE`,
+        [matchEngineId, eventId]
+      );
+      if (ex.rows.length === 0) {
+        throw new Error('STREAM_MATCH_EVENT_ROW_MISSING');
+      }
+      const st = (ex.rows[0]!.status || '').toLowerCase();
+      if (st === 'processed' || st === 'failed') {
+        await client.query('COMMIT');
+        return { outcome: 'already_done' };
+      }
+      rowId = ex.rows[0]!.id;
+    }
+
+    const locked = await client.query<{
+      id: number;
+      engine_event_id: number;
+      match_engine_id: string;
+      payload: unknown;
+      status: string;
+    }>(
+      `SELECT id, engine_event_id, match_engine_id::text, payload, status::text AS status
+       FROM settlement_events WHERE id = $1 FOR UPDATE`,
+      [rowId]
+    );
+    const lr = locked.rows[0]!;
+    const st2 = (lr.status || '').toLowerCase();
+    if (st2 === 'processed' || st2 === 'failed') {
+      await client.query('COMMIT');
+      return { outcome: 'already_done' };
+    }
+
+    let pl: EnginePayload;
+    try {
+      pl = normalizeSettlementPayload(lr.payload);
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    }
+    const row: SettlementRow = {
+      id: lr.id,
+      engine_event_id: lr.engine_event_id,
+      match_engine_id: lr.match_engine_id || matchEngineId,
+      payload: pl,
+    };
+    const liveNotify = await processSettlementEventRow(client, row);
+    await client.query('COMMIT');
+    return { outcome: 'settled', liveNotify };
+  } catch (e) {
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      /* ignore */
+    }
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 async function processOneEvent(): Promise<boolean> {
   const client = await db.getSettlementClient();
   try {
     await client.query('BEGIN');
-    const pending = await client.query<SettlementRow>(
-      `SELECT id, engine_event_id, payload FROM settlement_events
-       WHERE status = 'pending' AND retry_count < $1
+    const pending = await client.query<{
+      id: number;
+      engine_event_id: number;
+      match_engine_id: string;
+      payload: unknown;
+    }>(
+      `SELECT id, engine_event_id, match_engine_id::text, payload FROM settlement_events
+       WHERE LOWER(TRIM(status::text)) = 'pending' AND COALESCE(retry_count, 0) < $1
        ORDER BY id ASC LIMIT 1 FOR UPDATE SKIP LOCKED`,
       [MAX_RETRIES]
     );
     if (pending.rows.length === 0) {
+      const eligible = await client.query<{ c: string }>(
+        `SELECT count(*)::text AS c FROM settlement_events
+         WHERE LOWER(TRIM(status::text)) = 'pending' AND COALESCE(retry_count, 0) < $1`,
+        [MAX_RETRIES]
+      );
+      const eligibleCount = parseInt(eligible.rows[0]?.c ?? '0', 10);
+      if (eligibleCount > 0) {
+        logger.warn('Settlement: eligible pending rows exist but none claimed (SKIP LOCKED contention or filter mismatch)', {
+          eligiblePendingCount: eligibleCount,
+          maxRetries: MAX_RETRIES,
+        });
+      }
       await client.query('ROLLBACK');
       return false;
     }
-    const row = pending.rows[0]!;
+    const rawRow = pending.rows[0]!;
+    let payload: EnginePayload;
     try {
-      await processEvent(client, row);
+      payload = normalizeSettlementPayload(rawRow.payload);
+    } catch (normErr) {
+      await client.query('ROLLBACK');
+      const msg = normErr instanceof Error ? normErr.message : String(normErr);
+      logger.error('Settlement payload normalize failed (fatal)', {
+        settlementEventId: rawRow.id,
+        engineEventId: rawRow.engine_event_id,
+        error: msg,
+        stack: errStack(normErr),
+      });
+      await db.query(
+        `UPDATE settlement_events SET status = 'failed', last_error = $1, processed_at = NOW() WHERE id = $2`,
+        [msg.substring(0, 1000), rawRow.id]
+      );
+      return true;
+    }
+    const row: SettlementRow = {
+      id: rawRow.id,
+      engine_event_id: rawRow.engine_event_id,
+      match_engine_id: rawRow.match_engine_id || 'default',
+      payload,
+    };
+    logger.info('Settlement claiming pending event', {
+      settlementEventId: row.id,
+      engineEventId: row.engine_event_id,
+      symbol: row.payload.symbol,
+    });
+    try {
+      const liveNotify = await processSettlementEventRow(client, row);
       await client.query('COMMIT');
+      logger.info('Settlement event committed', {
+        settlementEventId: row.id,
+        engineEventId: row.engine_event_id,
+        symbol: row.payload.symbol,
+      });
+      if (liveNotify) {
+        try {
+          await applyCommittedEngineNotify(liveNotify);
+        } catch (liveErr) {
+          logger.warn('Settlement live book notify failed (best-effort)', {
+            error: liveErr instanceof Error ? liveErr.message : String(liveErr),
+            engineEventId: liveNotify.engineEventId,
+            stack: errStack(liveErr),
+          });
+        }
+        try {
+          await notifySpotPrivateChannelsAfterSettlement({
+            symbol: liveNotify.symbol,
+            takerOrderId: liveNotify.taker_order_id,
+            makerOrderId: liveNotify.maker_order_id,
+            takerUserId: liveNotify.taker_user_id,
+            makerUserId: liveNotify.maker_user_id,
+          });
+        } catch (wsErr) {
+          logger.warn('Settlement private WS notify failed (best-effort)', {
+            error: wsErr instanceof Error ? wsErr.message : String(wsErr),
+          });
+        }
+      }
       return true;
     } catch (err) {
       await client.query('ROLLBACK');
       const errMsg = err instanceof Error ? err.message : String(err);
       triggerCircuitIfViolation(errMsg);
+      logger.error('Settlement processEvent failed', {
+        settlementEventId: row.id,
+        engineEventId: row.engine_event_id,
+        error: errMsg,
+        stack: errStack(err),
+      });
       const isFatalError =
         errMsg === 'INSUFFICIENT_LOCKED_FUNDS' ||
         errMsg === 'INSUFFICIENT_FUNDS_FOR_FEE' ||
@@ -567,6 +922,12 @@ async function processOneEvent(): Promise<boolean> {
         errMsg === 'LEDGER_IMMUTABLE_VIOLATION' ||
         errMsg === 'LEDGER_CONSISTENCY_VIOLATION' ||
         errMsg === 'MISSING_BALANCE_ROW_FOR_LOCKED_DEBIT' ||
+        errMsg === 'MARKET_NOT_FOUND' ||
+        errMsg === 'MARKET_CURRENCY_NOT_FOUND' ||
+        errMsg === 'TRADING_PAIR_NOT_FOUND_FOR_SYMBOL' ||
+        errMsg.startsWith('SPOT_TRADES_SCHEMA_UNSUPPORTED') ||
+        errMsg.startsWith('SETTLEMENT_PAYLOAD_') ||
+        errMsg === 'SELF_TRADE_REJECTED' ||
         errMsg.includes('negative balance') ||
         errMsg.startsWith('[INVARIANT_VIOLATION]') ||
         errMsg.startsWith('Settlement would result in negative balance');
@@ -619,6 +980,7 @@ async function processOneEvent(): Promise<boolean> {
           engine_event_id: row.engine_event_id,
           error: errMsg,
           retry_count: newRetryCount,
+          stack: errStack(err),
         });
       }
       return true;
@@ -633,16 +995,59 @@ async function processOneEvent(): Promise<boolean> {
       type: 'settlement_worker_error',
       error: err instanceof Error ? err.message : String(err),
     });
+    logger.error('Settlement worker outer error', {
+      error: err instanceof Error ? err.message : String(err),
+      stack: errStack(err),
+    });
     throw err;
   } finally {
     client.release();
   }
 }
 
+/**
+ * One worker poll tick: processes up to `batchSize` pending events (honours Redis halt + settlement circuit).
+ * Safe to call from a short-lived CLI to drain backlog while the API process is stopped.
+ */
+export async function runSettlementWorkerOnce(): Promise<void> {
+  await runOnce();
+}
+
 async function runOnce(): Promise<void> {
-  if (isTradingHalted()) return;
-  if (await getTradingHalted()) return;
-  if (await getSettlementCircuitOpen()) return;
+  const redisGlobalHalt = await getTradingHalted();
+  const circuitOpen = await getSettlementCircuitOpen();
+
+  /**
+   * triggerCircuitIfViolation() sets in-process tradingHalted=true AND Redis circuit.
+   * Clearing Redis alone (e.g. redis-cli DEL) leaves this flag true forever → worker never drains.
+   * Sync: if Redis says circuit closed and global halt off, drop stale local halt.
+   */
+  if (isTradingHalted() && !circuitOpen && !redisGlobalHalt) {
+    setTradingHalted(false);
+    logger.info('Settlement worker cleared stale in-process trading halt (Redis circuit closed, no global halt)');
+  }
+
+  if (settlementWorkerVerboseLogs()) {
+    logger.info('Settlement worker poll tick', {
+      intervalMs: settlementWorkerIntervalMs(),
+      localTradingHalted: isTradingHalted(),
+      redisGlobalHalt,
+      settlementCircuitOpen: circuitOpen,
+    });
+  }
+
+  if (isTradingHalted()) {
+    logger.info('Settlement worker skipped tick (local trading halt)', { reason: 'isTradingHalted' });
+    return;
+  }
+  if (redisGlobalHalt) {
+    logger.info('Settlement worker skipped tick (Redis/global trading halt)', { reason: 'getTradingHalted' });
+    return;
+  }
+  if (circuitOpen) {
+    logger.info('Settlement worker skipped tick (settlement circuit open)', { reason: 'getSettlementCircuitOpen' });
+    return;
+  }
   const limit = batchSize();
   for (let i = 0; i < limit; i++) {
     const processed = await processOneEvent();
@@ -652,23 +1057,34 @@ async function runOnce(): Promise<void> {
 
 let workerIntervalId: ReturnType<typeof setInterval> | null = null;
 
+/** Serialize ticks so overlapping processOneEvent calls cannot starve the pool or hide SKIP LOCKED behavior. */
+let settlementTickChain: Promise<void> = Promise.resolve();
+
 export function startSettlementWorker(): void {
   if (workerIntervalId != null) {
     return;
   }
-  workerIntervalId = setInterval(() => {
-    runOnce().catch((err) => {
-      logger.error('Settlement worker error', { error: err instanceof Error ? err.message : String(err) });
-    });
-  }, WORKER_INTERVAL_MS);
+  const enqueue = (): void => {
+    settlementTickChain = settlementTickChain
+      .then(() => runOnce())
+      .catch((err) => {
+        logger.error('Settlement worker error', {
+          error: err instanceof Error ? err.message : String(err),
+          stack: errStack(err),
+        });
+      });
+  };
+  enqueue();
+  workerIntervalId = setInterval(enqueue, settlementWorkerIntervalMs());
   recordOperationalEvent({ type: 'settlement_worker_start' });
-  logger.info('Settlement worker started');
+  logger.info('Settlement worker started', { intervalMs: settlementWorkerIntervalMs() });
 }
 
 export function stopSettlementWorker(): void {
   if (workerIntervalId != null) {
     clearInterval(workerIntervalId);
     workerIntervalId = null;
+    settlementTickChain = Promise.resolve();
     recordOperationalEvent({ type: 'settlement_worker_stop' });
     logger.info('Settlement worker stopped');
   }

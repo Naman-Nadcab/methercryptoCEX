@@ -108,15 +108,22 @@ export async function isSessionValid(sessionId: string): Promise<boolean> {
     // Redis error: fall through to DB
   }
   // Redis miss (logout deleted key, or Redis restart): check DB as source of truth
-  const r = await db.query<{ is_active: boolean; expires_at: string }>(
-    `SELECT is_active, expires_at::text AS expires_at FROM user_sessions WHERE id = $1`,
-    [sessionId]
-  );
-  if (r.rows.length === 0) return false;
-  const row = r.rows[0]!;
-  if (!row.is_active) return false;
-  if (new Date(row.expires_at) < new Date()) return false;
-  return true;
+  try {
+    const r = await db.query<{ is_active: boolean; expires_at: string }>(
+      `SELECT is_active, expires_at::text AS expires_at FROM user_sessions WHERE id = $1`,
+      [sessionId]
+    );
+    if (r.rows.length === 0) return false;
+    const row = r.rows[0]!;
+    if (!row.is_active) return false;
+    if (new Date(row.expires_at) < new Date()) return false;
+    return true;
+  } catch (e) {
+    logger.warn('isSessionValid DB check failed', {
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return false;
+  }
 }
 
 /**

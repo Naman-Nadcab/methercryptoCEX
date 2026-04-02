@@ -33,7 +33,7 @@ async function getMetricValue(metricKey: string): Promise<number> {
     if (raw == null || raw === '') {
       const fromDb = await getMetricFromDb(metricKey);
       if (fromDb != null) {
-        await redis.set(key, String(fromDb), 'EX', 30);
+        await redis.set(key, String(fromDb), 30);
         return fromDb;
       }
       return 0;
@@ -83,7 +83,7 @@ async function isInCooldown(triggerType: string): Promise<boolean> {
 async function setCooldown(triggerType: string): Promise<void> {
   try {
     const key = COOLDOWN_PREFIX + triggerType;
-    await redis.set(key, '1', 'EX', COOLDOWN_SECONDS);
+    await redis.set(key, '1', COOLDOWN_SECONDS);
   } catch (e) {
     logger.warn('Safety trigger worker: failed to set cooldown', {
       trigger_type: triggerType,

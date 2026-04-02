@@ -131,9 +131,9 @@ export default function WithdrawalTierLimitsPage() {
               title: 'Daily limit',
               dataIndex: 'dailyLimit',
               key: 'dailyLimit',
-              render: (_: string, r: { tier: number }) => (
-                <InputNumber
-                  min={0}
+              render: (_: string, r: TierLimit) => (
+                <InputNumber<string>
+                  min="0"
                   value={editing[r.tier]?.dailyLimit ?? r.dailyLimit}
                   onChange={(v) => updateEdit(r.tier, 'dailyLimit', v != null ? String(v) : '0')}
                   className="w-full"
@@ -145,9 +145,9 @@ export default function WithdrawalTierLimitsPage() {
               title: 'Monthly limit',
               dataIndex: 'monthlyLimit',
               key: 'monthlyLimit',
-              render: (_: string, r: { tier: number }) => (
-                <InputNumber
-                  min={0}
+              render: (_: string, r: TierLimit) => (
+                <InputNumber<string>
+                  min="0"
                   value={editing[r.tier]?.monthlyLimit ?? r.monthlyLimit}
                   onChange={(v) => updateEdit(r.tier, 'monthlyLimit', v != null ? String(v) : '0')}
                   className="w-full"

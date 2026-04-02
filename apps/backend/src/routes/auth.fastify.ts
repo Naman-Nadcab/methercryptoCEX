@@ -135,14 +135,15 @@ function generateTokens(app: FastifyInstance, payload: {
 export default async function authRoutes(app: FastifyInstance) {
   app.setErrorHandler((err, request, reply) => {
     if (reply.sent) return;
+    const e = err instanceof Error ? err : new Error(String(err));
     const status = (err as { statusCode?: number }).statusCode || 500;
-    const msg = err.message || 'An error occurred';
+    const msg = e.message || 'An error occurred';
     return reply.status(status).send({
       success: false,
       error: {
         code: 'AUTH_ERROR',
         message: msg,
-        ...(config.env === 'development' && { detail: (err as Error).stack?.split('\n').slice(0, 3).join('\n') }),
+        ...(config.env === 'development' && { detail: e.stack?.split('\n').slice(0, 3).join('\n') }),
       },
     });
   });
@@ -250,7 +251,7 @@ export default async function authRoutes(app: FastifyInstance) {
       }
 
       // Queue OTP for async delivery (RabbitMQ) or direct send fallback; API returns immediately
-      queueOtpSend(type, cleanIdentifier, otp).catch((err) =>
+      queueOtpSend(type === 'phone' ? 'sms' : 'email', cleanIdentifier, otp).catch((err) =>
         logger.warn('[send-otp] OTP delivery failed', { error: err instanceof Error ? err.message : String(err), identifier: cleanIdentifier })
       );
 

@@ -52,8 +52,8 @@ export default function OrderbookSurveillancePage() {
     if (cancelRatio >= CANCEL_RATIO_THRESHOLD && largeOrders > 0) riskFlags.push('Wash/spoof pattern');
     return {
       id: String(u.id ?? ''),
-      trader: u.email ?? u.name ?? u.id ?? '—',
-      market: (u.primary_market as string) ?? '—',
+      trader: String(u.email ?? u.name ?? u.id ?? '—'),
+      market: typeof u.primary_market === 'string' ? u.primary_market : '—',
       orderSize: ordersTotal,
       cancelRatio: ordersTotal > 0 ? `${(cancelRatio * 100).toFixed(1)}%` : '—',
       largeOrders,

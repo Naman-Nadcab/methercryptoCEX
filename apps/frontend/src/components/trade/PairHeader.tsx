@@ -3,6 +3,18 @@
 import type { ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { Star } from 'lucide-react';
+import {
+  NO_TRADES_ACTIONABLE,
+  NO_ACTIVITY_24H,
+  TOOLTIP_CHANGE_UNAVAILABLE,
+  TOOLTIP_LAST_PRICE,
+  TOOLTIP_24H_CHANGE,
+  TOOLTIP_24H_HIGH,
+  TOOLTIP_24H_LOW,
+  TOOLTIP_BASE_VOLUME_24H,
+  TOOLTIP_QUOTE_VOLUME_24H,
+} from '@/lib/marketDataUxCopy';
+import type { SpotWsStreamPhase } from '@/hooks/useSpotWs';
 import { formatCompactNumber, formatValueFixedTrim } from './terminalFormat';
 
 type Market = { symbol: string; base_asset: string; quote_asset: string };
@@ -24,6 +36,9 @@ interface PairHeaderProps {
   markets?: Market[];
   onSymbolChange?: (symbol: string) => void;
   wsConnected?: boolean;
+  /** Prefer over `wsConnected` when provided (connecting / live / reconnecting / disconnected). */
+  wsStreamPhase?: SpotWsStreamPhase;
+  wsLastRttMs?: number | null;
   isFavorite?: (symbol: string) => boolean;
   onToggleFavorite?: (symbol: string) => void;
   tierLevel?: number;
@@ -73,6 +88,8 @@ export function PairHeader({
   markets,
   onSymbolChange,
   wsConnected,
+  wsStreamPhase,
+  wsLastRttMs,
   isFavorite,
   onToggleFavorite,
   tierLevel,
@@ -85,14 +102,11 @@ export function PairHeader({
   const pairLabel = base && quote ? `${base}/${quote}` : sym;
   const onChange = onSymbolChange ?? (() => {});
 
-  const computedChangePct = (() => {
-    if (typeof changePct24h === 'number' && Number.isFinite(changePct24h)) return changePct24h;
-    const last = lastPrice != null ? Number(lastPrice) : NaN;
-    const low = low24h != null ? Number(low24h) : NaN;
-    if (!Number.isFinite(last) || !Number.isFinite(low) || low <= 0) return null;
-    return ((last - low) / low) * 100;
-  })();
-  const changeUp = computedChangePct != null ? computedChangePct >= 0 : null;
+  /** Only server-provided 24h % — no client-side proxy (institutional data integrity). */
+  const officialChangePct =
+    typeof changePct24h === 'number' && Number.isFinite(changePct24h) ? changePct24h : null;
+  const changeTone: 'up' | 'down' | 'flat' | 'none' =
+    officialChangePct == null ? 'none' : officialChangePct > 0 ? 'up' : officialChangePct < 0 ? 'down' : 'flat';
 
   const spreadTooltip = (() => {
     if (bid == null || bid === '' || ask == null || ask === '') return undefined;
@@ -124,8 +138,11 @@ export function PairHeader({
     prevPriceRef.current = current;
   }, [lastPrice]);
 
-  const lastDisplay =
-    quote === 'USDT' && lastPrice != null && lastPrice !== ''
+  const hasLastTrade = lastPrice != null && lastPrice !== '';
+
+  const lastDisplay = !hasLastTrade
+    ? NO_TRADES_ACTIONABLE
+    : quote === 'USDT'
       ? `$${formatValueFixedTrim(lastPrice, pricePrecision)}`
       : formatValueFixedTrim(lastPrice, pricePrecision);
 
@@ -135,7 +152,13 @@ export function PairHeader({
       : undefined;
 
   const changeColor =
-    computedChangePct == null ? 'text-gray-400 dark:text-gray-500' : changeUp ? 'text-price-up' : 'text-price-down';
+    changeTone === 'none'
+      ? 'text-gray-400 dark:text-gray-500'
+      : changeTone === 'up'
+        ? 'text-price-up'
+        : changeTone === 'down'
+          ? 'text-price-down'
+          : 'text-gray-500 dark:text-gray-400';
 
   const lastColor =
     priceFlash === 'up'
@@ -143,6 +166,32 @@ export function PairHeader({
       : priceFlash === 'down'
         ? 'text-price-down'
         : 'text-gray-900 dark:text-white';
+
+  const streamPhaseResolved: SpotWsStreamPhase | null =
+    wsStreamPhase ?? (wsConnected === true ? 'live' : wsConnected === false ? 'reconnecting' : null);
+  const showStreamBadge = streamPhaseResolved != null || wsConnected !== undefined;
+  const phaseForBadge: SpotWsStreamPhase =
+    streamPhaseResolved ?? (wsConnected === false ? 'reconnecting' : 'connecting');
+  const streamDotClass =
+    phaseForBadge === 'live'
+      ? 'bg-[hsl(var(--price-up))]'
+      : phaseForBadge === 'disconnected'
+        ? 'bg-red-500'
+        : 'animate-pulse bg-amber-500';
+  const streamLabel =
+    phaseForBadge === 'live' ? 'Live' : phaseForBadge === 'disconnected' ? 'Off' : phaseForBadge === 'reconnecting' ? 'Sync' : '…';
+  const rttSuffix =
+    phaseForBadge === 'live' && wsLastRttMs != null && wsLastRttMs >= 0 ? `${wsLastRttMs}ms` : null;
+  const streamTitle =
+    phaseForBadge === 'live'
+      ? rttSuffix
+        ? `Stream connected · RTT ~${rttSuffix}`
+        : 'Stream connected'
+      : phaseForBadge === 'disconnected'
+        ? 'Stream disconnected'
+        : phaseForBadge === 'reconnecting'
+          ? 'Reconnecting to market stream'
+          : 'Connecting to market stream';
 
   return (
     <header
@@ -190,37 +239,65 @@ export function PairHeader({
             T{tierLevel}
           </span>
         )}
-        {wsConnected !== undefined && (
+        {showStreamBadge && (
           <span
             className="inline-flex h-5 shrink-0 items-center gap-1 rounded border border-gray-200/70 bg-white/80 px-1 text-[8px] font-bold uppercase text-gray-600 dark:border-gray-600 dark:bg-gray-900/40 dark:text-gray-400"
-            title={wsConnected ? 'Stream connected' : 'Stream disconnected'}
+            title={streamTitle}
           >
-            <span
-              className={`h-1 w-1 shrink-0 rounded-full ${wsConnected ? 'bg-[hsl(var(--price-up))]' : 'bg-red-500'}`}
-              aria-hidden
-            />
-            <span className="hidden sm:inline">{wsConnected ? 'Live' : 'Off'}</span>
+            <span className={`h-1 w-1 shrink-0 rounded-full ${streamDotClass}`} aria-hidden />
+            <span className="hidden sm:inline">
+              {streamLabel}
+              {rttSuffix ? (
+                <span className="ml-0.5 font-mono normal-case opacity-80">{rttSuffix}</span>
+              ) : null}
+            </span>
           </span>
         )}
       </div>
 
       {/* Content-sized columns, centered; dividers only between stats */}
       <div className="flex min-w-0 flex-1 items-stretch justify-evenly divide-x divide-gray-200/70 px-0.5 dark:divide-gray-700/60 sm:px-1">
-        <MiniStat label="Last" title={lastSub}>
-          <span className={`font-bold ${lastColor}`}>{lastDisplay}</span>
+        <MiniStat label="Last" title={lastSub ?? TOOLTIP_LAST_PRICE}>
+          <span className={`font-bold ${hasLastTrade ? lastColor : 'text-gray-400 dark:text-gray-500'}`}>{lastDisplay}</span>
         </MiniStat>
-        <MiniStat label="24h">
-          <span className={changeColor}>
-            {computedChangePct == null ? '—' : `${computedChangePct >= 0 ? '+' : ''}${computedChangePct.toFixed(2)}%`}
+        <MiniStat label="24h" title={officialChangePct != null ? TOOLTIP_24H_CHANGE : TOOLTIP_CHANGE_UNAVAILABLE}>
+          <span className={`${changeColor} max-w-[4.5rem] truncate sm:max-w-none`}>
+            {officialChangePct != null
+              ? `${officialChangePct > 0 ? '+' : ''}${officialChangePct.toFixed(2)}%`
+              : '—'}
           </span>
         </MiniStat>
-        <MiniStat label="High">{formatValueFixedTrim(high24h, pricePrecision)}</MiniStat>
-        <MiniStat label="Low">{formatValueFixedTrim(low24h, pricePrecision)}</MiniStat>
-        <MiniStat label={`V·${base.slice(0, 4)}`} title={`Volume ${base}`}>
-          {formatCompactNumber(volume24h)}
+        <MiniStat label="High" title={TOOLTIP_24H_HIGH}>
+          <span className="max-w-[3.5rem] truncate sm:max-w-none">
+            {(() => {
+              const s = formatValueFixedTrim(high24h, pricePrecision);
+              return s === '—' ? (hasLastTrade ? NO_ACTIVITY_24H : NO_TRADES_ACTIONABLE) : s;
+            })()}
+          </span>
         </MiniStat>
-        <MiniStat label={`T·${quote.slice(0, 4)}`} title={`Turnover ${quote}`}>
-          {formatCompactNumber(turnover24h)}
+        <MiniStat label="Low" title={TOOLTIP_24H_LOW}>
+          <span className="max-w-[3.5rem] truncate sm:max-w-none">
+            {(() => {
+              const s = formatValueFixedTrim(low24h, pricePrecision);
+              return s === '—' ? (hasLastTrade ? NO_ACTIVITY_24H : NO_TRADES_ACTIONABLE) : s;
+            })()}
+          </span>
+        </MiniStat>
+        <MiniStat label={`V·${base.slice(0, 4)}`} title={TOOLTIP_BASE_VOLUME_24H}>
+          <span className="max-w-[3rem] truncate sm:max-w-none">
+            {(() => {
+              const s = formatCompactNumber(volume24h);
+              return s === '—' ? (hasLastTrade ? NO_ACTIVITY_24H : NO_TRADES_ACTIONABLE) : s;
+            })()}
+          </span>
+        </MiniStat>
+        <MiniStat label={`T·${quote.slice(0, 4)}`} title={TOOLTIP_QUOTE_VOLUME_24H}>
+          <span className="max-w-[3rem] truncate sm:max-w-none">
+            {(() => {
+              const s = formatCompactNumber(turnover24h);
+              return s === '—' ? (hasLastTrade ? NO_ACTIVITY_24H : NO_TRADES_ACTIONABLE) : s;
+            })()}
+          </span>
         </MiniStat>
         <MiniStat label="B/A" title={spreadTooltip} className="max-w-[min(100%,9.5rem)]">
           <div className="min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-center">

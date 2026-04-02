@@ -3154,8 +3154,9 @@ export default async function walletRoutes(app: FastifyInstance) {
   });
 
   // Get trading account balances (authenticated). Uses canonical readUserBalances only. Trading view = trading only.
+  // authenticateUser: JWT (@fastify/jwt) or X-API-Key — aligns with e2e-provision-credentials (jsonwebtoken-signed JWT may not verify via app.jwt).
   app.get('/balances/trading', {
-    preHandler: [app.authenticate]
+    preHandler: [app.authenticateUser]
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const userId = request.user!.id;
@@ -3184,10 +3185,20 @@ export default async function walletRoutes(app: FastifyInstance) {
         used_as_collateral: '0',
         usd_value: agg.equity.toString()
       }));
-      balances.sort((a, b) => new Decimal(b.equity).cmp(a.equity));
+      function safeEquityDec(s: string): DecimalInstance {
+        const t = String(s ?? '').trim();
+        if (!t) return new Decimal(0);
+        try {
+          const d = new Decimal(t);
+          return d.isFinite() ? d : new Decimal(0);
+        } catch {
+          return new Decimal(0);
+        }
+      }
+      balances.sort((a, b) => safeEquityDec(b.equity).comparedTo(safeEquityDec(a.equity)));
       const totalEquity = balances.reduce((sum, b) => sum.plus(b.equity).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN), new Decimal(0));
 
-      return {
+      return reply.send({
         success: true,
         data: {
           balances,
@@ -3196,7 +3207,7 @@ export default async function walletRoutes(app: FastifyInstance) {
           unrealizedPnl: { usd: 0 },
           marginInfo: { im: 0, imUsd: 0, mm: 0, mmUsd: 0 }
         }
-      };
+      });
     } catch (error) {
       logger.error('Failed to get trading balances', {
         error: error instanceof Error ? error.message : 'Unknown',
@@ -3248,7 +3259,7 @@ export default async function walletRoutes(app: FastifyInstance) {
           availableBalance: available
         };
       });
-      data.sort((a, b) => new Decimal(b.availableBalance).cmp(a.availableBalance));
+      data.sort((a, b) => new Decimal(b.availableBalance).comparedTo(a.availableBalance));
       return { success: true, data };
     } catch (error) {
       logger.error('Failed to get transfer balances', {

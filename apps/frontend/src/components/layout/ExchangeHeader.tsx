@@ -8,16 +8,34 @@ import ThemeToggle from '@/components/ThemeToggle';
 import { NotificationCenter } from '@/components/layout/NotificationCenter';
 import { GlobalSearch } from '@/components/layout/GlobalSearch';
 import { useAuthStore } from '@/store/auth';
+import { SPOT_TRADE_HREF, isSpotTradePath } from '@/lib/tier1-canonical-routes';
+import { MARKETS_HREF, ORDERS_HREF, WALLET_HREF, P2P_HREF, ROUTES, LEGACY_PATH_PREFIXES } from '@/lib/routes';
 
 const MAIN_NAV = [
-  { label: 'Spot', href: '/dashboard/spot' },
-  { label: 'P2P', href: '/dashboard/p2p' },
-  { label: 'Markets', href: '/dashboard/markets' },
-  { label: 'Orders', href: '/dashboard/orders' },
-  { label: 'Assets', href: '/dashboard/assets/overview' },
-  { label: 'History', href: '/dashboard/assets/history' },
-  { label: 'Deposit', href: '/dashboard/deposit/crypto' },
+  { label: 'Markets', href: MARKETS_HREF },
+  { label: 'Trade', href: SPOT_TRADE_HREF },
+  { label: 'P2P', href: P2P_HREF },
+  { label: 'Earn', href: ROUTES.earn },
 ];
+
+function isMainNavActive(pathname: string | null, href: string): boolean {
+  if (!pathname) return false;
+  if (href === SPOT_TRADE_HREF) return isSpotTradePath(pathname);
+  if (href === MARKETS_HREF) {
+    return (
+      pathname === MARKETS_HREF ||
+      pathname.startsWith(`${MARKETS_HREF}/`) ||
+      pathname.startsWith('/dashboard/markets')
+    );
+  }
+  if (href === P2P_HREF) {
+    return pathname.startsWith(P2P_HREF) || pathname.startsWith(LEGACY_PATH_PREFIXES.p2pV2);
+  }
+  if (href === ROUTES.earn) {
+    return pathname.startsWith(ROUTES.earn) || pathname.startsWith(LEGACY_PATH_PREFIXES.dashboardEarn);
+  }
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 interface ExchangeHeaderProps {
   currentSymbol?: string;
@@ -63,7 +81,7 @@ export function ExchangeHeader({
         >
           {mobileMenuOpen ? <X className="h-[18px] w-[18px]" /> : <Menu className="h-[18px] w-[18px]" />}
         </button>
-        <Link href="/dashboard" className="flex flex-shrink-0 items-center gap-1.5">
+        <Link href={ROUTES.home} className="flex flex-shrink-0 items-center gap-1.5">
           <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-500">
             <span className="text-sm font-bold text-white">M</span>
           </div>
@@ -72,9 +90,7 @@ export function ExchangeHeader({
 
         <nav className="hidden items-center gap-0.5 lg:flex" aria-label="Trading">
           {MAIN_NAV.map((item) => {
-            const isActive =
-              pathname === item.href ||
-              (item.href !== '/dashboard/spot' && pathname?.startsWith(item.href));
+            const isActive = isMainNavActive(pathname, item.href);
             return (
               <Link
                 key={item.href}
@@ -160,7 +176,7 @@ export function ExchangeHeader({
           </div>
         )}
         <Link
-          href="/dashboard/orders/spot"
+          href={ORDERS_HREF}
           className="rounded-lg p-2 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white"
           aria-label="Orders"
           title="Orders"
@@ -168,17 +184,17 @@ export function ExchangeHeader({
           <FileText className="h-[18px] w-[18px]" />
         </Link>
         <Link
-          href="/dashboard/assets/overview"
+          href={WALLET_HREF}
           className="rounded-lg p-2 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white"
-          aria-label="Assets"
-          title="Assets"
+          aria-label="Wallet"
+          title="Wallet"
         >
           <Wallet className="h-[18px] w-[18px]" />
         </Link>
         <ThemeToggle variant="icon" size="sm" />
         <NotificationCenter accessToken={accessToken} />
         <Link
-          href="/dashboard/account"
+          href={ROUTES.dashboard.account}
           className="rounded-lg p-2 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white"
           aria-label="Profile"
         >
@@ -194,9 +210,7 @@ export function ExchangeHeader({
           />
           <div className="absolute bottom-0 left-0 top-0 flex w-64 flex-col gap-1 border-r border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-[#181a20]">
             {MAIN_NAV.map((item) => {
-              const isActive =
-                pathname === item.href ||
-                (item.href !== '/dashboard/spot' && pathname?.startsWith(item.href));
+              const isActive = isMainNavActive(pathname, item.href);
               return (
                 <Link
                   key={item.href}

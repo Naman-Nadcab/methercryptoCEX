@@ -65,7 +65,7 @@ export async function runLedgerCompaction(cutoff_ledger_id: number): Promise<{
       const sumDelta = new Decimal(row.sum ?? '0');
       const balRow = await client.query<{ available_balance: string; locked_balance: string }>(
         `SELECT available_balance::text, locked_balance::text FROM user_balances
-         WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = $4`,
+         WHERE user_id = $1::uuid AND currency_id = $2::uuid AND COALESCE(chain_id, '') = $3 AND account_type::text = $4`,
         [row.user_id, currencyId, CHAIN_ID_GLOBAL, SETTLEMENT_ACCOUNT_TYPE]
       );
       if (balRow.rows.length === 0) {
@@ -87,7 +87,7 @@ export async function runLedgerCompaction(cutoff_ledger_id: number): Promise<{
       const currencyId = assetToCurrency.get(row.asset)!;
       const balRow = await client.query<{ available_balance: string; locked_balance: string }>(
         `SELECT available_balance::text, locked_balance::text FROM user_balances
-         WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = $4`,
+         WHERE user_id = $1::uuid AND currency_id = $2::uuid AND COALESCE(chain_id, '') = $3 AND account_type::text = $4`,
         [row.user_id, currencyId, CHAIN_ID_GLOBAL, SETTLEMENT_ACCOUNT_TYPE]
       );
       const available = balRow.rows[0]?.available_balance ?? '0';
@@ -145,7 +145,7 @@ export async function runLedgerCompaction(cutoff_ledger_id: number): Promise<{
       const replayTotal = checkpointTotal.plus(remainingDelta);
       const balRow = await client.query<{ available_balance: string; locked_balance: string }>(
         `SELECT available_balance::text, locked_balance::text FROM user_balances
-         WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = $4`,
+         WHERE user_id = $1::uuid AND currency_id = $2::uuid AND COALESCE(chain_id, '') = $3 AND account_type::text = $4`,
         [row.user_id, currencyId, CHAIN_ID_GLOBAL, SETTLEMENT_ACCOUNT_TYPE]
       );
       if (balRow.rows.length === 0) continue;

@@ -227,7 +227,7 @@ export default function SpotTradePage() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Spot Order</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Place a limit order. Funds are reserved via balance lock until order is filled or cancelled.</p>
         </div>
-        <Link href="/dashboard/spot" className="text-sm text-blue-500 dark:text-blue-400 hover:underline">
+        <Link href="/trade/spot" className="text-sm text-blue-500 dark:text-blue-400 hover:underline">
           Back to Trade
         </Link>
       </div>

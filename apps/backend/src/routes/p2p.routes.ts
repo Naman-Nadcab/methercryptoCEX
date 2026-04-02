@@ -294,7 +294,14 @@ router.post(
       const orderId = req.params.orderId;
       if (!orderId) return res.status(400).json({ success: false, error: { code: 'MISSING_PARAM', message: 'orderId required' } });
 
-      const order = await p2pService.confirmPayment(orderId, user.id);
+      const proofUrl = typeof req.body?.proof_url === 'string' ? req.body.proof_url.trim().slice(0, 2048) : '';
+      const transactionReference =
+        typeof req.body?.transaction_reference === 'string' ? req.body.transaction_reference.trim().slice(0, 256) : '';
+      const requestIp = typeof req.ip === 'string' ? req.ip : req.socket.remoteAddress ?? undefined;
+      const order = await p2pService.confirmPayment(orderId, user.id, requestIp, {
+        proofUrl,
+        transactionReference,
+      });
 
       return res.json({
         success: true,

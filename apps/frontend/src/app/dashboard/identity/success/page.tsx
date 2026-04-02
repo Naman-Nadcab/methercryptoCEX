@@ -76,7 +76,7 @@ export default function IdentityVerificationSuccessPage() {
           {/* CTA Buttons */}
           <div className="space-y-3">
             <Link
-              href="/dashboard/deposit/crypto"
+              href="/wallet/deposit/crypto"
               className="w-full py-3 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
             >
               Make a Deposit

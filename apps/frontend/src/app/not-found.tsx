@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { ROUTES } from '@/lib/routes';
 
 export default function NotFound() {
   return (
@@ -13,22 +14,22 @@ export default function NotFound() {
         </p>
         <div className="flex flex-wrap gap-4 justify-center mt-8">
           <Link
-            href="/"
+            href={ROUTES.home}
             className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 rounded-lg font-medium transition-colors"
           >
             Home
           </Link>
           <Link
-            href="/login"
+            href={ROUTES.login}
             className="px-5 py-2.5 border border-gray-600 hover:border-gray-500 rounded-lg font-medium transition-colors"
           >
             Login
           </Link>
           <Link
-            href="/dashboard"
+            href={ROUTES.markets}
             className="px-5 py-2.5 border border-gray-600 hover:border-gray-500 rounded-lg font-medium transition-colors"
           >
-            Dashboard
+            Markets
           </Link>
         </div>
       </div>

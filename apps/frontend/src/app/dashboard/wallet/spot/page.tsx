@@ -26,7 +26,7 @@ export default function SpotWalletPage() {
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Read-only view of your Spot (trading) account balances.</p>
         </div>
         <Link
-          href="/dashboard/assets/overview"
+          href="/wallet"
           className="text-sm text-blue-500 dark:text-blue-400 hover:underline transition-opacity hover:opacity-80"
         >
           Assets overview
@@ -93,7 +93,7 @@ export default function SpotWalletPage() {
                     title="No spot balances yet"
                     description="Transfer from Funding to Spot when you're ready to trade, or deposit first."
                     actionLabel="Assets overview"
-                    actionHref="/dashboard/assets/overview"
+                    actionHref="/wallet"
                   />
                 </td>
               </tr>

@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import { Star, Search } from 'lucide-react';
 import { formatValueFixedTrim, formatCompactNumber } from '@/components/trade/terminalFormat';
+import { Skeleton } from '@/components/ui/Skeleton';
 
 export type MarketRow = {
   symbol: string;
@@ -20,6 +21,8 @@ interface MarketsSidebarProps {
   selectedSymbol: string;
   onSelectSymbol: (symbol: string) => void;
   loading?: boolean;
+  errorMessage?: string | null;
+  onRetry?: () => void;
   /** Optional: user's favorite symbols (e.g. from localStorage) */
   favorites?: string[];
   onToggleFavorite?: (symbol: string) => void;
@@ -30,6 +33,8 @@ export function MarketsSidebar({
   selectedSymbol,
   onSelectSymbol,
   loading = false,
+  errorMessage,
+  onRetry,
   favorites = [],
   onToggleFavorite,
 }: MarketsSidebarProps) {
@@ -95,15 +100,42 @@ export function MarketsSidebar({
           </thead>
           <tbody>
             {loading ? (
+              Array.from({ length: 10 }).map((_, i) => (
+                <tr key={i} className="border-b border-[#2B3139]/50">
+                  <td className="py-1.5 px-2">
+                    <Skeleton className="h-4 w-20 bg-[#2B3139]" />
+                  </td>
+                  <td className="py-1.5 px-2 text-right">
+                    <Skeleton className="ml-auto h-4 w-14 bg-[#2B3139]" />
+                  </td>
+                  <td className="py-1.5 px-2 text-right">
+                    <Skeleton className="ml-auto h-4 w-10 bg-[#2B3139]" />
+                  </td>
+                  <td className="py-1.5 px-2 text-right">
+                    <Skeleton className="ml-auto h-4 w-12 bg-[#2B3139]" />
+                  </td>
+                  <td className="w-6" />
+                </tr>
+              ))
+            ) : errorMessage ? (
               <tr>
-                <td colSpan={5} className="py-6 text-center text-[#848E9C]">
-                  Loading…
+                <td colSpan={5} className="px-3 py-6 text-center">
+                  <p className="mb-3 text-sm text-red-400">{errorMessage}</p>
+                  {onRetry ? (
+                    <button
+                      type="button"
+                      onClick={onRetry}
+                      className="rounded-lg bg-[#16C784] px-4 py-2 text-sm font-medium text-[#0B0E11] min-h-[44px]"
+                    >
+                      Retry
+                    </button>
+                  ) : null}
                 </td>
               </tr>
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={5} className="py-6 text-center text-[#848E9C]">
-                  No markets
+                <td colSpan={5} className="px-3 py-8 text-center text-sm text-[#848E9C]">
+                  No markets match your filters.
                 </td>
               </tr>
             ) : (

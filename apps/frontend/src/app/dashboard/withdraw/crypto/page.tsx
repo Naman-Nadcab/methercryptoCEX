@@ -101,19 +101,19 @@ interface Withdrawal {
 
 const FAQ_LINKS = [
   { title: 'Crypto Withdrawal FAQs', href: '/dashboard/announcements' },
-  { title: 'How to Withdraw Through Internal Transfer', href: '/dashboard/transfer' },
-  { title: 'View the Deposit/Withdrawal Status of All Coins', href: '/dashboard/assets/history' },
+  { title: 'How to Withdraw Through Internal Transfer', href: '/wallet/transfer' },
+  { title: 'View the Deposit/Withdrawal Status of All Coins', href: '/wallet/history' },
   { title: 'How to Change Your Withdrawal Limit', href: '/dashboard/security/withdrawal-limits' },
   { title: 'How to Manage Your Withdrawal Address Book', href: '/dashboard/address-book' },
 ];
 
 const SIDEBAR_LINKS = [
-  { label: 'Asset Dashboard', href: '/dashboard/assets/overview', icon: LayoutGrid },
-  { label: 'Deposit', href: '/dashboard/deposit/crypto', icon: TrendingUp },
-  { label: 'Withdraw', href: '/dashboard/withdraw/crypto', icon: Send, active: true },
-  { label: 'Transfer', href: '/dashboard/transfer', icon: ArrowLeftRight },
-  { label: 'Convert', href: '/dashboard/assets/convert', icon: RefreshCw },
-  { label: 'History', href: '/dashboard/assets/history', icon: Clock },
+  { label: 'Asset Dashboard', href: '/wallet', icon: LayoutGrid },
+  { label: 'Deposit', href: '/wallet/deposit/crypto', icon: TrendingUp },
+  { label: 'Withdraw', href: '/wallet/withdraw/crypto', icon: Send, active: true },
+  { label: 'Transfer', href: '/wallet/transfer', icon: ArrowLeftRight },
+  { label: 'Convert', href: '/wallet/convert', icon: RefreshCw },
+  { label: 'History', href: '/wallet/history', icon: Clock },
 ];
 
 export default function WithdrawCryptoPage() {
@@ -617,7 +617,7 @@ export default function WithdrawCryptoPage() {
           <div className="flex items-center justify-between mb-4">
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Withdraw</h1>
             <Link
-              href="/dashboard/withdraw/fiat"
+              href="/wallet/withdraw/fiat"
               className="flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-[#1e2329] text-gray-700 dark:text-gray-300 font-medium text-sm rounded-xl border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
             >
               <CreditCard className="w-4 h-4" />
@@ -1192,7 +1192,7 @@ export default function WithdrawCryptoPage() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Recent Withdrawal Records</h2>
               <Link
-                href="/dashboard/assets/history?tab=withdraw"
+                href="/wallet/history?tab=withdraw"
                 className="text-sm text-blue-500 hover:text-blue-600 font-medium flex items-center gap-1"
               >
                 View All

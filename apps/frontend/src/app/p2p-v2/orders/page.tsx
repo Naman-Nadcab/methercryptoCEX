@@ -1,0 +1,106 @@
+'use client';
+
+import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import Link from 'next/link';
+import RequireAuth from '@/components/RequireAuth';
+import { fetchMyOrders, P2P_V2_ORDERS_KEY } from '@/lib/p2pApi';
+import { Skeleton } from '@/components/ui/Skeleton';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { ErrorState } from '@/components/ui/ErrorState';
+import { ClipboardList } from 'lucide-react';
+
+const STATUSES = [
+  '',
+  'payment_pending',
+  'payment_confirmed',
+  'completed',
+  'cancelled',
+  'expired',
+  'disputed',
+];
+
+export default function P2PV2OrdersPage() {
+  return (
+    <RequireAuth>
+      <OrdersInner />
+    </RequireAuth>
+  );
+}
+
+function OrdersInner() {
+  const [filter, setFilter] = useState('');
+  const { data: orders = [], isLoading, isError, error, refetch } = useQuery({
+    queryKey: [...P2P_V2_ORDERS_KEY, filter],
+    queryFn: () => fetchMyOrders(filter || undefined),
+  });
+
+  const sorted = useMemo(
+    () => [...orders].sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? ''))),
+    [orders]
+  );
+
+  return (
+    <div className="space-y-4">
+      <h1 className="text-xl font-semibold text-gray-900 dark:text-white">P2P orders</h1>
+      <select
+        value={filter}
+        onChange={(e) => setFilter(e.target.value)}
+        className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-[#1e2329] dark:text-white"
+      >
+        {STATUSES.map((s) => (
+          <option key={s || 'all'} value={s}>
+            {s ? s.replace(/_/g, ' ') : 'All statuses'}
+          </option>
+        ))}
+      </select>
+
+      {isLoading ? (
+        <div className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div
+              key={i}
+              className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-[#1e2329]"
+            >
+              <Skeleton className="h-4 w-28" />
+              <Skeleton className="mt-2 h-4 w-full max-w-xs" />
+            </div>
+          ))}
+        </div>
+      ) : isError ? (
+        <ErrorState
+          title="Could not load orders"
+          message={error instanceof Error ? error.message : undefined}
+          onRetry={() => void refetch()}
+        />
+      ) : sorted.length === 0 ? (
+        <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-[#1e2329]">
+          <EmptyState
+            icon={ClipboardList}
+            title="No orders yet"
+            description="When you buy or sell on P2P, your orders will appear here."
+            action={{ label: 'Browse P2P', href: '/p2p' }}
+          />
+        </div>
+      ) : null}
+
+      <div className="space-y-2">
+        {!isLoading && !isError && sorted.map((o) => (
+          <Link
+            key={o.id}
+            href={`/p2p/orders/${o.id}`}
+            className="block rounded-xl border border-gray-200 bg-white p-4 transition hover:border-blue-500/40 dark:border-gray-800 dark:bg-[#1e2329]"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-mono text-xs text-gray-500">{o.id.slice(0, 8)}…</span>
+              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs dark:bg-gray-800">{o.status}</span>
+            </div>
+            <p className="mt-1 text-sm text-gray-900 dark:text-white">
+              {o.quantity} {o.crypto_symbol} · {o.fiat_amount} {o.fiat_currency}
+            </p>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}

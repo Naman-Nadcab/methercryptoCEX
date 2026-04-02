@@ -211,12 +211,12 @@ export default function AdminV2Sidebar({ isOpen, setIsOpen }: SidebarProps) {
 
   const { data: withdrawData } = useQuery({
     queryKey: ['admin', 'withdrawals', 'stats', token],
-    queryFn: () => getWithdrawals(token ?? undefined, { limit: 1 }),
+    queryFn: () => getWithdrawals(token ?? null, { limit: 1 }),
     enabled: !!token,
   });
   const { data: haltData } = useQuery({
     queryKey: ['admin', 'trading-halt', token],
-    queryFn: () => getTradingHalt(token ?? undefined),
+    queryFn: () => getTradingHalt(token ?? null),
     enabled: !!token,
   });
 

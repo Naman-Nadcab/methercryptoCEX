@@ -222,7 +222,7 @@ export default function WalletOperationsPage() {
           <Panel
             title="Hot & Cold Wallet Balances"
             subtitle="Live view of hot and cold wallet reserves"
-            action={
+            headerAction={
               <Link href="/admin/wallets/funds-summary">
                 <Button type="link" size="small">
                   Full summary <ChevronRight className="w-4 h-4 inline" />

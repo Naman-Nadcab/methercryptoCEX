@@ -129,11 +129,25 @@ export const useAuthStore = create<AuthState>()(
   )
 );
 
-/** Rehydrate auth store from localStorage on client mount. Call once in app root. Returns a promise that resolves when hydration completes. */
+/**
+ * Rehydrate auth store from localStorage on client mount. Call once in app root.
+ * Always ends with `_hasHydrated: true` so AuthProvider can run `/me` — even if persist
+ * rejects, storage is missing, or rehydrate() returns non-Promise (avoids infinite loading UI).
+ */
 export function rehydrateAuthStore(): Promise<void> {
   if (typeof window === 'undefined') return Promise.resolve();
-  const p = useAuthStore.persist.rehydrate();
-  return p instanceof Promise ? p : Promise.resolve();
+  try {
+    const p = useAuthStore.persist.rehydrate();
+    const chain = p instanceof Promise ? p : Promise.resolve();
+    return chain.finally(() => {
+      useAuthStore.getState().setHasHydrated(true);
+      useAuthStore.getState().setLoading(false);
+    });
+  } catch {
+    useAuthStore.getState().setHasHydrated(true);
+    useAuthStore.getState().setLoading(false);
+    return Promise.resolve();
+  }
 }
 
 // Trading store

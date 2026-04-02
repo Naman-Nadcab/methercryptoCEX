@@ -1,12 +1,15 @@
 /**
  * Market Making risk controls: emergency stop, daily loss cap, inventory imbalance.
  * Admin can emergency-stop a user; dashboard shows risk metrics.
+ * spot_trades: supports unified (user_id + market) and maker/taker + trading_pair_id.
  */
 
 import { Decimal } from '../lib/decimal.js';
 import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
+import { loadSpotTradesShape, getSpotTradesShapeSync } from '../lib/spot-trades-shape.js';
+import { buildUnifiedSpotTradesCte } from '../lib/unified-spot-trades.js';
 
 const MM_EMERGENCY_STOPPED_PREFIX = 'mm_emergency_stopped:';
 const MM_EMERGENCY_STOPPED_KEYS_PATTERN = 'mm_emergency_stopped:*';
@@ -43,6 +46,58 @@ export async function getMmEmergencyStoppedUserIds(): Promise<string[]> {
   }
 }
 
+async function queryTopTradersVolume24h(): Promise<{ user_id: string; volume: string }[]> {
+  if (!getSpotTradesShapeSync()) {
+    await loadSpotTradesShape();
+  }
+  const shape = getSpotTradesShapeSync();
+  const cte = buildUnifiedSpotTradesCte(shape);
+  if (!cte) return [];
+
+  try {
+    const r = await db.query<{ user_id: string; volume: string }>(
+      `WITH ${cte}
+       SELECT user_id::text, COALESCE(SUM(qty * price), 0)::text AS volume
+       FROM unified_trades
+       WHERE created_at >= NOW() - INTERVAL '24 hours'
+       GROUP BY user_id ORDER BY volume::numeric DESC LIMIT 20`
+    );
+    return r.rows;
+  } catch (e) {
+    logger.warn('MM risk top traders query failed', { error: e instanceof Error ? e.message : String(e) });
+  }
+  return [];
+}
+
+async function queryDailyPnlForUsers(userIds: string[]): Promise<{ user_id: string; pnl: string }[]> {
+  if (userIds.length === 0) return [];
+  if (!getSpotTradesShapeSync()) {
+    await loadSpotTradesShape();
+  }
+  const shape = getSpotTradesShapeSync();
+  if (!shape) return [];
+
+  try {
+    const cte = buildUnifiedSpotTradesCte(shape);
+    if (!cte) return [];
+    const pnlRes = await db.query<{ user_id: string; pnl: string }>(
+      `WITH ${cte}
+       SELECT user_id::text,
+        (COALESCE(SUM(CASE WHEN side = 'sell' THEN qty * price ELSE 0 END), 0) -
+         COALESCE(SUM(CASE WHEN side = 'buy' THEN qty * price ELSE 0 END), 0) -
+         COALESCE(SUM(fee), 0))::text AS pnl
+       FROM unified_trades
+       WHERE created_at >= NOW() - INTERVAL '24 hours' AND user_id = ANY($1::uuid[])
+       GROUP BY user_id`,
+      [userIds]
+    );
+    return pnlRes.rows;
+  } catch (e) {
+    logger.warn('MM risk PnL query failed', { error: e instanceof Error ? e.message : String(e) });
+  }
+  return [];
+}
+
 /** Per-user daily PnL from spot_trades (simplified: sell value - buy value + fees). */
 export async function getMmRiskData(): Promise<{
   apiKeysCount: number;
@@ -52,41 +107,28 @@ export async function getMmRiskData(): Promise<{
   inventoryImbalance: { userId: string; imbalanceRatio: number; baseExcess: string }[];
   emergencyStoppedUsers: string[];
 }> {
-  const [apiKeysRes, topTradersRes, usersWithKeysRes, emergencyStopped] = await Promise.all([
+  const [apiKeysRes, topTradersRows, usersWithKeysRes, emergencyStopped] = await Promise.all([
     db.query<{ count: string }>('SELECT COUNT(*)::text as count FROM user_api_keys WHERE deleted_at IS NULL'),
-    db.query<{ user_id: string; volume: string }>(
-      `SELECT user_id, COALESCE(SUM(quantity::numeric * price::numeric), 0)::text as volume
-       FROM spot_trades WHERE created_at >= NOW() - INTERVAL '24 hours'
-       GROUP BY user_id ORDER BY volume::numeric DESC LIMIT 20`
-    ),
+    queryTopTradersVolume24h(),
     db.query<{ user_id: string; keys_count: string }>(
       `SELECT user_id, COUNT(*)::text as keys_count FROM user_api_keys WHERE deleted_at IS NULL GROUP BY user_id`
     ),
     getMmEmergencyStoppedUserIds(),
   ]);
 
+  const topTradersRes = { rows: topTradersRows };
   const topUserIds = topTradersRes.rows.slice(0, 10).map((r) => r.user_id);
   let dailyPnlRows: { user_id: string; pnl: string }[] = [];
   let imbalanceRows: { user_id: string; base_excess: string; quote_value: string }[] = [];
 
   if (topUserIds.length > 0) {
-    const pnlRes = await db.query<{ user_id: string; pnl: string }>(
-      `SELECT user_id,
-        (COALESCE(SUM(CASE WHEN side = 'sell' THEN quantity::numeric * price::numeric ELSE 0 END), 0) -
-         COALESCE(SUM(CASE WHEN side = 'buy' THEN quantity::numeric * price::numeric ELSE 0 END), 0) -
-         COALESCE(SUM(COALESCE(fee::numeric, 0)), 0))::text as pnl
-       FROM spot_trades
-       WHERE created_at >= NOW() - INTERVAL '24 hours' AND user_id = ANY($1)
-       GROUP BY user_id`,
-      [topUserIds]
-    );
-    dailyPnlRows = pnlRes.rows;
+    dailyPnlRows = await queryDailyPnlForUsers(topUserIds);
     const imbRes = await db.query<{ user_id: string; total_balance: string; max_currency_balance: string }>(
       `SELECT ub.user_id,
         COALESCE(SUM((ub.available_balance::numeric + ub.locked_balance::numeric)), 0)::text as total_balance,
         COALESCE(MAX(ub.available_balance::numeric + ub.locked_balance::numeric), 0)::text as max_currency_balance
        FROM user_balances ub
-       WHERE ub.account_type = 'trading' AND ub.user_id = ANY($1)
+       WHERE ub.account_type = 'trading' AND ub.user_id = ANY($1::uuid[])
        GROUP BY ub.user_id`,
       [topUserIds]
     );

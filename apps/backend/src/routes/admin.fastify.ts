@@ -773,8 +773,10 @@ export default async function adminRoutes(app: FastifyInstance) {
       } catch (_) { /* */ }
       const total = depositsTotal + withdrawalsTotal;
       if (total > 0) {
-        depositsVsWithdrawals[0].value = Math.round((depositsTotal / total) * 100);
-        depositsVsWithdrawals[1].value = Math.round((withdrawalsTotal / total) * 100);
+        const depW = depositsVsWithdrawals[0]!;
+        const witW = depositsVsWithdrawals[1]!;
+        depW.value = Math.round((depositsTotal / total) * 100);
+        witW.value = Math.round((withdrawalsTotal / total) * 100);
       }
       return reply.send({
         success: true,
@@ -878,7 +880,8 @@ export default async function adminRoutes(app: FastifyInstance) {
       if (format === 'json') {
         return reply.type('application/json').send({ success: true, data: { report, rows } });
       }
-      const headers = rows.length > 0 ? Object.keys(rows[0]) : [];
+      const firstRow = rows[0];
+      const headers = firstRow ? Object.keys(firstRow) : [];
       const csv = [headers.join(',')].concat(rows.map((r) => headers.map((h) => JSON.stringify(String((r as Record<string, unknown>)[h] ?? ''))).join(','))).join('\n');
       return reply.header('Content-Type', 'text/csv').header('Content-Disposition', `attachment; filename="analytics-${report}-${new Date().toISOString().slice(0, 10)}.csv"`).send(csv);
     } catch (e) {
@@ -1118,7 +1121,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         'INSERT INTO analytics_scheduled_reports (report_type, frequency, format) VALUES ($1, $2, $3) RETURNING id::text',
         [report_type, frequency, format]
       );
-      return reply.send({ success: true, data: { id: ins.rows[0].id } });
+      return reply.send({ success: true, data: { id: ins.rows[0]!.id } });
     } catch (e) {
       logger.error('Analytics scheduled-reports create error', { error: e instanceof Error ? e.message : 'Unknown' });
       return reply.status(500).send({ success: false, error: { code: 'CREATE_FAILED', message: 'Failed to create scheduled report' } });
@@ -1291,7 +1294,7 @@ export default async function adminRoutes(app: FastifyInstance) {
       if (rows.rows.length === 0) {
         return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Version not found' } });
       }
-      const r = rows.rows[0];
+      const r = rows.rows[0]!;
       return reply.send({
         success: true,
         data: {
@@ -1320,7 +1323,7 @@ export default async function adminRoutes(app: FastifyInstance) {
       if (verRows.rows.length === 0) {
         return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Version not found' } });
       }
-      const before = (verRows.rows[0].settings_snapshot as Record<string, string>) || {};
+      const before = (verRows.rows[0]!.settings_snapshot as Record<string, string>) || {};
       const currRows = await db.query<{ key: string; value: string }>('SELECT key, value FROM system_settings');
       const after: Record<string, string> = {};
       for (const r of currRows.rows) after[r.key] = r.value;
@@ -1346,7 +1349,7 @@ export default async function adminRoutes(app: FastifyInstance) {
       if (verRows.rows.length === 0) {
         return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Version not found' } });
       }
-      const snapshot = (verRows.rows[0].settings_snapshot as Record<string, string>) || {};
+      const snapshot = (verRows.rows[0]!.settings_snapshot as Record<string, string>) || {};
       const prevRows = await db.query<{ key: string; value: string }>('SELECT key, value FROM system_settings');
       for (const r of prevRows.rows) {
         const newVal = snapshot[r.key];
@@ -1458,7 +1461,7 @@ export default async function adminRoutes(app: FastifyInstance) {
       let targetKey = featureKey ?? null;
       if (id && !targetKey) {
         const keyRow = await db.query<{ feature_key: string }>('SELECT feature_key FROM feature_flags WHERE id = $1::uuid', [id]);
-        if (keyRow.rows.length > 0) targetKey = keyRow.rows[0].feature_key;
+        if (keyRow.rows.length > 0) targetKey = keyRow.rows[0]!.feature_key;
       }
       const where = id ? 'id = $1::uuid' : 'feature_key = $1';
       const params: (string | undefined)[] = [id ?? featureKey ?? undefined, admin.adminId];
@@ -1859,7 +1862,7 @@ export default async function adminRoutes(app: FastifyInstance) {
       if (rows.rows.length === 0) {
         return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Profile not found' } });
       }
-      const settings = (rows.rows[0].settings_json as Record<string, string>) || {};
+      const settings = (rows.rows[0]!.settings_json as Record<string, string>) || {};
       await db.query(`
         CREATE TABLE IF NOT EXISTS system_settings (
           key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '', description TEXT, updated_at TIMESTAMPTZ DEFAULT NOW(), updated_by TEXT
@@ -1892,7 +1895,7 @@ export default async function adminRoutes(app: FastifyInstance) {
     if (!admin) return;
     try {
       const rows = await db.query<{ value: string }>("SELECT value FROM system_settings WHERE key = 'safe_mode'");
-      const enabled = rows.rows.length > 0 && rows.rows[0].value === '1';
+      const enabled = rows.rows.length > 0 && rows.rows[0]!.value === '1';
       return reply.send({ success: true, data: { safe_mode: enabled } });
     } catch (e) {
       logger.error('Safe mode get error', { error: e instanceof Error ? e.message : 'Unknown' });
@@ -3135,6 +3138,14 @@ export default async function adminRoutes(app: FastifyInstance) {
 
       const apiLatencyMs = Date.now() - start;
 
+      let settlementLagSec = 0;
+      try {
+        const { getLastSettlementBacklogSnapshot } = await import('../services/settlement-pipeline-health.service.js');
+        settlementLagSec = getLastSettlementBacklogSnapshot().oldestPendingAgeSeconds;
+      } catch {
+        /* optional */
+      }
+
       return reply.send({
         success: true,
         data: {
@@ -3160,6 +3171,8 @@ export default async function adminRoutes(app: FastifyInstance) {
           },
           queue: {
             settlement_pending: settlementPending,
+            settlement_lag_sec: settlementLagSec,
+            settlement_delayed: settlementPending > 0 && settlementLagSec >= 30,
             withdrawal_pending: queuePending,
             withdrawal_signing: queueSigning,
             withdrawal_broadcast: queueBroadcast,
@@ -3212,6 +3225,23 @@ export default async function adminRoutes(app: FastifyInstance) {
     } catch (e) {
       logger.error('Admin MM risk fetch failed', { error: e instanceof Error ? e.message : 'Unknown' });
       return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to fetch MM risk data' } });
+    }
+  });
+
+  /**
+   * GET /admin/monitoring/mm-health
+   * MM intelligence: oracle age, settlement lag, bot error rate, quote age, external divergence, auto-actions state.
+   */
+  app.get('/monitoring/mm-health', async (request, reply) => {
+    const admin = await getAdminWithPermission(app, request, reply, 'monitoring:view');
+    if (!admin) return;
+    try {
+      const { computeMmHealthSnapshot } = await import('../services/mm-health.service.js');
+      const data = await computeMmHealthSnapshot();
+      return reply.send({ success: true, data });
+    } catch (e) {
+      logger.error('Admin MM health fetch failed', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to fetch MM health' } });
     }
   });
 
@@ -3351,17 +3381,39 @@ export default async function adminRoutes(app: FastifyInstance) {
         `SELECT COUNT(*)::text AS count FROM withdrawals WHERE status IN ('pending','pending_approval')`
       ).catch(() => ({ rows: [{ count: '0' }] }));
       const withdrawalDb = parseInt(withdrawalFromDb.rows[0]?.count ?? '0', 10) || 0;
+      let settlementLagSec = 0;
+      let settlementPendingDb = 0;
+      try {
+        const { refreshSettlementBacklogSnapshot } = await import('../services/settlement-pipeline-health.service.js');
+        const snap = await refreshSettlementBacklogSnapshot();
+        settlementLagSec = snap.oldestPendingAgeSeconds;
+        settlementPendingDb = snap.pendingCount;
+      } catch {
+        /* optional */
+      }
+      const settlementDisplay = settlement_pending > 0 ? settlement_pending : settlementPendingDb;
       return reply.send({
         success: true,
         data: {
           withdrawal_pending: withdrawal_pending > 0 ? withdrawal_pending : withdrawalDb,
-          settlement_pending: settlement_pending,
+          settlement_pending: settlementDisplay,
+          settlement_lag_sec: settlementLagSec,
+          settlement_delayed: settlementDisplay > 0 && settlementLagSec >= 30,
           matching_engine_pending: matching_engine_pending,
         },
       });
     } catch (e) {
       logger.error('Monitoring queues error', { error: e instanceof Error ? e.message : 'Unknown' });
-      return reply.send({ success: true, data: { withdrawal_pending: 0, settlement_pending: 0, matching_engine_pending: 0 } });
+      return reply.send({
+        success: true,
+        data: {
+          withdrawal_pending: 0,
+          settlement_pending: 0,
+          settlement_lag_sec: 0,
+          settlement_delayed: false,
+          matching_engine_pending: 0,
+        },
+      });
     }
   });
 
@@ -3462,8 +3514,14 @@ export default async function adminRoutes(app: FastifyInstance) {
       return reply.status(400).send({ success: false, error: { code: 'INVALID_ACTION', message: 'action must be one of: ' + allowed.join(', ') } });
     }
     try {
-      const { logAuditFromRequest } = await import('../services/audit.service.js');
-      await logAuditFromRequest(app, request, 'infrastructure_control', 'monitoring', action, { action });
+      await logAuditFromRequest(request, {
+        actorType: 'admin',
+        actorId: admin.adminId,
+        action: 'infrastructure_control',
+        resourceType: 'monitoring',
+        resourceId: action,
+        newValue: { action },
+      });
       return reply.send({ success: true, data: { action, triggered: true } });
     } catch (e) {
       logger.error('Monitoring action error', { error: e instanceof Error ? e.message : 'Unknown' });
@@ -3939,6 +3997,18 @@ export default async function adminRoutes(app: FastifyInstance) {
   app.post('/settlement/circuit-reset', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, true);
     if (!admin) return;
+    if (config.security.adminRequireDestructiveConfirm) {
+      const body = (request.body as { confirm?: boolean } | undefined) ?? {};
+      if (body.confirm !== true) {
+        return reply.status(400).send({
+          success: false,
+          error: {
+            code: 'CONFIRMATION_REQUIRED',
+            message: 'Set JSON body { "confirm": true } to acknowledge this settlement circuit reset.',
+          },
+        });
+      }
+    }
     try {
       const { setSettlementCircuitOpen } = await import('../lib/trading-halt.js');
       const { setTradingHalted } = await import('../services/settlement/settlement-circuit.js');
@@ -3946,6 +4016,13 @@ export default async function adminRoutes(app: FastifyInstance) {
       await setSettlementCircuitOpen(false);
       setTradingHalted(false);
       await logCircuitEvent({ eventType: 'reset', actorType: 'admin', actorId: admin.adminId });
+      await logAuditFromRequest(request, {
+        actorType: 'admin',
+        actorId: admin.adminId,
+        action: 'admin_settlement_circuit_reset',
+        resourceType: 'settlement_circuit',
+        newValue: { settlementCircuitOpen: false, tradingHalted: false },
+      });
       return reply.send({ success: true, data: { message: 'Settlement circuit reset' } });
     } catch (e) {
       logger.error('Circuit reset failed', { error: e instanceof Error ? e.message : 'Unknown' });
@@ -3957,7 +4034,23 @@ export default async function adminRoutes(app: FastifyInstance) {
     const admin = await getAdminFromRequest(app, request, reply, true);
     if (!admin) return;
     try {
-      const body = request.body as { user_id: string; asset: string; reason: string; target_available?: string; target_locked?: string };
+      const body = request.body as {
+        user_id: string;
+        asset: string;
+        reason: string;
+        target_available?: string;
+        target_locked?: string;
+        confirm?: boolean;
+      };
+      if (config.security.adminRequireDestructiveConfirm && body.confirm !== true) {
+        return reply.status(400).send({
+          success: false,
+          error: {
+            code: 'CONFIRMATION_REQUIRED',
+            message: 'Set JSON body { "confirm": true } along with user_id, asset, and reason to run balance reconcile.',
+          },
+        });
+      }
       if (!body.user_id || !body.asset || !body.reason) {
         return reply.status(400).send({ success: false, error: { code: 'MISSING_FIELDS', message: 'user_id, asset, and reason are required' } });
       }
@@ -3972,6 +4065,18 @@ export default async function adminRoutes(app: FastifyInstance) {
         target_locked: body.target_locked,
       });
       if (!result.ok) return reply.status(400).send({ success: false, error: { code: 'RECONCILE_FAILED', message: result.message, ledger_sum: result.ledger_sum } });
+      await logAuditFromRequest(request, {
+        actorType: 'admin',
+        actorId: admin.adminId,
+        action: 'admin_balance_reconcile',
+        resourceType: 'user',
+        resourceId: body.user_id,
+        newValue: {
+          asset: body.asset,
+          target_available: body.target_available ?? null,
+          target_locked: body.target_locked ?? null,
+        },
+      });
       return reply.send({ success: true, data: result });
     } catch (e) {
       logger.error('Balance reconcile failed', { error: e instanceof Error ? e.message : 'Unknown' });
@@ -4449,8 +4554,6 @@ export default async function adminRoutes(app: FastifyInstance) {
           resourceId: id,
           oldValue: previousStatus ? { status: previousStatus } : undefined,
           newValue: { status, reason: reasonTrimmed ?? undefined },
-          oldValue: previousStatus,
-          newValue: { status, reason },
         });
       } catch {
         /* best-effort */
@@ -6608,7 +6711,7 @@ export default async function adminRoutes(app: FastifyInstance) {
       if (row.rows.length === 0) {
         return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Sweep not found' } });
       }
-      if (row.rows[0].status !== 'failed') {
+      if (row.rows[0]!.status !== 'failed') {
         return reply.status(400).send({ success: false, error: { code: 'INVALID_STATUS', message: 'Only failed sweeps can be retried' } });
       }
       await db.query(
@@ -7112,7 +7215,7 @@ export default async function adminRoutes(app: FastifyInstance) {
       if (row.rows.length === 0) {
         return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Alert not found' } });
       }
-      const userId = row.rows[0].user_id;
+      const userId = row.rows[0]!.user_id;
       const reason = (request.body as { reason?: string })?.reason ?? 'AML freeze from alert';
       await db.query('UPDATE users SET status = $1, status_reason = $2, updated_at = NOW() WHERE id = $3', ['suspended', reason, userId]);
       try {
@@ -7334,8 +7437,8 @@ export default async function adminRoutes(app: FastifyInstance) {
       );
       if (format === 'csv') {
         const headers = ['id', 'user_id', 'user_email', 'alert_type', 'severity', 'status', 'created_at'];
-        const escape = (v: string | null) => (v == null ? '' : `"${String(v).replace(/"/g, '""')}"`);
-        const csv = [headers.join(','), ...rows.rows.map((r) => headers.map((h) => escape((r as Record<string, string | null>)[h])).join(','))].join('\n');
+        const escape = (v: string | null | undefined) => (v == null ? '' : `"${String(v).replace(/"/g, '""')}"`);
+        const csv = [headers.join(','), ...rows.rows.map((r) => headers.map((h) => escape((r as Record<string, string | null | undefined>)[h])).join(','))].join('\n');
         reply.header('Content-Type', 'text/csv; charset=utf-8');
         reply.header('Content-Disposition', `attachment; filename="aml-alerts-${new Date().toISOString().slice(0, 10)}.csv"`);
         return reply.send(csv);
@@ -7360,8 +7463,8 @@ export default async function adminRoutes(app: FastifyInstance) {
       );
       if (format === 'csv') {
         const headers = ['id', 'report_type', 'user_id', 'period_start', 'period_end', 'total_amount', 'status', 'created_at'];
-        const escape = (v: string | null) => (v == null ? '' : `"${String(v).replace(/"/g, '""')}"`);
-        const csv = [headers.join(','), ...rows.rows.map((r) => headers.map((h) => escape((r as Record<string, string | null>)[h])).join(','))].join('\n');
+        const escape = (v: string | null | undefined) => (v == null ? '' : `"${String(v).replace(/"/g, '""')}"`);
+        const csv = [headers.join(','), ...rows.rows.map((r) => headers.map((h) => escape((r as Record<string, string | null | undefined>)[h])).join(','))].join('\n');
         reply.header('Content-Type', 'text/csv; charset=utf-8');
         reply.header('Content-Disposition', `attachment; filename="str-reports-${new Date().toISOString().slice(0, 10)}.csv"`);
         return reply.send(csv);
@@ -7386,8 +7489,8 @@ export default async function adminRoutes(app: FastifyInstance) {
       );
       if (format === 'csv') {
         const headers = ['id', 'alert_type', 'user_id', 'user_email', 'severity', 'status', 'created_at'];
-        const escape = (v: string | null) => (v == null ? '' : `"${String(v).replace(/"/g, '""')}"`);
-        const csv = [headers.join(','), ...rows.rows.map((r) => headers.map((h) => escape((r as Record<string, string | null>)[h])).join(','))].join('\n');
+        const escape = (v: string | null | undefined) => (v == null ? '' : `"${String(v).replace(/"/g, '""')}"`);
+        const csv = [headers.join(','), ...rows.rows.map((r) => headers.map((h) => escape((r as Record<string, string | null | undefined>)[h])).join(','))].join('\n');
         reply.header('Content-Type', 'text/csv; charset=utf-8');
         reply.header('Content-Disposition', `attachment; filename="suspicious-trades-${new Date().toISOString().slice(0, 10)}.csv"`);
         return reply.send(csv);
@@ -12936,7 +13039,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         'INSERT INTO node_providers (provider_name, rpc_url, api_key, network, status) VALUES ($1, $2, $3, $4, $5) RETURNING id::text',
         [name, rpc_url, api_key, network, status]
       );
-      return reply.send({ success: true, data: { id: ins.rows[0].id } });
+      return reply.send({ success: true, data: { id: ins.rows[0]!.id } });
     } catch (e) {
       logger.error('Post settings/nodes error', { error: e instanceof Error ? e.message : 'Unknown' });
       return reply.status(500).send({ success: false, error: { code: 'CREATE_FAILED', message: 'Failed to create node provider' } });
@@ -13061,7 +13164,7 @@ export default async function adminRoutes(app: FastifyInstance) {
           typeof body.update_interval_sec === 'number' ? body.update_interval_sec : null,
         ]
       );
-      return reply.send({ success: true, data: { id: ins.rows[0].id } });
+      return reply.send({ success: true, data: { id: ins.rows[0]!.id } });
     } catch (e) {
       logger.error('Post integrations error', { error: e instanceof Error ? e.message : 'Unknown' });
       return reply.status(500).send({ success: false, error: { code: 'CREATE_FAILED', message: 'Failed to create integration' } });
@@ -13075,11 +13178,20 @@ export default async function adminRoutes(app: FastifyInstance) {
     const body = (request.body || {}) as Record<string, unknown>;
     try {
       const updates: string[] = ['updated_at = NOW()'];
-      const params: (string | number)[] = [];
+      const params: (string | number | null)[] = [];
       let i = 1;
       if (typeof body.provider_name === 'string') { updates.push(`provider_name = $${i++}`); params.push(body.provider_name.trim()); }
       if (typeof body.category === 'string' && INTEGRATION_CATEGORIES.includes(body.category)) { updates.push(`category = $${i++}`); params.push(body.category); }
-      if (body.endpoint_url !== undefined) { updates.push(`endpoint_url = $${i++}`); params.push(body.endpoint_url === '' || body.endpoint_url == null ? null : body.endpoint_url); }
+      if (body.endpoint_url !== undefined) {
+        updates.push(`endpoint_url = $${i++}`);
+        const ev =
+          body.endpoint_url === '' || body.endpoint_url == null
+            ? null
+            : typeof body.endpoint_url === 'string'
+              ? body.endpoint_url
+              : String(body.endpoint_url);
+        params.push(ev);
+      }
       if (typeof body.api_key === 'string') { updates.push(`api_key = $${i++}`); params.push(body.api_key || null); }
       if (typeof body.secret_key === 'string') { updates.push(`secret_key = $${i++}`); params.push(body.secret_key || null); }
       if (typeof body.webhook_secret === 'string') { updates.push(`webhook_secret = $${i++}`); params.push(body.webhook_secret || null); }
@@ -13112,7 +13224,7 @@ export default async function adminRoutes(app: FastifyInstance) {
     const id = body.id ?? null;
     if (id && !url) {
       const row = await db.query<{ endpoint_url: string | null }>('SELECT endpoint_url FROM integrations WHERE id = $1::uuid', [id]);
-      if (row.rows.length > 0) url = row.rows[0].endpoint_url;
+      if (row.rows.length > 0) url = row.rows[0]!.endpoint_url;
     }
     if (!url) {
       return reply.status(400).send({ success: false, error: { code: 'MISSING_URL', message: 'id or url required' } });
@@ -13302,7 +13414,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         [id]
       );
       if (row.rows.length === 0) return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Delivery not found' } });
-      const r = row.rows[0];
+      const r = row.rows[0]!;
       const retryCount = r.retry_count + 1;
       await db.query(
         `INSERT INTO integration_webhook_deliveries (integration_id, webhook_url, event_type, delivery_status, response_code, retry_count) VALUES ($1::uuid, $2, $3, 'pending', NULL, $4)`,
@@ -13464,7 +13576,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         'INSERT INTO compliance_integrations (provider_name, api_url, api_key, webhook_secret, status) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (provider_name) DO UPDATE SET updated_at = NOW() RETURNING id::text',
         [name, body.api_url ?? null, body.api_key ?? null, body.webhook_secret ?? null, status]
       );
-      return reply.send({ success: true, data: { id: ins.rows[0].id } });
+      return reply.send({ success: true, data: { id: ins.rows[0]!.id } });
     } catch (e) {
       logger.error('Post settings/integrations error', { error: e instanceof Error ? e.message : 'Unknown' });
       return reply.status(500).send({ success: false, error: { code: 'CREATE_FAILED', message: 'Failed to create integration' } });
@@ -13516,7 +13628,7 @@ export default async function adminRoutes(app: FastifyInstance) {
     const body = (request.body || {}) as { provider_name?: string; endpoint_url?: string; api_key?: string; status?: string };
     try {
       const updates: string[] = ['updated_at = NOW()'];
-      const params: (string | number)[] = [];
+      const params: (string | number | null)[] = [];
       let i = 1;
       if (typeof body.provider_name === 'string' && body.provider_name.trim()) {
         updates.push(`provider_name = $${i++}`);
@@ -13524,7 +13636,7 @@ export default async function adminRoutes(app: FastifyInstance) {
       }
       if (typeof body.endpoint_url === 'string') {
         updates.push(`endpoint_url = $${i++}`);
-        params.push(body.endpoint_url || null);
+        params.push(body.endpoint_url.trim() === '' ? null : body.endpoint_url);
       }
       if (typeof body.api_key === 'string' && body.api_key.trim()) {
         updates.push(`api_key = $${i++}`);
@@ -13562,7 +13674,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         'INSERT INTO infrastructure_providers (provider_type, provider_name, endpoint_url, api_key, status) VALUES ($1, $2, $3, $4, $5) RETURNING id::text',
         [type, name, body.endpoint_url ?? null, body.api_key ?? null, body.status && ['active', 'inactive'].includes(body.status) ? body.status : 'active']
       );
-      return reply.send({ success: true, data: { id: ins.rows[0].id } });
+      return reply.send({ success: true, data: { id: ins.rows[0]!.id } });
     } catch (e) {
       logger.error('Post settings/infrastructure error', { error: e instanceof Error ? e.message : 'Unknown' });
       return reply.status(500).send({ success: false, error: { code: 'CREATE_FAILED', message: 'Failed to create' } });

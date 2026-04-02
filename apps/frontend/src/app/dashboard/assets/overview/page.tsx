@@ -25,7 +25,7 @@ import {
   ChevronDown,
   HelpCircle,
 } from 'lucide-react';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/Tooltip';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/Tooltip';
 import { InfoTooltip } from '@/components/ui/InfoTooltip';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { PortfolioChangeCard } from '@/components/assets/PortfolioChangeCard';
@@ -169,15 +169,6 @@ export default function AssetsOverviewPage() {
 
   const timePeriods = ['7D', '30D', '90D', '180D'];
 
-  // Generate chart data points (placeholder)
-  const chartDates = [];
-  const today = new Date();
-  for (let i = 5; i >= 0; i--) {
-    const date = new Date(today);
-    date.setDate(today.getDate() - i);
-    chartDates.push(`${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`);
-  }
-
   return (
     <div className="p-6">
           {/* Header */}
@@ -195,28 +186,28 @@ export default function AssetsOverviewPage() {
             {/* Action Buttons */}
             <div className="flex items-center gap-3">
               <Link
-                href="/dashboard/deposit/crypto"
+                href="/wallet/deposit/crypto"
                 className="flex items-center gap-2 px-5 py-2.5 bg-blue-500 hover:bg-blue-600 text-white font-medium text-sm rounded-xl shadow-lg shadow-blue-500/25 transition-all hover:shadow-blue-500/40"
               >
                 <Download className="w-4 h-4" />
                 Deposit
               </Link>
               <Link
-                href="/dashboard/withdraw/crypto"
+                href="/wallet/withdraw/crypto"
                 className="flex items-center gap-2 px-5 py-2.5 bg-white dark:bg-[#1e2329] text-gray-700 dark:text-gray-300 font-medium text-sm rounded-xl border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
               >
                 <Upload className="w-4 h-4" />
                 Withdraw
               </Link>
               <Link
-                href="/dashboard/transfer"
+                href="/wallet/transfer"
                 className="flex items-center gap-2 px-5 py-2.5 bg-white dark:bg-[#1e2329] text-gray-700 dark:text-gray-300 font-medium text-sm rounded-xl border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
               >
                 <ArrowLeftRight className="w-4 h-4" />
                 Transfer
               </Link>
               <Link
-                href="/dashboard/assets/convert"
+                href="/wallet/convert"
                 className="flex items-center gap-2 px-5 py-2.5 bg-white dark:bg-[#1e2329] text-gray-700 dark:text-gray-300 font-medium text-sm rounded-xl border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
               >
                 <RefreshCw className="w-4 h-4" />
@@ -232,7 +223,7 @@ export default function AssetsOverviewPage() {
               <div className="flex items-center gap-2">
                 {balanceError.includes('Session expired') && (
                   <Link
-                    href={`/login?redirect=${encodeURIComponent('/dashboard/assets/overview')}`}
+                    href={`/login?redirect=${encodeURIComponent('/wallet')}`}
                     className="px-4 py-2 text-sm font-medium rounded-lg bg-amber-600 text-white hover:bg-amber-700"
                   >
                     Log in again
@@ -352,16 +343,16 @@ export default function AssetsOverviewPage() {
                         </p>
                       </div>
                       <div className="flex items-center gap-1">
-                        <Link href="/dashboard/deposit/crypto" className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors" title="Deposit">
+                        <Link href="/wallet/deposit/crypto" className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors" title="Deposit">
                           <Download className="w-4 h-4 text-gray-400 hover:text-blue-500" />
                         </Link>
-                        <Link href="/dashboard/withdraw/crypto" className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors" title="Withdraw">
+                        <Link href="/wallet/withdraw/crypto" className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors" title="Withdraw">
                           <Upload className="w-4 h-4 text-gray-400 hover:text-blue-500" />
                         </Link>
-                        <Link href="/dashboard/transfer" className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors" title="Transfer">
+                        <Link href="/wallet/transfer" className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors" title="Transfer">
                           <ArrowLeftRight className="w-4 h-4 text-gray-400 hover:text-blue-500" />
                         </Link>
-                        <Link href="/dashboard/assets/convert" className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors" title="Convert">
+                        <Link href="/wallet/convert" className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors" title="Convert">
                           <RefreshCw className="w-4 h-4 text-gray-400 hover:text-blue-500" />
                         </Link>
                       </div>
@@ -389,13 +380,13 @@ export default function AssetsOverviewPage() {
                         </p>
                       </div>
                       <div className="flex items-center gap-1">
-                        <Link href="/dashboard/deposit/crypto" className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors" title="Deposit">
+                        <Link href="/wallet/deposit/crypto" className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors" title="Deposit">
                           <Download className="w-4 h-4 text-gray-400 hover:text-blue-500" />
                         </Link>
-                        <Link href="/dashboard/transfer" className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors" title="Transfer">
+                        <Link href="/wallet/transfer" className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors" title="Transfer">
                           <ArrowLeftRight className="w-4 h-4 text-gray-400 hover:text-blue-500" />
                         </Link>
-                        <Link href="/dashboard/assets/convert" className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors" title="Convert">
+                        <Link href="/wallet/convert" className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors" title="Convert">
                           <RefreshCw className="w-4 h-4 text-gray-400 hover:text-blue-500" />
                         </Link>
                       </div>
@@ -413,21 +404,24 @@ export default function AssetsOverviewPage() {
                   return { symbol: row.symbol, value: val, percent: (val / total) * 100 };
                 })}
               />
-              {/* Balance Chart */}
+              {/* Portfolio value — no fabricated time series; balances above are API-sourced */}
               <div className="bg-white dark:bg-[#1e2329] rounded-2xl p-5 border border-gray-100 dark:border-gray-800">
-                <div className="h-40 flex items-end justify-between gap-4 px-4">
-                  {chartDates.map((date, index) => (
-                    <div key={date} className="flex flex-col items-center gap-2">
-                      <div 
-                        className="w-4 bg-yellow-400 rounded-t-sm" 
-                        style={{ height: `${30 + Math.random() * 70}px` }}
-                      />
-                      <span className="text-xs text-gray-500">{date}</span>
-                    </div>
-                  ))}
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-1 h-5 bg-yellow-400 rounded-full" />
+                  <h3 className="font-semibold text-gray-900 dark:text-white">Portfolio value</h3>
                 </div>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white tabular-nums">
+                  {showBalance ? `${formatNumber(totalUsd)} USD` : '******'}
+                </p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                  Historical balance charts are not shown here. Use{' '}
+                  <Link href="/wallet/history" className="text-blue-500 hover:underline">
+                    transaction history
+                  </Link>{' '}
+                  for past activity.
+                </p>
                 <p className="text-xs text-gray-400 text-right mt-4">
-                  Last Updated: {lastUpdated ? new Date(lastUpdated).toLocaleString() : '--'}
+                  Last updated: {lastUpdated ? new Date(lastUpdated).toLocaleString() : '—'}
                 </p>
               </div>
 
@@ -438,7 +432,7 @@ export default function AssetsOverviewPage() {
                     <div className="w-1 h-5 bg-yellow-400 rounded-full" />
                     <h3 className="font-semibold text-gray-900 dark:text-white">Recent Deposit & Withdrawal History</h3>
                   </div>
-                  <Link href="/dashboard/assets/history" className="flex items-center gap-1 text-sm text-blue-500 hover:text-blue-600 font-medium">
+                  <Link href="/wallet/history" className="flex items-center gap-1 text-sm text-blue-500 hover:text-blue-600 font-medium">
                     All
                     <ArrowRight className="w-4 h-4" />
                   </Link>
@@ -514,22 +508,18 @@ export default function AssetsOverviewPage() {
                         <th className="py-3 px-4 font-medium uppercase tracking-wide">Total</th>
                         <th className="py-3 px-4 font-medium uppercase tracking-wide">
                           <span className="inline-flex items-center gap-1">Available
-                            <TooltipProvider delayDuration={200}>
-                              <Tooltip>
-                                <TooltipTrigger asChild><HelpCircle className="w-3.5 h-3.5 text-gray-400 cursor-help" /></TooltipTrigger>
-                                <TooltipContent>Amount you can use for trading, transfers, and withdrawals.</TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild><HelpCircle className="w-3.5 h-3.5 text-gray-400 cursor-help" /></TooltipTrigger>
+                              <TooltipContent>Amount you can use for trading, transfers, and withdrawals.</TooltipContent>
+                            </Tooltip>
                           </span>
                         </th>
                         <th className="py-3 px-4 font-medium uppercase tracking-wide">
                           <span className="inline-flex items-center gap-1">Locked
-                            <TooltipProvider delayDuration={200}>
-                              <Tooltip>
-                                <TooltipTrigger asChild><HelpCircle className="w-3.5 h-3.5 text-gray-400 cursor-help" /></TooltipTrigger>
-                                <TooltipContent>Reserved for open orders. Released when orders fill or are cancelled.</TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild><HelpCircle className="w-3.5 h-3.5 text-gray-400 cursor-help" /></TooltipTrigger>
+                              <TooltipContent>Reserved for open orders. Released when orders fill or are cancelled.</TooltipContent>
+                            </Tooltip>
                           </span>
                         </th>
                         <th className="py-3 px-4 font-medium uppercase tracking-wide">Value</th>
@@ -543,7 +533,7 @@ export default function AssetsOverviewPage() {
                               <p className="text-gray-900 dark:text-white font-medium">No assets found</p>
                               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Deposit funds to start trading</p>
                               <Link
-                                href="/dashboard/deposit/crypto"
+                                href="/wallet/deposit/crypto"
                                 className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium transition-colors"
                               >
                                 <Download className="w-4 h-4" />
@@ -556,10 +546,10 @@ export default function AssetsOverviewPage() {
                         perCoinBalances.map((row) => (
                           <tr
                             key={row.symbol}
-                            onClick={() => router.push(`/dashboard/assets/${encodeURIComponent(row.symbol)}`)}
+                            onClick={() => router.push(`/wallet/${encodeURIComponent(row.symbol)}`)}
                             role="button"
                             tabIndex={0}
-                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); router.push(`/dashboard/assets/${encodeURIComponent(row.symbol)}`); } }}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); router.push(`/wallet/${encodeURIComponent(row.symbol)}`); } }}
                             className="border-b border-gray-100 dark:border-gray-800 last:border-0 cursor-pointer hover:bg-gray-50 dark:hover:bg-white/[0.06] transition-colors duration-150"
                           >
                             <td className="py-3 px-4 font-medium text-gray-900 dark:text-white">{row.symbol}</td>

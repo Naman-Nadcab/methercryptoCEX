@@ -349,6 +349,8 @@ export default function AdminControlPage() {
     return 'danger';
   }
 
+  const baseTimeline = (timelineData?.data?.timeline ?? []) as TimelineItem[];
+
   const loadMoreTimeline = useCallback(async () => {
     if (!token || timelineLoadingMore) return;
     const offset = baseTimeline.length + timelineMore.length;
@@ -366,7 +368,6 @@ export default function AdminControlPage() {
 
   const freezeHistory = (freezeHistoryData?.data?.history ?? []) as AssetFreezeHistoryRow[];
   const circuitHistory = (circuitHistoryData?.data?.history ?? []) as CircuitHistoryRow[];
-  const baseTimeline = (timelineData?.data?.timeline ?? []) as TimelineItem[];
   useEffect(() => {
     if (timelineData?.data?.hasMore != null) setTimelineHasMore(timelineData.data.hasMore);
   }, [timelineData?.data?.hasMore]);

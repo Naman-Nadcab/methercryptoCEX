@@ -27,6 +27,25 @@ export async function runPhase7(): Promise<{ passed: number; failed: number; res
     failed++;
   }
 
+  // 7.1b GET /p2p/ads?advertiser_id= (optional filter, backward compatible)
+  try {
+    const bogus = '00000000-0000-0000-0000-000000000000';
+    const res = await fetch(`${BASE}/api/v1/p2p/ads?advertiser_id=${bogus}`, {
+      signal: AbortSignal.timeout(TIMEOUT),
+    });
+    const data = await res.json().catch(() => ({})) as { success?: boolean; data?: unknown[] };
+    if (res.ok && Array.isArray(data.data)) {
+      results.push('PASS: GET /p2p/ads?advertiser_id');
+      passed++;
+    } else {
+      results.push(`FAIL: GET /p2p/ads?advertiser_id ${res.status}`);
+      failed++;
+    }
+  } catch (e) {
+    results.push(`FAIL: GET /p2p/ads?advertiser_id ${e instanceof Error ? e.message : String(e)}`);
+    failed++;
+  }
+
   const headers = getAuthHeaders();
   if (headers['Authorization'] || headers['X-API-Key']) {
     try {
@@ -40,6 +59,20 @@ export async function runPhase7(): Promise<{ passed: number; failed: number; res
       }
     } catch (e) {
       results.push(`FAIL: GET /p2p/my-orders ${e instanceof Error ? e.message : String(e)}`);
+      failed++;
+    }
+
+    try {
+      const res = await fetch(`${BASE}/api/v1/p2p/my-ads`, { headers, signal: AbortSignal.timeout(TIMEOUT) });
+      if (res.ok) {
+        results.push('PASS: GET /p2p/my-ads');
+        passed++;
+      } else {
+        results.push(`FAIL: GET /p2p/my-ads ${res.status}`);
+        failed++;
+      }
+    } catch (e) {
+      results.push(`FAIL: GET /p2p/my-ads ${e instanceof Error ? e.message : String(e)}`);
       failed++;
     }
   }

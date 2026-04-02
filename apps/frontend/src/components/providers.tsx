@@ -1,33 +1,30 @@
 'use client';
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { AuthProvider } from '@/context/AuthContext';
 import ThemeProvider from '@/components/ThemeProvider';
-import { rehydrateAuthStore } from '@/store/auth';
+import { rehydrateAuthStore, useAuthStore } from '@/store/auth';
 import { notifyError } from '@/lib/notifyError';
+import { TooltipProvider } from '@/components/ui/Tooltip';
 
-/** Max wait for rehydration; resolve immediately when done. No artificial 5s delay. */
-const REHYDRATE_MAX_MS = 2000;
+/** Zustand unblock fallback if persist is slow (AuthProvider /me still needs `_hasHydrated`). */
+const REHYDRATE_MAX_MS = 1200;
+
+function unblockAuthHydration() {
+  useAuthStore.getState().setHasHydrated(true);
+  useAuthStore.getState().setLoading(false);
+}
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  const [hydrated, setHydrated] = useState(false);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setHydrated(true), REHYDRATE_MAX_MS);
-    rehydrateAuthStore()
-      .then(() => setHydrated(true))
-      .catch(() => setHydrated(true))
-      .finally(() => clearTimeout(timer));
-    return () => clearTimeout(timer);
-  }, []);
+  const warnedHydration = useRef(false);
 
   const [queryClient] = useState(
     () =>
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 60 * 1000, // 1 minute
+            staleTime: 60 * 1000,
             retry: 1,
             refetchOnWindowFocus: false,
           },
@@ -41,18 +38,40 @@ export function Providers({ children }: { children: React.ReactNode }) {
       })
   );
 
-  if (!hydrated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0e11]" role="status" aria-label="Loading">
-        <div className="animate-spin rounded-full h-10 w-10 border-2 border-blue-500 border-t-transparent" />
-      </div>
-    );
-  }
+  useEffect(() => {
+    console.log('[Providers] mounted — full provider tree active (fail-open)');
+  }, []);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!warnedHydration.current && typeof window !== 'undefined') {
+        warnedHydration.current = true;
+        console.warn('[Providers] Zustand persist slow — unblocking hydration (fail-open)');
+      }
+      unblockAuthHydration();
+    }, REHYDRATE_MAX_MS);
+
+    rehydrateAuthStore()
+      .then(() => {
+        unblockAuthHydration();
+      })
+      .catch(() => {
+        unblockAuthHydration();
+      })
+      .finally(() => {
+        clearTimeout(timer);
+      });
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  /** Never block the tree: QueryClient + theme + auth must wrap children from first paint. */
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <AuthProvider>{children}</AuthProvider>
+        <TooltipProvider delayDuration={200}>
+          <AuthProvider>{children}</AuthProvider>
+        </TooltipProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );

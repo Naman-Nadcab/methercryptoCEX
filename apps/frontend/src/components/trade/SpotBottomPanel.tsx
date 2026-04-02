@@ -3,9 +3,10 @@
 import Link from 'next/link';
 import { Loader2, X, RefreshCw, Trash2, Download } from 'lucide-react';
 import { ordersToCsv, tradesToCsv, downloadCsv } from '@/lib/exportCsv';
-import { useSpotBottomPanel } from './useSpotBottomPanel';
+import { useSpotBottomPanel, type Order } from './useSpotBottomPanel';
 import { useBalancesByAccount } from '@/lib/balances';
-import { useMemo, useState } from 'react';
+import { ROUTES, SPOT_TRADE_HREF, walletPath } from '@/lib/routes';
+import { useMemo, useState, useEffect, useRef } from 'react';
 
 interface SpotBottomPanelProps {
   symbol: string;
@@ -15,12 +16,112 @@ interface SpotBottomPanelProps {
 }
 
 function displayStatus(s: string): string {
+  if (s === 'OPEN' || s === 'NEW') return 'Open';
   if (s === 'PENDING_TRIGGER') return 'Pending Trigger';
   if (s === 'PARTIALLY_FILLED') return 'Partially Filled';
   if (s === 'REJECTED') return 'Rejected';
   if (s === 'CANCELLED') return 'Cancelled';
   if (s === 'FILLED') return 'Filled';
   return s || 'Unknown';
+}
+
+function executionStatusPill(status: string) {
+  const u = (status || '').toUpperCase();
+  const base =
+    'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide transition-colors duration-300';
+  if (u === 'OPEN' || u === 'NEW') {
+    return (
+      <span
+        className={`${base} bg-sky-500/15 text-sky-800 dark:bg-sky-500/20 dark:text-sky-200`}
+        title="Working order"
+      >
+        Open
+      </span>
+    );
+  }
+  if (u === 'PARTIALLY_FILLED') {
+    return (
+      <span
+        className={`${base} bg-amber-500/18 text-amber-900 dark:bg-amber-500/22 dark:text-amber-100`}
+        title="Partially filled"
+      >
+        Partial
+      </span>
+    );
+  }
+  if (u === 'FILLED') {
+    return (
+      <span className={`${base} bg-emerald-500/15 text-emerald-900 dark:bg-emerald-500/20 dark:text-emerald-200`} title="Filled">
+        Filled
+      </span>
+    );
+  }
+  if (u === 'PENDING_TRIGGER') {
+    return <span className={`${base} bg-violet-500/15 text-violet-900 dark:bg-violet-400/20 dark:text-violet-100`}>Trigger</span>;
+  }
+  if (u === 'CANCELLED' || u === 'REJECTED') {
+    return (
+      <span className={`${base} bg-gray-200/90 text-gray-700 dark:bg-gray-700/40 dark:text-gray-300`}>{displayStatus(status)}</span>
+    );
+  }
+  return <span className={`${base} bg-gray-200/80 text-gray-700 dark:bg-gray-600/30 dark:text-gray-200`}>{displayStatus(status)}</span>;
+}
+
+function OpenOrderRow({
+  o,
+  onCancel,
+  cancellingId,
+}: {
+  o: Order;
+  onCancel: (id: string) => void;
+  cancellingId: string | null | undefined;
+}) {
+  const [pulse, setPulse] = useState(false);
+  const prev = useRef({ status: o.status, filled: o.filled_quantity });
+  useEffect(() => {
+    if (prev.current.status !== o.status || prev.current.filled !== o.filled_quantity) {
+      setPulse(true);
+      prev.current = { status: o.status, filled: o.filled_quantity };
+      const t = window.setTimeout(() => setPulse(false), 700);
+      return () => window.clearTimeout(t);
+    }
+  }, [o.status, o.filled_quantity]);
+
+  const canCancel = ['OPEN', 'PARTIALLY_FILLED', 'PENDING_TRIGGER'].includes(o.status);
+  const filled = parseFloat(o.filled_quantity ?? '0') || 0;
+  const qty = parseFloat(o.quantity ?? '0') || 0;
+  const filledQtyStr = filled > 0 && qty > 0 ? `${filled.toFixed(4)}/${qty.toFixed(4)}` : (o.quantity ?? '—');
+  return (
+    <tr
+      className={`min-h-[36px] border-b border-gray-200/80 transition-[background-color,box-shadow] duration-500 ease-out hover:bg-gray-50/80 dark:border-gray-800/80 dark:hover:bg-gray-900/40 sm:min-h-[30px] ${
+        pulse ? 'bg-blue-500/12 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.35)] dark:bg-blue-500/10 dark:shadow-[inset_0_0_0_1px_rgba(96,165,250,0.3)]' : ''
+      }`}
+    >
+      <td className="py-1.5 px-2 align-middle font-mono text-[11px] tabular-nums text-gray-900 dark:text-white">{o.market}</td>
+      <td className="py-1.5 px-2 align-middle">
+        <span className="text-[10px] text-gray-500 dark:text-gray-500">{displayOrderType(o.type)}</span>
+      </td>
+      <td className="py-1.5 px-2 align-middle">
+        <span className={o.side === 'buy' ? 'text-price-up' : 'text-price-down'}>{o.side}</span>
+      </td>
+      <td className="py-1.5 px-2 align-middle font-mono text-[11px] tabular-nums text-gray-600 dark:text-gray-400">{o.price ?? '—'}</td>
+      <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums text-[11px]">{o.stop_price ?? '—'}</td>
+      <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums text-[11px]">{filledQtyStr}</td>
+      <td className="py-1.5 px-2 align-middle">{executionStatusPill(o.status)}</td>
+      <td className="py-1.5 px-2 align-middle">
+        {canCancel && (
+          <button
+            type="button"
+            disabled={!!cancellingId}
+            onClick={() => onCancel(o.id)}
+            className="min-h-[32px] px-2 py-1 text-destructive hover:underline disabled:opacity-50 text-[10px] touch-manipulation rounded"
+          >
+            {cancellingId === o.id ? <Loader2 className="w-3 h-3 animate-spin inline" /> : 'Cancel'}
+          </button>
+        )}
+      </td>
+    </tr>
+  );
 }
 
 function displayOrderType(t: string | undefined): string {
@@ -31,7 +132,7 @@ function displayOrderType(t: string | undefined): string {
     stop_loss: 'Stop',
     stop_limit: 'Stop Limit',
     trailing_stop_market: 'Trailing',
-    oco: 'OCO',
+    oco: 'Bracket',
   };
   return map[t] ?? t;
 }
@@ -200,39 +301,14 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
                 </tr>
               </thead>
               <tbody>
-                {sortedOpenOrders.map((o) => {
-                  const canCancel = ['OPEN', 'PARTIALLY_FILLED', 'PENDING_TRIGGER'].includes(o.status);
-                  const filled = parseFloat(o.filled_quantity ?? '0') || 0;
-                  const qty = parseFloat(o.quantity ?? '0') || 0;
-                  const filledQtyStr = filled > 0 && qty > 0 ? `${filled.toFixed(4)}/${qty.toFixed(4)}` : (o.quantity ?? '—');
-                  const isOco = o.type === 'oco' || !!(o as { oco_group_id?: string }).oco_group_id;
-                  return (
-                    <tr key={o.id} className="min-h-[36px] border-b border-gray-200/80 transition-colors duration-150 hover:bg-gray-50/80 dark:border-gray-800/80 dark:hover:bg-gray-900/40 sm:min-h-[30px]">
-                      <td className="py-1.5 px-2 align-middle font-mono text-[11px] tabular-nums text-gray-900 dark:text-white">{o.market}</td>
-                      <td className="py-1.5 px-2 align-middle">
-                        <span className="text-[10px] text-gray-500 dark:text-gray-500">{displayOrderType(o.type)}</span>
-                        {isOco && <span className="ml-1 rounded bg-blue-50 px-1.5 py-0.5 text-[9px] font-semibold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300" title="One-Cancels-Other">OCO</span>}
-                      </td>
-                      <td className="py-1.5 px-2 align-middle"><span className={o.side === 'buy' ? 'text-price-up' : 'text-price-down'}>{o.side}</span></td>
-                      <td className="py-1.5 px-2 align-middle font-mono text-[11px] tabular-nums text-gray-600 dark:text-gray-400">{o.price ?? '—'}</td>
-                      <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums text-[11px]">{o.stop_price ?? '—'}</td>
-                      <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums text-[11px]">{filledQtyStr}</td>
-                      <td className="py-1.5 px-2 align-middle"><span className="text-[11px] font-medium text-blue-600 dark:text-blue-400">{displayStatus(o.status)}</span></td>
-                      <td className="py-1.5 px-2 align-middle">
-                        {canCancel && (
-                          <button
-                            type="button"
-                            disabled={!!data.cancellingId}
-                            onClick={() => data.handleCancel(o.id)}
-                            className="min-h-[32px] px-2 py-1 text-destructive hover:underline disabled:opacity-50 text-[10px] touch-manipulation rounded"
-                          >
-                            {data.cancellingId === o.id ? <Loader2 className="w-3 h-3 animate-spin inline" /> : 'Cancel'}
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
+                {sortedOpenOrders.map((o) => (
+                  <OpenOrderRow
+                    key={o.id}
+                    o={o}
+                    onCancel={(id) => data.handleCancel(id)}
+                    cancellingId={data.cancellingId}
+                  />
+                ))}
               </tbody>
             </table>
           )
@@ -268,7 +344,7 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
                       <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums">{o.price ?? '—'}</td>
                       <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums">{o.stop_price ?? '—'}</td>
                       <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums">{filledQtyStr}</td>
-                      <td className="py-1.5 px-2 align-middle text-muted-foreground text-[11px]">{displayStatus(o.status)}</td>
+                      <td className="py-1.5 px-2 align-middle">{executionStatusPill(o.status)}</td>
                     </tr>
                   );
                 })}
@@ -292,14 +368,14 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
                 {tradingBalances.map((b) => (
-                  <Link key={b.symbol} href={`/dashboard/assets/${b.symbol}`} className="flex justify-between items-center px-2 py-1.5 rounded hover:bg-muted text-[11px]">
+                  <Link key={b.symbol} href={`/wallet/${b.symbol}`} className="flex justify-between items-center px-2 py-1.5 rounded hover:bg-muted text-[11px]">
                     <span className="text-foreground">{b.symbol}</span>
                     <span className="tabular-nums text-muted-foreground">{parseFloat(b.trading ?? '0').toFixed(4)}</span>
                   </Link>
                 ))}
               </div>
             )}
-            <Link href="/dashboard/assets/overview" className="mt-2 block text-center text-[11px] font-medium text-blue-600 hover:underline dark:text-blue-400">
+            <Link href={walletPath.overview} className="mt-2 block text-center text-[11px] font-medium text-blue-600 hover:underline dark:text-blue-400">
               View all assets →
             </Link>
           </div>
@@ -308,9 +384,15 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
           data.tradesLoading ? (
             <div className="p-4 flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
           ) : data.trades.length === 0 ? (
-            <div className="p-4 flex flex-col items-center justify-center gap-1 text-muted-foreground text-xs">
-              <p>No trades yet</p>
-              <p className="text-[10px]">Your trade history will appear here</p>
+            <div className="p-4 flex flex-col items-center justify-center gap-2 text-muted-foreground text-xs text-center px-3">
+              <p className="font-medium text-foreground/90">No trades yet — start trading</p>
+              <p className="text-[10px] max-w-[16rem]">Fills and executions will show here. Place an order from the panel on the right.</p>
+              <Link
+                href={SPOT_TRADE_HREF}
+                className="mt-1 inline-flex min-h-10 items-center justify-center rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+              >
+                Open Spot
+              </Link>
             </div>
           ) : (
             <>

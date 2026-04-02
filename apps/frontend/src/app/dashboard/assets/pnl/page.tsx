@@ -389,7 +389,7 @@ export default function PnlAnalysisPage() {
                   <p className="text-gray-500 font-medium">No trading data yet</p>
                   <p className="text-sm text-gray-400 mt-1">Start trading to see your P&L</p>
                   <Link
-                    href="/dashboard/spot"
+                    href="/trade/spot"
                     className="mt-4 px-6 py-2.5 bg-blue-500 hover:bg-blue-600 text-white font-medium text-sm rounded-xl transition-colors"
                   >
                     Start Trading

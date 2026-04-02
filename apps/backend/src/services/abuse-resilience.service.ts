@@ -5,9 +5,10 @@
  * - Risk evaluation hook for P2P
  */
 
-import { Decimal } from '../lib/decimal.js';
+import { Decimal, type DecimalInstance } from '../lib/decimal.js';
 import type { PoolClient } from 'pg';
 import { db } from '../lib/database.js';
+import { config } from '../config/index.js';
 import { getTradingHalted } from '../lib/trading-halt.js';
 import { evaluateAndLogRisk } from './risk-engine.service.js';
 import type { RiskDecision } from './risk-engine.service.js';
@@ -187,4 +188,43 @@ export async function evaluateP2PRisk(params: {
     ipAddress: params.ip,
   });
   return result.decision;
+}
+
+/**
+ * P2P create-order: new-buyer notional cap + unverified-seller per-order cap (INR equivalent, same proxy as existing P2P limits).
+ */
+export async function assertP2PTradeTierLimitsInTransaction(
+  client: PoolClient,
+  buyerId: string,
+  sellerId: string,
+  fiatInrApprox: DecimalInstance
+): Promise<void> {
+  const c = config.p2p;
+  if (c.newBuyerMaxAccountAgeHours > 0 && c.newBuyerMaxOrderFiatInrEquiv > 0) {
+    const br = await client.query<{ created_at: Date }>(`SELECT created_at FROM users WHERE id = $1`, [buyerId]);
+    const created = br.rows[0]?.created_at;
+    if (created) {
+      const ageMs = Date.now() - new Date(created).getTime();
+      const windowMs = c.newBuyerMaxAccountAgeHours * 3_600_000;
+      if (ageMs < windowMs && fiatInrApprox.greaterThan(c.newBuyerMaxOrderFiatInrEquiv)) {
+        throw new Error(
+          `P2P_NEW_BUYER_LIMIT: For accounts under ${c.newBuyerMaxAccountAgeHours}h old, per-order size is capped at ₹${c.newBuyerMaxOrderFiatInrEquiv.toLocaleString()} equivalent.`
+        );
+      }
+    }
+  }
+
+  if (c.unverifiedSellerMaxOrderFiatInrEquiv > 0) {
+    const sr = await client.query<{ cnt: string }>(
+      `SELECT COUNT(*)::text AS cnt FROM p2p_orders WHERE seller_id = $1 AND status = 'completed'`,
+      [sellerId]
+    );
+    const completed = parseInt(sr.rows[0]?.cnt ?? '0', 10);
+    const verified = completed >= c.verifiedSellerMinCompletedOrders;
+    if (!verified && fiatInrApprox.greaterThan(c.unverifiedSellerMaxOrderFiatInrEquiv)) {
+      throw new Error(
+        `P2P_MERCHANT_TIER_LIMIT: This seller is below verified tier (${c.verifiedSellerMinCompletedOrders}+ completed). Max order size is ₹${c.unverifiedSellerMaxOrderFiatInrEquiv.toLocaleString()} equivalent; choose a verified merchant or reduce amount.`
+      );
+    }
+  }
 }

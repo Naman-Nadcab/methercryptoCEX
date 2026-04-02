@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { DollarSign, Users, Coins } from 'lucide-react';
 import ThemeToggle from '@/components/ThemeToggle';
+import { ROUTES } from '@/lib/routes';
 
 /** Shared P2P banner + form layout — Tier 1 design with dark mode */
 export default function AuthSplitLayout({
@@ -22,7 +23,7 @@ export default function AuthSplitLayout({
             linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)`,
           backgroundSize: '48px 48px',
         }} />
-        <Link href="/" className="relative text-2xl font-bold text-white flex items-center gap-1.5 transition-opacity hover:opacity-90">
+        <Link href={ROUTES.home} className="relative text-2xl font-bold text-white flex items-center gap-1.5 transition-opacity hover:opacity-90">
           <span className="w-9 h-9 rounded-lg bg-blue-500 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-blue-500/30">M</span>
           Methereum
         </Link>
@@ -56,7 +57,7 @@ export default function AuthSplitLayout({
       {/* Right - Form area */}
       <div className="flex-1 flex flex-col bg-white dark:bg-[#0b0e11] min-w-0">
         <div className="flex items-center justify-between p-5 lg:p-6">
-          <Link href="/" className="text-xl font-bold text-gray-900 dark:text-white lg:hidden flex items-center gap-1.5">
+          <Link href={ROUTES.home} className="text-xl font-bold text-gray-900 dark:text-white lg:hidden flex items-center gap-1.5">
             <span className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center text-white font-bold text-sm">M</span>
             Methereum
           </Link>
@@ -71,7 +72,7 @@ export default function AuthSplitLayout({
           <div className="p-4 border-t border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-[#0b0e11]">
             <div className="flex items-center justify-between max-w-4xl mx-auto gap-4 flex-wrap">
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                We use cookies. <Link href="/cookies" className="text-blue-500 dark:text-blue-400 hover:underline">Cookie Policy</Link>
+                We use cookies. <Link href={ROUTES.cookies} className="text-blue-500 dark:text-blue-400 hover:underline">Cookie Policy</Link>
               </p>
               <button type="button" className="px-4 py-2 rounded-lg bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors">
                 Accept All

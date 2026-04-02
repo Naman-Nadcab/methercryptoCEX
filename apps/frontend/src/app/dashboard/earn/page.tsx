@@ -16,7 +16,7 @@ export default function EarnPage() {
           Flexible savings, staking, and on-chain earn products are coming soon.
         </p>
         <Link
-          href="/dashboard/assets/convert"
+          href="/wallet/convert"
           className="inline-flex items-center gap-2 px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-xl transition-colors"
         >
           Explore Convert

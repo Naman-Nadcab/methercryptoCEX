@@ -10,14 +10,18 @@ pub type Quantity = rust_decimal::Decimal;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum Side {
+    #[serde(alias = "buy", alias = "Buy")]
     Buy,
+    #[serde(alias = "sell", alias = "Sell")]
     Sell,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum OrderType {
+    #[serde(alias = "limit", alias = "Limit")]
     Limit,
+    #[serde(alias = "market", alias = "Market")]
     Market,
 }
 
@@ -35,7 +39,7 @@ pub struct Order {
     pub created_at: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MatchEvent {
     pub market: Market,
     pub bid_order_id: OrderId,

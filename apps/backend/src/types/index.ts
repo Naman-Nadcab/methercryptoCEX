@@ -458,6 +458,7 @@ export enum AuditAction {
   P2P_AD_UPDATED = 'p2p_ad_updated',
   P2P_ORDER_CREATED = 'p2p_order_created',
   P2P_PAYMENT_CONFIRMED = 'p2p_payment_confirmed',
+  P2P_SELLER_VERIFIED_PAYMENT = 'p2p_seller_verified_payment',
   P2P_ORDER_CANCELLED = 'p2p_order_cancelled',
   P2P_ORDER_RELEASED = 'p2p_order_released',
   P2P_DISPUTE_OPENED = 'p2p_dispute_opened',

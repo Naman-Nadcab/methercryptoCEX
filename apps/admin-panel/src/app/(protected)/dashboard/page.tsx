@@ -89,6 +89,9 @@ export default function DashboardPage() {
     status?: string;
     created_at?: string;
     token_id?: string;
+    email?: string;
+    username?: string;
+    currency_symbol?: string;
   }>;
   const withdrawalStats = withdrawalsData?.data?.stats as { pending_approval?: number } | undefined;
   const markets = controlData?.data?.markets as { total?: number; active?: number } | undefined;
@@ -133,12 +136,21 @@ export default function DashboardPage() {
     database?: { latency_ms?: number; latencyMs?: number };
     redis?: { latency_ms?: number; latencyMs?: number };
     websocket?: { connections?: number };
-    queue?: { total_withdrawal_queue?: number; depth?: number };
+    queue?: {
+      total_withdrawal_queue?: number;
+      depth?: number;
+      settlement_pending?: number;
+      settlement_lag_sec?: number;
+      settlement_delayed?: boolean;
+    };
   } | undefined;
   const dbLatency = systemHealth?.database?.latency_ms ?? systemHealth?.database?.latencyMs ?? 0;
   const redisLatency = systemHealth?.redis?.latency_ms ?? systemHealth?.redis?.latencyMs ?? 0;
   const wsConnections = systemHealth?.websocket?.connections ?? 0;
   const queueDepth = systemHealth?.queue?.total_withdrawal_queue ?? systemHealth?.queue?.depth ?? 0;
+  const settlementPending = systemHealth?.queue?.settlement_pending ?? 0;
+  const settlementLagSec = systemHealth?.queue?.settlement_lag_sec ?? 0;
+  const settlementDelayed = systemHealth?.queue?.settlement_delayed === true;
 
   if (statsLoading && !stats) {
     return (
@@ -406,6 +418,19 @@ export default function DashboardPage() {
             <div className="flex justify-between">
               <span className="text-admin-muted">Queue depth</span>
               <span className="font-medium">{queueDepth}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-admin-muted">Settlement pending</span>
+              <span className="font-medium">{settlementPending}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-admin-muted">Settlement oldest age</span>
+              <span
+                className={`font-medium ${settlementDelayed ? 'text-amber-700' : ''}`}
+              >
+                {settlementPending > 0 ? `${Math.round(settlementLagSec)}s` : '—'}
+                {settlementDelayed ? ' · delayed' : ''}
+              </span>
             </div>
           </div>
         </div>

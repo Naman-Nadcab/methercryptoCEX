@@ -7,7 +7,7 @@ import { useAuthStore } from '@/store/auth';
 import { useBalancesFunding } from '@/lib/balances';
 import { api } from '@/lib/api';
 import { ArrowLeft, Download, Upload, FileText, HelpCircle } from 'lucide-react';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/Tooltip';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/Tooltip';
 
 /** Tolerant symbol resolver: backend may use symbol / asset / currency / coin / token_symbol */
 function resolveRowSymbol(row: Record<string, unknown>): string {
@@ -120,7 +120,7 @@ export default function AssetSymbolPage() {
     return (
       <div className="p-6">
         <p className="text-gray-500 dark:text-gray-400">Invalid asset.</p>
-        <Link href="/dashboard/assets/overview" className="mt-2 inline-flex items-center gap-1 text-sm text-blue-500 dark:text-blue-400 hover:underline">
+        <Link href="/wallet" className="mt-2 inline-flex items-center gap-1 text-sm text-blue-500 dark:text-blue-400 hover:underline">
           <ArrowLeft className="w-4 h-4" /> Back to Assets
         </Link>
       </div>
@@ -131,7 +131,7 @@ export default function AssetSymbolPage() {
     return (
       <div className="p-6">
         <Link
-          href="/dashboard/assets/overview"
+          href="/wallet"
           className="inline-flex items-center gap-1 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white mb-4"
         >
           <ArrowLeft className="w-4 h-4" /> Back to Assets
@@ -140,7 +140,7 @@ export default function AssetSymbolPage() {
           <p className="text-gray-900 dark:text-white font-medium">No balance for this asset</p>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{normalizedSymbol} — Deposit to create a balance.</p>
           <Link
-            href={`/dashboard/deposit/crypto?coin=${encodeURIComponent(normalizedSymbol)}`}
+            href={`/wallet/deposit/crypto?coin=${encodeURIComponent(normalizedSymbol)}`}
             className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium"
           >
             <Download className="w-4 h-4" /> Deposit
@@ -159,7 +159,7 @@ export default function AssetSymbolPage() {
       {/* Section 1 — Page header */}
       <div className="flex items-center gap-4">
         <Link
-          href="/dashboard/assets/overview"
+          href="/wallet"
           className="inline-flex items-center gap-1 text-sm text-gray-400 hover:text-white transition-colors"
         >
           <ArrowLeft className="w-4 h-4" /> Back
@@ -173,13 +173,13 @@ export default function AssetSymbolPage() {
           <span className="text-xs text-gray-500 dark:text-white/50 uppercase tracking-wide">{normalizedSymbol} Wallet</span>
           <div className="flex justify-center gap-3 pt-2">
             <Link
-              href={`/dashboard/deposit/crypto?coin=${encodeURIComponent(normalizedSymbol)}`}
+              href={`/wallet/deposit/crypto?coin=${encodeURIComponent(normalizedSymbol)}`}
               className="inline-flex items-center gap-2 h-9 px-4 rounded-xl text-sm font-medium bg-blue-500 hover:bg-blue-600 hover:brightness-110 text-white transition-transform duration-100 active:scale-[0.97]"
             >
               <Download className="w-4 h-4" /> Deposit
             </Link>
             <Link
-              href={`/dashboard/withdraw/crypto?coin=${encodeURIComponent(normalizedSymbol)}`}
+              href={`/wallet/withdraw/crypto?coin=${encodeURIComponent(normalizedSymbol)}`}
               className="inline-flex items-center gap-2 h-9 px-4 rounded-xl text-sm font-medium bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-100 transition-transform duration-100 active:scale-[0.97]"
             >
               <Upload className="w-4 h-4" /> Withdraw
@@ -194,24 +194,20 @@ export default function AssetSymbolPage() {
           </div>
           <div className="flex-1 py-2 sm:py-0 sm:px-4">
             <p className="text-xs text-gray-500 dark:text-white/50 uppercase tracking-wide inline-flex items-center gap-1">Available balance
-              <TooltipProvider delayDuration={200}>
-                <Tooltip>
-                  <TooltipTrigger asChild><HelpCircle className="w-3.5 h-3.5 text-gray-400 cursor-help" /></TooltipTrigger>
-                  <TooltipContent>Amount you can use for trading, transfers, and withdrawals.</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild><HelpCircle className="w-3.5 h-3.5 text-gray-400 cursor-help" /></TooltipTrigger>
+                <TooltipContent>Amount you can use for trading, transfers, and withdrawals.</TooltipContent>
+              </Tooltip>
             </p>
             <p className="mt-1 text-xl font-semibold text-gray-900 dark:text-white"><span className="tabular-nums tracking-tight transition-all duration-300">{available}</span></p>
             <p className="text-xs text-gray-400 dark:text-white/40">{normalizedSymbol}</p>
           </div>
           <div className="flex-1 py-2 sm:py-0 sm:px-4">
             <p className="text-xs text-gray-500 dark:text-white/50 uppercase tracking-wide inline-flex items-center gap-1">Locked
-              <TooltipProvider delayDuration={200}>
-                <Tooltip>
-                  <TooltipTrigger asChild><HelpCircle className="w-3.5 h-3.5 text-gray-400 cursor-help" /></TooltipTrigger>
-                  <TooltipContent>Locked balance is reserved for open orders. Released when orders fill or are cancelled.</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild><HelpCircle className="w-3.5 h-3.5 text-gray-400 cursor-help" /></TooltipTrigger>
+                <TooltipContent>Locked balance is reserved for open orders. Released when orders fill or are cancelled.</TooltipContent>
+              </Tooltip>
             </p>
             <p className="mt-1 text-xl font-semibold text-gray-900 dark:text-white"><span className="tabular-nums tracking-tight transition-all duration-300">{locked}</span></p>
             <p className="text-xs text-gray-400 dark:text-white/40">{normalizedSymbol}</p>

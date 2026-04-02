@@ -26,6 +26,12 @@ import {
   Area,
 } from 'recharts';
 
+function metricDisplay(v: unknown): string | number {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (typeof v === 'string') return v;
+  return '—';
+}
+
 export default function LiquidityMonitorPage() {
   const { accessToken } = useAdminAuthStore();
 
@@ -80,9 +86,13 @@ export default function LiquidityMonitorPage() {
   const tableRows = (Array.isArray(pairsRaw) ? pairsRaw : []).slice(0, 20).map((p: Record<string, unknown>) => {
     const symbol = String(p.symbol ?? p.base_symbol ?? '') + (p.quote_symbol ? `/${p.quote_symbol}` : '');
     const vol = volumeByMarket[symbol] ?? volumeByMarket[String(p.symbol)] ?? 0;
-    const spread = (p.spread as number) ?? (p.bid_ask_spread as number) ?? '—';
-    const depth = (p.depth as number) ?? (p.market_depth as number) ?? '—';
-    const score = vol > 0 ? (depth !== '—' ? Math.min(100, Number(depth) / 10) : 50) : 0;
+    const spreadRaw = p.spread ?? p.bid_ask_spread;
+    const spread =
+      typeof spreadRaw === 'number' && Number.isFinite(spreadRaw) ? spreadRaw : '—';
+    const depthRaw = p.depth ?? p.market_depth;
+    const depth =
+      typeof depthRaw === 'number' && Number.isFinite(depthRaw) ? depthRaw : '—';
+    const score = vol > 0 ? (depth !== '—' ? Math.min(100, depth / 10) : 50) : 0;
     return {
       market: symbol || '—',
       volume24h: vol,
@@ -138,7 +148,7 @@ export default function LiquidityMonitorPage() {
         />
         <AdminMetricCard
           label="Trade count"
-          value={liquidity?.trade_count ?? (countersData?.data as Record<string, unknown>)?.tradeCount ?? '—'}
+          value={metricDisplay(liquidity?.trade_count ?? (countersData?.data as Record<string, unknown>)?.tradeCount)}
           sublabel="24h"
           icon={<BarChart3 className="w-4 h-4" />}
         />

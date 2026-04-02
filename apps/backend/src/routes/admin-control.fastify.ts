@@ -7,7 +7,9 @@ import { db } from '../lib/database.js';
 import { logger } from '../lib/logger.js';
 import { getAdminFromRequest } from './admin.fastify.js';
 import { getTradingHalted } from '../lib/trading-halt.js';
+import { getMmCircuitState, setMmCircuitState } from '../services/mm-circuit-breaker.service.js';
 import { getSpotMetrics } from '../services/spot-metrics.service.js';
+import { config } from '../config/index.js';
 
 export default async function adminControlRoutes(app: FastifyInstance) {
   app.addHook('preHandler', async (request, reply) => {
@@ -18,8 +20,9 @@ export default async function adminControlRoutes(app: FastifyInstance) {
   /** GET /control/overview — trading halt, settlement queue, spot metrics, engine health */
   app.get('/control/overview', async (request, reply) => {
     try {
-      const [halted, spotMetrics, settlementRes, marketsRes] = await Promise.all([
+      const [halted, mmCircuit, spotMetrics, settlementRes, marketsRes] = await Promise.all([
         getTradingHalted(),
+        getMmCircuitState(),
         Promise.resolve(getSpotMetrics()).catch(() => ({
           ordersLastMinute: 0,
           tradesLastMinute: 0,
@@ -40,6 +43,7 @@ export default async function adminControlRoutes(app: FastifyInstance) {
         success: true,
         data: {
           tradingHalted: halted,
+          mmCircuit,
           settlementPending,
           spotMetrics,
           markets: { total: markets.length, active: activeMarkets, disabled: disabledMarkets },
@@ -49,6 +53,90 @@ export default async function adminControlRoutes(app: FastifyInstance) {
     } catch (e) {
       logger.warn('Control overview error', { error: e instanceof Error ? e.message : 'Unknown' });
       return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to fetch overview' } });
+    }
+  });
+
+  /**
+   * GET /control/mm-elite-profitability — PnL / edge / fill-quality windows + capital weights (liquidity bot user).
+   */
+  app.get('/control/mm-elite-profitability', async (_request, reply) => {
+    try {
+      if (!config.liquidityBot.enabled || !config.liquidityBot.apiKey) {
+        return reply.send({
+          success: true,
+          data: { configured: false, message: 'Liquidity bot API key not set' },
+        });
+      }
+      const keyRow = await db.query<{ user_id: string }>(
+        `SELECT user_id::text FROM user_api_keys WHERE api_key = $1 AND deleted_at IS NULL LIMIT 1`,
+        [config.liquidityBot.apiKey]
+      );
+      const userId = keyRow.rows[0]?.user_id;
+      if (!userId) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'NO_BOT_USER', message: 'API key has no user' },
+        });
+      }
+      const symbols = config.liquidityBot.symbols;
+      const { getMmSymbolProfitMetrics } = await import('../services/mm-pnl-metrics.service.js');
+      const { computeCapitalAllocationWeights } = await import('../services/mm-capital-allocation.service.js');
+      const bySymbol: Record<string, unknown> = {};
+      for (const sym of symbols) {
+        bySymbol[sym] = await getMmSymbolProfitMetrics(sym, userId, { skipCache: true });
+      }
+      const capitalWeights = await computeCapitalAllocationWeights(symbols, userId);
+      return reply.send({
+        success: true,
+        data: {
+          configured: true,
+          symbols: bySymbol,
+          capitalWeights,
+          windows: { pnlEdge: ['5m', '1h', '24h'], fillQuality: '1h_vs_VWAP' },
+        },
+      });
+    } catch (e) {
+      logger.warn('MM elite profitability GET failed', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'FETCH_FAILED', message: 'Failed to read MM profitability metrics' },
+      });
+    }
+  });
+
+  /**
+   * GET /control/mm-circuit — institutional MM circuit state (Redis).
+   */
+  app.get('/control/mm-circuit', async (_request, reply) => {
+    try {
+      const state = await getMmCircuitState();
+      return reply.send({ success: true, data: state });
+    } catch (e) {
+      logger.warn('MM circuit GET failed', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to read MM circuit' } });
+    }
+  });
+
+  /**
+   * POST /control/mm-circuit — set pause_trading and/or block_new_orders (body booleans; omit = unchanged).
+   */
+  app.post<{
+    Body?: { tradingPaused?: boolean; orderPlacementBlocked?: boolean };
+  }>('/control/mm-circuit', async (request, reply) => {
+    try {
+      const body = request.body ?? {};
+      const state = await setMmCircuitState(
+        {
+          tradingPaused: body.tradingPaused,
+          orderPlacementBlocked: body.orderPlacementBlocked,
+        },
+        { source: 'admin' }
+      );
+      logger.warn('MM circuit updated', { state });
+      return reply.send({ success: true, data: state });
+    } catch (e) {
+      logger.warn('MM circuit POST failed', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'UPDATE_FAILED', message: 'Failed to update MM circuit' } });
     }
   });
 

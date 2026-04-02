@@ -7,7 +7,7 @@ export default function WithdrawFiatPage() {
   return (
     <div className="max-w-xl mx-auto py-8 px-4">
       <Link
-        href="/dashboard/withdraw/crypto"
+        href="/wallet/withdraw/crypto"
         className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6"
       >
         <ArrowLeft className="w-4 h-4" /> Back to Withdraw
@@ -21,7 +21,7 @@ export default function WithdrawFiatPage() {
           Bank withdrawals (INR, USD, etc.) are not available yet. Use crypto withdrawal to send to your wallet or another exchange.
         </p>
         <Link
-          href="/dashboard/withdraw/crypto"
+          href="/wallet/withdraw/crypto"
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90"
         >
           Withdraw crypto instead

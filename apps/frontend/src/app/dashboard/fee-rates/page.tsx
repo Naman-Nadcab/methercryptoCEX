@@ -160,7 +160,7 @@ export default function FeeRatesPage() {
       current: feeData.tradingVolume30d,
       required: 1000000,
       unit: 'USD',
-      link: '/dashboard/orders',
+      link: '/orders',
       linkText: 'Spot Trade History',
     },
     {
@@ -169,7 +169,7 @@ export default function FeeRatesPage() {
       current: feeData.totalEquity,
       required: 100000,
       unit: 'USD',
-      link: '/dashboard/assets',
+      link: '/wallet',
       linkText: 'Wallet Balance (Earn Account)',
     },
     {
@@ -178,7 +178,7 @@ export default function FeeRatesPage() {
       current: feeData.avgEquity30d,
       required: 100000,
       unit: 'USD',
-      link: '/dashboard/assets',
+      link: '/wallet',
       linkText: 'Wallet Balance (Earn Account)',
     },
   ];
@@ -359,7 +359,7 @@ export default function FeeRatesPage() {
 
                 {/* Trade Link */}
                 <Link
-                  href="/dashboard/spot"
+                  href="/trade/spot"
                   className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm font-medium"
                 >
                   Trade Spot <ChevronRight className="w-4 h-4" />
@@ -491,7 +491,7 @@ export default function FeeRatesPage() {
         {/* Footer */}
         <div className="border-t border-gray-200 dark:border-gray-800 pt-8">
           <div className="flex flex-wrap items-center justify-center gap-6 text-sm text-gray-500 dark:text-gray-400">
-            <Link href="/dashboard/markets" className="hover:text-gray-900 dark:hover:text-white">
+            <Link href="/markets" className="hover:text-gray-900 dark:hover:text-white">
               Market Overview
             </Link>
             <Link href="/dashboard/fee-rates" className="hover:text-gray-900 dark:hover:text-white">

@@ -13,7 +13,7 @@ export function ExchangeControls() {
   const halted = haltData?.data?.halted ?? false;
 
   const haltMutation = useMutation({
-    mutationFn: (halt: boolean) => setTradingHalt(token ?? undefined, halt),
+    mutationFn: (halt: boolean) => setTradingHalt(token ?? null, halt),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'trading-halt'] });
       queryClient.invalidateQueries({ queryKey: ['admin', 'control-overview'] });

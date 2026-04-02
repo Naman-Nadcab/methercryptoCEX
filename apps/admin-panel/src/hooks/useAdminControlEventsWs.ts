@@ -66,16 +66,17 @@ export function useAdminControlEventsWs(options?: UseAdminControlEventsWsOptions
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data) as AdminControlEventMessage;
-          if (!msg.event || msg.event === 'error' || msg.event === 'pong' || msg.event === 'connected') return;
-          if (msg.event === 'timeline_event') {
+          const ev = msg.event as string;
+          if (!ev || ev === 'error' || ev === 'pong' || ev === 'connected') return;
+          if (ev === 'timeline_event') {
             const entry = msg.payload as unknown as TimelineEventPayload;
             if (entry?.event != null && entry?.timestamp != null) {
               onTimelineEventRef.current?.(entry);
             }
             return;
           }
-          if (msg.event in ADMIN_WS_EVENT_QUERY_MAP) {
-            invalidateQueriesForEvent(queryClient, msg.event as AdminWsInvalidationEvent);
+          if (ev in ADMIN_WS_EVENT_QUERY_MAP) {
+            invalidateQueriesForEvent(queryClient, ev as AdminWsInvalidationEvent);
           }
         } catch {
           // ignore

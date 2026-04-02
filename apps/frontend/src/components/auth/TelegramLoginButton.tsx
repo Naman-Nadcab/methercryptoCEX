@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { handleTelegramCallback } from '@/lib/oauth';
+import { ROUTES } from '@/lib/routes';
 import { useAuthStore } from '@/store/auth';
 
 interface TelegramLoginButtonProps {
@@ -60,7 +61,7 @@ export default function TelegramLoginButton({
           };
           setUser(userData);
           setTokens(result.data.accessToken, result.data.refreshToken);
-          router.push('/dashboard');
+          router.push(ROUTES.dashboard.root);
         } else {
           onError?.(result.error?.message || 'Telegram login failed');
         }

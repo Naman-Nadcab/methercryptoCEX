@@ -26,7 +26,7 @@ export default function WalletSymbolPage() {
   // Redirect to canonical coin wallet route (Binance-style assets flow)
   useEffect(() => {
     if (symbol && _hasHydrated) {
-      router.replace(`/dashboard/assets/${encodeURIComponent(symbol)}`);
+      router.replace(`/wallet/${encodeURIComponent(symbol)}`);
     }
   }, [symbol, _hasHydrated, router]);
 
@@ -79,7 +79,7 @@ export default function WalletSymbolPage() {
     return (
       <div className="p-6">
         <p className="text-gray-500 dark:text-gray-400">Invalid asset.</p>
-        <Link href="/dashboard/assets/overview" className="mt-2 inline-flex items-center gap-1 text-sm text-blue-500 dark:text-blue-400 hover:underline">
+        <Link href="/wallet" className="mt-2 inline-flex items-center gap-1 text-sm text-blue-500 dark:text-blue-400 hover:underline">
           <ArrowLeft className="w-4 h-4" /> Back to Assets
         </Link>
       </div>
@@ -90,7 +90,7 @@ export default function WalletSymbolPage() {
     return (
       <div className="p-6 max-w-2xl">
         <Link
-          href="/dashboard/assets/overview"
+          href="/wallet"
           className="inline-flex items-center gap-1 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white mb-4"
         >
           <ArrowLeft className="w-4 h-4" /> Back to Assets
@@ -99,7 +99,7 @@ export default function WalletSymbolPage() {
           <p className="text-gray-900 dark:text-white font-medium">No balance for this asset</p>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{symbol} — Deposit to create a balance.</p>
           <Link
-            href={`/dashboard/deposit/crypto${symbol ? `?coin=${encodeURIComponent(symbol)}` : ''}`}
+            href={`/wallet/deposit/crypto${symbol ? `?coin=${encodeURIComponent(symbol)}` : ''}`}
             className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium"
           >
             <Download className="w-4 h-4" /> Deposit
@@ -117,7 +117,7 @@ export default function WalletSymbolPage() {
       {/* Top bar */}
       <div className="flex items-center gap-4 mb-6">
         <Link
-          href="/dashboard/assets/overview"
+          href="/wallet"
           className="inline-flex items-center gap-1 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
         >
           <ArrowLeft className="w-4 h-4" /> Back
@@ -149,13 +149,13 @@ export default function WalletSymbolPage() {
       {/* Actions */}
       <div className="flex flex-wrap gap-3 mb-6">
         <Link
-          href={`/dashboard/deposit/crypto?coin=${encodeURIComponent(symbol)}`}
+          href={`/wallet/deposit/crypto?coin=${encodeURIComponent(symbol)}`}
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium transition-colors"
         >
           <Download className="w-4 h-4" /> Deposit
         </Link>
         <Link
-          href={`/dashboard/withdraw/crypto?coin=${encodeURIComponent(symbol)}`}
+          href={`/wallet/withdraw/crypto?coin=${encodeURIComponent(symbol)}`}
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm font-medium transition-colors"
         >
           <Upload className="w-4 h-4" /> Withdraw

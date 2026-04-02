@@ -9,7 +9,7 @@ import { logger } from './logger.js';
 import { db } from './database.js';
 
 export type AlertPayload = {
-  type: 'circuit_open' | 'integrity_mismatch' | 'engine_unavailable' | 'settlement_backlog';
+  type: 'circuit_open' | 'integrity_mismatch' | 'engine_unavailable' | 'settlement_backlog' | 'tier1_reconciliation';
   violation?: string;
   source?: string;
   mismatches?: number;
@@ -30,6 +30,8 @@ function alertText(payload: AlertPayload): string {
       return `[EXCHANGE ALERT] Matching engine unavailable. Match poller in backoff. ${payload.error ?? ''}`;
     case 'settlement_backlog':
       return `[EXCHANGE ALERT] Settlement backlog high: ${payload.pendingCount ?? '?'} pending (check SLO).`;
+    case 'tier1_reconciliation':
+      return `[EXCHANGE ALERT] Tier-1 reconciliation mismatch (no auto-fix). ${payload.message ?? ''}`.trim();
     default:
       return `[EXCHANGE ALERT] ${payload.message ?? payload.type}`;
   }

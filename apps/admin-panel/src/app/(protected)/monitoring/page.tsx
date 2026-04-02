@@ -390,11 +390,26 @@ export default function MonitoringPage() {
                 {queues?.withdrawal_pending ?? '—'} pending
               </p>
             </div>
-            <div className="rounded-lg border border-gray-100 bg-gray-50/50 p-4">
+            <div
+              className={cn(
+                'rounded-lg border p-4',
+                queues?.settlement_delayed
+                  ? 'border-amber-200 bg-amber-50/50'
+                  : 'border-gray-100 bg-gray-50/50'
+              )}
+            >
               <p className="text-sm font-medium text-gray-700">Settlement Queue</p>
               <p className="text-2xl font-semibold text-gray-900">
                 {queues?.settlement_pending ?? '—'} pending
               </p>
+              {queues != null && (queues.settlement_pending ?? 0) > 0 && (
+                <p className="mt-1 text-xs text-gray-600">
+                  Oldest event: {Math.round(queues.settlement_lag_sec ?? 0)}s
+                  {queues.settlement_delayed ? (
+                    <span className="ml-2 font-semibold text-amber-800">Delayed</span>
+                  ) : null}
+                </p>
+              )}
             </div>
             <div className="rounded-lg border border-gray-100 bg-gray-50/50 p-4">
               <p className="text-sm font-medium text-gray-700">Matching Engine Queue</p>

@@ -109,7 +109,7 @@ export default function SpotOrdersViewPage() {
     <div className="p-4 md:p-5 max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-3">
         <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Spot Orders</h1>
-        <Link href="/dashboard/spot" className="text-sm text-blue-500 dark:text-blue-400 hover:underline">Spot Trading →</Link>
+        <Link href="/trade/spot" className="text-sm text-blue-500 dark:text-blue-400 hover:underline">Spot Trading →</Link>
       </div>
       <div className="bg-white dark:bg-[#1e2026] border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
         <div className="flex border-b border-gray-200 dark:border-gray-700">
@@ -174,7 +174,7 @@ export default function SpotOrdersViewPage() {
                         title="No open orders"
                         description="Place a limit, market, or stop order to see it here."
                         actionLabel="Place order"
-                        actionHref="/dashboard/spot"
+                        actionHref="/trade/spot"
                       />
                     </td></tr>
                   ) : (
@@ -246,7 +246,7 @@ export default function SpotOrdersViewPage() {
                       title="No order history"
                       description="Filled and cancelled orders will appear here."
                       actionLabel="Place order"
-                      actionHref="/dashboard/spot"
+                      actionHref="/trade/spot"
                     />
                   </td></tr>
                 ) : (

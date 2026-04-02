@@ -1,5 +1,6 @@
 /**
- * Shared spot order matching logic. Used by place-order route and stop-order trigger job.
+ * Legacy in-process SQL matcher (price-time). Kept for reference and ad-hoc tooling;
+ * production place-order and stop-trigger paths use the Rust HTTP engine only.
  */
 import { Decimal } from '../lib/decimal.js';
 import {
@@ -48,6 +49,12 @@ export type ExecutedTrade = {
   quoteValue: string;
 };
 
+export type MatchingOutcome = {
+  executedTrades: ExecutedTrade[];
+  /** Remaining taker quantity resting on the book (limit / GTC). */
+  resting?: { side: 'buy' | 'sell'; price: string; quantity: string };
+};
+
 /** Returns total fillable quantity for an incoming limit order (read-only, for FOK pre-check). */
 export async function getFillableQuantity(
   client: PoolClient,
@@ -79,12 +86,12 @@ export async function runMatching(
   pricePrecision: number,
   qtyPrecision: number,
   timeInForce: TimeInForce = 'gtc'
-): Promise<ExecutedTrade[]> {
+): Promise<MatchingOutcome> {
   const executedTrades: ExecutedTrade[] = [];
   const incomingQty = new Decimal(incomingOrder.quantity).toDecimalPlaces(qtyPrecision, ROUND_DOWN);
   const incomingFilled = new Decimal(incomingOrder.filled_quantity).toDecimalPlaces(qtyPrecision, ROUND_DOWN);
   const remaining = incomingQty.minus(incomingFilled).toDecimalPlaces(qtyPrecision, ROUND_DOWN);
-  if (remaining.lte(0)) return executedTrades;
+  if (remaining.lte(0)) return { executedTrades, resting: undefined };
 
   const isBuy = incomingOrder.side === 'buy';
   const oppositeSide = isBuy ? 'sell' : 'buy';
@@ -113,7 +120,6 @@ export async function runMatching(
   };
 
   let filledIncoming = incomingFilled;
-  const filledOtherIds = new Set<string>();
   for (const other of candidates.rows) {
     if (filledIncoming.gte(incomingQty)) break;
     const otherQty = new Decimal(other.quantity).toDecimalPlaces(qtyPrecision, ROUND_DOWN);
@@ -173,7 +179,6 @@ export async function runMatching(
 
     const newOtherFilled = otherFilled.plus(matchQtyDec).toDecimalPlaces(qtyPrecision, ROUND_DOWN);
     const otherStatus = newOtherFilled.gte(otherQty) ? 'FILLED' : 'PARTIALLY_FILLED';
-    if (otherStatus === 'FILLED') filledOtherIds.add(other.id);
     await client.query(
       `UPDATE spot_orders SET filled_quantity = $2, status = $3, updated_at = NOW() WHERE id = $1`,
       [other.id, newOtherFilled.toString(), otherStatus]
@@ -201,22 +206,18 @@ export async function runMatching(
     [incomingOrder.id, newIncomingFilledStr, incomingStatus]
   );
 
-  // OCO: cancel siblings when any order in the group fills
-  const filledOrderIds: string[] = incomingStatus === 'FILLED' ? [incomingOrder.id] : [];
-  filledOtherIds.forEach((id) => filledOrderIds.push(id));
-  for (const orderId of filledOrderIds) {
-    const ocoRow = await client.query<{ oco_group_id: string }>(
-      `SELECT oco_group_id FROM spot_orders WHERE id = $1 AND oco_group_id IS NOT NULL`,
-      [orderId]
-    );
-    const groupId = ocoRow.rows[0]?.oco_group_id;
-    if (groupId) {
-      await client.query(
-        `UPDATE spot_orders SET status = 'CANCELLED', updated_at = NOW()
-         WHERE oco_group_id = $1 AND id != $2 AND status IN ('OPEN', 'PARTIALLY_FILLED', 'PENDING_TRIGGER')`,
-        [groupId, orderId]
-      );
-    }
+  const remainingOnBook = incomingQty.minus(filledIncoming).toDecimalPlaces(qtyPrecision, ROUND_DOWN);
+  let resting: MatchingOutcome['resting'];
+  if (
+    (incomingStatus === 'OPEN' || incomingStatus === 'PARTIALLY_FILLED') &&
+    incomingOrder.price &&
+    remainingOnBook.gt(0)
+  ) {
+    resting = {
+      side: isBuy ? 'buy' : 'sell',
+      price: incomingOrder.price,
+      quantity: remainingOnBook.toString(),
+    };
   }
-  return executedTrades;
+  return { executedTrades, resting };
 }

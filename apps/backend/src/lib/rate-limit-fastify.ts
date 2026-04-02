@@ -18,7 +18,11 @@ function buildKey(scope: string, identifier: string): string {
   return `rate:${scope}:${identifier}`;
 }
 
-export type RateLimitOptions = { failClosed?: boolean };
+export type RateLimitOptions = {
+  failClosed?: boolean;
+  /** When true, skip Redis limiter for this user (e.g. internal market maker). */
+  skipUser?: (userId: string) => boolean;
+};
 
 /**
  * Check rate limit and return result. Does not send response.
@@ -127,6 +131,7 @@ export function rateLimitByUser(
       });
       return;
     }
+    if (options?.skipUser?.(userId)) return;
     const key = buildKey(scope, `user:${userId}`);
     const result = await checkLimit(key, limit, windowSeconds, failClosed);
     if (!result.allowed) {

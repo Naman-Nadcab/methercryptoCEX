@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { Bell, Download, FileText, Send, Shield, ChevronRight } from 'lucide-react';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { ORDERS_HREF, walletPath, ROUTES } from '@/lib/routes';
 
 interface Notification {
   id: string;
@@ -20,9 +21,9 @@ interface NotificationCenterProps {
 }
 
 const TYPE_CONFIG: Record<string, { icon: typeof Bell; label: string; href: string }> = {
-  deposit: { icon: Download, label: 'Deposit completed', href: '/dashboard/deposit/crypto' },
-  order: { icon: FileText, label: 'Order filled', href: '/dashboard/orders/spot' },
-  withdrawal: { icon: Send, label: 'Withdrawal sent', href: '/dashboard/withdraw/crypto' },
+  deposit: { icon: Download, label: 'Deposit completed', href: walletPath.depositCrypto },
+  order: { icon: FileText, label: 'Order filled', href: `${ORDERS_HREF}/spot` },
+  withdrawal: { icon: Send, label: 'Withdrawal sent', href: walletPath.withdrawCrypto },
   security: { icon: Shield, label: 'Security alert', href: '/dashboard/security' },
 };
 
@@ -111,7 +112,7 @@ export function NotificationCenter({ accessToken, className = '' }: Notification
           <div className="p-3 border-b border-border flex items-center justify-between">
             <p className="text-sm font-semibold text-foreground">Notifications</p>
             <Link
-              href="/dashboard/announcements"
+              href={ROUTES.dashboard.announcements}
               onClick={() => setOpen(false)}
               className="text-xs text-primary hover:underline flex items-center gap-0.5"
             >

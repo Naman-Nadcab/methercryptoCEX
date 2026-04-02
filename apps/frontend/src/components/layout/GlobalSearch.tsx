@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Search, TrendingUp, Wallet, FileText } from 'lucide-react';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { SPOT_TRADE_HREF } from '@/lib/tier1-canonical-routes';
+import { WALLET_HREF, ROUTES } from '@/lib/routes';
 
 interface GlobalSearchProps {
   accessToken?: string | null;
@@ -42,7 +44,7 @@ export function GlobalSearch({ accessToken, className = '' }: GlobalSearchProps)
       .map((t: { symbol: string; base_asset: string; quote_asset: string }) => ({
         type: 'market' as const,
         label: `${t.base_asset}/${t.quote_asset ?? 'USDT'}`,
-        href: `/dashboard/spot?symbol=${(t.symbol || t.base_asset + '_USDT').replace(/-/g, '_')}`,
+        href: `${SPOT_TRADE_HREF}?symbol=${(t.symbol || t.base_asset + '_USDT').replace(/-/g, '_')}`,
         subtitle: 'Spot market',
       }));
   }, []);
@@ -69,7 +71,7 @@ export function GlobalSearch({ accessToken, className = '' }: GlobalSearchProps)
         .map((a) => ({
           type: 'asset' as const,
           label: a,
-          href: `/dashboard/assets/overview`,
+          href: WALLET_HREF,
           subtitle: 'Asset',
         }));
       all.push(...assets);
@@ -79,7 +81,7 @@ export function GlobalSearch({ accessToken, className = '' }: GlobalSearchProps)
         all.push({
           type: 'help' as const,
           label: `Help: ${h}`,
-          href: `/dashboard/help?q=${encodeURIComponent(h)}`,
+          href: `${ROUTES.dashboard.help}?q=${encodeURIComponent(h)}`,
           subtitle: 'Help article',
         })
       );

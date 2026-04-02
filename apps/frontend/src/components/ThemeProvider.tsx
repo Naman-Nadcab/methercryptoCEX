@@ -1,72 +1,42 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect } from 'react';
 import { useThemeStore } from '@/store/theme';
 
 interface ThemeProviderProps {
   children: React.ReactNode;
 }
 
+function applyDarkClassFromStore() {
+  const { theme } = useThemeStore.getState();
+  const dark =
+    theme === 'system'
+      ? window.matchMedia('(prefers-color-scheme: dark)').matches
+      : theme === 'dark';
+  document.documentElement.classList.toggle('dark', dark);
+}
+
+/**
+ * Applies `dark` on <html> only via effects — no extra wrapper divs that change
+ * the React tree shape across mounts (avoids hydration / style ordering edge cases).
+ */
 export default function ThemeProvider({ children }: ThemeProviderProps) {
-  const { theme, resolvedTheme, setTheme } = useThemeStore();
-  const [mounted, setMounted] = useState(false);
+  const theme = useThemeStore((s) => s.theme);
 
-  // Handle initial theme setup
-  useEffect(() => {
-    setMounted(true);
-    
-    // Apply theme immediately
-    const applyTheme = (isDark: boolean) => {
-      if (isDark) {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
-    };
-
-    // Get system preference
-    const getSystemTheme = () => {
-      return window.matchMedia('(prefers-color-scheme: dark)').matches;
-    };
-
-    // Apply based on stored theme or system preference
-    if (theme === 'system') {
-      applyTheme(getSystemTheme());
-    } else {
-      applyTheme(theme === 'dark');
-    }
-
-    // Listen for system theme changes
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handleChange = (e: MediaQueryListEvent) => {
-      if (theme === 'system') {
-        applyTheme(e.matches);
-      }
-    };
-
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
+  useLayoutEffect(() => {
+    applyDarkClassFromStore();
   }, [theme]);
 
-  // Apply theme whenever it changes
   useEffect(() => {
-    if (!mounted) return;
-
-    if (resolvedTheme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, [mounted, resolvedTheme]);
-
-  // Prevent flash of wrong theme
-  if (!mounted) {
-    return (
-      <div className="min-h-screen bg-white dark:bg-gray-900">
-        {children}
-      </div>
-    );
-  }
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = () => {
+      if (useThemeStore.getState().theme === 'system') {
+        applyDarkClassFromStore();
+      }
+    };
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
 
   return <>{children}</>;
 }

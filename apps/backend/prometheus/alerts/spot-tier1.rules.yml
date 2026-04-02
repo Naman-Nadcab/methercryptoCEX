@@ -1,0 +1,196 @@
+# Prometheus alerting rules for spot orderbook writer + public WS (Alertmanager).
+# Tune thresholds for your SLOs. Requires scrape of backend /metrics (PROMETHEUS_ENABLED).
+
+groups:
+  - name: spot_orderbook_writer
+    rules:
+      - alert: SpotOrderbookWriterLagHigh
+        # lag_ms is meaningful only when there is a JetStream backlog (idle markets report 0).
+        expr: spot_orderbook_writer_pending_messages > 0 and spot_orderbook_writer_lag_ms > 2000
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Orderbook writer lag elevated (with backlog)
+          description: |
+            shard={{ $labels.shard }} lag_ms={{ $value }} — backlog present; check consumer health, NATS, CPU.
+
+      - alert: SpotOrderbookWriterPendingHigh
+        expr: spot_orderbook_writer_pending_messages > 10000
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: JetStream pending backlog high for writer
+          description: |
+            shard={{ $labels.shard }} pending={{ $value }} — risk of stale books; scale writer or reduce ingress.
+
+      - alert: SpotOrderbookWriterResyncSpike
+        expr: rate(spot_orderbook_writer_resync_total[5m]) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Elevated orderbook_resync rate
+          description: |
+            Possible writer_seq gaps or publisher skew — inspect symbol={{ $labels.symbol }} shard={{ $labels.shard }}.
+
+  - name: spot_public_ws
+    rules:
+      - alert: SpotWsDisconnectSpike
+        expr: rate(spot_ws_disconnects_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Spot WS disconnect rate elevated
+          description: |
+            Check LB idle timeouts, deploys, and client errors; rate={{ $value }}/s.
+
+      - alert: SpotWsForwarderSheddingActive
+        expr: spot_ws_forwarder_mode > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: WS NATS forwarder is shedding non-critical traffic
+          description: |
+            instance={{ $labels.instance }} mode={{ $value }} (1=drop ticker, 2=drop trades+ticker). Reduce load or widen capacity.
+
+      - alert: SpotWsForwarderDropRateHigh
+        expr: sum(rate(spot_ws_forwarder_messages_dropped_total[5m])) > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: High WS forwarder message drop rate
+          description: |
+            Clients may see stale tickers/trades; orderbook path should remain intact.
+
+  - name: match_events_settlement_stream
+    rules:
+      - alert: SettlementMatchStreamLagHigh
+        expr: settlement_match_stream_lag_sequences > 5000
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: MATCH_EVENTS settlement consumer lag (sequences) is high
+          description: |
+            Lag ~{{ $value }} seq — scale settlement workers, check DB/NATS, or increase MATCH_EVENTS_PARTITION_COUNT.
+
+      - alert: SettlementMatchStreamPartitionLagHigh
+        expr: settlement_match_stream_partition_lag_sequences > 8000
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: Settlement partition lag high
+          description: |
+            partition={{ $labels.partition }} lag={{ $value }} — hot shard or slow consumer on that partition.
+
+      - alert: SettlementMatchStreamDlqNonZero
+        expr: increase(settlement_match_stream_dlq_published_total[10m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Match settlement DLQ received messages
+          description: |
+            Poison/fatal match events landed in MATCH_SETTLEMENT_DLQ — inspect payloads and use POST /internal/engine/settlement-dlq/replay after fix.
+
+  - name: tier1_settlement_slo
+    rules:
+      - alert: SettlementLagSecondsHigh
+        expr: settlement_lag_seconds > 120
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Settlement queue age (lag) elevated
+          description: |
+            settlement_lag_seconds={{ $value }} — see runbook docs/runbooks/settlement-lag.md; scale workers, check DB/NATS, do not silently mutate balances.
+
+      - alert: SettlementPendingCountHigh
+        expr: settlement_pending_count > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Many pending settlement items
+          description: |
+            pending={{ $value }} — tune SLO_SETTLEMENT_PENDING_MAX vs capacity; follow docs/runbooks/settlement-lag.md.
+
+      - alert: SpotOrderPlacementFailureRateHigh
+        expr: sum(rate(spot_order_placement_failed_total[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Spot order placement error rate elevated
+          description: |
+            Failed placements ~{{ $value }}/s — check engine health, risk/circuit halts, and `code` label breakdown on spot_order_placement_failed_total.
+
+      - alert: SpotWsChurnElevated
+        expr: rate(spot_ws_disconnects_total[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Spot WebSocket disconnect / reconnect churn elevated
+          description: |
+            Often correlates with client reconnect storms — see docs/runbooks/websocket-failures.md; check LB idle timeouts and deploy windows.
+
+  - name: deposit_indexer
+    rules:
+      - alert: IndexerStateHeartbeatStale
+        expr: indexer_state_lag_seconds >= 0 and indexer_state_lag_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Deposit indexer heartbeat stale (indexer_state)
+          description: |
+            indexer_state_lag_seconds={{ $value }} — confirm `indexer` process is running and writing DB; tune vs HEALTH_INDEXER_MAX_LAG_SEC.
+
+  - name: tier1_reconciliation
+    rules:
+      - alert: Tier1SettlementBalanceInvariantFailed
+        expr: tier1_settlement_balance_invariant_ok == 0 and tier1_last_reconciliation_timestamp_seconds > 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: Global settlement balance audit failed (Tier-1 reconciliation)
+          description: |
+            Do NOT auto-fix from metrics — investigate logs TIER1_RECONCILIATION_CRITICAL and runbook; tier1_reconciliation_mismatch_total may increment.
+
+      - alert: Tier1SpotBalanceLedgerInvariantFailed
+        expr: tier1_spot_balance_ledger_invariant_ok == 0 and tier1_last_reconciliation_timestamp_seconds > 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: Spot balance vs balance_ledger mismatch
+          description: |
+            Ledger drift suspected — freeze risky ops per policy; see reconciliation logs and finance controls.
+
+      - alert: Tier1SettlementReplayFailed
+        expr: tier1_settlement_replay_ok == 0 and tier1_last_reconciliation_timestamp_seconds > 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: Settlement hash replay check failed
+          description: |
+            Possible ledger tampering or corruption — escalate; no silent repair.
+
+      - alert: Tier1LedgerOrphanProcessedEvents
+        expr: tier1_ledger_orphan_processed_events > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Processed settlement_events without ledger rows
+          description: |
+            count={{ $value }} — settlement worker/DB inconsistency; investigate before resuming normal settlement.

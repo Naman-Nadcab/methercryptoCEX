@@ -7,7 +7,7 @@ export default function WithdrawPage() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace('/dashboard/withdraw/crypto');
+    router.replace('/wallet/withdraw/crypto');
   }, [router]);
 
   return (

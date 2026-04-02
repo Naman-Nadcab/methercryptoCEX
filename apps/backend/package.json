@@ -7,6 +7,7 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "dev:node-match": "USE_RUST_MATCHING_ENGINE=false tsx watch src/server.ts",
     "dev:express": "echo 'DEPRECATED: Use dev (Fastify). Express path is legacy.' && tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/server.js",
@@ -20,7 +21,19 @@
     "clean": "rm -rf dist",
     "test:balance": "tsx src/services/balance/balance-read.integration.test.ts",
     "test:p2p-orders": "tsx src/routes/p2p-orders.integration.test.ts",
-    "load-historical-candles": "tsx scripts/load-historical-candles.ts"
+    "test:tier1-alerts": "tsx scripts/tier1-alert-verify.ts",
+    "load-historical-candles": "tsx scripts/load-historical-candles.ts",
+    "backfill:opening-ledger": "tsx scripts/backfill-opening-balance-ledger.ts",
+    "settlement:reset": "tsx scripts/reset-failed-settlement-events.ts",
+    "prelaunch:db": "tsx scripts/prelaunch-db-check.ts",
+    "tier1:phase1-verify": "tsx scripts/tier1-phase1-verify.ts",
+    "tier1:phase2-verify": "tsx scripts/tier1-phase2-verify.ts",
+    "tier1:phase3-verify": "tsx scripts/tier1-phase3-verify.ts",
+    "tier1:fiu-readiness": "tsx scripts/tier1-fiu-readiness-verify.ts",
+    "tier1:drain-settlement": "tsx scripts/tier1-drain-settlement.ts",
+    "tier1:release-check:db": "npm run tier1:phase1-verify && npm run tier1:fiu-readiness",
+    "tier1:release-check:full": "npm run tier1:release-check:db && npm run tier1:phase2-verify && npm run tier1:phase3-verify",
+    "tier1:release-check:strict": "TIER1_REQUIRE_ZERO_PENDING_SETTLEMENT=true npm run tier1:phase1-verify && TIER1_REQUIRE_ZERO_PENDING_SETTLEMENT=true npm run tier1:fiu-readiness && TIER1_REQUIRE_ZERO_PENDING_SETTLEMENT=true npm run tier1:phase2-verify && TIER1_REQUIRE_ZERO_PENDING_SETTLEMENT=true npm run tier1:phase3-verify"
   },
   "dependencies": {
     "@aws-sdk/client-kms": "^3.989.0",
@@ -59,6 +72,7 @@
     "ioredis": "^5.3.2",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
+    "nats": "^2.29.3",
     "nodemailer": "^6.10.1",
     "otpauth": "^9.4.1",
     "pg": "^8.11.3",

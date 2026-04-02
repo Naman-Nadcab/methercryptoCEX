@@ -12,8 +12,9 @@ import {
   DialogFooter,
   DialogDescription,
 } from '@/components/ui/dialog';
+import { SPOT_TRADE_HREF, walletPath, loginWithRedirect } from '@/lib/routes';
 
-export type SpotOrderType = 'limit' | 'market' | 'stop_loss' | 'stop_limit' | 'trailing_stop_market' | 'oco';
+export type SpotOrderType = 'limit' | 'market' | 'stop_loss' | 'stop_limit' | 'trailing_stop_market';
 export type TimeInForce = 'gtc' | 'ioc' | 'fok';
 
 interface SpotOrderEntryPanelProps {
@@ -70,7 +71,6 @@ const ORDER_TYPES: { type: SpotOrderType; label: string; sellOnly?: boolean }[] 
   { type: 'stop_loss', label: 'Stop' },
   { type: 'stop_limit', label: 'Stop Limit' },
   { type: 'trailing_stop_market', label: 'Trailing' },
-  { type: 'oco', label: 'OCO', sellOnly: true },
 ];
 
 const SLIDER_MARKS = [0, 25, 50, 75, 100];
@@ -186,8 +186,8 @@ export function SpotOrderEntryPanel({
   useEffect(() => {
     if (!confirmOpen) setConfirmLoading(false);
   }, [confirmOpen]);
-  const showPrice = orderType === 'limit' || orderType === 'stop_limit' || orderType === 'oco';
-  const showStopPrice = orderType === 'stop_loss' || orderType === 'stop_limit' || orderType === 'oco';
+  const showPrice = orderType === 'limit' || orderType === 'stop_limit';
+  const showStopPrice = orderType === 'stop_loss' || orderType === 'stop_limit';
   const showTrailingDelta = orderType === 'trailing_stop_market';
   const showTif = orderType === 'limit' || orderType === 'stop_limit';
   const tif = timeInForce ?? 'gtc';
@@ -216,7 +216,7 @@ export function SpotOrderEntryPanel({
       if (tif === 'ioc' || tif === 'fok') return { rate: taker, kind: 'taker' as const };
       return { rate: maker, kind: 'maker' as const };
     }
-    if (orderType === 'stop_loss' || orderType === 'trailing_stop_market' || orderType === 'oco') {
+    if (orderType === 'stop_loss' || orderType === 'trailing_stop_market') {
       return { rate: taker, kind: 'taker' as const };
     }
     return { rate: Math.max(maker, taker), kind: 'worst' as const };
@@ -275,7 +275,7 @@ export function SpotOrderEntryPanel({
   const isPrimaryType = orderType === 'limit' || orderType === 'market';
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-white dark:bg-[#181a20]">
+    <div id="spot-order-entry-panel" className="flex h-full min-h-0 flex-col bg-white dark:bg-[#181a20]">
       {/* Header — Bybit-style: title + activity shortcut (theme: blue) */}
       <div className="flex flex-shrink-0 items-center justify-between border-b border-gray-200/90 px-2.5 py-2 dark:border-gray-800/90">
         <div className="flex items-center gap-2">
@@ -294,7 +294,7 @@ export function SpotOrderEntryPanel({
             <ClipboardList className="h-4 w-4" />
           </Link>
           <Link
-            href="/dashboard/assets/convert"
+            href={walletPath.convert}
             className="rounded-md px-2 py-1 text-[10px] font-bold text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/40"
           >
             Convert
@@ -359,7 +359,7 @@ export function SpotOrderEntryPanel({
           <div className="relative flex min-w-[5.25rem] flex-1 border-l border-gray-200/80 dark:border-gray-800/80">
             <select
               aria-label="More order types"
-              title="Stop, OCO, trailing…"
+              title="Stop, trailing…"
               value={isPrimaryType ? '' : orderType}
               onChange={(e) => {
                 const v = e.target.value as SpotOrderType;
@@ -400,7 +400,7 @@ export function SpotOrderEntryPanel({
                 {displayBalance} {balanceUnit}
               </span>
               <Link
-                href="/dashboard/deposit/crypto"
+                href={walletPath.depositCrypto}
                 className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-500 text-white shadow-sm hover:bg-blue-600 dark:bg-blue-600"
                 aria-label="Deposit"
               >
@@ -424,14 +424,8 @@ export function SpotOrderEntryPanel({
             </InsetField>
           )}
 
-          {orderType === 'oco' && (
-            <p className="rounded-md bg-amber-500/10 px-2 py-1.5 text-[10px] leading-snug text-amber-800 dark:text-amber-200/90">
-              OCO: take-profit (limit) + stop-loss; one fill cancels the other.
-            </p>
-          )}
-
           {showStopPrice && (
-            <InsetField label={orderType === 'oco' ? 'Stop (trigger)' : 'Trigger'} suffix={quoteAsset}>
+            <InsetField label="Trigger" suffix={quoteAsset}>
               <input
                 id="spot-trigger-price"
                 type="text"
@@ -448,7 +442,7 @@ export function SpotOrderEntryPanel({
           {showPrice && (
             <div className="space-y-1">
               <InsetField
-                label={orderType === 'oco' ? 'Take profit (limit)' : 'Price'}
+                label="Price"
                 suffix={quoteAsset}
                 headerRight={
                   (bestBid != null || bestAsk != null || lastPrice != null) ? (
@@ -673,18 +667,19 @@ export function SpotOrderEntryPanel({
 
         {!isAuth ? (
           <Link
-            href="/login?redirect=/dashboard/spot"
-            className="flex h-11 w-full items-center justify-center rounded-md bg-blue-500 text-sm font-bold text-white hover:bg-blue-600"
+            href={loginWithRedirect(SPOT_TRADE_HREF)}
+            className="flex min-h-[48px] h-12 w-full items-center justify-center rounded-md bg-blue-500 text-sm font-bold text-white transition-colors hover:bg-blue-600 sm:h-11 sm:min-h-0"
           >
             Sign in to trade
           </Link>
         ) : (
           <button
             type="button"
+            data-spot-place-order
             disabled={!canSubmit || loading}
             onClick={() => setConfirmOpen(true)}
             aria-busy={loading}
-            className={`flex h-11 w-full items-center justify-center gap-2 rounded-md text-sm font-bold text-white shadow-sm ring-1 ring-black/10 transition-transform active:scale-[0.99] dark:ring-white/10 ${
+            className={`flex min-h-[48px] h-12 w-full items-center justify-center gap-2 rounded-md text-sm font-bold text-white shadow-sm ring-1 ring-black/10 transition-[transform,opacity,background-color] duration-200 active:scale-[0.99] dark:ring-white/10 sm:h-11 sm:min-h-0 ${
               side === 'buy'
                 ? 'bg-buy hover:bg-buy-hover disabled:saturate-50'
                 : 'bg-sell hover:bg-sell-hover disabled:saturate-50'
@@ -729,20 +724,20 @@ export function SpotOrderEntryPanel({
         <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-500">Account</p>
         <div className="flex flex-wrap gap-1.5">
           <Link
-            href="/dashboard/deposit/crypto"
-            className="rounded-full bg-blue-500 px-3 py-1.5 text-center text-[10px] font-bold text-white hover:bg-blue-600"
+            href={walletPath.depositCrypto}
+            className="inline-flex min-h-9 items-center justify-center rounded-full bg-blue-500 px-4 py-2 text-center text-[10px] font-bold text-white transition-colors hover:bg-blue-600 sm:min-h-0 sm:px-3 sm:py-1.5"
           >
             Deposit
           </Link>
           <Link
-            href="/dashboard/transfer"
-            className="rounded-full border border-gray-300 bg-white px-3 py-1.5 text-[10px] font-bold text-gray-800 hover:bg-gray-50 dark:border-gray-600 dark:bg-[#0b0e11] dark:text-gray-200 dark:hover:bg-gray-800"
+            href={walletPath.transfer}
+            className="inline-flex min-h-9 items-center justify-center rounded-full border border-gray-300 bg-white px-4 py-2 text-[10px] font-bold text-gray-800 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:bg-[#0b0e11] dark:text-gray-200 dark:hover:bg-gray-800 sm:min-h-0 sm:px-3 sm:py-1.5"
           >
             Transfer
           </Link>
           <Link
-            href="/dashboard/deposit/crypto"
-            className="inline-flex items-center gap-0.5 rounded-full border border-gray-300 px-3 py-1.5 text-[10px] font-bold text-blue-600 dark:border-gray-600 dark:text-blue-400"
+            href={walletPath.depositCrypto}
+            className="inline-flex min-h-9 items-center justify-center gap-0.5 rounded-full border border-gray-300 px-4 py-2 text-[10px] font-bold text-blue-600 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:text-blue-400 dark:hover:bg-gray-800/50 sm:min-h-0 sm:px-3 sm:py-1.5"
           >
             Buy crypto
             <ArrowRight className="h-3 w-3" />
@@ -783,11 +778,11 @@ export function SpotOrderEntryPanel({
               </div>
             )}
           </div>
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter className="flex-col gap-2 sm:flex-row sm:gap-0">
             <button
               type="button"
               onClick={() => setConfirmOpen(false)}
-              className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+              className="min-h-11 w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-semibold transition-colors hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800 sm:min-h-10 sm:w-auto"
             >
               Cancel
             </button>
@@ -805,7 +800,7 @@ export function SpotOrderEntryPanel({
                   setConfirmLoading(false);
                 }
               }}
-              className={`flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-bold text-white shadow-sm ring-1 ring-black/10 dark:ring-white/10 ${
+              className={`flex min-h-11 w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-bold text-white shadow-sm ring-1 ring-black/10 transition-opacity disabled:opacity-60 dark:ring-white/10 sm:min-h-10 sm:w-auto ${
                 side === 'buy' ? 'bg-buy hover:bg-buy-hover' : 'bg-sell hover:bg-sell-hover'
               }`}
             >

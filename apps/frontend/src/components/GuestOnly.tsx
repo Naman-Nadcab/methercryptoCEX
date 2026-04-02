@@ -15,21 +15,32 @@ export default function GuestOnly({ children }: { children: React.ReactNode }) {
     if (redirectDone.current) return;
     redirectDone.current = true;
     const redirect = searchParams.get('redirect');
-    // Only allow dashboard routes (spot, p2p, markets, etc.)
-    const target = redirect && redirect.startsWith('/dashboard') ? redirect : '/dashboard';
+    const allowed =
+      redirect &&
+      (redirect.startsWith('/dashboard') ||
+        redirect.startsWith('/trade') ||
+        redirect.startsWith('/markets') ||
+        redirect.startsWith('/wallet') ||
+        redirect.startsWith('/p2p') ||
+        redirect.startsWith('/orders') ||
+        redirect.startsWith('/earn'));
+    const target = allowed ? redirect! : '/dashboard';
     router.replace(target);
   }, [authResolved, isAuthenticated, router, searchParams]);
 
   if (!authResolved) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0e11]" role="status" aria-label="Loading">
-        <div className="animate-spin rounded-full h-10 w-10 border-2 border-blue-500 border-t-transparent" />
-      </div>
-    );
+    if (typeof window !== 'undefined') {
+      console.warn('[GuestOnly] Auth unresolved — fail-open (showing guest UI)');
+    }
+    return <>{children}</>;
   }
 
   if (isAuthenticated) {
-    return null;
+    return (
+      <div className="flex min-h-[30vh] items-center justify-center bg-gray-50 p-6 text-center text-sm text-gray-600 dark:bg-[#0b0e11] dark:text-gray-400">
+        Taking you to the app…
+      </div>
+    );
   }
 
   return <>{children}</>;

@@ -401,14 +401,14 @@ export default function ConvertPage() {
                 History
               </button>
               <Link
-                href="/dashboard/deposit/crypto"
+                href="/wallet/deposit/crypto"
                 className="flex items-center gap-2 px-5 py-2.5 bg-blue-500 hover:bg-blue-600 text-white font-medium text-sm rounded-lg shadow-lg shadow-blue-500/25 transition-all hover:shadow-blue-500/40"
               >
                 <Download className="w-4 h-4" />
                 Deposit
               </Link>
               <Link
-                href="/dashboard/transfer"
+                href="/wallet/transfer"
                 className="flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-[#1e2026] text-gray-700 dark:text-gray-300 font-medium text-sm rounded-lg border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
               >
                 <ArrowLeftRight className="w-4 h-4" />
@@ -586,8 +586,8 @@ export default function ConvertPage() {
                   <span className="text-sm font-medium text-gray-700 dark:text-gray-300">From</span>
                   <div className="flex items-center gap-2 text-sm">
                     <span className="text-gray-500">Available: {(() => { const n = parseFloat(getAvailableBalance()); return Number.isFinite(n) ? n.toFixed(6) : '0.000000'; })()} {fromCurrency?.symbol ?? ''}</span>
-                    <Link href="/dashboard/deposit/crypto" className="text-blue-500 hover:text-blue-600 font-medium">Deposit</Link>
-                    <Link href="/dashboard/transfer" className="text-blue-500 hover:text-blue-600 font-medium">
+                    <Link href="/wallet/deposit/crypto" className="text-blue-500 hover:text-blue-600 font-medium">Deposit</Link>
+                    <Link href="/wallet/transfer" className="text-blue-500 hover:text-blue-600 font-medium">
                       Transfer
                     </Link>
                   </div>

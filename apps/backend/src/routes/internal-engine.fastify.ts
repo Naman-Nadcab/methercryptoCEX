@@ -86,4 +86,93 @@ export default async function internalEngineRoutes(app: FastifyInstance): Promis
       });
     }
   });
+
+  /**
+   * POST /internal/engine/settlement-stream/replay
+   * Recreate durable consumer `settlement_group` with deliver_policy=start_sequence (JetStream sequence on MATCH_EVENTS).
+   * Restart processes running the MATCH_EVENTS pull consumer after calling this.
+   */
+  app.post('/settlement-stream/replay', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!authInternalEngine(request, reply)) return;
+
+    if (!config.nats.url?.trim()) {
+      return reply.status(503).send({
+        error: 'NATS_NOT_CONFIGURED',
+        message: 'NATS_URL is required to reset the MATCH_EVENTS consumer',
+      });
+    }
+
+    const body = request.body as { start_sequence?: unknown };
+    const seq = Number(body?.start_sequence);
+    if (!Number.isFinite(seq) || seq < 1) {
+      return reply.status(400).send({
+        error: 'INVALID_BODY',
+        message: 'start_sequence must be a number >= 1 (JetStream stream sequence on MATCH_EVENTS)',
+      });
+    }
+
+    try {
+      const { ensureNatsJetStreamReady } = await import('../services/nats.service.js');
+      const { resetSettlementMatchStreamConsumerFromSequence } = await import(
+        '../services/match-events-settlement-stream.service.js'
+      );
+      await ensureNatsJetStreamReady();
+      await resetSettlementMatchStreamConsumerFromSequence(Math.floor(seq));
+      return reply.send({
+        ok: true,
+        start_sequence: Math.floor(seq),
+        message: 'Consumer reset; restart API/worker processes that run the MATCH_EVENTS settlement consumer',
+      });
+    } catch (e) {
+      logger.error('settlement-stream replay failed', { error: e instanceof Error ? e.message : String(e) });
+      return reply.status(503).send({
+        error: 'REPLAY_FAILED',
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+  });
+
+  /**
+   * POST /internal/engine/settlement-dlq/replay
+   * Re-publish DLQ payloads onto their original match.events.* subjects (requires original_nats_subject on envelope).
+   */
+  app.post('/settlement-dlq/replay', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!authInternalEngine(request, reply)) return;
+
+    if (!config.nats.url?.trim()) {
+      return reply.status(503).send({
+        error: 'NATS_NOT_CONFIGURED',
+        message: 'NATS_URL is required',
+      });
+    }
+
+    const body = request.body as { start_sequence?: unknown; limit?: unknown };
+    const startSeq = Number(body?.start_sequence ?? 1);
+    const limit = Number(body?.limit ?? 50);
+    if (!Number.isFinite(startSeq) || startSeq < 1) {
+      return reply.status(400).send({ error: 'INVALID_BODY', message: 'start_sequence must be >= 1' });
+    }
+    if (!Number.isFinite(limit) || limit < 1 || limit > 500) {
+      return reply.status(400).send({ error: 'INVALID_BODY', message: 'limit must be 1..500' });
+    }
+
+    try {
+      const { ensureNatsJetStreamReady } = await import('../services/nats.service.js');
+      const { replaySettlementDlqToMatchStream } = await import(
+        '../services/match-settlement-dlq-replay.service.js'
+      );
+      await ensureNatsJetStreamReady();
+      const r = await replaySettlementDlqToMatchStream({
+        startSeq: Math.floor(startSeq),
+        limit: Math.floor(limit),
+      });
+      return reply.send({ ok: true, ...r });
+    } catch (e) {
+      logger.error('settlement-dlq replay failed', { error: e instanceof Error ? e.message : String(e) });
+      return reply.status(503).send({
+        error: 'DLQ_REPLAY_FAILED',
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+  });
 }

@@ -6,6 +6,7 @@
 import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
+import { withTimeout } from '../lib/async-timeout.js';
 
 const CACHE_PREFIX = 'spot:orderbook:';
 const CACHE_TTL_SEC = 10;
@@ -22,7 +23,7 @@ export interface OrderbookSnapshot {
 
 /** Resolve symbol to trading_pair_id (when market column doesn't exist). Uses read replica when configured. */
 async function getTradingPairId(symbol: string): Promise<string | null> {
-  const r = await db.queryRead<{ id: string }>(
+  const r = await db.query<{ id: string }>(
     `SELECT id FROM trading_pairs WHERE symbol = $1 AND trading_enabled = TRUE LIMIT 1`,
     [symbol]
   );
@@ -34,7 +35,7 @@ export async function getOrderbookFromDb(symbol: string, limit: number = DEFAULT
   const useMarket = !pairId; // If no trading_pairs row, try market column (migrate schema)
 
   const bidsQuery = useMarket
-    ? db.queryRead<{ price: string; quantity: string }>(`
+    ? db.query<{ price: string; quantity: string }>(`
         SELECT price::text as price, SUM(quantity - COALESCE(filled_quantity,0))::text as quantity
         FROM spot_orders
         WHERE market = $1 AND side = 'buy' AND status IN ('OPEN', 'PARTIALLY_FILLED') AND (quantity - COALESCE(filled_quantity,0)) > 0
@@ -42,7 +43,7 @@ export async function getOrderbookFromDb(symbol: string, limit: number = DEFAULT
         ORDER BY price DESC
         LIMIT $2
       `, [symbol, limit])
-    : db.queryRead<{ price: string; quantity: string }>(`
+    : db.query<{ price: string; quantity: string }>(`
         SELECT o.price::text as price, SUM(COALESCE(o.remaining_quantity, o.quantity - COALESCE(o.filled_quantity,0)))::text as quantity
         FROM spot_orders o
         WHERE o.trading_pair_id = $1 AND o.side = 'buy' AND o.status IN ('new', 'partially_filled')
@@ -53,7 +54,7 @@ export async function getOrderbookFromDb(symbol: string, limit: number = DEFAULT
       `, [pairId, limit]);
 
   const asksQuery = useMarket
-    ? db.queryRead<{ price: string; quantity: string }>(`
+    ? db.query<{ price: string; quantity: string }>(`
         SELECT price::text as price, SUM(quantity - COALESCE(filled_quantity,0))::text as quantity
         FROM spot_orders
         WHERE market = $1 AND side = 'sell' AND status IN ('OPEN', 'PARTIALLY_FILLED') AND (quantity - COALESCE(filled_quantity,0)) > 0
@@ -61,7 +62,7 @@ export async function getOrderbookFromDb(symbol: string, limit: number = DEFAULT
         ORDER BY price ASC
         LIMIT $2
       `, [symbol, limit])
-    : db.queryRead<{ price: string; quantity: string }>(`
+    : db.query<{ price: string; quantity: string }>(`
         SELECT o.price::text as price, SUM(COALESCE(o.remaining_quantity, o.quantity - COALESCE(o.filled_quantity,0)))::text as quantity
         FROM spot_orders o
         WHERE o.trading_pair_id = $1 AND o.side = 'sell' AND o.status IN ('new', 'partially_filled')
@@ -84,7 +85,13 @@ export async function getOrderbookFromDb(symbol: string, limit: number = DEFAULT
 export async function getCachedOrderbook(symbol: string, limit: number = DEFAULT_LEVELS): Promise<OrderbookSnapshot | null> {
   try {
     const key = `${CACHE_PREFIX}${symbol}`;
-    const raw = await redis.get(key);
+    const raw = await withTimeout(redis.get(key), 5_000, `spot:orderbook:cache:get:${symbol}`).catch((err) => {
+      logger.warn('Spot orderbook Redis get slow/failed; falling back to DB', {
+        symbol,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    });
     if (!raw) return null;
     const data = JSON.parse(raw) as OrderbookSnapshot;
     data.bids = (data.bids || []).slice(0, limit);

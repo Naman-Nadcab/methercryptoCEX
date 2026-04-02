@@ -16,7 +16,7 @@ export default function CopyTradingPage() {
           Copy top traders and automate your strategies. Coming soon.
         </p>
         <Link
-          href="/dashboard/spot"
+          href="/trade/spot"
           className="inline-flex items-center gap-2 px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-xl transition-colors"
         >
           Trade on Spot

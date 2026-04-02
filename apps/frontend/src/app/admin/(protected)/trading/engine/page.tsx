@@ -57,6 +57,9 @@ export default function TradingEngineMonitorPage() {
   const mmRisk = (mmRiskData?.data ?? {}) as Record<string, unknown>;
   const overview = (overviewData?.data ?? {}) as Record<string, unknown>;
 
+  const metricOrDash = (v: unknown): string | number =>
+    typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' ? v : '—';
+
   if (loadingHalt && !haltData) {
     return (
       <div className="flex items-center justify-center min-h-[320px]">
@@ -111,19 +114,19 @@ export default function TradingEngineMonitorPage() {
         />
         <AdminMetricCard
           label="Trades per second"
-          value={typeof counters.tps === 'number' ? counters.tps : (counters.trades_per_sec ?? '—')}
+          value={typeof counters.tps === 'number' ? counters.tps : metricOrDash(counters.trades_per_sec)}
           sublabel="TPS"
           icon={<Activity className="w-4 h-4" />}
         />
         <AdminMetricCard
           label="Orders per second"
-          value={typeof counters.ops === 'number' ? counters.ops : (counters.orders_per_sec ?? '—')}
+          value={typeof counters.ops === 'number' ? counters.ops : metricOrDash(counters.orders_per_sec)}
           sublabel="OPS"
           icon={<BarChart3 className="w-4 h-4" />}
         />
         <AdminMetricCard
           label="Market making risk"
-          value={mmRisk.status ?? mmRisk.alert ?? '—'}
+          value={metricOrDash(mmRisk.status !== undefined ? mmRisk.status : mmRisk.alert)}
           sublabel="MM risk"
           variant={mmRisk.alert ? 'warning' : 'neutral'}
           icon={<AlertTriangle className="w-4 h-4" />}

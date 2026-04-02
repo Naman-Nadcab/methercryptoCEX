@@ -7,7 +7,7 @@ export default function ConvertRedirect() {
   const router = useRouter();
   
   useEffect(() => {
-    router.replace('/dashboard/assets/convert');
+    router.replace('/wallet/convert');
   }, [router]);
 
   return (

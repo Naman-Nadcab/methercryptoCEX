@@ -35,6 +35,11 @@ import { runAutoSweep } from './services/hot-wallet-sweep.service.js';
 import { runDepositSweep } from './services/deposit-sweep.service.js';
 import { refreshOrderbookCache } from './services/spot-orderbook-cache.service.js';
 import { startMatchPoller, startSettlementWorker, startWalletReconciliationScheduler, runGlobalBalanceAudit, replaySettlementIntegrityCheck } from './services/settlement/index.js';
+import { scheduleMatchEventsSettlementStreamConsumer } from './services/match-events-settlement-stream.service.js';
+import {
+  validateMatchingEngineRouteTableOrExit,
+  logMatchingEngineShardRoutingCompliance,
+} from './services/settlement/matching-engine-shard-router.js';
 import { p2pService } from './services/p2p.service.js';
 import { runCandleAggregation } from './services/candle-aggregation.service.js';
 import { processTriggeredStopOrders } from './services/spot-trigger.service.js';
@@ -123,6 +128,11 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(rateLimit, {
     max: 100,
     timeWindow: '1 minute',
+    // Probes and observability must not compete with the global API quota (load tests, k8s health checks).
+    allowList: (request: FastifyRequest) => {
+      const path = (request.url as string)?.split('?')[0] ?? '';
+      return path === '/health' || path === '/metrics' || path.startsWith('/metrics/');
+    },
   });
 
   await app.register(cookie, {
@@ -140,7 +150,11 @@ export async function buildServer(): Promise<FastifyInstance> {
     },
   });
 
-  await app.register(websocket);
+  await app.register(websocket, {
+    options: {
+      perMessageDeflate: { threshold: 256 },
+    },
+  });
   await app.register(latencyTracePlugin);
   await app.register(authDecisionPlugin);
   await app.register(authLockPlugin);
@@ -163,10 +177,20 @@ export async function buildServer(): Promise<FastifyInstance> {
     });
   });
 
-  // Health check — DB and Redis required; indexer optional; returns 503 if DB or Redis down
+  // Health check — DB + Redis required; NATS/engine probes always included when configured; gates control 503.
   app.get('/health', async (_request, reply) => {
-    const dbOk = await db.query('SELECT 1').then(() => true).catch(() => false);
+    const { withTimeout } = await import('./lib/async-timeout.js');
+    const { pingDatabaseWithRetries } = await import('./lib/health-db-ping.js');
+
+    const dbPing = await pingDatabaseWithRetries(db, {
+      timeoutMsPerAttempt: config.health.databasePingTimeoutMs,
+      maxAttempts: config.health.databasePingMaxAttempts,
+      retryBaseMs: config.health.databasePingRetryBaseMs,
+      label: 'health.db_ping',
+    });
+    const dbOk = dbPing.ok;
     const redisOk = await redis.ping().then(() => true).catch(() => false);
+
     let indexerOk: boolean | null = null;
     let indexerLagSec: number | null = null;
     try {
@@ -177,20 +201,89 @@ export async function buildServer(): Promise<FastifyInstance> {
         if (r.rows.length > 0) {
           const updated = new Date(r.rows[0]!.updated_at).getTime();
           indexerLagSec = Math.round((Date.now() - updated) / 1000);
-          indexerOk = indexerLagSec < 300; // Indexer active in last 5 min
+          const maxLag = config.health.indexerMaxLagSec;
+          indexerOk = indexerLagSec < maxLag;
         }
       }
     } catch {
       /* indexer_state may not exist */
     }
-    const healthy = dbOk && redisOk;
 
-    const status = healthy ? 'healthy' : 'unhealthy';
-    if (!healthy) reply.status(503);
+    const natsConfigured = Boolean(config.nats.url?.trim());
+    let natsProbe: { ok: boolean; stream_status?: Record<string, string>; error?: string } = { ok: true };
+    if (natsConfigured) {
+      try {
+        const { probeNatsJetStreamStreams } = await import('./services/nats.service.js');
+        natsProbe = await withTimeout(probeNatsJetStreamStreams(), 8_000, 'health.nats_probe');
+      } catch (e) {
+        natsProbe = { ok: false, error: e instanceof Error ? e.message : String(e) };
+      }
+    }
+    const natsBlocks = config.health.requireNats && natsConfigured && !natsProbe.ok;
+
+    const engineConfigured = config.rustMatchingEngine.enabled;
+    let engineProbe: { ok: boolean; latency_ms?: number; error?: string } = { ok: true };
+    if (engineConfigured) {
+      const { probeMatchingEngineHttp } = await import('./services/matching-engine-health.service.js');
+      engineProbe = await probeMatchingEngineHttp();
+    }
+    const engineBlocks = config.health.requireMatchingEngine && engineConfigured && !engineProbe.ok;
+
+    const indexerBlocksHealth = config.health.failOnStaleIndexer && indexerOk === false;
+    const coreOk = dbOk && redisOk && !natsBlocks && !engineBlocks && !indexerBlocksHealth;
+
+    const unhealthyReasons: string[] = [];
+    const failedServices: string[] = [];
+    if (!dbOk) {
+      unhealthyReasons.push('database_unreachable');
+      failedServices.push('database');
+    }
+    if (!redisOk) {
+      unhealthyReasons.push('redis_unreachable');
+      failedServices.push('redis');
+    }
+    if (natsBlocks) {
+      unhealthyReasons.push('nats_unhealthy');
+      failedServices.push('nats');
+    }
+    if (engineBlocks) {
+      unhealthyReasons.push('matching_engine_unreachable');
+      failedServices.push('matching_engine');
+    }
+    if (indexerBlocksHealth) {
+      unhealthyReasons.push('indexer_stale');
+      failedServices.push('indexer');
+    }
+
+    const { getLastWsDisconnectRatePerSec } = await import('./services/tier1-alert-evaluation.service.js');
+    const wsRate = getLastWsDisconnectRatePerSec();
+    const wsWarnThr = config.health.wsDisconnectWarnPerSec;
+    const wsUnstable = wsWarnThr > 0 && wsRate >= wsWarnThr;
+    /* Stale indexer warns only when launch treats it as critical (failOnStaleIndexer).
+     * When false, /health stays healthy for spot/settlement; services.indexer still shows stale. */
+    const indexerDegradedForDisplay = indexerOk === false && config.health.failOnStaleIndexer;
+
+    const warnings: string[] = [];
+    if (indexerDegradedForDisplay) warnings.push('indexer_heartbeat_stale');
+    if (wsUnstable) warnings.push('spot_ws_disconnect_elevated');
+
+    let status: 'healthy' | 'degraded' | 'unhealthy';
+    if (!coreOk) {
+      status = 'unhealthy';
+    } else if (warnings.length > 0) {
+      status = 'degraded';
+    } else {
+      status = 'healthy';
+    }
+
+    if (status === 'unhealthy') reply.status(503);
+    else reply.status(200);
 
     const services: Record<string, string> = {
       database: dbOk ? 'up' : 'down',
       redis: redisOk ? 'up' : 'down',
+      nats: !natsConfigured ? 'not_configured' : natsProbe.ok ? 'up' : 'down',
+      matching_engine: !engineConfigured ? 'not_configured' : engineProbe.ok ? 'up' : 'down',
     };
     if (indexerOk !== null) services.indexer = indexerOk ? 'up' : 'stale';
 
@@ -209,8 +302,17 @@ export async function buildServer(): Promise<FastifyInstance> {
       /* tables may not exist */
     }
 
+    let settlementLagSec = 0;
+    try {
+      const { getLastSettlementBacklogSnapshot } = await import('./services/settlement-pipeline-health.service.js');
+      settlementLagSec = getLastSettlementBacklogSnapshot().oldestPendingAgeSeconds;
+    } catch {
+      /* optional module / table */
+    }
+
     const depth: Record<string, number | null> = {
       settlement_pending: settlementPending,
+      settlement_lag_sec: settlementLagSec,
       withdrawal_queue: withdrawalQueueDepth,
       indexer_lag_sec: indexerLagSec,
     };
@@ -222,32 +324,94 @@ export async function buildServer(): Promise<FastifyInstance> {
       staleMarkets = list.map((m) => m.market);
     } catch { /* ignore */ }
 
+    let orderbookWriter: Record<string, unknown> | null = null;
+    try {
+      const { getOrderbookWriterHealthSnapshot } = await import('./services/spot-orderbook-writer-health.service.js');
+      orderbookWriter = await getOrderbookWriterHealthSnapshot();
+    } catch { /* ignore */ }
+
     return {
       status,
       timestamp: new Date().toISOString(),
+      ...(unhealthyReasons.length > 0 && { unhealthy_reasons: unhealthyReasons }),
       services,
+      ...(warnings.length > 0 && {
+        warnings,
+        ws_disconnect_rate_per_sec: Math.round(wsRate * 1000) / 1000,
+      }),
+      gates: {
+        require_nats: config.health.requireNats,
+        require_matching_engine: config.health.requireMatchingEngine,
+        fail_on_stale_indexer: config.health.failOnStaleIndexer,
+      },
+      checks: {
+        nats: {
+          configured: natsConfigured,
+          ok: natsConfigured ? natsProbe.ok : null,
+          stream_status: natsProbe.stream_status,
+          error: natsProbe.error,
+        },
+        matching_engine: {
+          configured: engineConfigured,
+          ok: engineConfigured ? engineProbe.ok : null,
+          latency_ms: engineProbe.latency_ms,
+          error: engineProbe.error,
+        },
+      },
       depth,
       ...(staleMarkets.length > 0 && { stale_markets: staleMarkets }),
+      ...(orderbookWriter && { orderbook_writer: orderbookWriter }),
     };
   });
 
   // Prometheus metrics (GET /metrics) — includes SLO gauges
   app.get('/metrics', async (_request, reply) => {
-    const { register, settlementPendingGauge, withdrawalQueueDepthGauge, spotOrderLatencyP99, spotOrdersPerSecond } = await import('./lib/prometheus-metrics.js');
+    const {
+      register,
+      withdrawalQueueDepthGauge,
+      indexerStateLagSeconds,
+      spotOrderLatencyP99,
+      spotOrdersPerSecond,
+      spotOrderbookWriterLagMs,
+      spotOrderbookWriterPending,
+    } = await import('./lib/prometheus-metrics.js');
     const { getSpotMetrics } = await import('./services/spot-metrics.service.js');
     try {
-      const [setRes, wqRes] = await Promise.all([
-        db.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM settlement_events WHERE status = 'pending'`).catch(() => ({ rows: [{ n: '0' }] })),
-        db.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM withdrawal_signing_queue WHERE status IN ('pending', 'signing', 'broadcast')`).catch(() => ({ rows: [{ n: '0' }] })),
-      ]);
-      settlementPendingGauge.set(parseInt(setRes.rows[0]?.n ?? '0', 10) || 0);
+      const wqRes = await db
+        .query<{ n: string }>(
+          `SELECT COUNT(*)::text AS n FROM withdrawal_signing_queue WHERE status IN ('pending', 'signing', 'broadcast')`
+        )
+        .catch(() => ({ rows: [{ n: '0' }] }));
       withdrawalQueueDepthGauge.set(parseInt(wqRes.rows[0]?.n ?? '0', 10) || 0);
+      try {
+        const idx = await db.query<{ updated_at: string }>(
+          `SELECT updated_at FROM indexer_state ORDER BY updated_at DESC LIMIT 1`
+        );
+        if (idx.rows.length > 0) {
+          const lag = Math.round((Date.now() - new Date(idx.rows[0]!.updated_at).getTime()) / 1000);
+          indexerStateLagSeconds.set(Math.max(0, lag));
+        } else {
+          indexerStateLagSeconds.set(-1);
+        }
+      } catch {
+        indexerStateLagSeconds.set(-1);
+      }
       const spot = getSpotMetrics();
       spotOrderLatencyP99.set(spot.orderLatencyP99Ms ?? 0);
       spotOrdersPerSecond.set(spot.ordersPerSecond);
+      if (config.nats.orderbookWriterEnabled && config.nats.spotPipelineEnabled) {
+        const { getWriterProcessingLagMs, getWriterPendingEstimate } = await import(
+          './services/spot-orderbook-writer-state.service.js'
+        );
+        const shard = String(config.nats.shardId);
+        spotOrderbookWriterLagMs.labels(shard).set(getWriterProcessingLagMs());
+        spotOrderbookWriterPending.labels(shard).set(getWriterPendingEstimate());
+      }
     } catch {
       /* best-effort; gauges keep last value */
     }
+    const { evaluateTier1AlertsOnMetricsScrape } = await import('./services/tier1-alert-evaluation.service.js');
+    await evaluateTier1AlertsOnMetricsScrape();
     reply.header('Content-Type', register.contentType);
     return register.metrics();
   });
@@ -374,9 +538,10 @@ export async function buildServer(): Promise<FastifyInstance> {
     if (keyToUse) {
       try {
         const needHmac = hasHmacHeaders(request);
+        // Omit users.role: some production DBs predate the column; API-key auth defaults to end-user role.
         const selectCols = needHmac
-          ? 'uak.user_id, uak.permission, uak.permissions, uak.ip_restriction, uak.ip_addresses, uak.api_secret, u.email, u.phone, u.role'
-          : 'uak.user_id, uak.permission, uak.permissions, uak.ip_restriction, uak.ip_addresses, u.email, u.phone, u.role';
+          ? 'uak.user_id, uak.permission, uak.permissions, uak.ip_restriction, uak.ip_addresses, uak.api_secret, u.email, u.phone'
+          : 'uak.user_id, uak.permission, uak.permissions, uak.ip_restriction, uak.ip_addresses, u.email, u.phone';
         const keyRow = await db.query(
           `SELECT ${selectCols}
            FROM user_api_keys uak
@@ -384,7 +549,7 @@ export async function buildServer(): Promise<FastifyInstance> {
            WHERE uak.api_key = $1 AND uak.deleted_at IS NULL AND (uak.expires_at IS NULL OR uak.expires_at > NOW())`,
           [keyToUse]
         );
-        const row = keyRow.rows[0] as { user_id: string; permission: string; permissions?: string | Record<string, unknown>; ip_restriction?: string; ip_addresses?: unknown; api_secret?: string | null; email: string; phone: string; role: string } | undefined;
+        const row = keyRow.rows[0] as { user_id: string; permission: string; permissions?: string | Record<string, unknown>; ip_restriction?: string; ip_addresses?: unknown; api_secret?: string | null; email: string; phone: string } | undefined;
         if (!row) {
           return reply.status(401).send({ success: false, error: { code: 'INVALID_API_KEY', message: 'Invalid or expired API key' } });
         }
@@ -426,7 +591,7 @@ export async function buildServer(): Promise<FastifyInstance> {
           id: row.user_id,
           email: row.email,
           phone: row.phone,
-          role: row.role ?? 'user',
+          role: 'user',
           sessionId: '',
           permission: row.permission === 'read_only' ? 'read_only' : 'read_write',
           allowWithdraw,
@@ -535,10 +700,34 @@ async function start() {
     const runMode = config.runMode ?? 'all';
     logger.info(`Starting Crypto Exchange Backend (RUN_MODE=${runMode})...`);
 
+    try {
+      const { validateOrderbookShardBoundsOrExit } = await import('./services/startup-connectivity-validation.service.js');
+      validateOrderbookShardBoundsOrExit();
+    } catch (e) {
+      logger.error('Startup shard validation failed', { err: e instanceof Error ? e.message : String(e) });
+      process.exit(1);
+    }
+
     // Connect to services
     try {
       await redis.connect();
       logger.info('✓ Redis connected');
+      try {
+        const ru = new URL(config.redis.url.split(',')[0]!.trim());
+        logger.info('[SRE] REDIS_URL target (worker + API)', {
+          host: ru.hostname,
+          port: ru.port || '(default)',
+        });
+      } catch {
+        logger.warn('[SRE] Could not parse REDIS_URL for host log');
+      }
+      try {
+        const { validateTier1RedisAndNatsOrExit } = await import('./services/startup-connectivity-validation.service.js');
+        await validateTier1RedisAndNatsOrExit();
+      } catch (e) {
+        logger.error('Tier-1 connectivity validation failed', { err: e instanceof Error ? e.message : String(e) });
+        process.exit(1);
+      }
       await validateRedisPersistence();
       const { startCacheInvalidationSubscriber } = await import('./services/cache-invalidation.service.js');
       await startCacheInvalidationSubscriber();
@@ -546,16 +735,74 @@ async function start() {
         await startSpotWsPubSub();
       }
     } catch (err) {
+      if (config.strictDependencyStartup) {
+        logger.error('Redis required (STRICT_DEPENDENCY_STARTUP / Tier-1) but connection failed', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        process.exit(1);
+      }
       logger.warn('Redis unavailable; server will run with DB-only session fallback for admin. Start Redis for full features.');
     }
 
-    await db.query('SELECT 1');
-    logger.info('✓ Database connected');
+    const { pingDatabaseWithRetries } = await import('./lib/health-db-ping.js');
+    const dbStart = await pingDatabaseWithRetries(db, {
+      timeoutMsPerAttempt: config.health.databasePingTimeoutMs,
+      maxAttempts: config.health.databasePingMaxAttempts,
+      retryBaseMs: config.health.databasePingRetryBaseMs,
+      label: 'startup.db_ping',
+    });
+    if (!dbStart.ok) {
+      logger.error('Database unreachable after retries — exiting', {
+        error: dbStart.error,
+        attempts: dbStart.attempts,
+      });
+      process.exit(1);
+    }
+    logger.info('✓ Database connected', { latency_ms: dbStart.latency_ms, attempts: dbStart.attempts });
+    try {
+      const du = new URL(config.database.url);
+      logger.info('[SRE] DATABASE_URL target (worker + API)', {
+        host: du.hostname,
+        port: du.port || '(default)',
+        database: du.pathname?.replace(/^\//, '') || '',
+      });
+    } catch {
+      logger.warn('[SRE] Could not parse DATABASE_URL for host log');
+    }
     logger.info('[BALANCE_MODE] user_balances_only=true');
 
-    const { getSpotTradesUseMarket } = await import('./lib/spot-schema-cache.js');
+    const { getSpotTradesUseMarket, getSpotOrdersUseMarket } = await import('./lib/spot-schema-cache.js');
     await getSpotTradesUseMarket();
-    logger.info('✓ Spot schema cache initialized');
+    await getSpotOrdersUseMarket();
+    const { loadSpotTradesShape } = await import('./lib/spot-trades-shape.js');
+    await loadSpotTradesShape();
+    logger.info('✓ Spot schema cache initialized (orders + trades shape)');
+
+    if (config.nats.url) {
+      try {
+        const { ensureNatsJetStreamReady } = await import('./services/nats.service.js');
+        await ensureNatsJetStreamReady();
+        logger.info('✓ NATS JetStream ready');
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (config.strictDependencyStartup && config.health.requireNats) {
+          logger.error('NATS JetStream required but init failed', { error: msg });
+          process.exit(1);
+        }
+        logger.warn('NATS JetStream init failed', { error: msg });
+      }
+    }
+
+    if (config.strictDependencyStartup && config.rustMatchingEngine.enabled) {
+      const { waitForMatchingEngineReady } = await import('./services/matching-engine-health.service.js');
+      const engineUp = await waitForMatchingEngineReady(90_000);
+      if (!engineUp) {
+        logger.error('Strict startup: Rust matching engine not reachable (MATCHING_ENGINE_URL)');
+        process.exit(1);
+      }
+    }
+    validateMatchingEngineRouteTableOrExit();
+    logMatchingEngineShardRoutingCompliance();
 
     // RabbitMQ: only connect in workers/all mode. API-only mode skips to keep HTTP server lean.
     if (runMode !== 'api') {
@@ -597,12 +844,46 @@ async function start() {
       logger.info(`Server running on http://localhost:${port}`);
       logger.info(`🚀 API running on port ${port}`);
       logger.info(`   Base URL: http://localhost:${port}`);
+      void import('./lib/liquidity-bot-rate-limit.js').then((m) => m.warmLiquidityBotUserCache());
+      void import('./services/settlement-pipeline-health.service.js').then(async (m) => {
+        const backlog = await m.refreshSettlementBacklogSnapshot().catch(() => ({ pendingCount: 0, oldestPendingAgeSeconds: 0 }));
+        const { settlementPendingGauge, settlementOldestPendingAgeSeconds, settlementLagSeconds } = await import('./lib/prometheus-metrics.js');
+        settlementPendingGauge.set(backlog.pendingCount);
+        settlementOldestPendingAgeSeconds.set(backlog.oldestPendingAgeSeconds);
+        settlementLagSeconds.set(backlog.oldestPendingAgeSeconds);
+      });
+      setInterval(async () => {
+        try {
+          const m = await import('./services/settlement-pipeline-health.service.js');
+          const backlog = await m.refreshSettlementBacklogSnapshot();
+          const { settlementPendingGauge, settlementOldestPendingAgeSeconds, settlementLagSeconds } = await import('./lib/prometheus-metrics.js');
+          settlementPendingGauge.set(backlog.pendingCount);
+          settlementOldestPendingAgeSeconds.set(backlog.oldestPendingAgeSeconds);
+          settlementLagSeconds.set(backlog.oldestPendingAgeSeconds);
+          if (config.mmHealth.enabled) {
+            const { computeMmHealthSnapshot } = await import('./services/mm-health.service.js');
+            await computeMmHealthSnapshot();
+          }
+        } catch {
+          /* ignore */
+        }
+      }, 15_000);
+      if (config.eliteMm.autoCircuitEnabled) {
+        setInterval(async () => {
+          try {
+            const { runMmAutoCircuitEvaluation } = await import('./services/mm-auto-circuit.service.js');
+            await runMmAutoCircuitEvaluation();
+          } catch {
+            /* ignore */
+          }
+        }, config.eliteMm.autoCircuitIntervalMs);
+      }
       setInterval(async () => {
         try {
           const { computeHealthScore } = await import('./services/health-score.service.js');
           const data = await computeHealthScore();
           const { broadcastAdminControlEvent } = await import('./services/admin-events-ws.service.js');
-          broadcastAdminControlEvent('health_score_updated', data);
+          broadcastAdminControlEvent('health_score_updated', data as unknown as Record<string, unknown>);
         } catch {
           // ignore; do not crash server
         }
@@ -658,6 +939,17 @@ async function start() {
     }, p2pExpiryIntervalMs);
     logger.info(`P2P expiry job scheduled (every ${p2pExpiryIntervalMs / 1000}s)`);
 
+    const p2pSlaIntervalMs = 60_000;
+    setInterval(async () => {
+      try {
+        const { runP2PSlaTick } = await import('./services/p2p-sla-worker.service.js');
+        await runP2PSlaTick();
+      } catch (e) {
+        logger.warn('P2P SLA worker failed', { error: e instanceof Error ? e.message : 'Unknown' });
+      }
+    }, p2pSlaIntervalMs);
+    logger.info(`P2P SLA worker scheduled (every ${p2pSlaIntervalMs / 1000}s)`);
+
     const candleAggregationIntervalMs = 120_000;
     if (!config.workers.disableCandleAggregation) {
       setInterval(async () => {
@@ -688,7 +980,11 @@ async function start() {
     }, stopTriggerIntervalMs);
     logger.info(`Stop order trigger job scheduled (every ${stopTriggerIntervalMs / 1000}s)`);
 
-    if (config.rustMatchingEngine.enabled && !config.workers.disableMatchPoller) {
+    const runMatchPoller =
+      config.rustMatchingEngine.enabled &&
+      !config.workers.disableMatchPoller &&
+      (!config.nats.useEventStream || config.nats.matchPollerFallbackEnabled);
+    if (runMatchPoller) {
       startMatchPoller();
       logger.info('Match poller started (USE_RUST_MATCHING_ENGINE=true)');
       // Tier-1: Replay open orders from spot_orders into Rust engine after startup (engine may have restarted with empty book)
@@ -698,15 +994,42 @@ async function start() {
           if (r.total > 0) logger.info('Engine replay finished', r);
         })
         .catch((err) => logger.warn('Engine replay failed (non-fatal)', { error: err instanceof Error ? err.message : String(err) }));
-    } else if (!config.rustMatchingEngine.enabled) {
-      logger.info('Match poller skipped (USE_RUST_MATCHING_ENGINE=false)');
-    } else {
+    } else if (config.workers.disableMatchPoller) {
       logger.info('Match poller disabled (DISABLE_MATCH_POLLER=true)');
+    } else {
+      logger.info(
+        'Match poller skipped (USE_EVENT_STREAM=true, EVENT_STREAM_MATCH_POLLER_FALLBACK=false)'
+      );
     }
     if (!config.workers.disableSettlementWorker) {
       startSettlementWorker();
+      scheduleMatchEventsSettlementStreamConsumer();
+      logger.info('[SRE] Settlement worker armed', {
+        runMode,
+        settlementWorkerIntervalMs: config.workers?.settlementWorkerIntervalMs ?? 250,
+        verbosePollLogs: process.env.SETTLEMENT_WORKER_VERBOSE === '1' || process.env.SETTLEMENT_WORKER_VERBOSE === 'true',
+      });
     } else {
       logger.info('Settlement worker disabled (DISABLE_SETTLEMENT_WORKER=true)');
+    }
+
+    if (runWorkers && config.nats.orderbookWriterEnabled && config.nats.url) {
+      try {
+        const { startSpotOrderbookWriter } = await import('./services/spot-orderbook-writer.service.js');
+        await startSpotOrderbookWriter();
+        logger.info('✓ Spot orderbook writer (NATS) started');
+      } catch (e) {
+        logger.warn('Spot orderbook writer failed to start', { error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+
+    if (runMode !== 'workers' && config.nats.wsOrderbookForwarderEnabled && config.nats.url) {
+      try {
+        const { startSpotWsNatsOrderbookForwarder } = await import('./services/spot-ws-nats-forwarder.service.js');
+        await startSpotWsNatsOrderbookForwarder();
+      } catch (e) {
+        logger.warn('Spot WS NATS forwarder failed to start', { error: e instanceof Error ? e.message : String(e) });
+      }
     }
     if (!config.workers.disableWalletReconciliation) {
       startWalletReconciliationScheduler();
@@ -745,15 +1068,15 @@ async function start() {
       try {
         const result = await runGlobalBalanceAudit();
         if (result.mismatches > 0) {
-          logger.warn('Global balance audit found mismatches (see CRITICAL logs)', {
+          logger.warn('Settlement ledger aggregate audit found mismatches (see CRITICAL logs)', {
             mismatches: result.mismatches,
           });
         }
       } catch (err) {
-        logger.error('Global balance audit failed', { error: err instanceof Error ? err.message : String(err) });
+        logger.error('Settlement ledger aggregate audit failed', { error: err instanceof Error ? err.message : String(err) });
       }
     }, globalBalanceAuditIntervalMs);
-    logger.info(`Global balance auditor scheduled (every ${globalBalanceAuditIntervalMs / 1000}s)`);
+    logger.info(`Settlement ledger aggregate auditor scheduled (every ${globalBalanceAuditIntervalMs / 1000}s)`);
 
     const replayIntegrityIntervalMs = 300_000;
     setInterval(async () => {
@@ -785,6 +1108,26 @@ async function start() {
       }
     }, spotIntegrityIntervalMs);
     logger.info(`Spot integrity check scheduled (every ${spotIntegrityIntervalMs / 1000}s)`);
+
+    if (!config.workers.disableTier1Reconciliation) {
+      const tier1Ms = config.workers.tier1ReconciliationIntervalMs;
+      const { runTier1ReconciliationRound } = await import('./services/tier1-reconciliation.service.js');
+      setInterval(async () => {
+        try {
+          const r = await runTier1ReconciliationRound();
+          if (!r.ok) {
+            logger.warn('Tier-1 reconciliation round completed with mismatches', {
+              checks: Object.keys(r.details).filter((k) => !r.details[k]?.ok),
+            });
+          }
+        } catch (err) {
+          logger.error('Tier-1 reconciliation round failed', { error: err instanceof Error ? err.message : String(err) });
+        }
+      }, tier1Ms);
+      logger.info(`Tier-1 reconciliation scheduled (every ${tier1Ms / 1000}s)`);
+    } else {
+      logger.info('Tier-1 reconciliation disabled (DISABLE_TIER1_RECONCILIATION=true)');
+    }
 
     const manipulationIntervalMs = 300_000; // 5 min
     setInterval(async () => {
@@ -833,6 +1176,39 @@ async function start() {
 
     } else {
       logger.info('Workers disabled (RUN_MODE=api). Use RUN_MODE=workers to run workers-only process.');
+    }
+
+    /**
+     * API-only processes previously skipped the entire worker block above, so match poller + settlement
+     * never ran. Orders still hit the Rust engine via HTTP, matches were inserted into settlement_events,
+     * but nothing drained them → pending forever, empty spot_trades. Start the minimal pipeline here.
+     */
+    if (runMode === 'api' && config.rustMatchingEngine.enabled) {
+      const apiRunMatchPoller =
+        !config.workers.disableMatchPoller &&
+        (!config.nats.useEventStream || config.nats.matchPollerFallbackEnabled);
+      if (apiRunMatchPoller) {
+        startMatchPoller();
+        logger.warn(
+          'RUN_MODE=api: match poller started (engine matches → settlement_events). Prefer RUN_MODE=all in production.'
+        );
+      } else if (config.workers.disableMatchPoller) {
+        logger.warn('RUN_MODE=api: DISABLE_MATCH_POLLER=true — matches will not be ingested from the engine');
+      } else {
+        logger.warn(
+          'RUN_MODE=api: match poller skipped (stream-only: EVENT_STREAM_MATCH_POLLER_FALLBACK=false)'
+        );
+      }
+      if (!config.workers.disableSettlementWorker) {
+        startSettlementWorker();
+        scheduleMatchEventsSettlementStreamConsumer();
+        logger.warn(
+          'RUN_MODE=api: settlement worker started (drains settlement_events). Prefer RUN_MODE=all in production.'
+        );
+        logger.info('[SRE] Settlement worker armed (RUN_MODE=api)', {
+          settlementWorkerIntervalMs: config.workers?.settlementWorkerIntervalMs ?? 250,
+        });
+      }
     }
 
   } catch (error) {

@@ -6,6 +6,7 @@
 import { db } from './database.js';
 
 let cachedUseMarket: boolean | null = null;
+let cachedOrdersUseMarket: boolean | null = null;
 
 /**
  * Returns true if spot_trades has 'market' column; false if it uses trading_pair_id.
@@ -36,4 +37,29 @@ export function getSpotTradesUseMarketSync(): boolean {
 
 export function setSpotTradesUseMarket(value: boolean): void {
   cachedUseMarket = value;
+}
+
+/** True if spot_orders has a `market` column; false if only trading_pair_id (+ join to trading_pairs). */
+export async function getSpotOrdersUseMarket(): Promise<boolean> {
+  if (cachedOrdersUseMarket !== null) return cachedOrdersUseMarket;
+  try {
+    const r = await db.query<{ exists: boolean }>(
+      `SELECT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'spot_orders' AND column_name = 'market'
+      ) as exists`
+    );
+    cachedOrdersUseMarket = r.rows[0]?.exists ?? false;
+  } catch {
+    cachedOrdersUseMarket = false;
+  }
+  return cachedOrdersUseMarket;
+}
+
+export function getSpotOrdersUseMarketSync(): boolean {
+  return cachedOrdersUseMarket ?? false;
+}
+
+export function setSpotOrdersUseMarket(value: boolean): void {
+  cachedOrdersUseMarket = value;
 }

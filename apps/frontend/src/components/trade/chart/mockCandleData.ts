@@ -1,6 +1,6 @@
 /**
- * Mock candle generator for testing. No API or backend.
- * Feed result into adapter.setCandles().
+ * Mock candle generator for local tests only. Production UI uses `getChartCandles` via `useChartAdapter`.
+ * Not re-exported from `chart/index.ts` to avoid accidental use in screens.
  */
 
 import type { CandleData } from './ChartAdapter';

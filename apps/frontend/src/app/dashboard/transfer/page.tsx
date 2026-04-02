@@ -36,12 +36,12 @@ interface TransferHistory {
 }
 
 const SIDEBAR_LINKS = [
-  { label: 'Asset Dashboard', href: '/dashboard/assets/overview', icon: LayoutGrid },
-  { label: 'Deposit', href: '/dashboard/deposit/crypto', icon: TrendingUp },
-  { label: 'Withdraw', href: '/dashboard/withdraw/crypto', icon: Send },
-  { label: 'Transfer', href: '/dashboard/transfer', icon: ArrowLeftRight, active: true },
-  { label: 'Convert', href: '/dashboard/assets/convert', icon: RefreshCw },
-  { label: 'History', href: '/dashboard/assets/history', icon: Clock },
+  { label: 'Asset Dashboard', href: '/wallet', icon: LayoutGrid },
+  { label: 'Deposit', href: '/wallet/deposit/crypto', icon: TrendingUp },
+  { label: 'Withdraw', href: '/wallet/withdraw/crypto', icon: Send },
+  { label: 'Transfer', href: '/wallet/transfer', icon: ArrowLeftRight, active: true },
+  { label: 'Convert', href: '/wallet/convert', icon: RefreshCw },
+  { label: 'History', href: '/wallet/history', icon: Clock },
 ];
 
 export default function TransferPage() {
@@ -218,7 +218,7 @@ export default function TransferPage() {
               <p className="text-sm text-gray-500 mt-1">Transfer assets between your accounts instantly and free</p>
             </div>
             <Link
-              href="/dashboard/assets/history?tab=transfer"
+              href="/wallet/history?tab=transfer"
               className="flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-[#1e2329] text-gray-700 dark:text-gray-300 font-medium text-sm rounded-xl border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
             >
               <Clock className="w-4 h-4" />
@@ -583,7 +583,7 @@ export default function TransferPage() {
                 <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Quick Links</h3>
                 <div className="space-y-2">
                   <Link
-                    href="/dashboard/deposit/crypto"
+                    href="/wallet/deposit/crypto"
                     className="flex items-center justify-between p-3 bg-gray-50 dark:bg-[#2b2f36] rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                   >
                     <div className="flex items-center gap-3">
@@ -593,7 +593,7 @@ export default function TransferPage() {
                     <ChevronRight className="w-4 h-4 text-gray-400" />
                   </Link>
                   <Link
-                    href="/dashboard/withdraw/crypto"
+                    href="/wallet/withdraw/crypto"
                     className="flex items-center justify-between p-3 bg-gray-50 dark:bg-[#2b2f36] rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                   >
                     <div className="flex items-center gap-3">
@@ -603,7 +603,7 @@ export default function TransferPage() {
                     <ChevronRight className="w-4 h-4 text-gray-400" />
                   </Link>
                   <Link
-                    href="/dashboard/assets/convert"
+                    href="/wallet/convert"
                     className="flex items-center justify-between p-3 bg-gray-50 dark:bg-[#2b2f36] rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                   >
                     <div className="flex items-center gap-3">
@@ -623,7 +623,7 @@ export default function TransferPage() {
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Recent Transfers</h2>
                 <Link
-                  href="/dashboard/assets/history?tab=transfer"
+                  href="/wallet/history?tab=transfer"
                   className="text-sm text-blue-500 hover:text-blue-600 font-medium flex items-center gap-1"
                 >
                   View All

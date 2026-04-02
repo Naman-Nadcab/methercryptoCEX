@@ -5,7 +5,7 @@
  * Colors use app theme: price-up / price-down, buy / sell, blue accents — no fixed exchange brand hex.
  */
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, memo, useCallback } from 'react';
 import {
   ChevronDown,
   ChevronUp,
@@ -65,45 +65,58 @@ function formatTradeTime(iso: string): string {
   }
 }
 
-function LevelRow({
+const LevelRow = memo(function LevelRow({
   rawPrice,
   price,
   quantity,
   total,
   side,
-  onSelect,
+  onRowSelect,
   emphasize,
   depthPct,
   quoteAsset,
+  variant = 'book',
 }: {
   rawPrice: string;
   price: string;
   quantity: string;
   total: string;
   side: 'buy' | 'sell';
-  onSelect?: () => void;
+  onRowSelect?: (p: string, q: string) => void;
   emphasize?: boolean;
   depthPct: number;
   quoteAsset: string;
+  variant?: 'book' | 'ladder';
 }) {
-  const tip = onSelect ? `Set price to ${rawPrice} ${quoteAsset}` : undefined;
+  const handleClick = useCallback(() => {
+    onRowSelect?.(rawPrice, quantity);
+  }, [onRowSelect, rawPrice, quantity]);
+  const tip = onRowSelect ? `Set price to ${rawPrice} ${quoteAsset}` : undefined;
   const w = Math.min(100, Math.max(4, depthPct));
-  const barCls = side === 'buy' ? 'bg-price-up/20 dark:bg-price-up/25' : 'bg-price-down/20 dark:bg-price-down/25';
   const priceCls = side === 'buy' ? 'text-price-up' : 'text-price-down';
+  const rowSize =
+    variant === 'ladder'
+      ? 'min-h-[36px] py-1.5 text-[13px] leading-tight'
+      : 'py-px text-[11px] leading-[1.35]';
+
+  const barGradient =
+    side === 'buy'
+      ? 'bg-gradient-to-l from-price-up/35 via-price-up/12 to-transparent dark:from-price-up/40 dark:via-price-up/15'
+      : 'bg-gradient-to-l from-price-down/35 via-price-down/12 to-transparent dark:from-price-down/40 dark:via-price-down/15';
 
   return (
     <button
       type="button"
-      onClick={onSelect}
+      onClick={onRowSelect ? handleClick : undefined}
       title={tip}
       data-orderbook-row
-      className={`relative w-full cursor-pointer overflow-hidden border-b border-gray-100/90 px-1.5 py-px font-mono text-[11px] leading-[1.35] tabular-nums transition-colors last:border-b-0 hover:bg-gray-100/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/30 dark:border-gray-800/50 dark:hover:bg-gray-800/40 ${
+      className={`group/level relative w-full cursor-pointer overflow-hidden border-b border-gray-100/90 px-2 font-mono tabular-nums transition-all duration-150 last:border-b-0 hover:bg-gray-100/80 hover:shadow-[inset_0_0_0_1px_rgba(59,130,246,0.22)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/35 dark:border-gray-800/50 dark:hover:bg-gray-800/45 dark:hover:shadow-[inset_0_0_0_1px_rgba(96,165,250,0.28)] ${rowSize} ${
         emphasize ? 'bg-gray-50/90 dark:bg-gray-900/35' : ''
       }`}
     >
       <span
         aria-hidden
-        className={`pointer-events-none absolute inset-y-0 right-0 transition-[width] duration-150 ease-out ${barCls}`}
+        className={`pointer-events-none absolute inset-y-0 right-0 transition-[width] duration-200 ease-out ${barGradient}`}
         style={{ width: `${w}%` }}
       />
       <span className={`relative z-10 ${COL_GRID} items-center`}>
@@ -115,7 +128,7 @@ function LevelRow({
       </span>
     </button>
   );
-}
+});
 
 function SkeletonRow() {
   return (
@@ -193,7 +206,7 @@ export function SpotOrderbookPanel({
   loading = false,
   recentTrades = [],
 }: SpotOrderbookPanelProps) {
-  const [tab, setTab] = useState<'orderbook' | 'trades'>('orderbook');
+  const [tab, setTab] = useState<'orderbook' | 'ladder' | 'trades'>('orderbook');
   const [bookView, setBookView] = useState<'both' | 'asks' | 'bids'>('both');
   const [flipVertical, setFlipVertical] = useState(false);
   const [displayPricePrecision, setDisplayPricePrecision] = useState(pricePrecision);
@@ -303,7 +316,14 @@ export function SpotOrderbookPanel({
         ? 'text-price-down'
         : 'text-gray-900 dark:text-white';
 
-  const renderAsks = () =>
+  const handleBookLevelSelect = useCallback(
+    (p: string, q: string) => {
+      onPriceClick?.(p, q);
+    },
+    [onPriceClick]
+  );
+
+  const renderAsks = (variant: 'book' | 'ladder' = 'book') =>
     bookView !== 'bids' && askRows.length > 0 ? (
       <div className="border-b border-dashed border-gray-200/80 dark:border-gray-800/60">
         {askRows.map((row, i) => {
@@ -311,7 +331,7 @@ export function SpotOrderbookPanel({
           const tot = askTotalsAsc[ascIndex] ?? 0;
           return (
             <LevelRow
-              key={`a-${i}-${row.price}`}
+              key={`sell-${row.price}-${variant}`}
               rawPrice={row.price}
               price={formatValueFixedTrim(row.price, effectivePricePrecision)}
               quantity={formatValueFixedTrim(row.quantity, qtyPrecision)}
@@ -320,41 +340,57 @@ export function SpotOrderbookPanel({
               emphasize={i === askRows.length - 1}
               depthPct={depthPctAsk(ascIndex)}
               quoteAsset={quoteAsset}
-              onSelect={onPriceClick ? () => onPriceClick(row.price, row.quantity) : undefined}
+              variant={variant}
+              onRowSelect={onPriceClick ? handleBookLevelSelect : undefined}
             />
           );
         })}
       </div>
     ) : null;
 
-  const renderMid = () => (
-    <div className="border-y border-gray-200/90 bg-gray-100/50 px-2 py-1.5 dark:border-gray-800/90 dark:bg-gray-900/50">
-      <div className="flex flex-col items-center gap-0.5">
-        <div className={`flex items-center gap-0.5 font-mono text-xl font-bold tabular-nums leading-none sm:text-2xl ${midPriceClass}`}>
-          {lastMove === 'up' && <ChevronUp className="h-6 w-6 shrink-0" strokeWidth={2.5} aria-hidden />}
-          {lastMove === 'down' && <ChevronDown className="h-6 w-6 shrink-0" strokeWidth={2.5} aria-hidden />}
-          <span>{formatValueFixedTrim(lastDisplay, effectivePricePrecision)}</span>
-        </div>
-        <p className="text-center text-[11px] text-gray-500 dark:text-gray-500">
-          ≈{formatValueFixedTrim(lastDisplay, effectivePricePrecision)} {quoteAsset}
-        </p>
-        {(spreadAbs > 0 || spreadBps > 0) && (
-          <p className="text-[10px] font-mono tabular-nums text-gray-500 dark:text-gray-600">
-            Spread {spreadAbs > 0 ? formatFixedTrim(spreadAbs, Math.min(6, effectivePricePrecision)) : '—'}
-            {spreadPctMid > 0 ? ` (${spreadPctMid >= 0.0001 ? spreadPctMid.toFixed(3) : '<0.001'}%)` : ''}
-            {spreadBps >= 0.01 ? ` · ${spreadBps.toFixed(1)} bps` : ''}
-          </p>
-        )}
+  const midContent = (
+    <div className="flex flex-col items-center gap-0.5">
+      <div className={`flex items-center gap-0.5 font-mono text-xl font-bold tabular-nums leading-none sm:text-2xl ${midPriceClass}`}>
+        {lastMove === 'up' && <ChevronUp className="h-6 w-6 shrink-0" strokeWidth={2.5} aria-hidden />}
+        {lastMove === 'down' && <ChevronDown className="h-6 w-6 shrink-0" strokeWidth={2.5} aria-hidden />}
+        <span>{formatValueFixedTrim(lastDisplay, effectivePricePrecision)}</span>
       </div>
+      <p className="text-center text-[11px] text-gray-500 dark:text-gray-500">
+        ≈{formatValueFixedTrim(lastDisplay, effectivePricePrecision)} {quoteAsset}
+      </p>
+      {(spreadAbs > 0 || spreadBps > 0) && (
+        <p className="text-[10px] font-mono tabular-nums text-gray-500 dark:text-gray-600">
+          Spread {spreadAbs > 0 ? formatFixedTrim(spreadAbs, Math.min(6, effectivePricePrecision)) : '—'}
+          {spreadPctMid > 0 ? ` (${spreadPctMid >= 0.0001 ? spreadPctMid.toFixed(3) : '<0.001'}%)` : ''}
+          {spreadBps >= 0.01 ? ` · ${spreadBps.toFixed(1)} bps` : ''}
+        </p>
+      )}
     </div>
   );
 
-  const renderBids = () =>
+  const renderMid = () => (
+    <div className="border-y border-gray-200/90 bg-gray-100/50 px-2 py-1.5 dark:border-gray-800/90 dark:bg-gray-900/50">
+      {onPriceClick && lastDisplay ? (
+        <button
+          type="button"
+          title={`Set order price to ${lastDisplay} ${quoteAsset}`}
+          onClick={() => onPriceClick(String(lastDisplay), '')}
+          className="w-full cursor-pointer rounded-md border-0 bg-transparent p-0 text-left transition-colors hover:bg-gray-200/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/35 dark:hover:bg-gray-800/50"
+        >
+          {midContent}
+        </button>
+      ) : (
+        midContent
+      )}
+    </div>
+  );
+
+  const renderBids = (variant: 'book' | 'ladder' = 'book') =>
     bookView !== 'asks' && bidRows.length > 0 ? (
       <div>
         {bidRows.map((row, i) => (
           <LevelRow
-            key={`b-${i}-${row.price}`}
+            key={`buy-${row.price}-${variant}`}
             rawPrice={row.price}
             price={formatValueFixedTrim(row.price, effectivePricePrecision)}
             quantity={formatValueFixedTrim(row.quantity, qtyPrecision)}
@@ -363,7 +399,8 @@ export function SpotOrderbookPanel({
             emphasize={i === 0}
             depthPct={depthPctBid(i)}
             quoteAsset={quoteAsset}
-            onSelect={onPriceClick ? () => onPriceClick(row.price, row.quantity) : undefined}
+            variant={variant}
+            onRowSelect={onPriceClick ? handleBookLevelSelect : undefined}
           />
         ))}
       </div>
@@ -371,15 +408,29 @@ export function SpotOrderbookPanel({
 
   const bookBody = flipVertical ? (
     <>
-      {renderBids()}
+      {renderBids('book')}
       {renderMid()}
-      {renderAsks()}
+      {renderAsks('book')}
     </>
   ) : (
     <>
-      {renderAsks()}
+      {renderAsks('book')}
       {renderMid()}
-      {renderBids()}
+      {renderBids('book')}
+    </>
+  );
+
+  const ladderBody = flipVertical ? (
+    <>
+      {renderBids('ladder')}
+      {renderMid()}
+      {renderAsks('ladder')}
+    </>
+  ) : (
+    <>
+      {renderAsks('ladder')}
+      {renderMid()}
+      {renderBids('ladder')}
     </>
   );
 
@@ -389,10 +440,33 @@ export function SpotOrderbookPanel({
         <button type="button" onClick={() => setTab('orderbook')} className={tabBtn(tab === 'orderbook')}>
           Order Book
         </button>
+        <button type="button" onClick={() => setTab('ladder')} className={tabBtn(tab === 'ladder')}>
+          Ladder
+        </button>
         <button type="button" onClick={() => setTab('trades')} className={tabBtn(tab === 'trades')}>
           Recent Trades
         </button>
       </div>
+
+      {tab === 'ladder' && (
+        <div className="flex flex-shrink-0 items-center justify-between gap-2 border-b border-gray-200/90 px-2 py-1.5 dark:border-gray-800/90">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-500">
+            DOM · click row to set price
+          </p>
+          <select
+            value={depthLimit}
+            onChange={(e) => setDepthLimit(Number(e.target.value) as (typeof DEPTH_OPTIONS)[number])}
+            title="Rows per side"
+            className="h-7 min-w-[3rem] cursor-pointer rounded border border-gray-200 bg-white px-1.5 text-[10px] font-bold text-gray-900 dark:border-gray-700 dark:bg-[#0b0e11] dark:text-white"
+          >
+            {DEPTH_OPTIONS.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {tab === 'orderbook' && (
         <div className="flex flex-shrink-0 items-center gap-2 border-b border-gray-200/90 px-2 py-1.5 dark:border-gray-800/90">
@@ -459,7 +533,33 @@ export function SpotOrderbookPanel({
         </div>
       )}
 
-      {tab === 'trades' ? (
+      {tab === 'ladder' ? (
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="border-b border-gray-200/90 bg-gray-50/80 px-2 py-1 dark:border-gray-800/90 dark:bg-gray-900/40">
+            <div className={`${COL_GRID} font-mono text-[10px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-500`}>
+              <span className="text-left">Asks ↑ · Price({quoteAsset})</span>
+              <span className="text-right">Qty({baseAsset})</span>
+              <span className="text-right">Σ {quoteAsset}</span>
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            {loading ? (
+              <div className="space-y-px p-1">
+                {Array.from({ length: 10 }).map((_, i) => (
+                  <SkeletonRow key={i} />
+                ))}
+              </div>
+            ) : (
+              <>
+                {ladderBody}
+                {bidRows.length === 0 && askRows.length === 0 && !loading && (
+                  <p className="px-4 py-10 text-center text-[11px] text-gray-500 dark:text-gray-400">No order book data</p>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      ) : tab === 'trades' ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="border-b border-gray-200/90 bg-gray-50/80 px-2 py-1 dark:border-gray-800/90 dark:bg-gray-900/40">
             <div className={`${COL_GRID} font-mono text-[10px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-500`}>

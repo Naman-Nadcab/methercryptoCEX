@@ -19,6 +19,9 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 const AUTH_STORAGE_KEY = 'auth-storage';
 
+/** If persist + /me never resolve, still mount the app (no infinite blank / spinner). */
+const AUTH_SHELL_FAIL_OPEN_MS = 4500;
+
 function getStoredAccessToken(): string | null {
   if (typeof window === 'undefined') return null;
   try {
@@ -91,6 +94,7 @@ async function tryRefreshFromStorage(): Promise<string | null> {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('loading');
   const [user, setUserState] = useState<User | null>(null);
+  const authReadyWarned = useRef(false);
   const logout = useAuthStore((s) => s.logout);
   const setAuthResolved = useAuthStore((s) => s.setAuthResolved);
   const setAuthFlags = useAuthStore((s) => s.setAuthFlags);
@@ -100,6 +104,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const _hasHydrated = useAuthStore((s) => s._hasHydrated);
   const meCalled = useRef(false);
   const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      console.log('[AuthProvider] rendered (mount)');
+    }
+  }, []);
 
   const setAuthenticated = useCallback((u: User) => {
     setAuthResolved(true);
@@ -121,6 +131,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener('auth:refresh-failed', handleRefreshFailed);
     return () => window.removeEventListener('auth:refresh-failed', handleRefreshFailed);
   }, [setUnauthenticated]);
+
+  /** Last-resort: never block the full tree past this deadline (SRE / production resilience). */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const id = window.setTimeout(() => {
+      const st = useAuthStore.getState();
+      if (!st._hasHydrated) {
+        st.setHasHydrated(true);
+      }
+      if (!st.authResolved) {
+        st.setAuthResolved(true);
+      }
+      const u = st.user ?? null;
+      setUserState(u);
+      setStatus((prev) => {
+        if (prev !== 'loading') return prev;
+        if (u && st.accessToken) return 'authenticated';
+        return 'unauthenticated';
+      });
+    }, AUTH_SHELL_FAIL_OPEN_MS);
+    return () => window.clearTimeout(id);
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !_hasHydrated) return;
@@ -276,7 +308,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [_hasHydrated]);
 
   const isAuthenticated = status === 'authenticated';
-  const showChildren = _hasHydrated && authResolved;
+  const authShellReady = _hasHydrated && authResolved;
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || authShellReady || authReadyWarned.current) return;
+    authReadyWarned.current = true;
+    console.warn('[AuthProvider] Auth not ready — fail-open (rendering children; use useAuth() defensively)');
+  }, [authShellReady]);
 
   const value: AuthContextValue = {
     status,
@@ -287,17 +325,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUnauthenticated,
   };
 
-  return (
-    <AuthContext.Provider value={value}>
-      {!showChildren ? (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-[#0b0e11]" role="status" aria-label="Loading">
-          <div className="animate-spin rounded-full h-10 w-10 border-2 border-blue-500 border-t-transparent" />
-        </div>
-      ) : (
-        children
-      )}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthContextValue {

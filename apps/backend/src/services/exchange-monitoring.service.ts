@@ -156,7 +156,8 @@ export type OperationalEventType =
   | 'settlement_worker_start'
   | 'settlement_worker_stop'
   | 'circuit_open'
-  | 'wallet_cache_divergence';
+  | 'wallet_cache_divergence'
+  | 'tier1_reconciliation_failed';
 
 export function recordOperationalEvent(params: {
   type: OperationalEventType;

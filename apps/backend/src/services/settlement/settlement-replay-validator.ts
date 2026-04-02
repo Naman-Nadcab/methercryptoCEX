@@ -63,7 +63,7 @@ export async function replaySettlementIntegrityCheck(): Promise<{ ok: boolean; m
       payload: EnginePayload;
       hash: string | null;
     }>(
-      `SELECT id, engine_event_id, payload, hash FROM settlement_events WHERE status = 'processed' AND hash IS NOT NULL ORDER BY engine_event_id ASC`
+      `SELECT id, engine_event_id, payload, hash FROM settlement_events WHERE status = 'processed' AND hash IS NOT NULL ORDER BY match_engine_id ASC, engine_event_id ASC`
     );
 
     for (const row of events.rows) {

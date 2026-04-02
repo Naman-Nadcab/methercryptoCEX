@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { getMessageFromApiError } from '@/lib/errorMessages';
+import { toast } from '@/components/ui/toaster';
 
 export type Order = {
   id: string;
@@ -127,8 +128,14 @@ export function useSpotBottomPanel({ symbol, isAuth, ordersVersion, tradesVersio
       const res = await api.post(`/api/v1/spot/orders/${encodeURIComponent(orderId)}/cancel`, {});
       if (res.success) {
         setOpenOrders((prev) => prev.filter((o) => o.id !== orderId));
+        toast({ title: 'Order cancelled', description: 'Removed from the open order book.', variant: 'default' });
       } else {
         setCancelError(getMessageFromApiError(res.error) ?? 'Cancel failed');
+        toast({
+          title: 'Cancel failed',
+          description: getMessageFromApiError(res.error) ?? 'Could not cancel order',
+          variant: 'destructive',
+        });
       }
     } catch {
       setCancelError('Connection issue. Try again.');
@@ -147,8 +154,18 @@ export function useSpotBottomPanel({ symbol, isAuth, ordersVersion, tradesVersio
       const res = await api.post('/api/v1/spot/orders/cancel-all', { market: symbol });
       if (res.success) {
         setOpenOrders((prev) => prev.filter((o) => o.market !== symbol));
+        toast({
+          title: 'Orders cancelled',
+          description: `All open orders for ${symbol} were cancelled.`,
+          variant: 'default',
+        });
       } else {
         setCancelError(getMessageFromApiError(res.error) ?? 'Cancel all failed');
+        toast({
+          title: 'Cancel all failed',
+          description: getMessageFromApiError(res.error) ?? 'Could not cancel all',
+          variant: 'destructive',
+        });
       }
     } catch {
       setCancelError('Connection issue. Try again.');

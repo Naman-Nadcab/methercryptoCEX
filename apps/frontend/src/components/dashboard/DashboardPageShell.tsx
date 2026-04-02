@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import Link from 'next/link';
+import { ROUTES } from '@/lib/routes';
 import { ChevronRight, Home } from 'lucide-react';
 
 export type DashboardBreadcrumb = { label: string; href?: string };
@@ -36,7 +37,7 @@ export function DashboardPageShell({
         {crumbs && (
           <nav aria-label="Breadcrumb" className="mb-3 flex flex-wrap items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
             <Link
-              href="/dashboard"
+              href={ROUTES.home}
               className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white transition-colors"
             >
               <Home className="w-3.5 h-3.5 opacity-80" aria-hidden />

@@ -11,6 +11,7 @@ import {
   type PaginationState,
   type ColumnFiltersState,
   type RowData,
+  type Updater,
 } from '@tanstack/react-table';
 import { useState, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Search } from 'lucide-react';
@@ -33,13 +34,13 @@ export interface DataTableProps<T extends RowData> {
   pageSizeOptions?: number[];
   /** Controlled pagination state (for server-side) */
   pagination?: PaginationState;
-  onPaginationChange?: (updater: (prev: PaginationState) => PaginationState) => void;
+  onPaginationChange?: (updater: Updater<PaginationState>) => void;
   /** Controlled sorting state (for server-side) */
   sorting?: SortingState;
-  onSortingChange?: (updater: (prev: SortingState) => SortingState) => void;
+  onSortingChange?: (updater: Updater<SortingState>) => void;
   /** Controlled column filters (for server-side or client-side) */
   columnFilters?: ColumnFiltersState;
-  onColumnFiltersChange?: (updater: (prev: ColumnFiltersState) => ColumnFiltersState) => void;
+  onColumnFiltersChange?: (updater: Updater<ColumnFiltersState>) => void;
   /** Search / global filter value */
   searchValue?: string;
   onSearchChange?: (value: string) => void;

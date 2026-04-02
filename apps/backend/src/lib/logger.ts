@@ -29,11 +29,13 @@ const developmentFormat = combine(
   devFormat
 );
 
+const useJsonLogs = config.isProduction || config.observability.logJson;
+
 // Create logger instance
 export const logger = winston.createLogger({
   level: config.logging.level,
-  format: config.isProduction ? prodFormat : developmentFormat,
-  defaultMeta: { service: 'exchange-api' },
+  format: useJsonLogs ? prodFormat : developmentFormat,
+  defaultMeta: { service: 'exchange-api', shard_id: config.nats.shardId },
   transports: [
     new winston.transports.Console({
       handleExceptions: true,

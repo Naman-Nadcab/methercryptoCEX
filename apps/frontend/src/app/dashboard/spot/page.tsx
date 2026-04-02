@@ -2,10 +2,29 @@
 
 import { Suspense } from 'react';
 import { SpotTradingGrid } from '@/components/trade/SpotTradingGrid';
+import { Skeleton } from '@/components/ui/Skeleton';
+
+function SpotPageSkeleton() {
+  return (
+    <div
+      className="flex h-screen w-full flex-col bg-gray-50 dark:bg-[#0b0e11]"
+      aria-busy="true"
+      aria-label="Loading"
+    >
+      <div className="flex h-12 shrink-0 items-center gap-3 border-b border-gray-200 px-4 dark:border-gray-800">
+        <Skeleton className="h-8 w-28" />
+        <Skeleton className="h-8 max-w-md flex-1" />
+      </div>
+      <div className="flex min-h-0 flex-1 gap-2 p-2">
+        <Skeleton className="min-h-0 flex-1 rounded-lg" />
+      </div>
+    </div>
+  );
+}
 
 export default function SpotPage() {
   return (
-    <Suspense fallback={<div className="flex h-screen w-full items-center justify-center bg-gray-50 text-gray-600 dark:bg-[#0b0e11] dark:text-gray-400">Loading…</div>}>
+    <Suspense fallback={<SpotPageSkeleton />}>
       <SpotTradingGrid />
     </Suspense>
   );

@@ -31,7 +31,7 @@ export function useDashboardStats() {
   const token = useAdminToken();
   return useQuery({
     queryKey: ['admin', 'dashboard-stats', token],
-    queryFn: () => getDashboardStats(token ?? undefined),
+    queryFn: () => getDashboardStats(token ?? null),
     enabled: !!token,
   });
 }
@@ -40,7 +40,7 @@ export function useTradingHalt() {
   const token = useAdminToken();
   return useQuery({
     queryKey: ['admin', 'trading-halt', token],
-    queryFn: () => getTradingHalt(token ?? undefined),
+    queryFn: () => getTradingHalt(token ?? null),
     enabled: !!token,
   });
 }
@@ -49,7 +49,7 @@ export function useControlOverview() {
   const token = useAdminToken();
   return useQuery({
     queryKey: ['admin', 'control-overview', token],
-    queryFn: () => getControlOverview(token ?? undefined),
+    queryFn: () => getControlOverview(token ?? null),
     enabled: !!token,
   });
 }
@@ -58,7 +58,7 @@ export function useAnalyticsAll(period: '24h' | '7d' = '24h') {
   const token = useAdminToken();
   return useQuery({
     queryKey: ['admin', 'analytics-all', period, token],
-    queryFn: () => getAnalyticsAll(token ?? undefined, period),
+    queryFn: () => getAnalyticsAll(token ?? null, period),
     enabled: !!token,
   });
 }
@@ -67,7 +67,7 @@ export function useRevenue(period: '24h' | '7d' = '24h') {
   const token = useAdminToken();
   return useQuery({
     queryKey: ['admin', 'revenue', period, token],
-    queryFn: () => getRevenue(token ?? undefined, period),
+    queryFn: () => getRevenue(token ?? null, period),
     enabled: !!token,
   });
 }
@@ -76,7 +76,7 @@ export function useTradingVolume(period: '24h' | '7d' | '30d' = '7d') {
   const token = useAdminToken();
   return useQuery({
     queryKey: ['admin', 'trading-volume', period, token],
-    queryFn: () => getTradingVolume(token ?? undefined, period),
+    queryFn: () => getTradingVolume(token ?? null, period),
     enabled: !!token,
   });
 }
@@ -85,7 +85,7 @@ export function useLiquidity(period: '24h' | '7d' = '24h') {
   const token = useAdminToken();
   return useQuery({
     queryKey: ['admin', 'liquidity', period, token],
-    queryFn: () => getLiquidity(token ?? undefined, period),
+    queryFn: () => getLiquidity(token ?? null, period),
     enabled: !!token,
   });
 }
@@ -94,7 +94,7 @@ export function useUserGrowth(period: '7d' | '30d' = '7d') {
   const token = useAdminToken();
   return useQuery({
     queryKey: ['admin', 'user-growth', period, token],
-    queryFn: () => getUserGrowth(token ?? undefined, period),
+    queryFn: () => getUserGrowth(token ?? null, period),
     enabled: !!token,
   });
 }
@@ -104,7 +104,7 @@ export function useWithdrawalsList(params?: { limit?: number; page?: number; sta
   return useQuery({
     queryKey: ['admin', 'withdrawals', params, token],
     queryFn: () =>
-      getWithdrawals(token ?? undefined, {
+      getWithdrawals(token ?? null, {
         limit: params?.limit ?? 10,
         page: params?.page ?? 1,
         status: params?.status,
@@ -117,7 +117,7 @@ export function useDepositsList(params?: { limit?: number; page?: number; status
   const token = useAdminToken();
   return useQuery({
     queryKey: ['admin', 'deposits', params, token],
-    queryFn: () => getDeposits(token ?? undefined, params ?? { limit: 10 }),
+    queryFn: () => getDeposits(token ?? null, params ?? { limit: 10 }),
     enabled: !!token,
   });
 }
@@ -126,7 +126,7 @@ export function useApiMetrics() {
   const token = useAdminToken();
   return useQuery({
     queryKey: ['admin', 'api-metrics', token],
-    queryFn: () => getApiMetrics(token ?? undefined),
+    queryFn: () => getApiMetrics(token ?? null),
     enabled: !!token,
   });
 }
@@ -135,7 +135,7 @@ export function useMmRisk() {
   const token = useAdminToken();
   return useQuery({
     queryKey: ['admin', 'monitoring-mm-risk', token],
-    queryFn: () => getMonitoringMmRisk(token ?? undefined),
+    queryFn: () => getMonitoringMmRisk(token ?? null),
     enabled: !!token,
   });
 }
@@ -144,7 +144,7 @@ export function useLiquidityBotConfig() {
   const token = useAdminToken();
   return useQuery({
     queryKey: ['admin', 'liquidity-bot-config', token],
-    queryFn: () => getLiquidityBotConfig(token ?? undefined),
+    queryFn: () => getLiquidityBotConfig(token ?? null),
     enabled: !!token,
   });
 }
@@ -153,7 +153,7 @@ export function useAmlDashboard() {
   const token = useAdminToken();
   return useQuery({
     queryKey: ['admin', 'aml-dashboard', token],
-    queryFn: () => getAmlDashboard(token ?? undefined),
+    queryFn: () => getAmlDashboard(token ?? null),
     enabled: !!token,
   });
 }
@@ -162,7 +162,7 @@ export function useAmlAlerts(params?: { status?: string; severity?: string; limi
   const token = useAdminToken();
   return useQuery({
     queryKey: ['admin', 'aml-alerts', params, token],
-    queryFn: () => getAmlAlerts(token ?? undefined, params),
+    queryFn: () => getAmlAlerts(token ?? null, params),
     enabled: !!token,
   });
 }
@@ -171,7 +171,7 @@ export function useSecurityDashboard() {
   const token = useAdminToken();
   return useQuery({
     queryKey: ['admin', 'security-dashboard', token],
-    queryFn: () => getSecurityDashboard(token ?? undefined),
+    queryFn: () => getSecurityDashboard(token ?? null),
     enabled: !!token,
   });
 }
@@ -180,7 +180,7 @@ export function useAmlAlertsTimeSeries(period: '7d' | '30d' = '7d') {
   const token = useAdminToken();
   return useQuery({
     queryKey: ['admin', 'analytics-aml-alerts', period, token],
-    queryFn: () => getAmlAlertsTimeSeries(token ?? undefined, period),
+    queryFn: () => getAmlAlertsTimeSeries(token ?? null, period),
     enabled: !!token,
   });
 }
@@ -189,7 +189,7 @@ export function useSpotOrderbook(symbol: string | null, depth = 50) {
   const token = useAdminToken();
   return useQuery({
     queryKey: ['admin', 'spot-orderbook', symbol, depth, token],
-    queryFn: () => getSpotOrderbook(token ?? undefined, symbol!, depth),
+    queryFn: () => getSpotOrderbook(token ?? null, symbol!, depth),
     enabled: !!token && !!symbol,
   });
 }
@@ -198,7 +198,7 @@ export function useOrderbookIntelligence(symbol: string | null) {
   const token = useAdminToken();
   return useQuery({
     queryKey: ['admin', 'orderbook-intelligence', symbol, token],
-    queryFn: () => getOrderbookIntelligence(token ?? undefined, symbol!),
+    queryFn: () => getOrderbookIntelligence(token ?? null, symbol!),
     enabled: !!token && !!symbol,
   });
 }

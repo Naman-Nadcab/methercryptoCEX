@@ -175,14 +175,14 @@ export default function ProgressPage() {
           Back to Dashboard
         </Link>
         <Link
-          href="/dashboard/spot"
+          href="/trade/spot"
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-500 text-white hover:bg-blue-600"
         >
           Spot Trading
           <ChevronRight className="w-4 h-4" />
         </Link>
         <Link
-          href="/dashboard/p2p"
+          href="/p2p"
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-500 text-white hover:bg-blue-600"
         >
           P2P Trading

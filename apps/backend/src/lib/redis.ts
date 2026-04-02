@@ -2,6 +2,7 @@ import type { ChainableCommander, RedisOptions } from 'ioredis';
 import { createRequire } from 'module';
 import { config } from '../config/index.js';
 import { logger } from './logger.js';
+import { withTimeout } from './async-timeout.js';
 
 const require = createRequire(import.meta.url);
 const RedisConstructor = require('ioredis') as typeof import('ioredis').default;
@@ -26,9 +27,9 @@ class RedisClient {
     const baseOptions: RedisOptions = {
       maxRetriesPerRequest: 3,
       retryStrategy(times) {
-        if (times > 5) return null;
-        const delay = Math.min(times * 100, 2000);
-        return delay;
+        const persistent = config.redis.retryMode === 'persistent';
+        if (!persistent && times > 20) return null;
+        return Math.min(Math.pow(2, Math.min(times, 14)) * 50, 30_000);
       },
       connectTimeout: 10_000,
       /** Avoid hanging requests (e.g. auth rate-limit) when Redis stops responding mid-session. */
@@ -96,31 +97,43 @@ class RedisClient {
   }
 
   async connect(): Promise<void> {
-    // Connections are established automatically without lazyConnect
-    // Just wait for ready state
+    const REDIS_CONNECT_TIMEOUT_MS = 20_000;
+    const waitReady = (
+      name: string,
+      client: InstanceType<typeof RedisConstructor>
+    ): Promise<void> =>
+      new Promise<void>((resolve, reject) => {
+        if (client.status === 'ready') {
+          logger.info(`Redis ${name} already ready`);
+          resolve();
+          return;
+        }
+        const to = setTimeout(() => {
+          client.removeListener('ready', onReady);
+          client.removeListener('error', onErr);
+          reject(new Error(`Redis ${name} connect timeout after ${REDIS_CONNECT_TIMEOUT_MS}ms (check REDIS_URL and that redis is running: docker compose up -d redis)`));
+        }, REDIS_CONNECT_TIMEOUT_MS);
+        const onReady = () => {
+          clearTimeout(to);
+          client.removeListener('error', onErr);
+          logger.info(`Redis ${name} connected`);
+          resolve();
+        };
+        const onErr = (err: Error) => {
+          clearTimeout(to);
+          client.removeListener('ready', onReady);
+          reject(err);
+        };
+        client.once('ready', onReady);
+        client.once('error', onErr);
+      });
+
     await Promise.all([
-      new Promise<void>((resolve, reject) => {
-        if (this.client.status === 'ready') resolve();
-        else {
-          this.client.once('ready', resolve);
-          this.client.once('error', reject);
-        }
-      }),
-      new Promise<void>((resolve, reject) => {
-        if (this.subscriber.status === 'ready') resolve();
-        else {
-          this.subscriber.once('ready', resolve);
-          this.subscriber.once('error', reject);
-        }
-      }),
-      new Promise<void>((resolve, reject) => {
-        if (this.publisher.status === 'ready') resolve();
-        else {
-          this.publisher.once('ready', resolve);
-          this.publisher.once('error', reject);
-        }
-      }),
+      waitReady('main', this.client),
+      waitReady('subscriber', this.subscriber),
+      waitReady('publisher', this.publisher),
     ]);
+    logger.info('✓ Redis all clients ready (persistent retry mode for reconnects)');
   }
 
   // Basic operations
@@ -429,9 +442,9 @@ class RedisClient {
     }
   }
 
-  // Simple ping
+  // Simple ping (bounded — health must not hang if server wedged)
   async ping(): Promise<string> {
-    return this.client.ping();
+    return withTimeout(this.client.ping(), 3_000, 'redis.ping');
   }
 
   // Graceful shutdown

@@ -124,28 +124,28 @@ export default function UnifiedTradingPage() {
 
             <div className="flex items-center gap-3">
               <Link
-                href="/dashboard/deposit/crypto"
+                href="/wallet/deposit/crypto"
                 className="flex items-center gap-2 px-5 py-2.5 bg-blue-500 hover:bg-blue-600 text-white font-medium text-sm rounded-xl shadow-lg shadow-blue-500/25 transition-all hover:shadow-blue-500/40"
               >
                 <Download className="w-4 h-4" />
                 Deposit
               </Link>
               <Link
-                href="/dashboard/assets/convert"
+                href="/wallet/convert"
                 className="flex items-center gap-2 px-5 py-2.5 bg-white dark:bg-[#1e2329] text-gray-700 dark:text-gray-300 font-medium text-sm rounded-xl border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
               >
                 <RefreshCw className="w-4 h-4" />
                 Convert
               </Link>
               <Link
-                href="/dashboard/transfer"
+                href="/wallet/transfer"
                 className="flex items-center gap-2 px-5 py-2.5 bg-white dark:bg-[#1e2329] text-gray-700 dark:text-gray-300 font-medium text-sm rounded-xl border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
               >
                 <ArrowLeftRight className="w-4 h-4" />
                 Transfer
               </Link>
               <Link
-                href="/dashboard/assets/history"
+                href="/wallet/history"
                 className="flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-[#1e2329] text-gray-700 dark:text-gray-300 font-medium text-sm rounded-xl border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
               >
                 <Clock className="w-4 h-4" />
@@ -164,7 +164,7 @@ export default function UnifiedTradingPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-medium text-gray-500">Total Equity</p>
-                    <Link href="/dashboard/assets/pnl" className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-xs rounded-lg flex items-center gap-1 hover:bg-blue-200 dark:hover:bg-blue-800/40 transition-colors">
+                    <Link href="/wallet/pnl" className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-xs rounded-lg flex items-center gap-1 hover:bg-blue-200 dark:hover:bg-blue-800/40 transition-colors">
                       <TrendingUp className="w-3 h-3" /> P&L
                     </Link>
                   </div>
@@ -223,7 +223,7 @@ export default function UnifiedTradingPage() {
                   <span className="text-sm text-gray-600 dark:text-gray-400">Hide small balances</span>
                 </label>
                 <Link 
-                  href="/dashboard/assets/convert"
+                  href="/wallet/convert"
                   className="text-sm text-blue-500 hover:text-blue-600 flex items-center gap-1 font-medium"
                 >
                   <Sparkles className="w-4 h-4" />
@@ -304,7 +304,7 @@ export default function UnifiedTradingPage() {
                       </td>
                       <td className="px-6 py-4 text-right">
                         <Link
-                          href="/dashboard/spot"
+                          href="/trade/spot"
                           className="px-4 py-1.5 text-sm text-blue-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors font-medium"
                         >
                           Trade
@@ -322,7 +322,7 @@ export default function UnifiedTradingPage() {
                         <p className="text-gray-500 font-medium">No assets found</p>
                         <p className="text-sm text-gray-400 mt-1">Transfer funds to start trading</p>
                         <Link
-                          href="/dashboard/transfer"
+                          href="/wallet/transfer"
                           className="mt-4 px-6 py-2.5 bg-blue-500 hover:bg-blue-600 text-white font-medium text-sm rounded-xl transition-colors inline-block"
                         >
                           Transfer Now
