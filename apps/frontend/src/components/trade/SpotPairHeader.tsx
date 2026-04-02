@@ -27,34 +27,28 @@ export function SpotPairHeader({
   const isNegative = changePercent24h != null && changePercent24h < 0;
 
   return (
-    <header className="h-14 flex-shrink-0 flex items-center gap-6 px-4 bg-[#0b0e11] dark:bg-[#0b0e11] border-b border-white/5">
-      <div className="flex items-center gap-3">
-        <span className="text-lg font-semibold text-white font-mono tabular-nums">{display}</span>
-        <span className="text-xs text-gray-500">Spot</span>
-        <Link href={ROUTES.markets} className="text-xs text-gray-400 hover:text-white">Markets</Link>
+    <header className="h-12 flex-shrink-0 flex items-center gap-4 lg:gap-6 px-3 lg:px-4 bg-card border-b border-border overflow-x-auto">
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <span className="text-base font-semibold text-foreground font-mono tabular-nums">{display}</span>
+        <span className="text-[10px] text-muted-foreground px-1.5 py-0.5 bg-accent rounded">Spot</span>
+        <Link href={ROUTES.markets} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Markets</Link>
       </div>
-      <div className="flex items-center gap-4 text-sm font-mono tabular-nums">
-        <div className="flex items-baseline gap-2">
-          <span className="text-xl font-semibold text-white">
+      <div className="flex items-center gap-3 lg:gap-5 text-xs font-mono tabular-nums flex-shrink-0">
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-lg font-semibold text-foreground">
             {lastPrice ?? '—'}
           </span>
           {changePercent24h != null && (
-            <span
-              className={`text-xs font-medium ${
-                isPositive ? 'text-green-500' : isNegative ? 'text-red-500' : 'text-gray-400'
-              }`}
-            >
-              {isPositive ? '+' : ''}
-              {changePercent24h.toFixed(2)}%
+            <span className={`text-xs font-medium ${isPositive ? 'text-buy' : isNegative ? 'text-sell' : 'text-muted-foreground'}`}>
+              {isPositive ? '+' : ''}{changePercent24h.toFixed(2)}%
             </span>
           )}
         </div>
-        <span className="text-gray-500">24h Vol</span>
-        <span className="text-gray-400">{volume24h != null && volume24h !== '' ? Number(volume24h).toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'}</span>
-        <span className="text-gray-500">24h High</span>
-        <span className="text-gray-400">{high24h ?? '—'}</span>
-        <span className="text-gray-500">24h Low</span>
-        <span className="text-gray-400">{low24h ?? '—'}</span>
+        <div className="hidden sm:flex items-center gap-3 lg:gap-5">
+          <div><span className="text-muted-foreground mr-1">Vol</span><span className="text-foreground/80">{volume24h != null && volume24h !== '' ? Number(volume24h).toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'}</span></div>
+          <div><span className="text-muted-foreground mr-1">H</span><span className="text-foreground/80">{high24h ?? '—'}</span></div>
+          <div><span className="text-muted-foreground mr-1">L</span><span className="text-foreground/80">{low24h ?? '—'}</span></div>
+        </div>
       </div>
     </header>
   );

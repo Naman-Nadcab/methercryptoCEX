@@ -25,14 +25,14 @@ export function AssetPerformanceTable({ rows, showBalance }: AssetPerformanceTab
   };
 
   return (
-    <div className="bg-white dark:bg-[#1e2329] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden card-bybit">
-      <h3 className="text-sm font-semibold text-gray-900 dark:text-white px-5 py-4 border-b border-gray-100 dark:border-gray-800">
+    <div className="bg-card rounded-xl border border-border overflow-hidden card-bybit">
+      <h3 className="text-sm font-semibold text-foreground px-5 py-4 border-b border-border">
         Asset Performance
       </h3>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-100 dark:border-gray-800">
+            <tr className="text-left text-muted-foreground border-b border-border">
               <th className="py-3 px-4 font-medium uppercase tracking-wide">Asset</th>
               <th className="py-3 px-4 font-medium uppercase tracking-wide text-right">Balance</th>
               <th className="py-3 px-4 font-medium uppercase tracking-wide text-right">24h Change</th>
@@ -43,7 +43,7 @@ export function AssetPerformanceTable({ rows, showBalance }: AssetPerformanceTab
             {rows.length === 0 ? (
               <tr>
                 <td colSpan={4} className="py-12 px-6 text-center">
-                  <p className="text-gray-500 dark:text-gray-400">No assets</p>
+                  <p className="text-muted-foreground">No assets</p>
                 </td>
               </tr>
             ) : (
@@ -62,19 +62,19 @@ export function AssetPerformanceTable({ rows, showBalance }: AssetPerformanceTab
                         router.push(`/wallet/${encodeURIComponent(row.symbol)}`);
                       }
                     }}
-                    className="border-b border-gray-100 dark:border-gray-800 last:border-0 cursor-pointer hover:bg-gray-50 dark:hover:bg-white/[0.04] transition-colors"
+                    className="border-b border-border last:border-0 cursor-pointer hover:bg-muted dark:hover:bg-card/[0.04] transition-colors"
                   >
-                    <td className="py-3 px-4 font-medium text-gray-900 dark:text-white">{row.symbol}</td>
-                    <td className="py-3 px-4 text-right tabular-nums text-gray-700 dark:text-gray-300">
+                    <td className="py-3 px-4 font-medium text-foreground">{row.symbol}</td>
+                    <td className="py-3 px-4 text-right tabular-nums text-foreground/80">
                       {showBalance ? row.balance : '****'}
                     </td>
                     <td className="py-3 px-4 text-right">
                       {isZero ? (
-                        <span className="text-gray-500 dark:text-gray-400 tabular-nums">0.00%</span>
+                        <span className="text-muted-foreground tabular-nums">0.00%</span>
                       ) : (
                         <span
                           className={`inline-flex items-center justify-end gap-0.5 tabular-nums ${
-                            isPositive ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+                            isPositive ? 'text-buy' : 'text-destructive'
                           }`}
                         >
                           {isPositive ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
@@ -82,8 +82,8 @@ export function AssetPerformanceTable({ rows, showBalance }: AssetPerformanceTab
                         </span>
                       )}
                     </td>
-                    <td className="py-3 px-4 text-right tabular-nums text-gray-700 dark:text-gray-300 font-medium">
-                      {showBalance ? row.valueUsd : '****'} <span className="text-gray-500 text-xs">USD</span>
+                    <td className="py-3 px-4 text-right tabular-nums text-foreground/80 font-medium">
+                      {showBalance ? row.valueUsd : '****'} <span className="text-muted-foreground text-xs">USD</span>
                     </td>
                   </tr>
                 );

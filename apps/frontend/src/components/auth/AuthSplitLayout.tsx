@@ -14,9 +14,9 @@ export default function AuthSplitLayout({
   showCookieBanner?: boolean;
 }) {
   return (
-    <div className="min-h-screen flex bg-gray-50 dark:bg-[#0b0e11]">
+    <div className="min-h-screen flex bg-background">
       {/* Left - Brand panel with subtle grid pattern */}
-      <div className="hidden lg:flex lg:w-[48%] relative overflow-hidden bg-gradient-to-br from-gray-900 via-[#0f172a] to-blue-950/40 p-12 flex-col justify-between">
+      <div className="hidden lg:flex lg:w-[48%] relative overflow-hidden bg-gradient-to-br from-[#181A20] via-[#1E2329] to-[#2B3139] p-12 flex-col justify-between">
         {/* Subtle grid overlay */}
         <div className="absolute inset-0 opacity-[0.07]" style={{
           backgroundImage: `linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
@@ -24,14 +24,14 @@ export default function AuthSplitLayout({
           backgroundSize: '48px 48px',
         }} />
         <Link href={ROUTES.home} className="relative text-2xl font-bold text-white flex items-center gap-1.5 transition-opacity hover:opacity-90">
-          <span className="w-9 h-9 rounded-lg bg-blue-500 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-blue-500/30">M</span>
+          <span className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-bold text-sm shadow-lg shadow-primary/30">M</span>
           Methereum
         </Link>
         <div className="relative flex-1 flex flex-col justify-center">
           <h1 className="text-3xl xl:text-4xl font-semibold text-white leading-tight mb-3">
-            Trade crypto with <span className="text-blue-400">confidence</span>
+            Trade crypto with <span className="text-primary">confidence</span>
           </h1>
-          <p className="text-gray-400 text-lg mb-12 max-w-sm">
+          <p className="text-muted-foreground text-lg mb-12 max-w-sm">
             Secure spot trading and P2P — built for speed and reliability.
           </p>
           <div className="grid grid-cols-3 gap-6">
@@ -41,40 +41,40 @@ export default function AuthSplitLayout({
               { icon: Coins, label: 'Assets', value: '300+', sub: '10k+ daily orders' },
             ].map(({ icon: Icon, label, value, sub }) => (
               <div key={label} className="group">
-                <div className="w-11 h-11 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center mb-3 group-hover:bg-blue-500/20 group-hover:border-blue-500/30 transition-colors">
-                  <Icon className="w-5 h-5 text-blue-400" />
+                <div className="w-11 h-11 rounded-xl bg-card/5 border border-white/10 flex items-center justify-center mb-3 group-hover:bg-primary/20 group-hover:border-primary/30 transition-colors">
+                  <Icon className="w-5 h-5 text-primary" />
                 </div>
-                <p className="text-gray-500 text-xs font-medium uppercase tracking-wider mb-0.5">{label}</p>
+                <p className="text-muted-foreground text-xs font-medium uppercase tracking-wider mb-0.5">{label}</p>
                 <p className="text-2xl font-bold text-white">{value}</p>
-                <p className="text-gray-500 text-xs mt-0.5">{sub}</p>
+                <p className="text-muted-foreground text-xs mt-0.5">{sub}</p>
               </div>
             ))}
           </div>
         </div>
-        <p className="relative text-gray-500 text-xs">© 2018-2026 Methereum. All rights reserved.</p>
+        <p className="relative text-muted-foreground text-xs">© 2018-2026 Methereum. All rights reserved.</p>
       </div>
 
       {/* Right - Form area */}
-      <div className="flex-1 flex flex-col bg-white dark:bg-[#0b0e11] min-w-0">
+      <div className="flex-1 flex flex-col bg-card dark:bg-background min-w-0">
         <div className="flex items-center justify-between p-5 lg:p-6">
-          <Link href={ROUTES.home} className="text-xl font-bold text-gray-900 dark:text-white lg:hidden flex items-center gap-1.5">
-            <span className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center text-white font-bold text-sm">M</span>
+          <Link href={ROUTES.home} className="text-xl font-bold text-foreground lg:hidden flex items-center gap-1.5">
+            <span className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-white font-bold text-sm">M</span>
             Methereum
           </Link>
           <div className="ml-auto flex items-center gap-2">
             <ThemeToggle variant="icon" size="sm" />
           </div>
         </div>
-        <div className="flex-1 flex items-center justify-center p-5 lg:p-8">
-          <div className="w-full max-w-[400px]">{children}</div>
+          <div className="flex-1 flex items-center justify-center px-5 lg:px-8 py-6">
+          <div className="w-full max-w-[420px]">{children}</div>
         </div>
         {showCookieBanner && (
-          <div className="p-4 border-t border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-[#0b0e11]">
+          <div className="p-4 border-t border-border bg-gray-50/50 dark:bg-background">
             <div className="flex items-center justify-between max-w-4xl mx-auto gap-4 flex-wrap">
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                We use cookies. <Link href={ROUTES.cookies} className="text-blue-500 dark:text-blue-400 hover:underline">Cookie Policy</Link>
+              <p className="text-xs text-muted-foreground">
+                We use cookies. <Link href={ROUTES.cookies} className="text-primary hover:underline">Cookie Policy</Link>
               </p>
-              <button type="button" className="px-4 py-2 rounded-lg bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors">
+              <button type="button" className="px-4 py-2 rounded-lg bg-accent text-foreground/80 text-sm font-medium hover:bg-gray-300 dark:hover:bg-accent transition-colors">
                 Accept All
               </button>
             </div>

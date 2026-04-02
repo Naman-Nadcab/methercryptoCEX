@@ -61,10 +61,10 @@ function MiniStat({
       className={`flex min-w-0 max-w-full flex-col items-center justify-center gap-px px-1.5 py-0 sm:px-2 ${className}`}
       title={titleAttr}
     >
-      <span className="w-full truncate text-center text-[8px] font-semibold uppercase leading-none tracking-wide text-gray-500 dark:text-gray-500">
+      <span className="w-full truncate text-center text-[8px] font-semibold uppercase leading-none tracking-wide text-muted-foreground">
         {label}
       </span>
-      <div className="w-full min-w-0 truncate text-center font-mono text-[10px] font-semibold tabular-nums leading-none text-gray-900 dark:text-gray-100 sm:text-[11px]">
+      <div className="w-full min-w-0 truncate text-center font-mono text-[10px] font-semibold tabular-nums leading-none text-foreground sm:text-[11px]">
         {children}
       </div>
     </div>
@@ -153,19 +153,19 @@ export function PairHeader({
 
   const changeColor =
     changeTone === 'none'
-      ? 'text-gray-400 dark:text-gray-500'
+      ? 'text-muted-foreground'
       : changeTone === 'up'
         ? 'text-price-up'
         : changeTone === 'down'
           ? 'text-price-down'
-          : 'text-gray-500 dark:text-gray-400';
+          : 'text-muted-foreground';
 
   const lastColor =
     priceFlash === 'up'
       ? 'text-price-up'
       : priceFlash === 'down'
         ? 'text-price-down'
-        : 'text-gray-900 dark:text-white';
+        : 'text-foreground';
 
   const streamPhaseResolved: SpotWsStreamPhase | null =
     wsStreamPhase ?? (wsConnected === true ? 'live' : wsConnected === false ? 'reconnecting' : null);
@@ -176,7 +176,7 @@ export function PairHeader({
     phaseForBadge === 'live'
       ? 'bg-[hsl(var(--price-up))]'
       : phaseForBadge === 'disconnected'
-        ? 'bg-red-500'
+        ? 'bg-sell'
         : 'animate-pulse bg-amber-500';
   const streamLabel =
     phaseForBadge === 'live' ? 'Live' : phaseForBadge === 'disconnected' ? 'Off' : phaseForBadge === 'reconnecting' ? 'Sync' : '…';
@@ -195,16 +195,16 @@ export function PairHeader({
 
   return (
     <header
-      className={`flex h-11 min-h-11 shrink-0 border-b border-gray-200/90 bg-white dark:border-gray-800/90 dark:bg-[#181a20] ${
+      className={`flex h-11 min-h-11 shrink-0 border-b border-border/90 bg-card dark:border-border/90 dark:bg-card ${
         embedded ? 'rounded-t-lg' : ''
       }`}
     >
-      <div className="flex h-full shrink-0 items-center gap-1 border-r border-gray-200/80 bg-gray-50/40 px-1.5 dark:border-gray-700/80 dark:bg-white/[0.03] sm:gap-1.5 sm:px-2">
+      <div className="flex h-full shrink-0 items-center gap-1 border-r border-border/80 bg-muted/40 px-1.5 dark:border-border/80 dark:bg-card/[0.03] sm:gap-1.5 sm:px-2">
         {mkt.length > 1 ? (
           <select
             value={sym}
             onChange={(e) => onChange(e.target.value)}
-            className="h-7 max-w-[7.5rem] min-w-0 shrink cursor-pointer truncate rounded border border-gray-200/90 bg-white py-0 pl-1.5 pr-6 text-[11px] font-bold leading-7 text-gray-900 shadow-sm outline-none focus:ring-1 focus:ring-blue-500/30 dark:border-gray-600 dark:bg-gray-900/80 dark:text-white sm:max-w-[9.5rem] sm:text-xs"
+            className="h-7 max-w-[7.5rem] min-w-0 shrink cursor-pointer truncate rounded border border-border/90 bg-card py-0 pl-1.5 pr-6 text-[11px] font-bold leading-7 text-foreground shadow-sm outline-none focus:ring-1 focus:ring-primary/30 dark:border-border dark:bg-card/80 dark:text-foreground sm:max-w-[9.5rem] sm:text-xs"
           >
             {mkt.map((m) => (
               <option key={m.symbol} value={m.symbol}>
@@ -213,18 +213,18 @@ export function PairHeader({
             ))}
           </select>
         ) : (
-          <span className="max-w-[7.5rem] truncate text-[11px] font-bold leading-none tracking-tight text-gray-900 dark:text-white sm:max-w-[9.5rem] sm:text-xs">
+          <span className="max-w-[7.5rem] truncate text-[11px] font-bold leading-none tracking-tight text-foreground sm:max-w-[9.5rem] sm:text-xs">
             {pairLabel}
           </span>
         )}
-        <span className="inline-flex h-5 shrink-0 items-center rounded border border-gray-200/80 bg-white px-1 text-[8px] font-bold uppercase text-gray-600 dark:border-gray-600 dark:bg-gray-900/60 dark:text-gray-400">
+        <span className="inline-flex h-5 shrink-0 items-center rounded border border-border/80 bg-card px-1 text-[8px] font-bold uppercase text-muted-foreground dark:border-border dark:bg-card/60 dark:text-muted-foreground">
           Spot
         </span>
         {onToggleFavorite && sym && (
           <button
             type="button"
             onClick={() => onToggleFavorite(sym)}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-gray-400 hover:bg-gray-200/60 hover:text-amber-500 dark:hover:bg-gray-800 dark:hover:text-amber-400"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-amber-500 dark:hover:bg-accent dark:hover:text-amber-400"
             title={isFavorite?.(sym) ? 'Remove from favorites' : 'Add to favorites'}
             aria-label="Toggle favorite"
           >
@@ -241,7 +241,7 @@ export function PairHeader({
         )}
         {showStreamBadge && (
           <span
-            className="inline-flex h-5 shrink-0 items-center gap-1 rounded border border-gray-200/70 bg-white/80 px-1 text-[8px] font-bold uppercase text-gray-600 dark:border-gray-600 dark:bg-gray-900/40 dark:text-gray-400"
+            className="inline-flex h-5 shrink-0 items-center gap-1 rounded border border-border/70 bg-card/80 px-1 text-[8px] font-bold uppercase text-muted-foreground dark:border-border dark:bg-card/40 dark:text-muted-foreground"
             title={streamTitle}
           >
             <span className={`h-1 w-1 shrink-0 rounded-full ${streamDotClass}`} aria-hidden />
@@ -256,9 +256,9 @@ export function PairHeader({
       </div>
 
       {/* Content-sized columns, centered; dividers only between stats */}
-      <div className="flex min-w-0 flex-1 items-stretch justify-evenly divide-x divide-gray-200/70 px-0.5 dark:divide-gray-700/60 sm:px-1">
+      <div className="flex min-w-0 flex-1 items-stretch justify-evenly divide-x divide-gray-200/70 px-0.5 dark:divide-border/60 sm:px-1">
         <MiniStat label="Last" title={lastSub ?? TOOLTIP_LAST_PRICE}>
-          <span className={`font-bold ${hasLastTrade ? lastColor : 'text-gray-400 dark:text-gray-500'}`}>{lastDisplay}</span>
+          <span className={`font-bold ${hasLastTrade ? lastColor : 'text-muted-foreground'}`}>{lastDisplay}</span>
         </MiniStat>
         <MiniStat label="24h" title={officialChangePct != null ? TOOLTIP_24H_CHANGE : TOOLTIP_CHANGE_UNAVAILABLE}>
           <span className={`${changeColor} max-w-[4.5rem] truncate sm:max-w-none`}>
@@ -302,7 +302,7 @@ export function PairHeader({
         <MiniStat label="B/A" title={spreadTooltip} className="max-w-[min(100%,9.5rem)]">
           <div className="min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-center">
             <span className="text-price-up">{formatValueFixedTrim(bid, pricePrecision)}</span>
-            <span className="text-gray-400 dark:text-gray-500">/</span>
+            <span className="text-muted-foreground">/</span>
             <span className="text-price-down">{formatValueFixedTrim(ask, pricePrecision)}</span>
           </div>
         </MiniStat>

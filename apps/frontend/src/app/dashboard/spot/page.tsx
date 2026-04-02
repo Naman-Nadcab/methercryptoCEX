@@ -7,11 +7,11 @@ import { Skeleton } from '@/components/ui/Skeleton';
 function SpotPageSkeleton() {
   return (
     <div
-      className="flex h-screen w-full flex-col bg-gray-50 dark:bg-[#0b0e11]"
+      className="flex h-screen w-full flex-col bg-background"
       aria-busy="true"
       aria-label="Loading"
     >
-      <div className="flex h-12 shrink-0 items-center gap-3 border-b border-gray-200 px-4 dark:border-gray-800">
+      <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4 dark:border-border">
         <Skeleton className="h-8 w-28" />
         <Skeleton className="h-8 max-w-md flex-1" />
       </div>

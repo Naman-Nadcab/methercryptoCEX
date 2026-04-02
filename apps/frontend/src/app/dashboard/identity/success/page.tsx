@@ -18,11 +18,11 @@ export default function IdentityVerificationSuccessPage() {
   }, [router]);
 
   return (
-    <div className="min-h-screen bg-white dark:bg-gray-950 flex flex-col">
+    <div className="min-h-screen bg-card flex flex-col">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800">
-        <Link href="/dashboard" className="text-2xl font-bold text-gray-900 dark:text-white">
-          <span className="bg-blue-500 text-white px-2 py-1 rounded mr-1">M</span>
+      <header className="flex items-center justify-between px-6 py-4 border-b border-border">
+        <Link href="/dashboard" className="text-2xl font-bold text-foreground">
+          <span className="bg-primary text-primary-foreground px-2 py-1 rounded mr-1">M</span>
           Methereum
         </Link>
       </header>
@@ -38,33 +38,33 @@ export default function IdentityVerificationSuccessPage() {
           </div>
 
           {/* Success Message */}
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-3">
+          <h1 className="text-3xl font-bold text-foreground mb-3">
             Verification Successful!
           </h1>
-          <p className="text-gray-500 dark:text-gray-400 mb-8">
+          <p className="text-muted-foreground mb-8">
             Your identity has been verified. You now have full access to all platform features.
           </p>
 
           {/* Benefits */}
-          <div className="bg-gray-50 dark:bg-gray-900 rounded-xl p-6 mb-8 text-left">
-            <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-              <Gift className="w-5 h-5 text-blue-500" />
+          <div className="bg-muted rounded-xl p-6 mb-8 text-left">
+            <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2">
+              <Gift className="w-5 h-5 text-primary" />
               Your Rewards
             </h3>
             <ul className="space-y-3">
-              <li className="flex items-center gap-3 text-gray-600 dark:text-gray-400">
+              <li className="flex items-center gap-3 text-muted-foreground">
                 <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
-                  <span className="text-blue-600">💰</span>
+                  <span className="text-primary">💰</span>
                 </div>
                 <span>$20 USDT bonus credited to your account</span>
               </li>
-              <li className="flex items-center gap-3 text-gray-600 dark:text-gray-400">
+              <li className="flex items-center gap-3 text-muted-foreground">
                 <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
-                  <Shield className="w-4 h-4 text-blue-600" />
+                  <Shield className="w-4 h-4 text-primary" />
                 </div>
                 <span>Increased withdrawal limits</span>
               </li>
-              <li className="flex items-center gap-3 text-gray-600 dark:text-gray-400">
+              <li className="flex items-center gap-3 text-muted-foreground">
                 <div className="w-8 h-8 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center">
                   <Check className="w-4 h-4 text-green-600" />
                 </div>
@@ -77,27 +77,27 @@ export default function IdentityVerificationSuccessPage() {
           <div className="space-y-3">
             <Link
               href="/wallet/deposit/crypto"
-              className="w-full py-3 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+              className="w-full py-3 bg-primary hover:bg-primary/85 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
             >
               Make a Deposit
               <ArrowRight className="w-4 h-4" />
             </Link>
             <Link
               href="/dashboard"
-              className="w-full py-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-900 dark:text-white font-medium rounded-xl transition-colors block"
+              className="w-full py-3 bg-accent hover:bg-accent text-foreground font-medium rounded-xl transition-colors block"
             >
               Go to Dashboard
             </Link>
           </div>
 
-          <p className="mt-6 text-sm text-gray-400">
+          <p className="mt-6 text-sm text-muted-foreground">
             Redirecting to dashboard in 5 seconds...
           </p>
         </div>
       </main>
 
       {/* Footer */}
-      <footer className="py-6 text-center text-sm text-gray-500 dark:text-gray-400">
+      <footer className="py-6 text-center text-sm text-muted-foreground">
         <p>© 2018-2026 Methereum.com. All rights reserved.</p>
       </footer>
     </div>

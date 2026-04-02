@@ -13,7 +13,7 @@ export default function TradeRedirectPage() {
   }, [router]);
   return (
     <div className="min-h-[40vh] flex items-center justify-center">
-      <p className="text-gray-500 dark:text-gray-400">Redirecting to Spot…</p>
+      <p className="text-muted-foreground">Redirecting to Spot…</p>
     </div>
   );
 }

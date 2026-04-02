@@ -115,19 +115,19 @@ export function P2PPaymentInstructions({ details, displayName }: Props) {
     copyKey: string;
     mono?: boolean;
   }) => (
-    <div className="flex flex-col gap-1 border-b border-gray-100 py-2 last:border-b-0 dark:border-gray-800">
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+    <div className="flex flex-col gap-1 border-b border-border py-2 last:border-b-0 dark:border-border">
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
       </span>
       <div className="flex items-start justify-between gap-2">
-        <span className={`min-w-0 flex-1 break-all text-sm text-gray-900 dark:text-gray-100 ${mono ? 'font-mono' : ''}`}>
+        <span className={`min-w-0 flex-1 break-all text-sm text-foreground ${mono ? 'font-mono' : ''}`}>
           {value || '—'}
         </span>
         {value ? (
           <button
             type="button"
             onClick={() => copy(copyKey, value)}
-            className="shrink-0 rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-gray-800 dark:hover:text-white"
+            className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground dark:hover:bg-accent dark:hover:text-white"
             title="Copy"
           >
             {copied === copyKey ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
@@ -151,13 +151,13 @@ export function P2PPaymentInstructions({ details, displayName }: Props) {
       </div>
 
       <div>
-        <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-white">Send payment to</h3>
+        <h3 className="mb-3 text-sm font-semibold text-foreground">Send payment to</h3>
         {displayName ? (
-          <p className="mb-2 text-xs text-gray-600 dark:text-gray-400">
-            Method label: <span className="font-medium text-gray-900 dark:text-gray-200">{displayName}</span>
+          <p className="mb-2 text-xs text-muted-foreground">
+            Method label: <span className="font-medium text-foreground dark:text-gray-200">{displayName}</span>
           </p>
         ) : null}
-        <div className="rounded-lg border border-gray-200 bg-white px-3 dark:border-gray-700 dark:bg-[#1e2329]">
+        <div className="rounded-lg border border-border bg-card px-3 dark:border-border dark:bg-card">
           <Row label="Account name" value={accountName} copyKey="account_name" mono={false} />
           <Row label="Bank / institution" value={bankName} copyKey="bank" mono={false} />
           <Row label="Account number / UPI" value={accountNumber} copyKey="account" />
@@ -167,13 +167,13 @@ export function P2PPaymentInstructions({ details, displayName }: Props) {
       </div>
 
       {extras.length > 0 ? (
-        <div className="rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-2 dark:border-gray-700 dark:bg-gray-900/40">
-          <p className="mb-2 text-[10px] font-semibold uppercase text-gray-500">Additional details</p>
+        <div className="rounded-lg border border-border bg-background/80 px-3 py-2 dark:border-border dark:bg-card/40">
+          <p className="mb-2 text-[10px] font-semibold uppercase text-muted-foreground">Additional details</p>
           <dl className="space-y-1 text-xs">
             {extras.map(([k, v]) => (
               <div key={k} className="flex justify-between gap-2">
-                <dt className="shrink-0 text-gray-500">{formatKeyLabel(k)}</dt>
-                <dd className="min-w-0 break-all font-mono text-gray-800 dark:text-gray-200">{String(v)}</dd>
+                <dt className="shrink-0 text-muted-foreground">{formatKeyLabel(k)}</dt>
+                <dd className="min-w-0 break-all font-mono text-foreground dark:text-gray-200">{String(v)}</dd>
               </div>
             ))}
           </dl>

@@ -91,53 +91,53 @@ export default function MyReferralsPage() {
       <div className="max-w-5xl mx-auto px-4 lg:px-8 py-6">
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-sm mb-6">
-          <Link href="/dashboard/referral" className="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white">
+          <Link href="/dashboard/referral" className="text-muted-foreground hover:text-foreground dark:hover:text-white">
             Referral Program
           </Link>
-          <span className="text-gray-400 dark:text-gray-600">{'\u003e'}</span>
-          <span className="text-blue-500 dark:text-blue-400">My Referrals</span>
+          <span className="text-muted-foreground dark:text-muted-foreground">{'\u003e'}</span>
+          <span className="text-primary">My Referrals</span>
         </div>
 
         {/* Overview */}
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Overview</h2>
+        <h2 className="text-xl font-semibold text-foreground mb-4">Overview</h2>
         
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+            <Loader2 className="w-8 h-8 text-primary animate-spin" />
           </div>
         ) : fetchError ? (
           <div className="rounded-xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 p-4 mb-6">
             <p className="text-amber-800 dark:text-amber-200">{fetchError}</p>
-            <button onClick={() => window.location.reload()} className="mt-2 text-sm text-blue-600 dark:text-blue-400 hover:underline">Retry</button>
+            <button onClick={() => window.location.reload()} className="mt-2 text-sm text-primary hover:underline">Retry</button>
           </div>
         ) : (
         <div>
         {/* Overview Card */}
-        <div className="bg-white dark:bg-[#181a20] rounded-xl p-5 mb-6 border border-gray-200 dark:border-transparent">
+        <div className="bg-card rounded-xl p-5 mb-6 border border-border dark:border-transparent">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <div className="flex items-center gap-1 text-gray-500 dark:text-gray-400 text-sm mb-2">
+              <div className="flex items-center gap-1 text-muted-foreground text-sm mb-2">
                 <span>Total Commissions</span>
                 <Info className="w-4 h-4" />
               </div>
-              <p className="text-3xl font-bold text-gray-900 dark:text-white">{Number.isFinite(totalEarnings) ? totalEarnings.toFixed(2) : '0.00'} <span className="text-sm text-gray-500 dark:text-gray-400">USDT</span></p>
+              <p className="text-3xl font-bold text-foreground">{Number.isFinite(totalEarnings) ? totalEarnings.toFixed(2) : '0.00'} <span className="text-sm text-muted-foreground">USDT</span></p>
             </div>
             <div className="flex items-center gap-8 mt-4 lg:mt-0">
               <div className="text-center">
-                <p className="text-gray-500 dark:text-gray-400 text-sm mb-1">Sign Up</p>
-                <p className="text-gray-900 dark:text-white font-semibold">{referrals.length}</p>
+                <p className="text-muted-foreground text-sm mb-1">Sign Up</p>
+                <p className="text-foreground font-semibold">{referrals.length}</p>
               </div>
               <div className="text-center">
-                <p className="text-gray-500 dark:text-gray-400 text-sm mb-1">Fiat Deposit</p>
-                <p className="text-gray-900 dark:text-white font-semibold">—</p>
+                <p className="text-muted-foreground text-sm mb-1">Fiat Deposit</p>
+                <p className="text-foreground font-semibold">—</p>
               </div>
               <div className="text-center">
-                <p className="text-gray-500 dark:text-gray-400 text-sm mb-1">Card</p>
-                <p className="text-gray-900 dark:text-white font-semibold">—</p>
+                <p className="text-muted-foreground text-sm mb-1">Card</p>
+                <p className="text-foreground font-semibold">—</p>
               </div>
               <div className="text-center">
-                <p className="text-gray-500 dark:text-gray-400 text-sm mb-1">Earn</p>
-                <p className="text-gray-900 dark:text-white font-semibold">—</p>
+                <p className="text-muted-foreground text-sm mb-1">Earn</p>
+                <p className="text-foreground font-semibold">—</p>
               </div>
             </div>
           </div>
@@ -151,8 +151,8 @@ export default function MyReferralsPage() {
               onClick={() => setSignupTab(tab.id)}
               className={`text-sm font-medium pb-2 border-b-2 transition-colors ${
                 signupTab === tab.id
-                  ? 'text-gray-900 dark:text-white border-blue-500'
-                  : 'text-gray-500 dark:text-gray-400 border-transparent hover:text-gray-700 dark:hover:text-gray-300'
+                  ? 'text-foreground border-blue-500'
+                  : 'text-muted-foreground border-transparent hover:text-foreground/80 dark:hover:text-gray-300'
               }`}
             >
               {tab.label}
@@ -164,25 +164,25 @@ export default function MyReferralsPage() {
         {signupTab === 'signups' && (
           <>
             {/* Commission Rate Card */}
-            <div className="bg-white dark:bg-[#181a20] rounded-xl p-5 mb-4 border border-gray-200 dark:border-transparent">
+            <div className="bg-card rounded-xl p-5 mb-4 border border-border dark:border-transparent">
               <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <div className="flex items-center gap-1 text-gray-500 dark:text-gray-400 text-sm mb-2">
+                  <div className="flex items-center gap-1 text-muted-foreground text-sm mb-2">
                     <span>My Commission Rate</span>
                     <Info className="w-4 h-4" />
                   </div>
-                  <p className="text-3xl font-bold text-blue-500 dark:text-blue-400">{Math.round(commissionRate)}%</p>
-                  <div className="flex items-center gap-1 text-gray-500 dark:text-gray-400 text-sm mt-3">
+                  <p className="text-3xl font-bold text-primary">{Math.round(commissionRate)}%</p>
+                  <div className="flex items-center gap-1 text-muted-foreground text-sm mt-3">
                     <span>Total Commission</span>
                     <Info className="w-4 h-4" />
                   </div>
-                  <p className="text-xl font-semibold text-gray-900 dark:text-white">{Number.isFinite(totalEarnings) ? totalEarnings.toFixed(2) : '0.00'} <span className="text-sm text-gray-500 dark:text-gray-400">USDT</span></p>
+                  <p className="text-xl font-semibold text-foreground">{Number.isFinite(totalEarnings) ? totalEarnings.toFixed(2) : '0.00'} <span className="text-sm text-muted-foreground">USDT</span></p>
                 </div>
                 <div className="mt-4 lg:mt-0">
-                  <p className="text-gray-500 dark:text-gray-400 text-sm mb-2">Withdrawable Balance</p>
+                  <p className="text-muted-foreground text-sm mb-2">Withdrawable Balance</p>
                   <div className="flex items-center gap-3">
-                    <p className="text-xl font-semibold text-gray-900 dark:text-white">{Number.isFinite(totalEarnings) ? totalEarnings.toFixed(2) : '0.00'} <span className="text-sm text-gray-500 dark:text-gray-400">USDT</span></p>
-                    <button className="px-4 py-1.5 bg-transparent border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-white text-sm rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                    <p className="text-xl font-semibold text-foreground">{Number.isFinite(totalEarnings) ? totalEarnings.toFixed(2) : '0.00'} <span className="text-sm text-muted-foreground">USDT</span></p>
+                    <button className="px-4 py-1.5 bg-transparent border border-border dark:border-gray-600 text-foreground/80 dark:text-foreground text-sm rounded-lg hover:bg-accent transition-colors">
                       Withdraw
                     </button>
                   </div>
@@ -193,21 +193,21 @@ export default function MyReferralsPage() {
             {/* Bonus Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
               {/* Total Bonus */}
-              <div className="bg-white dark:bg-[#181a20] rounded-xl p-5 flex items-center justify-between border border-gray-200 dark:border-transparent">
+              <div className="bg-card rounded-xl p-5 flex items-center justify-between border border-border dark:border-transparent">
                 <div>
-                  <p className="text-gray-500 dark:text-gray-400 text-sm mb-2">Total Bonus</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{Number.isFinite(totalEarnings) ? totalEarnings.toFixed(2) : '0.00'} <span className="text-sm text-gray-500 dark:text-gray-400">USDT</span></p>
+                  <p className="text-muted-foreground text-sm mb-2">Total Bonus</p>
+                  <p className="text-2xl font-bold text-foreground">{Number.isFinite(totalEarnings) ? totalEarnings.toFixed(2) : '0.00'} <span className="text-sm text-muted-foreground">USDT</span></p>
                 </div>
                 <div className="text-4xl">🎁</div>
               </div>
 
               {/* Mystery Box */}
-              <div className="bg-white dark:bg-[#181a20] rounded-xl p-5 flex items-center justify-between border border-gray-200 dark:border-transparent">
+              <div className="bg-card rounded-xl p-5 flex items-center justify-between border border-border dark:border-transparent">
                 <div>
-                  <p className="text-gray-500 dark:text-gray-400 text-sm mb-2">Mystery Box</p>
+                  <p className="text-muted-foreground text-sm mb-2">Mystery Box</p>
                   <div className="flex items-center gap-2">
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">0</p>
-                    <span className="px-2 py-1 bg-blue-500/20 text-blue-500 dark:text-blue-400 text-xs rounded">Earned rewards</span>
+                    <p className="text-2xl font-bold text-foreground">0</p>
+                    <span className="px-2 py-1 bg-blue-500/20 text-primary text-xs rounded">Earned rewards</span>
                   </div>
                 </div>
                 <div className="text-4xl">📦</div>
@@ -215,7 +215,7 @@ export default function MyReferralsPage() {
             </div>
 
             {/* Rewards History */}
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Rewards History</h2>
+            <h2 className="text-xl font-semibold text-foreground mb-4">Rewards History</h2>
             
             {/* History Tabs */}
             <div className="flex flex-wrap gap-2 mb-4">
@@ -225,8 +225,8 @@ export default function MyReferralsPage() {
                   onClick={() => setHistoryTab(tab.id)}
                   className={`px-4 py-2 text-sm rounded-lg transition-colors ${
                     historyTab === tab.id
-                      ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white'
-                      : 'bg-gray-100 dark:bg-[#181a20] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white'
+                      ? 'bg-accent text-foreground'
+                      : 'bg-accent dark:bg-card text-muted-foreground hover:text-foreground/80 dark:hover:text-white'
                   }`}
                 >
                   {tab.label}
@@ -235,15 +235,15 @@ export default function MyReferralsPage() {
             </div>
 
             {/* Spot Tabs */}
-            <div className="flex flex-wrap gap-4 mb-4 border-b border-gray-200 dark:border-gray-800 pb-2">
+            <div className="flex flex-wrap gap-4 mb-4 border-b border-border pb-2">
               {spotTabs.map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setSpotTab(tab.id)}
                   className={`text-sm pb-2 transition-colors ${
                     spotTab === tab.id
-                      ? 'text-gray-900 dark:text-white border-b-2 border-gray-900 dark:border-white -mb-[10px]'
-                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                      ? 'text-foreground border-b-2 border-gray-900 dark:border-white -mb-[10px]'
+                      : 'text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'
                   }`}
                 >
                   {tab.label}
@@ -253,21 +253,21 @@ export default function MyReferralsPage() {
 
             {/* Date Range Filter */}
             <div className="flex items-center gap-2 mb-6">
-              <div className="flex items-center bg-gray-100 dark:bg-[#181a20] rounded-lg px-3 py-2 text-sm text-gray-600 dark:text-gray-300">
+              <div className="flex items-center bg-accent dark:bg-card rounded-lg px-3 py-2 text-sm text-muted-foreground">
                 <span>2026-01-01</span>
-                <span className="mx-2 text-gray-400 dark:text-gray-500">~</span>
+                <span className="mx-2 text-muted-foreground">~</span>
                 <span>2026-01-30</span>
-                <Calendar className="w-4 h-4 ml-2 text-gray-400" />
+                <Calendar className="w-4 h-4 ml-2 text-muted-foreground" />
               </div>
             </div>
 
             {/* Empty State */}
             <div className="flex flex-col items-center justify-center py-12">
               <div className="w-16 h-16 mb-4 text-5xl">📄</div>
-              <p className="text-gray-500 dark:text-gray-400 mb-4">No records found.</p>
+              <p className="text-muted-foreground mb-4">No records found.</p>
               <Link 
                 href="/dashboard/referral"
-                className="px-6 py-2 border border-blue-500 text-blue-500 dark:text-blue-400 rounded-full hover:bg-blue-500/10 transition-colors"
+                className="px-6 py-2 border border-blue-500 text-primary rounded-full hover:bg-blue-500/10 transition-colors"
               >
                 Invite Friends
               </Link>
@@ -279,41 +279,41 @@ export default function MyReferralsPage() {
         {signupTab === 'fiat' && (
           <>
             {/* Fiat Stats Card */}
-            <div className="bg-white dark:bg-[#181a20] rounded-xl p-5 mb-8 border border-gray-200 dark:border-transparent">
+            <div className="bg-card rounded-xl p-5 mb-8 border border-border dark:border-transparent">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div>
-                  <p className="text-gray-500 dark:text-gray-400 text-sm mb-2">Total Rewards</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">0 <span className="text-sm text-gray-500 dark:text-gray-400">USDT</span></p>
+                  <p className="text-muted-foreground text-sm mb-2">Total Rewards</p>
+                  <p className="text-2xl font-bold text-foreground">0 <span className="text-sm text-muted-foreground">USDT</span></p>
                 </div>
                 <div>
-                  <div className="flex items-center gap-1 text-gray-500 dark:text-gray-400 text-sm mb-2">
+                  <div className="flex items-center gap-1 text-muted-foreground text-sm mb-2">
                     <span>Tasks Completed by Friends</span>
                     <Info className="w-4 h-4" />
                   </div>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">0</p>
+                  <p className="text-2xl font-bold text-foreground">0</p>
                 </div>
                 <div>
-                  <div className="flex items-center gap-1 text-gray-500 dark:text-gray-400 text-sm mb-2">
+                  <div className="flex items-center gap-1 text-muted-foreground text-sm mb-2">
                     <span>Tasks Claimed by Friends</span>
                     <Info className="w-4 h-4" />
                   </div>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">0</p>
+                  <p className="text-2xl font-bold text-foreground">0</p>
                 </div>
               </div>
             </div>
 
             {/* Rewards History */}
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Rewards History</h2>
+            <h2 className="text-xl font-semibold text-foreground mb-4">Rewards History</h2>
 
             {/* Empty State */}
             <div className="flex flex-col items-center justify-center py-16">
               <div className="w-20 h-20 mb-4 flex items-center justify-center">
                 <div className="text-6xl">📋</div>
               </div>
-              <p className="text-gray-500 dark:text-gray-400 mb-4">No records found.</p>
+              <p className="text-muted-foreground mb-4">No records found.</p>
               <Link 
                 href="/dashboard/referral"
-                className="px-6 py-2 border border-blue-500 text-blue-500 dark:text-blue-400 rounded-full hover:bg-blue-500/10 transition-colors"
+                className="px-6 py-2 border border-blue-500 text-primary rounded-full hover:bg-blue-500/10 transition-colors"
               >
                 Invite Friends
               </Link>
@@ -325,15 +325,15 @@ export default function MyReferralsPage() {
         {signupTab === 'card' && (
           <>
             {/* Card Stats */}
-            <div className="bg-white dark:bg-[#181a20] rounded-xl p-5 mb-8 border border-gray-200 dark:border-transparent">
+            <div className="bg-card rounded-xl p-5 mb-8 border border-border dark:border-transparent">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <p className="text-gray-500 dark:text-gray-400 text-sm mb-2">Commissions</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">0 <span className="text-sm text-gray-500 dark:text-gray-400">USDT</span></p>
+                  <p className="text-muted-foreground text-sm mb-2">Commissions</p>
+                  <p className="text-2xl font-bold text-foreground">0 <span className="text-sm text-muted-foreground">USDT</span></p>
                 </div>
                 <div>
-                  <p className="text-gray-500 dark:text-gray-400 text-sm mb-2">Total Applications</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">0</p>
+                  <p className="text-muted-foreground text-sm mb-2">Total Applications</p>
+                  <p className="text-2xl font-bold text-foreground">0</p>
                 </div>
               </div>
             </div>
@@ -343,10 +343,10 @@ export default function MyReferralsPage() {
               <div className="w-20 h-20 mb-4 flex items-center justify-center">
                 <div className="text-6xl">📋</div>
               </div>
-              <p className="text-gray-500 dark:text-gray-400 mb-4">No records found.</p>
+              <p className="text-muted-foreground mb-4">No records found.</p>
               <Link 
                 href="/dashboard/referral"
-                className="px-6 py-2 border border-blue-500 text-blue-500 dark:text-blue-400 rounded-full hover:bg-blue-500/10 transition-colors"
+                className="px-6 py-2 border border-blue-500 text-primary rounded-full hover:bg-blue-500/10 transition-colors"
               >
                 Invite Friends
               </Link>
@@ -358,34 +358,34 @@ export default function MyReferralsPage() {
         {signupTab === 'earn' && (
           <>
             {/* Earn Stats Card */}
-            <div className="bg-white dark:bg-[#181a20] rounded-xl p-5 mb-8 border border-gray-200 dark:border-transparent">
+            <div className="bg-card rounded-xl p-5 mb-8 border border-border dark:border-transparent">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <p className="text-gray-500 dark:text-gray-400 text-sm mb-2">Total Rewards</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">0 <span className="text-sm text-gray-500 dark:text-gray-400">USDT</span></p>
+                  <p className="text-muted-foreground text-sm mb-2">Total Rewards</p>
+                  <p className="text-2xl font-bold text-foreground">0 <span className="text-sm text-muted-foreground">USDT</span></p>
                 </div>
                 <div>
-                  <div className="flex items-center gap-1 text-gray-500 dark:text-gray-400 text-sm mb-2">
+                  <div className="flex items-center gap-1 text-muted-foreground text-sm mb-2">
                     <span>Tasks Completed by Friends</span>
                     <Info className="w-4 h-4" />
                   </div>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">0</p>
+                  <p className="text-2xl font-bold text-foreground">0</p>
                 </div>
               </div>
             </div>
 
             {/* Rewards History */}
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">Rewards History</h2>
+            <h2 className="text-xl font-semibold text-foreground mb-4">Rewards History</h2>
 
             {/* Empty State */}
             <div className="flex flex-col items-center justify-center py-16">
               <div className="w-20 h-20 mb-4 flex items-center justify-center">
                 <div className="text-6xl">📋</div>
               </div>
-              <p className="text-gray-500 dark:text-gray-400 mb-4">No records found.</p>
+              <p className="text-muted-foreground mb-4">No records found.</p>
               <Link 
                 href="/dashboard/referral"
-                className="px-6 py-2 border border-blue-500 text-blue-500 dark:text-blue-400 rounded-full hover:bg-blue-500/10 transition-colors"
+                className="px-6 py-2 border border-blue-500 text-primary rounded-full hover:bg-blue-500/10 transition-colors"
               >
                 Invite Friends
               </Link>
@@ -394,48 +394,48 @@ export default function MyReferralsPage() {
         )}
 
         {/* Referral History */}
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4 mt-8">Referral History</h2>
+        <h2 className="text-xl font-semibold text-foreground mb-4 mt-8">Referral History</h2>
         
         {/* Stats Card */}
-        <div className="bg-white dark:bg-[#181a20] rounded-xl p-5 mb-4 border border-gray-200 dark:border-transparent">
+        <div className="bg-card rounded-xl p-5 mb-4 border border-border dark:border-transparent">
           <div className="flex items-center gap-12">
             <div>
-              <p className="text-gray-500 dark:text-gray-400 text-sm mb-2">Total Friends</p>
-              <p className="text-3xl font-bold text-gray-900 dark:text-white">{referrals.length}</p>
+              <p className="text-muted-foreground text-sm mb-2">Total Friends</p>
+              <p className="text-3xl font-bold text-foreground">{referrals.length}</p>
             </div>
             <div>
-              <div className="flex items-center gap-1 text-gray-500 dark:text-gray-400 text-sm mb-2">
+              <div className="flex items-center gap-1 text-muted-foreground text-sm mb-2">
                 <span>Qualified Friends</span>
                 <Info className="w-4 h-4" />
               </div>
-              <p className="text-3xl font-bold text-gray-900 dark:text-white">{qualifiedCount}</p>
+              <p className="text-3xl font-bold text-foreground">{qualifiedCount}</p>
             </div>
           </div>
         </div>
 
         {/* Referrals table or empty */}
         {referrals.length > 0 ? (
-          <div className="bg-white dark:bg-[#181a20] rounded-xl border border-gray-200 dark:border-transparent overflow-hidden mb-8">
+          <div className="bg-card rounded-xl border border-border dark:border-transparent overflow-hidden mb-8">
             <table className="w-full">
               <thead>
-                <tr className="border-b border-gray-200 dark:border-gray-700">
-                  <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Email</th>
-                  <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Username</th>
-                  <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
-                  <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Commission earned</th>
-                  <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Joined</th>
+                <tr className="border-b border-border">
+                  <th className="text-left px-6 py-3 text-xs font-medium text-muted-foreground uppercase">Email</th>
+                  <th className="text-left px-6 py-3 text-xs font-medium text-muted-foreground uppercase">Username</th>
+                  <th className="text-left px-6 py-3 text-xs font-medium text-muted-foreground uppercase">Status</th>
+                  <th className="text-left px-6 py-3 text-xs font-medium text-muted-foreground uppercase">Commission earned</th>
+                  <th className="text-left px-6 py-3 text-xs font-medium text-muted-foreground uppercase">Joined</th>
                 </tr>
               </thead>
               <tbody>
                 {referrals.map((r, i) => (
-                  <tr key={i} className="border-b border-gray-100 dark:border-gray-700/50">
-                    <td className="px-6 py-3 text-gray-900 dark:text-white">{r.email}</td>
-                    <td className="px-6 py-3 text-gray-500 dark:text-gray-400">{r.username || '—'}</td>
+                  <tr key={i} className="border-b border-border/50">
+                    <td className="px-6 py-3 text-foreground">{r.email}</td>
+                    <td className="px-6 py-3 text-muted-foreground">{r.username || '—'}</td>
                     <td className="px-6 py-3">
                       <span className={`text-xs px-2 py-1 rounded ${r.status === 'active' ? 'bg-green-500/20 text-green-500' : 'bg-amber-500/20 text-amber-500'}`}>{r.status}</span>
                     </td>
-                    <td className="px-6 py-3 text-green-600 dark:text-green-400">${(Number(r.total_commission_earned) || 0).toFixed(2)}</td>
-                    <td className="px-6 py-3 text-gray-500 text-sm">{new Date(r.created_at).toLocaleDateString()}</td>
+                    <td className="px-6 py-3 text-buy">${(Number(r.total_commission_earned) || 0).toFixed(2)}</td>
+                    <td className="px-6 py-3 text-muted-foreground text-sm">{new Date(r.created_at).toLocaleDateString()}</td>
                   </tr>
                 ))}
               </tbody>
@@ -444,30 +444,30 @@ export default function MyReferralsPage() {
         ) : (
           <div className="flex flex-col items-center justify-center py-12">
             <div className="w-16 h-16 mb-4 text-5xl">📄</div>
-            <p className="text-gray-500 dark:text-gray-400 mb-4">No referrals yet.</p>
-            <Link href="/dashboard/referral" className="px-6 py-2 border border-blue-500 text-blue-500 dark:text-blue-400 rounded-full hover:bg-blue-500/10 transition-colors">Invite Friends</Link>
+            <p className="text-muted-foreground mb-4">No referrals yet.</p>
+            <Link href="/dashboard/referral" className="px-6 py-2 border border-blue-500 text-primary rounded-full hover:bg-blue-500/10 transition-colors">Invite Friends</Link>
           </div>
         )}
 
         {/* Commission History (when tab is commission) */}
         {historyTab === 'commission' && recentCommissions.length > 0 && (
           <div className="mt-6">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Recent commission history</h3>
-            <div className="bg-white dark:bg-[#181a20] rounded-xl border border-gray-200 dark:border-transparent overflow-hidden">
+            <h3 className="text-lg font-semibold text-foreground mb-3">Recent commission history</h3>
+            <div className="bg-card rounded-xl border border-border dark:border-transparent overflow-hidden">
               <table className="w-full">
                 <thead>
-                  <tr className="border-b border-gray-200 dark:border-gray-700">
-                    <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Source</th>
-                    <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Amount</th>
-                    <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Date</th>
+                  <tr className="border-b border-border">
+                    <th className="text-left px-6 py-3 text-xs font-medium text-muted-foreground uppercase">Source</th>
+                    <th className="text-left px-6 py-3 text-xs font-medium text-muted-foreground uppercase">Amount</th>
+                    <th className="text-left px-6 py-3 text-xs font-medium text-muted-foreground uppercase">Date</th>
                   </tr>
                 </thead>
                 <tbody>
                   {recentCommissions.map((c, i) => (
-                    <tr key={i} className="border-b border-gray-100 dark:border-gray-700/50">
-                      <td className="px-6 py-3 text-gray-900 dark:text-white">{c.source_type}</td>
-                      <td className="px-6 py-3 text-green-600 dark:text-green-400">{c.commission_amount} {c.commission_currency}</td>
-                      <td className="px-6 py-3 text-gray-500 text-sm">{new Date(c.created_at).toLocaleString()}</td>
+                    <tr key={i} className="border-b border-border/50">
+                      <td className="px-6 py-3 text-foreground">{c.source_type}</td>
+                      <td className="px-6 py-3 text-buy">{c.commission_amount} {c.commission_currency}</td>
+                      <td className="px-6 py-3 text-muted-foreground text-sm">{new Date(c.created_at).toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -480,29 +480,29 @@ export default function MyReferralsPage() {
       </div>
 
       {/* Help Button */}
-      <button className="fixed bottom-6 right-6 w-12 h-12 bg-blue-500 hover:bg-blue-600 text-white rounded-full shadow-lg flex items-center justify-center transition-colors z-40">
+      <button className="fixed bottom-6 right-6 w-12 h-12 bg-primary hover:bg-primary/85 text-white rounded-full shadow-lg flex items-center justify-center transition-colors z-40">
         <HelpCircle className="w-6 h-6" />
       </button>
 
       {/* Footer */}
-      <footer className="bg-white dark:bg-[#0b0e11] border-t border-gray-200 dark:border-gray-800 py-12 px-4 lg:px-8 mt-8">
+      <footer className="bg-card dark:bg-background border-t border-border py-12 px-4 lg:px-8 mt-8">
         <div className="max-w-5xl mx-auto">
           <div className="grid grid-cols-2 md:grid-cols-5 gap-8 mb-8">
             {/* Logo and Social */}
             <div className="col-span-2 md:col-span-1">
               <div className="flex items-center gap-2 mb-4">
-                <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
+                <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
                   <span className="text-white font-bold">M</span>
                 </div>
-                <span className="text-xl font-bold text-gray-900 dark:text-white">Methereum</span>
+                <span className="text-xl font-bold text-foreground">Methereum</span>
               </div>
               <div className="flex flex-wrap gap-2">
                 {['f', 'x', 'ig', 'yt', 'in', 'tg', 'tk', 'rd', 'dc'].map((social, i) => (
                   <div
                     key={i}
-                    className="w-8 h-8 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700"
+                    className="w-8 h-8 bg-accent rounded-full flex items-center justify-center cursor-pointer hover:bg-accent"
                   >
-                    <span className="text-xs text-gray-500 dark:text-gray-400">●</span>
+                    <span className="text-xs text-muted-foreground">●</span>
                   </div>
                 ))}
               </div>
@@ -510,70 +510,70 @@ export default function MyReferralsPage() {
 
             {/* About */}
             <div>
-              <h4 className="font-semibold mb-3 text-gray-900 dark:text-white">About</h4>
-              <ul className="space-y-2 text-sm text-gray-500 dark:text-gray-400">
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">About Methereum</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Meet Mantle</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Press Room</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Communities</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Announcements</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Risk Disclosure</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Whistleblower Channel</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Careers</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Islamic Account</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Fees & Transactions Overview</li>
+              <h4 className="font-semibold mb-3 text-foreground">About</h4>
+              <ul className="space-y-2 text-sm text-muted-foreground">
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">About Methereum</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Meet Mantle</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Press Room</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Communities</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Announcements</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Risk Disclosure</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Whistleblower Channel</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Careers</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Islamic Account</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Fees & Transactions Overview</li>
               </ul>
             </div>
 
             {/* Services */}
             <div>
-              <h4 className="font-semibold mb-3 text-gray-900 dark:text-white">Services</h4>
-              <ul className="space-y-2 text-sm text-gray-500 dark:text-gray-400">
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">One-Click Buy</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">P2P Trading (0 Fees)</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">VIP Program</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Referral Program</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Institutional Services</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Listing Application</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Tax API</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Audit</li>
+              <h4 className="font-semibold mb-3 text-foreground">Services</h4>
+              <ul className="space-y-2 text-sm text-muted-foreground">
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">One-Click Buy</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">P2P Trading (0 Fees)</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">VIP Program</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Referral Program</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Institutional Services</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Listing Application</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Tax API</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Audit</li>
               </ul>
             </div>
 
             {/* Support */}
             <div>
-              <h4 className="font-semibold mb-3 text-gray-900 dark:text-white">Support</h4>
-              <ul className="space-y-2 text-sm text-gray-500 dark:text-gray-400">
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Submit a Request</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Help Center</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Support Hub</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">User Feedback</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Methereum Learn</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Trading Fee</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">API</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Authenticity Check</li>
+              <h4 className="font-semibold mb-3 text-foreground">Support</h4>
+              <ul className="space-y-2 text-sm text-muted-foreground">
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Submit a Request</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Help Center</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Support Hub</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">User Feedback</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Methereum Learn</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Trading Fee</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">API</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Authenticity Check</li>
               </ul>
             </div>
 
             {/* Products */}
             <div>
-              <h4 className="font-semibold mb-3 text-gray-900 dark:text-white">Products</h4>
-              <ul className="space-y-2 text-sm text-gray-500 dark:text-gray-400">
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Trade</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">P2P</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Earn</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Launchpad</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">Methereum Card</li>
-                <li className="hover:text-gray-900 dark:hover:text-white cursor-pointer">TradingView</li>
+              <h4 className="font-semibold mb-3 text-foreground">Products</h4>
+              <ul className="space-y-2 text-sm text-muted-foreground">
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Trade</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">P2P</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Earn</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Launchpad</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Methereum Card</li>
+                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">TradingView</li>
               </ul>
             </div>
           </div>
 
           {/* Copyright */}
-          <div className="pt-6 border-t border-gray-200 dark:border-gray-800 flex flex-wrap items-center justify-center gap-4 text-sm text-gray-500">
+          <div className="pt-6 border-t border-border flex flex-wrap items-center justify-center gap-4 text-sm text-muted-foreground">
             <span>© 2018-2026 Methereum.com. All rights reserved.</span>
-            <Link href="/terms" className="hover:text-gray-900 dark:hover:text-white">Terms of Service</Link>
-            <Link href="/privacy" className="hover:text-gray-900 dark:hover:text-white">Privacy Terms</Link>
+            <Link href="/terms" className="hover:text-foreground dark:hover:text-white">Terms of Service</Link>
+            <Link href="/privacy" className="hover:text-foreground dark:hover:text-white">Privacy Terms</Link>
           </div>
         </div>
       </footer>

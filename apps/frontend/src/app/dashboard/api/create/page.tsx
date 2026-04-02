@@ -120,24 +120,24 @@ function CreateApiKeyContent() {
   if (showSuccess && createdKey) {
     return (
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-        <div className="bg-white dark:bg-[#1e2329] rounded-2xl w-full max-w-lg shadow-2xl">
+        <div className="bg-card rounded-xl w-full max-w-lg shadow-2xl">
           <div className="p-8 text-center">
             <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
               <Check className="w-10 h-10 text-green-500" />
             </div>
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">API Key Created!</h2>
-            <p className="text-gray-500 dark:text-gray-400 mb-6">Save your credentials now. The secret will not be shown again.</p>
+            <h2 className="text-2xl font-bold text-foreground mb-2">API Key Created!</h2>
+            <p className="text-muted-foreground mb-6">Save your credentials now. The secret will not be shown again.</p>
             
             <div className="space-y-4 text-left">
-              <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">API Key</label>
+              <div className="p-4 bg-muted rounded-xl">
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">API Key</label>
                 <div className="flex items-center gap-2 mt-2">
-                  <code className="flex-1 text-sm font-mono text-gray-900 dark:text-white break-all">{createdKey.apiKey}</code>
+                  <code className="flex-1 text-sm font-mono text-foreground break-all">{createdKey.apiKey}</code>
                   <button
                     onClick={() => copyToClipboard(createdKey.apiKey, 'apiKey')}
-                    className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                    className="p-2 hover:bg-accent rounded-lg transition-colors"
                   >
-                    {copiedKey === 'apiKey' ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4 text-gray-400" />}
+                    {copiedKey === 'apiKey' ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4 text-muted-foreground" />}
                   </button>
                 </div>
               </div>
@@ -149,7 +149,7 @@ function CreateApiKeyContent() {
                     <label className="text-xs font-medium text-yellow-700 dark:text-yellow-500 uppercase tracking-wider">API Secret (Save Now!)</label>
                   </div>
                   <div className="flex items-center gap-2">
-                    <code className="flex-1 text-sm font-mono text-gray-900 dark:text-white break-all">{createdKey.apiSecret}</code>
+                    <code className="flex-1 text-sm font-mono text-foreground break-all">{createdKey.apiSecret}</code>
                     <button
                       onClick={() => copyToClipboard(createdKey.apiSecret!, 'apiSecret')}
                       className="p-2 hover:bg-yellow-200 dark:hover:bg-yellow-800 rounded-lg transition-colors"
@@ -163,7 +163,7 @@ function CreateApiKeyContent() {
 
             <button
               onClick={() => router.push('/dashboard/api')}
-              className="w-full mt-6 px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-xl transition-colors"
+              className="w-full mt-6 px-6 py-3 bg-primary hover:bg-primary/85 text-white font-semibold rounded-xl transition-colors"
             >
               Done
             </button>
@@ -185,24 +185,24 @@ function CreateApiKeyContent() {
       className={`w-full p-4 rounded-xl border-2 text-left transition-all ${
         checked 
           ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
-          : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+          : 'border-border hover:border-border dark:hover:border-gray-600'
       }`}
     >
       <div className="flex items-start gap-3">
         <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
-          checked ? 'border-blue-500' : 'border-gray-300 dark:border-gray-600'
+          checked ? 'border-blue-500' : 'border-border dark:border-gray-600'
         }`}>
-          {checked && <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />}
+          {checked && <div className="w-2.5 h-2.5 rounded-full bg-primary" />}
         </div>
         <div className="flex-1">
           <div className="flex items-center gap-2">
-            <span className={`font-medium ${checked ? 'text-blue-700 dark:text-blue-400' : 'text-gray-900 dark:text-white'}`}>{label}</span>
+            <span className={`font-medium ${checked ? 'text-blue-700 dark:text-blue-400' : 'text-foreground'}`}>{label}</span>
             {recommended && (
-              <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-xs font-medium rounded">Recommended</span>
+              <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-primary text-xs font-medium rounded">Recommended</span>
             )}
           </div>
           {description && (
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{description}</p>
+            <p className="text-sm text-muted-foreground mt-1">{description}</p>
           )}
         </div>
       </div>
@@ -216,42 +216,42 @@ function CreateApiKeyContent() {
     description?: string;
     disabled?: boolean;
   }) => (
-    <label className={`flex items-start gap-3 cursor-pointer py-3 px-4 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
+    <label className={`flex items-start gap-3 cursor-pointer py-3 px-4 rounded-lg hover:bg-accent/50 transition-colors ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
       <div
         onClick={() => !disabled && onChange()}
         className={`w-5 h-5 rounded-md flex items-center justify-center border-2 transition-colors flex-shrink-0 mt-0.5 ${
-          checked ? 'bg-blue-500 border-blue-500' : 'border-gray-300 dark:border-gray-600'
+          checked ? 'bg-primary border-blue-500' : 'border-border dark:border-gray-600'
         }`}
       >
         {checked && <Check className="w-3 h-3 text-white" />}
       </div>
       <div className="flex-1 min-w-0">
-        <span className="text-sm font-medium text-gray-900 dark:text-white">{label}</span>
+        <span className="text-sm font-medium text-foreground">{label}</span>
         {description && (
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{description}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
         )}
       </div>
     </label>
   );
 
   return (
-    <div className="p-4 lg:p-8 bg-gray-50 dark:bg-[#0b0e11] min-h-full">
+    <div className="p-4 lg:p-8 bg-background min-h-full">
       <div className="max-w-4xl mx-auto">
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-sm mb-6">
           <button 
             onClick={() => router.push('/dashboard/api')}
-            className="text-gray-500 dark:text-gray-400 hover:text-blue-500 transition-colors"
+            className="text-muted-foreground hover:text-primary transition-colors"
           >
             API
           </button>
-          <ChevronRight className="w-4 h-4 text-gray-400" />
-          <span className="text-gray-900 dark:text-white font-medium">Create New Key</span>
+          <ChevronRight className="w-4 h-4 text-muted-foreground" />
+          <span className="text-foreground font-medium">Create New Key</span>
         </div>
 
         {/* Header */}
         <div className="flex items-center gap-4 mb-8">
-          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg ${
+          <div className={`w-14 h-14 rounded-xl flex items-center justify-center shadow-lg ${
             keyType === 'system' 
               ? 'bg-gradient-to-br from-blue-500 to-blue-600 shadow-blue-500/25' 
               : 'bg-gradient-to-br from-purple-500 to-purple-600 shadow-purple-500/25'
@@ -259,10 +259,10 @@ function CreateApiKeyContent() {
             {keyType === 'system' ? <Key className="w-7 h-7 text-white" /> : <Shield className="w-7 h-7 text-white" />}
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+            <h1 className="text-2xl font-bold text-foreground">
               {keyType === 'system' ? 'System-generated API Key' : 'Self-generated API Key'}
             </h1>
-            <p className="text-gray-500 dark:text-gray-400">
+            <p className="text-muted-foreground">
               {keyType === 'system' ? 'HMAC Encryption' : 'RSA Encryption'} • Configure your API permissions
             </p>
           </div>
@@ -270,8 +270,8 @@ function CreateApiKeyContent() {
 
         <div className="space-y-6">
           {/* API Key Usage */}
-          <div className="bg-white dark:bg-[#181a20] rounded-2xl p-6 border border-gray-100 dark:border-gray-800">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">API Key Usage</h2>
+          <div className="bg-card rounded-xl p-6 border border-border">
+            <h2 className="text-lg font-semibold text-foreground mb-4">API Key Usage</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <RadioCard
                 checked={apiKeyUsage === 'transaction'}
@@ -291,8 +291,8 @@ function CreateApiKeyContent() {
 
           {/* Public Key (Self-generated only) */}
           {keyType === 'self' && (
-            <div className="bg-white dark:bg-[#181a20] rounded-2xl p-6 border border-gray-100 dark:border-gray-800">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Your Public Key *</h2>
+            <div className="bg-card rounded-xl p-6 border border-border">
+              <h2 className="text-lg font-semibold text-foreground mb-4">Your Public Key *</h2>
               <textarea
                 value={publicKey}
                 onChange={e => setPublicKey(e.target.value)}
@@ -300,9 +300,9 @@ function CreateApiKeyContent() {
 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
 -----END PUBLIC KEY-----"
                 rows={5}
-                className="w-full px-4 py-3 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 resize-none font-mono text-sm"
+                className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-foreground placeholder:text-muted-foreground outline-none focus:border-blue-500 focus:ring-2 focus:ring-primary/20 resize-none font-mono text-sm"
               />
-              <button className="mt-3 text-blue-500 hover:text-blue-600 text-sm font-medium flex items-center gap-1">
+              <button className="mt-3 text-primary hover:text-primary/85 text-sm font-medium flex items-center gap-1">
                 <Info className="w-4 h-4" />
                 How to create RSA public and private keys →
               </button>
@@ -310,13 +310,13 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
           )}
 
           {/* Key Name & Permissions */}
-          <div className="bg-white dark:bg-[#181a20] rounded-2xl p-6 border border-gray-100 dark:border-gray-800">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Key Configuration</h2>
+          <div className="bg-card rounded-xl p-6 border border-border">
+            <h2 className="text-lg font-semibold text-foreground mb-4">Key Configuration</h2>
             
             <div className="space-y-6">
               {/* Name */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label className="block text-sm font-medium text-foreground/80 mb-2">
                   Key Name *
                 </label>
                 <input
@@ -324,13 +324,13 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
                   value={name}
                   onChange={e => setName(e.target.value)}
                   placeholder="e.g., Trading Bot, Portfolio Tracker"
-                  className="w-full px-4 py-3 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                  className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-foreground placeholder:text-muted-foreground outline-none focus:border-blue-500 focus:ring-2 focus:ring-primary/20"
                 />
               </div>
 
               {/* Permission Level */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                <label className="block text-sm font-medium text-foreground/80 mb-3">
                   Permission Level
                 </label>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -353,8 +353,8 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
           </div>
 
           {/* IP Security */}
-          <div className="bg-white dark:bg-[#181a20] rounded-2xl p-6 border border-gray-100 dark:border-gray-800">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">IP Security</h2>
+          <div className="bg-card rounded-xl p-6 border border-border">
+            <h2 className="text-lg font-semibold text-foreground mb-4">IP Security</h2>
             
             <div className="space-y-4">
               <RadioCard
@@ -373,7 +373,7 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
 
               {ipRestriction === 'ip_only' && (
                 <div className="mt-4 pl-8">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <label className="block text-sm font-medium text-foreground/80 mb-2">
                     IP Addresses (comma separated)
                   </label>
                   <textarea
@@ -381,25 +381,25 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
                     onChange={e => setIpAddresses(e.target.value)}
                     placeholder="192.168.1.1, 10.0.0.1, 203.0.113.50"
                     rows={3}
-                    className="w-full px-4 py-3 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 resize-none font-mono text-sm"
+                    className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-foreground placeholder:text-muted-foreground outline-none focus:border-blue-500 focus:ring-2 focus:ring-primary/20 resize-none font-mono text-sm"
                   />
-                  <p className="text-xs text-gray-500 mt-2">Up to 100 IP addresses allowed</p>
+                  <p className="text-xs text-muted-foreground mt-2">Up to 100 IP addresses allowed</p>
                 </div>
               )}
             </div>
           </div>
 
           {/* API Permissions */}
-          <div className="bg-white dark:bg-[#181a20] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">API Permissions</h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Select which features this key can access</p>
+          <div className="bg-card rounded-xl border border-border overflow-hidden">
+            <div className="px-6 py-4 border-b border-border">
+              <h2 className="text-lg font-semibold text-foreground">API Permissions</h2>
+              <p className="text-sm text-muted-foreground">Select which features this key can access</p>
             </div>
 
             {/* Trading */}
-            <div className="border-b border-gray-100 dark:border-gray-800">
-              <div className="px-6 py-3 bg-gray-50 dark:bg-[#1e2329]">
-                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Trading</h3>
+            <div className="border-b border-border">
+              <div className="px-6 py-3 bg-muted">
+                <h3 className="text-sm font-semibold text-foreground/80 uppercase tracking-wider">Trading</h3>
               </div>
               <div className="p-2">
                 <PermissionCheckbox
@@ -408,7 +408,7 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
                   label="Unified Trading"
                   description="Access unified trading account features"
                 />
-                <div className="ml-8 border-l-2 border-gray-100 dark:border-gray-800 pl-4">
+                <div className="ml-8 border-l-2 border-border pl-4">
                   <PermissionCheckbox
                     checked={permissions.spotTrade}
                     onChange={() => togglePermission('spotTrade')}
@@ -420,9 +420,9 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
             </div>
 
             {/* Earn */}
-            <div className="border-b border-gray-100 dark:border-gray-800">
-              <div className="px-6 py-3 bg-gray-50 dark:bg-[#1e2329]">
-                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Earn</h3>
+            <div className="border-b border-border">
+              <div className="px-6 py-3 bg-muted">
+                <h3 className="text-sm font-semibold text-foreground/80 uppercase tracking-wider">Earn</h3>
               </div>
               <div className="p-2">
                 <PermissionCheckbox
@@ -431,7 +431,7 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
                   label="Earn Products"
                   description="Access savings and staking features"
                 />
-                <div className="ml-8 border-l-2 border-gray-100 dark:border-gray-800 pl-4">
+                <div className="ml-8 border-l-2 border-border pl-4">
                   <PermissionCheckbox
                     checked={permissions.earnFlexibleSavings}
                     onChange={() => togglePermission('earnFlexibleSavings')}
@@ -443,9 +443,9 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
             </div>
 
             {/* Fiat */}
-            <div className="border-b border-gray-100 dark:border-gray-800">
-              <div className="px-6 py-3 bg-gray-50 dark:bg-[#1e2329]">
-                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Fiat Trading</h3>
+            <div className="border-b border-border">
+              <div className="px-6 py-3 bg-muted">
+                <h3 className="text-sm font-semibold text-foreground/80 uppercase tracking-wider">Fiat Trading</h3>
               </div>
               <div className="p-2">
                 <PermissionCheckbox
@@ -454,7 +454,7 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
                   label="Fiat Trading"
                   description="P2P and fiat conversion access"
                 />
-                <div className="ml-8 border-l-2 border-gray-100 dark:border-gray-800 pl-4">
+                <div className="ml-8 border-l-2 border-border pl-4">
                   <PermissionCheckbox
                     checked={permissions.p2pOrders}
                     onChange={() => togglePermission('p2pOrders')}
@@ -485,8 +485,8 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
 
             {/* Assets */}
             <div>
-              <div className="px-6 py-3 bg-gray-50 dark:bg-[#1e2329]">
-                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Assets</h3>
+              <div className="px-6 py-3 bg-muted">
+                <h3 className="text-sm font-semibold text-foreground/80 uppercase tracking-wider">Assets</h3>
               </div>
               <div className="p-2">
                 <PermissionCheckbox
@@ -495,7 +495,7 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
                   label="Asset Management"
                   description="Wallet and exchange access"
                 />
-                <div className="ml-8 border-l-2 border-gray-100 dark:border-gray-800 pl-4">
+                <div className="ml-8 border-l-2 border-border pl-4">
                   <PermissionCheckbox
                     checked={permissions.walletAccountTransfer}
                     onChange={() => togglePermission('walletAccountTransfer')}
@@ -510,10 +510,10 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
                   />
                   <div className="py-3 px-4 rounded-lg opacity-50">
                     <div className="flex items-start gap-3">
-                      <div className="w-5 h-5 rounded-md border-2 border-gray-300 dark:border-gray-600 flex-shrink-0 mt-0.5" />
+                      <div className="w-5 h-5 rounded-md border-2 border-border dark:border-gray-600 flex-shrink-0 mt-0.5" />
                       <div>
-                        <span className="text-sm font-medium text-gray-500">Withdrawal</span>
-                        <p className="text-xs text-gray-400 mt-0.5">Not available for read-only keys</p>
+                        <span className="text-sm font-medium text-muted-foreground">Withdrawal</span>
+                        <p className="text-xs text-muted-foreground mt-0.5">Not available for read-only keys</p>
                       </div>
                     </div>
                   </div>
@@ -545,7 +545,7 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
             <button
               onClick={handleSubmit}
               disabled={submitting}
-              className="px-8 py-4 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white font-semibold rounded-xl transition-all shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 flex items-center gap-2"
+              className="px-8 py-4 bg-primary hover:bg-primary/85 disabled:bg-blue-300 text-white font-semibold rounded-xl transition-all shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 flex items-center gap-2"
             >
               {submitting ? (
                 <>
@@ -561,7 +561,7 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
             </button>
             <button
               onClick={() => router.push('/dashboard/api')}
-              className="px-8 py-4 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white font-medium transition-colors"
+              className="px-8 py-4 text-muted-foreground hover:text-foreground dark:hover:text-white font-medium transition-colors"
             >
               Cancel
             </button>
@@ -575,10 +575,10 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
 export default function CreateApiKeyPage() {
   return (
     <Suspense fallback={
-      <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-[#0b0e11]">
+      <div className="flex items-center justify-center min-h-screen bg-background">
         <div className="text-center">
-          <Loader2 className="w-10 h-10 animate-spin text-blue-500 mx-auto mb-4" />
-          <p className="text-gray-500">Loading...</p>
+          <Loader2 className="w-10 h-10 animate-spin text-primary mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading...</p>
         </div>
       </div>
     }>

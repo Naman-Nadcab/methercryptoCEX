@@ -14,7 +14,7 @@ export default function TradeShellLayout({ children }: { children: React.ReactNo
   return (
     <RequireAuth>
       <SessionManager redirectPath="/login" />
-      <div className="min-h-screen bg-gray-50 dark:bg-[#0b0e11]">
+      <div className="min-h-screen bg-background">
         <main
           id="main-content"
           tabIndex={-1}

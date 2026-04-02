@@ -74,16 +74,16 @@ export default function DataExportPage() {
           e.stopPropagation();
           onToggle();
         }}
-        className="w-full max-w-xs px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl text-left flex items-center justify-between hover:border-blue-500 transition-colors"
+        className="w-full max-w-xs px-4 py-3.5 bg-muted border border-border rounded-xl text-left flex items-center justify-between hover:border-blue-500 transition-colors"
       >
-        <span className={value ? 'text-gray-900 dark:text-white font-medium' : 'text-gray-400'}>
+        <span className={value ? 'text-foreground font-medium' : 'text-muted-foreground'}>
           {value ? options.find(o => o.value === value)?.label : 'Please select'}
         </span>
-        <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`w-5 h-5 text-muted-foreground transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
       
       {isOpen && (
-        <div className="absolute top-full left-0 right-0 max-w-xs mt-2 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-20 overflow-hidden">
+        <div className="absolute top-full left-0 right-0 max-w-xs mt-2 bg-card border border-border rounded-xl shadow-xl z-20 overflow-hidden">
           {options.map((option) => (
             <button
               key={option.value}
@@ -91,12 +91,12 @@ export default function DataExportPage() {
                 e.stopPropagation();
                 onSelect(option.value);
               }}
-              className={`w-full px-4 py-3 text-left flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${
+              className={`w-full px-4 py-3 text-left flex items-center justify-between hover:bg-accent transition-colors ${
                 value === option.value ? 'bg-blue-50 dark:bg-blue-900/20' : ''
               }`}
             >
-              <span className="font-medium text-gray-900 dark:text-white">{option.label}</span>
-              {value === option.value && <Check className="w-5 h-5 text-blue-500" />}
+              <span className="font-medium text-foreground">{option.label}</span>
+              {value === option.value && <Check className="w-5 h-5 text-primary" />}
             </button>
           ))}
         </div>
@@ -115,25 +115,25 @@ export default function DataExportPage() {
       className={`flex-1 p-4 rounded-xl border-2 text-left transition-all ${
         checked 
           ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
-          : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+          : 'border-border hover:border-border dark:hover:border-gray-600'
       }`}
     >
       <div className="flex items-center gap-3">
         <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-          checked ? 'border-blue-500' : 'border-gray-300 dark:border-gray-600'
+          checked ? 'border-blue-500' : 'border-border dark:border-gray-600'
         }`}>
-          {checked && <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />}
+          {checked && <div className="w-2.5 h-2.5 rounded-full bg-primary" />}
         </div>
         <div>
-          <span className={`font-medium ${checked ? 'text-blue-700 dark:text-blue-400' : 'text-gray-900 dark:text-white'}`}>{label}</span>
-          {description && <p className="text-xs text-gray-500 mt-0.5">{description}</p>}
+          <span className={`font-medium ${checked ? 'text-blue-700 dark:text-blue-400' : 'text-foreground'}`}>{label}</span>
+          {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
         </div>
       </div>
     </button>
   );
 
   return (
-    <div className="p-4 lg:p-8 bg-gray-50 dark:bg-[#0b0e11] min-h-full" onClick={(e) => {
+    <div className="p-4 lg:p-8 bg-background min-h-full" onClick={(e) => {
       const target = e.target as HTMLElement;
       if (!target.closest('.dropdown-container')) {
         setAccountDropdownOpen(false);
@@ -144,12 +144,12 @@ export default function DataExportPage() {
       <div className="max-w-5xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Data Export</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-2">Export your transaction history, orders, and account statements</p>
+          <h1 className="text-3xl font-bold text-foreground">Data Export</h1>
+          <p className="text-muted-foreground mt-2">Export your transaction history, orders, and account statements</p>
         </div>
 
         {/* Tabs */}
-        <div className="flex items-center gap-2 mb-8 p-1.5 bg-white dark:bg-[#181a20] rounded-2xl border border-gray-100 dark:border-gray-800 w-fit">
+        <div className="flex items-center gap-2 mb-8 p-1.5 bg-card rounded-xl border border-border w-fit">
           {tabs.map(tab => {
             const Icon = tab.icon;
             return (
@@ -158,8 +158,8 @@ export default function DataExportPage() {
                 onClick={() => setActiveTab(tab.id)}
                 className={`flex items-center gap-2 px-5 py-3 rounded-xl font-medium text-sm transition-all ${
                   activeTab === tab.id
-                    ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25'
-                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800'
+                    ? 'bg-primary text-primary-foreground shadow-lg shadow-blue-500/25'
+                    : 'text-muted-foreground hover:text-foreground dark:hover:text-white hover:bg-accent'
                 }`}
               >
                 <Icon className="w-4 h-4" />
@@ -170,14 +170,14 @@ export default function DataExportPage() {
         </div>
 
         {/* Create Export Section */}
-        <div className="bg-white dark:bg-[#181a20] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden mb-6">
-          <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center gap-3">
+        <div className="bg-card rounded-xl border border-border overflow-hidden mb-6">
+          <div className="px-6 py-4 border-b border-border flex items-center gap-3">
             <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center">
-              <Download className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+              <Download className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Create Export</h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Generate a new data export file</p>
+              <h2 className="text-lg font-semibold text-foreground">Create Export</h2>
+              <p className="text-sm text-muted-foreground">Generate a new data export file</p>
             </div>
           </div>
 
@@ -185,8 +185,8 @@ export default function DataExportPage() {
             {/* Info Box */}
             <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/50 rounded-xl mb-6">
               <div className="flex items-start gap-3">
-                <Info className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
-                <div className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
+                <Info className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
+                <div className="text-sm text-muted-foreground space-y-1">
                   {activeTab === 'account' ? (
                     <>
                       <p>Generate and download statements from your Funding and Unified Trading Accounts.</p>
@@ -205,7 +205,7 @@ export default function DataExportPage() {
             <div className="space-y-6">
               {/* Account Selection */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Account</label>
+                <label className="block text-sm font-medium text-foreground/80 mb-3">Account</label>
                 <Dropdown
                   label="Account"
                   value={account}
@@ -228,7 +228,7 @@ export default function DataExportPage() {
                 <>
                   {/* Statement Type Radio */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Statement Period</label>
+                    <label className="block text-sm font-medium text-foreground/80 mb-3">Statement Period</label>
                     <div className="flex gap-4 max-w-lg">
                       <RadioCard
                         checked={statementType === 'monthly'}
@@ -245,7 +245,7 @@ export default function DataExportPage() {
 
                   {/* Type Dropdown */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Type</label>
+                    <label className="block text-sm font-medium text-foreground/80 mb-3">Type</label>
                     <Dropdown
                       label="Type"
                       value={statementTypeDropdown}
@@ -270,7 +270,7 @@ export default function DataExportPage() {
                 <>
                   {/* Type */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Type</label>
+                    <label className="block text-sm font-medium text-foreground/80 mb-3">Type</label>
                     <Dropdown
                       label="Type"
                       value={exportType}
@@ -290,7 +290,7 @@ export default function DataExportPage() {
 
                   {/* Time Range */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Time Range (UTC)</label>
+                    <label className="block text-sm font-medium text-foreground/80 mb-3">Time Range (UTC)</label>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 max-w-xl">
                       {[
                         { value: '7days', label: 'Last 7 Days' },
@@ -303,8 +303,8 @@ export default function DataExportPage() {
                           onClick={() => setTimeRange(option.value as TimeRangeType)}
                           className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
                             timeRange === option.value
-                              ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25'
-                              : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+                              ? 'bg-primary text-primary-foreground shadow-lg shadow-blue-500/25'
+                              : 'bg-accent text-foreground/80 hover:bg-accent'
                           }`}
                         >
                           {option.label}
@@ -320,16 +320,16 @@ export default function DataExportPage() {
                             type="date"
                             value={startDate}
                             onChange={(e) => setStartDate(e.target.value)}
-                            className="w-full px-4 py-3 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white outline-none focus:border-blue-500"
+                            className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-foreground outline-none focus:border-blue-500"
                           />
                         </div>
-                        <span className="text-gray-400">→</span>
+                        <span className="text-muted-foreground">→</span>
                         <div className="relative flex-1">
                           <input
                             type="date"
                             value={endDate}
                             onChange={(e) => setEndDate(e.target.value)}
-                            className="w-full px-4 py-3 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white outline-none focus:border-blue-500"
+                            className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-foreground outline-none focus:border-blue-500"
                           />
                         </div>
                       </div>
@@ -338,28 +338,28 @@ export default function DataExportPage() {
 
                   {/* Format Options */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Options</label>
+                    <label className="block text-sm font-medium text-foreground/80 mb-3">Options</label>
                     <label className="flex items-center gap-3 cursor-pointer">
                       <div
                         onClick={() => setIncludeLegalName(!includeLegalName)}
                         className={`w-5 h-5 rounded-md flex items-center justify-center border-2 transition-all ${
-                          includeLegalName ? 'bg-blue-500 border-blue-500' : 'border-gray-300 dark:border-gray-600'
+                          includeLegalName ? 'bg-primary border-blue-500' : 'border-border dark:border-gray-600'
                         }`}
                       >
                         {includeLegalName && <Check className="w-3 h-3 text-white" />}
                       </div>
-                      <span className="text-sm text-gray-700 dark:text-gray-300">Include Legal Name in export</span>
+                      <span className="text-sm text-foreground/80">Include Legal Name in export</span>
                     </label>
                   </div>
                 </>
               )}
 
               {/* Export Button */}
-              <div className="pt-4 border-t border-gray-100 dark:border-gray-800 flex items-center gap-4">
+              <div className="pt-4 border-t border-border flex items-center gap-4">
                 <button
                   onClick={handleExport}
                   disabled={exporting}
-                  className="px-8 py-3.5 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white font-semibold rounded-xl transition-all shadow-lg shadow-blue-500/25 flex items-center gap-2"
+                  className="px-8 py-3.5 bg-primary hover:bg-primary/85 disabled:bg-blue-300 text-white font-semibold rounded-xl transition-all shadow-lg shadow-blue-500/25 flex items-center gap-2"
                 >
                   {exporting ? (
                     <>
@@ -373,9 +373,9 @@ export default function DataExportPage() {
                     </>
                   )}
                 </button>
-                <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Clock className="w-4 h-4" />
-                  <span><span className="font-semibold text-blue-500">50</span> exports remaining this month</span>
+                  <span><span className="font-semibold text-primary">50</span> exports remaining this month</span>
                 </div>
               </div>
             </div>
@@ -383,18 +383,18 @@ export default function DataExportPage() {
         </div>
 
         {/* My Exports Section */}
-        <div className="bg-white dark:bg-[#181a20] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+        <div className="bg-card rounded-xl border border-border overflow-hidden">
+          <div className="px-6 py-4 border-b border-border flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-xl flex items-center justify-center">
-                <History className="w-5 h-5 text-green-600 dark:text-green-400" />
+                <History className="w-5 h-5 text-buy" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">My Exports</h2>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Download your previously generated exports</p>
+                <h2 className="text-lg font-semibold text-foreground">My Exports</h2>
+                <p className="text-sm text-muted-foreground">Download your previously generated exports</p>
               </div>
             </div>
-            <button className="text-sm text-blue-500 hover:text-blue-600 font-medium">
+            <button className="text-sm text-primary hover:text-primary/85 font-medium">
               How to Extract Content →
             </button>
           </div>
@@ -403,12 +403,12 @@ export default function DataExportPage() {
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="bg-gray-50 dark:bg-[#1e2329]">
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Statement</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Date Range</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Submitted</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Action</th>
+                <tr className="bg-muted">
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Statement</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Date Range</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Submitted</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Action</th>
                 </tr>
               </thead>
               <tbody></tbody>
@@ -418,7 +418,7 @@ export default function DataExportPage() {
           {/* Empty State */}
           <div className="py-20">
             <div className="flex flex-col items-center justify-center">
-              <div className="w-24 h-24 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mb-6">
+              <div className="w-24 h-24 bg-accent rounded-full flex items-center justify-center mb-6">
                 <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
                   <rect x="8" y="6" width="32" height="36" rx="4" className="fill-gray-200 dark:fill-gray-700"/>
                   <rect x="14" y="14" width="20" height="3" rx="1.5" className="fill-gray-300 dark:fill-gray-600"/>
@@ -428,8 +428,8 @@ export default function DataExportPage() {
                   <path d="M32 36l3 3 5-5" className="stroke-blue-500" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">No Exports Yet</h3>
-              <p className="text-gray-500 dark:text-gray-400 text-center max-w-md">
+              <h3 className="text-lg font-semibold text-foreground mb-2">No Exports Yet</h3>
+              <p className="text-muted-foreground text-center max-w-md">
                 Create your first export to download your transaction history, orders, or account statements.
               </p>
             </div>

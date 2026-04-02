@@ -389,27 +389,27 @@ export default function ConvertPage() {
           {/* Header */}
           <div className="flex items-center justify-between mb-8">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Convert</h1>
-              <p className="text-sm text-gray-500 mt-1">Zero fees | Real-time swap | Multi-asset support</p>
+              <h1 className="text-2xl font-bold text-foreground">Convert</h1>
+              <p className="text-sm text-muted-foreground mt-1">Zero fees | Real-time swap | Multi-asset support</p>
             </div>
             <div className="flex items-center gap-3">
               <button
                 onClick={() => { setShowHistory(true); fetchHistory(); }}
-                className="flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-[#1e2026] text-gray-700 dark:text-gray-300 font-medium text-sm rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
+                className="flex items-center gap-2 px-4 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-lg border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
               >
                 <History className="w-4 h-4" />
                 History
               </button>
               <Link
                 href="/wallet/deposit/crypto"
-                className="flex items-center gap-2 px-5 py-2.5 bg-blue-500 hover:bg-blue-600 text-white font-medium text-sm rounded-lg shadow-lg shadow-blue-500/25 transition-all hover:shadow-blue-500/40"
+                className="flex items-center gap-2 px-5 py-2.5 bg-primary hover:bg-primary/85 text-white font-medium text-sm rounded-lg shadow-lg shadow-blue-500/25 transition-all hover:shadow-blue-500/40"
               >
                 <Download className="w-4 h-4" />
                 Deposit
               </Link>
               <Link
                 href="/wallet/transfer"
-                className="flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-[#1e2026] text-gray-700 dark:text-gray-300 font-medium text-sm rounded-lg border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 transition-colors"
+                className="flex items-center gap-2 px-4 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-lg border border-border hover:border-border dark:hover:border-gray-600 transition-colors"
               >
                 <ArrowLeftRight className="w-4 h-4" />
                 Transfer
@@ -421,12 +421,12 @@ export default function ConvertPage() {
             {/* Left Side - Market Highlights / Chart */}
             <div>
               {activeTab === 'instant' ? (
-                <div className="bg-white dark:bg-[#1e2026] rounded-lg p-6 border border-gray-200 dark:border-gray-700">
-                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">Market highlights</h2>
+                <div className="bg-card rounded-lg p-6 border border-border">
+                  <h2 className="text-lg font-semibold text-foreground mb-6">Market highlights</h2>
                   
                   <div className="grid grid-cols-2 gap-8">
                     <div>
-                      <p className="text-sm text-gray-500 mb-4">Trending</p>
+                      <p className="text-sm text-muted-foreground mb-4">Trending</p>
                       <div className="space-y-3">
                         {trendingPrices.map((item, index) => (
                           <div key={index} className="flex items-center justify-between">
@@ -434,11 +434,11 @@ export default function ConvertPage() {
                               {item.base_logo && (
                                 <Image src={item.base_logo} alt={item.base_symbol} width={20} height={20} className="rounded-full" unoptimized />
                               )}
-                              <span className="text-sm font-medium text-gray-900 dark:text-white">
+                              <span className="text-sm font-medium text-foreground">
                                 {item.base_symbol}{item.quote_symbol}
                               </span>
                             </div>
-                            <span className="text-sm text-gray-600 dark:text-gray-400">
+                            <span className="text-sm text-muted-foreground">
                               {parseFloat(item.price).toLocaleString()}
                             </span>
                             <span className={`text-sm ${parseFloat(item.change_24h_percent) >= 0 ? 'text-green-500' : 'text-red-500'}`}>
@@ -450,7 +450,7 @@ export default function ConvertPage() {
                     </div>
 
                     <div>
-                      <p className="text-sm text-gray-500 mb-4">Newly listed</p>
+                      <p className="text-sm text-muted-foreground mb-4">Newly listed</p>
                       <div className="space-y-3">
                         {newlyListedPrices.map((item, index) => (
                           <div key={index} className="flex items-center justify-between">
@@ -458,11 +458,11 @@ export default function ConvertPage() {
                               {item.base_logo && (
                                 <Image src={item.base_logo} alt={item.base_symbol} width={20} height={20} className="rounded-full" unoptimized />
                               )}
-                              <span className="text-sm font-medium text-gray-900 dark:text-white">
+                              <span className="text-sm font-medium text-foreground">
                                 {item.base_symbol}{item.quote_symbol}
                               </span>
                             </div>
-                            <span className="text-sm text-gray-600 dark:text-gray-400">
+                            <span className="text-sm text-muted-foreground">
                               {parseFloat(item.price).toLocaleString()}
                             </span>
                             <span className={`text-sm ${parseFloat(item.change_24h_percent) >= 0 ? 'text-green-500' : 'text-red-500'}`}>
@@ -474,12 +474,12 @@ export default function ConvertPage() {
                     </div>
                   </div>
 
-                  <p className="text-xs text-gray-400 mt-6">
+                  <p className="text-xs text-muted-foreground mt-6">
                     ⓘ The market data is for reference only. Final price is based on the executed quote.
                   </p>
                 </div>
               ) : (
-                <div className="bg-white dark:bg-[#1e2026] rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+                <div className="bg-card rounded-lg p-6 border border-border">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
                       {fromCurrency?.logo_url && toCurrency?.logo_url && (
@@ -488,12 +488,12 @@ export default function ConvertPage() {
                           <Image src={toCurrency.logo_url} alt={toCurrency.symbol} width={32} height={32} className="rounded-full border-2 border-white dark:border-[#1e2329]" unoptimized />
                         </div>
                       )}
-                      <span className="text-lg font-semibold text-gray-900 dark:text-white">
+                      <span className="text-lg font-semibold text-foreground">
                         {fromCurrency?.symbol}/{toCurrency?.symbol}
                       </span>
                     </div>
                     <div className="text-right">
-                      <p className="text-xl font-bold text-gray-900 dark:text-white">
+                      <p className="text-xl font-bold text-foreground">
                         {conversionRate?.toLocaleString() || '--'}
                       </p>
                       {conversionRate && (
@@ -508,8 +508,8 @@ export default function ConvertPage() {
                         key={period}
                         className={`px-3 py-1.5 text-xs rounded-lg transition-colors ${
                           period === '24H' 
-                            ? 'bg-blue-500 text-white' 
-                            : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
+                            ? 'bg-primary text-primary-foreground' 
+                            : 'text-muted-foreground hover:bg-accent'
                         }`}
                       >
                         {period}
@@ -520,7 +520,7 @@ export default function ConvertPage() {
                   <div className="h-64 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/10 dark:to-indigo-900/10 rounded-lg flex items-center justify-center p-4">
                     {fromCurrency && toCurrency && conversionRate != null && conversionRate > 0 ? (
                       <div className="text-center w-full">
-                        <p className="text-2xl font-bold text-gray-900 dark:text-white mb-1">
+                        <p className="text-2xl font-bold text-foreground mb-1">
                           1 {fromCurrency.symbol} = {conversionRate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} {toCurrency.symbol}
                         </p>
                         {marketPrices.find(m => m.base_symbol === fromCurrency.symbol && m.quote_symbol === toCurrency.symbol) && (
@@ -528,10 +528,10 @@ export default function ConvertPage() {
                             24h: {parseFloat(marketPrices.find(m => m.base_symbol === fromCurrency.symbol && m.quote_symbol === toCurrency.symbol)?.change_24h_percent || '0').toFixed(2)}%
                           </p>
                         )}
-                        <p className="text-xs text-gray-500 mt-2">Live rate from spot market</p>
+                        <p className="text-xs text-muted-foreground mt-2">Live rate from spot market</p>
                       </div>
                     ) : (
-                      <div className="text-center text-gray-500">
+                      <div className="text-center text-muted-foreground">
                         <TrendingUp className="w-12 h-12 mx-auto mb-2 opacity-30" />
                         <p className="text-sm">Select currencies to see live rate</p>
                       </div>
@@ -542,15 +542,15 @@ export default function ConvertPage() {
             </div>
 
             {/* Right Side - Conversion Form */}
-            <div className="bg-white dark:bg-[#1e2026] rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+            <div className="bg-card rounded-lg p-6 border border-border">
               {/* Tab Selector */}
-              <div className="flex mb-6 bg-gray-100 dark:bg-[#2b2f36] rounded-lg p-1">
+              <div className="flex mb-6 bg-accent dark:bg-[#2b2f36] rounded-lg p-1">
                 <button
                   onClick={() => setActiveTab('instant')}
                   className={`flex-1 py-3 text-center font-medium rounded-lg transition-all ${
                     activeTab === 'instant'
-                      ? 'bg-white dark:bg-[#1e2026] text-blue-600 dark:text-blue-400 shadow-sm'
-                      : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                      ? 'bg-card text-primary shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'
                   }`}
                 >
                   Instant
@@ -559,8 +559,8 @@ export default function ConvertPage() {
                   onClick={() => setActiveTab('limit')}
                   className={`flex-1 py-3 text-center font-medium rounded-lg transition-all ${
                     activeTab === 'limit'
-                      ? 'bg-white dark:bg-[#1e2026] text-blue-600 dark:text-blue-400 shadow-sm'
-                      : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                      ? 'bg-card text-primary shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'
                   }`}
                 >
                   Limit
@@ -569,11 +569,11 @@ export default function ConvertPage() {
 
               {/* Account Type Selector */}
               <div className="flex items-center gap-2 mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800/30">
-                <Wallet className="w-4 h-4 text-blue-500" />
+                <Wallet className="w-4 h-4 text-primary" />
                 <select
                   value={accountType}
                   onChange={(e) => setAccountType(e.target.value as 'funding' | 'trading')}
-                  className="bg-transparent text-sm text-blue-600 dark:text-blue-400 font-medium focus:outline-none cursor-pointer"
+                  className="bg-transparent text-sm text-primary font-medium focus:outline-none cursor-pointer"
                 >
                   <option value="funding">Funding</option>
                   <option value="trading">Trading</option>
@@ -583,42 +583,42 @@ export default function ConvertPage() {
               {/* From Currency */}
               <div className="mb-4">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">From</span>
+                  <span className="text-sm font-medium text-foreground/80">From</span>
                   <div className="flex items-center gap-2 text-sm">
-                    <span className="text-gray-500">Available: {(() => { const n = parseFloat(getAvailableBalance()); return Number.isFinite(n) ? n.toFixed(6) : '0.000000'; })()} {fromCurrency?.symbol ?? ''}</span>
-                    <Link href="/wallet/deposit/crypto" className="text-blue-500 hover:text-blue-600 font-medium">Deposit</Link>
-                    <Link href="/wallet/transfer" className="text-blue-500 hover:text-blue-600 font-medium">
+                    <span className="text-muted-foreground">Available: {(() => { const n = parseFloat(getAvailableBalance()); return Number.isFinite(n) ? n.toFixed(6) : '0.000000'; })()} {fromCurrency?.symbol ?? ''}</span>
+                    <Link href="/wallet/deposit/crypto" className="text-primary hover:text-primary/85 font-medium">Deposit</Link>
+                    <Link href="/wallet/transfer" className="text-primary hover:text-primary/85 font-medium">
                       Transfer
                     </Link>
                   </div>
                 </div>
-                <div className="flex items-center gap-3 p-4 bg-gray-50 dark:bg-[#2b2f36] rounded-lg border border-gray-200 dark:border-gray-700">
+                <div className="flex items-center gap-3 p-4 bg-muted dark:bg-[#2b2f36] rounded-lg border border-border">
                   <div className="relative">
                     <button
                       onClick={() => { setShowFromDropdown(!showFromDropdown); setShowToDropdown(false); }}
-                      className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-[#1e2026] rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors border border-gray-200 dark:border-gray-700"
+                      className="flex items-center gap-2 px-3 py-2 bg-card rounded-lg hover:bg-accent transition-colors border border-border"
                     >
                       {fromCurrency?.logo_url && (
                         <Image src={fromCurrency.logo_url} alt={fromCurrency.symbol} width={24} height={24} className="rounded-full" unoptimized />
                       )}
-                      <span className="font-medium text-gray-900 dark:text-white">{fromCurrency?.symbol || 'Select'}</span>
-                      <ChevronDown className="w-4 h-4 text-gray-400" />
+                      <span className="font-medium text-foreground">{fromCurrency?.symbol || 'Select'}</span>
+                      <ChevronDown className="w-4 h-4 text-muted-foreground" />
                     </button>
                     {fromCurrency && (
-                      <p className="text-xs text-gray-500 mt-1 ml-1">{fromCurrency.name}</p>
+                      <p className="text-xs text-muted-foreground mt-1 ml-1">{fromCurrency.name}</p>
                     )}
 
                     {showFromDropdown && (
-                      <div className="absolute top-full left-0 mt-2 w-64 bg-white dark:bg-[#1e2026] rounded-lg shadow-2xl border border-gray-200 dark:border-gray-700 z-50 overflow-hidden">
-                        <div className="p-3 border-b border-gray-200 dark:border-gray-700">
+                      <div className="absolute top-full left-0 mt-2 w-64 bg-card rounded-lg shadow-2xl border border-border z-50 overflow-hidden">
+                        <div className="p-3 border-b border-border">
                           <div className="relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                             <input
                               type="text"
                               placeholder="Search coin..."
                               value={searchQuery}
                               onChange={(e) => setSearchQuery(e.target.value)}
-                              className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-[#2b2f36] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              className="w-full pl-10 pr-4 py-2 bg-muted dark:bg-[#2b2f36] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                             />
                           </div>
                         </div>
@@ -631,14 +631,14 @@ export default function ConvertPage() {
                                 setShowFromDropdown(false);
                                 setSearchQuery('');
                               }}
-                              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent transition-colors"
                             >
                               {currency.logo_url && (
                                 <Image src={currency.logo_url} alt={currency.symbol} width={24} height={24} className="rounded-full" unoptimized />
                               )}
                               <div className="text-left">
-                                <p className="font-medium text-gray-900 dark:text-white">{currency.symbol}</p>
-                                <p className="text-xs text-gray-500">{currency.name}</p>
+                                <p className="font-medium text-foreground">{currency.symbol}</p>
+                                <p className="text-xs text-muted-foreground">{currency.name}</p>
                               </div>
                             </button>
                           ))}
@@ -651,11 +651,11 @@ export default function ConvertPage() {
                     value={fromAmount}
                     onChange={(e) => setFromAmount(e.target.value)}
                     placeholder="0.00"
-                    className="flex-1 bg-transparent text-right text-lg font-medium text-gray-900 dark:text-white focus:outline-none"
+                    className="flex-1 bg-transparent text-right text-lg font-medium text-foreground focus:outline-none"
                   />
                   <button
                     onClick={handleSetMax}
-                    className="text-sm text-blue-500 hover:text-blue-600 font-medium"
+                    className="text-sm text-primary hover:text-primary/85 font-medium"
                   >
                     All
                   </button>
@@ -668,42 +668,42 @@ export default function ConvertPage() {
                   onClick={handleSwapCurrencies}
                   className="p-3 rounded-full bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-800/30 transition-colors border border-blue-200 dark:border-blue-700"
                 >
-                  <ArrowUpDown className="w-5 h-5 text-blue-500" />
+                  <ArrowUpDown className="w-5 h-5 text-primary" />
                 </button>
               </div>
 
               {/* To Currency */}
               <div className="mb-6">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">To</span>
+                  <span className="text-sm font-medium text-foreground/80">To</span>
                 </div>
-                <div className="flex items-center gap-3 p-4 bg-gray-50 dark:bg-[#2b2f36] rounded-lg border border-gray-200 dark:border-gray-700">
+                <div className="flex items-center gap-3 p-4 bg-muted dark:bg-[#2b2f36] rounded-lg border border-border">
                   <div className="relative">
                     <button
                       onClick={() => { setShowToDropdown(!showToDropdown); setShowFromDropdown(false); }}
-                      className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-[#1e2026] rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors border border-gray-200 dark:border-gray-700"
+                      className="flex items-center gap-2 px-3 py-2 bg-card rounded-lg hover:bg-accent transition-colors border border-border"
                     >
                       {toCurrency?.logo_url && (
                         <Image src={toCurrency.logo_url} alt={toCurrency.symbol} width={24} height={24} className="rounded-full" unoptimized />
                       )}
-                      <span className="font-medium text-gray-900 dark:text-white">{toCurrency?.symbol || 'Select'}</span>
-                      <ChevronDown className="w-4 h-4 text-gray-400" />
+                      <span className="font-medium text-foreground">{toCurrency?.symbol || 'Select'}</span>
+                      <ChevronDown className="w-4 h-4 text-muted-foreground" />
                     </button>
                     {toCurrency && (
-                      <p className="text-xs text-gray-500 mt-1 ml-1">{toCurrency.name}</p>
+                      <p className="text-xs text-muted-foreground mt-1 ml-1">{toCurrency.name}</p>
                     )}
 
                     {showToDropdown && (
-                      <div className="absolute top-full left-0 mt-2 w-64 bg-white dark:bg-[#1e2026] rounded-lg shadow-2xl border border-gray-200 dark:border-gray-700 z-50 overflow-hidden">
-                        <div className="p-3 border-b border-gray-200 dark:border-gray-700">
+                      <div className="absolute top-full left-0 mt-2 w-64 bg-card rounded-lg shadow-2xl border border-border z-50 overflow-hidden">
+                        <div className="p-3 border-b border-border">
                           <div className="relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                             <input
                               type="text"
                               placeholder="Search coin..."
                               value={searchQuery}
                               onChange={(e) => setSearchQuery(e.target.value)}
-                              className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-[#2b2f36] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              className="w-full pl-10 pr-4 py-2 bg-muted dark:bg-[#2b2f36] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                             />
                           </div>
                         </div>
@@ -716,14 +716,14 @@ export default function ConvertPage() {
                                 setShowToDropdown(false);
                                 setSearchQuery('');
                               }}
-                              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent transition-colors"
                             >
                               {currency.logo_url && (
                                 <Image src={currency.logo_url} alt={currency.symbol} width={24} height={24} className="rounded-full" unoptimized />
                               )}
                               <div className="text-left">
-                                <p className="font-medium text-gray-900 dark:text-white">{currency.symbol}</p>
-                                <p className="text-xs text-gray-500">{currency.name}</p>
+                                <p className="font-medium text-foreground">{currency.symbol}</p>
+                                <p className="text-xs text-muted-foreground">{currency.name}</p>
                               </div>
                             </button>
                           ))}
@@ -735,7 +735,7 @@ export default function ConvertPage() {
                     type="text"
                     value={quoteLoading ? 'Loading...' : toAmount || '--'}
                     readOnly
-                    className="flex-1 bg-transparent text-right text-lg font-medium text-gray-900 dark:text-white focus:outline-none"
+                    className="flex-1 bg-transparent text-right text-lg font-medium text-foreground focus:outline-none"
                   />
                 </div>
               </div>
@@ -744,19 +744,19 @@ export default function ConvertPage() {
               {activeTab === 'limit' && (
                 <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-100 dark:border-blue-800/30">
                   <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm text-gray-600 dark:text-gray-400">When 1 {fromCurrency?.symbol} is worth</span>
-                    <span className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg">Expired in 30D</span>
+                    <span className="text-sm text-muted-foreground">When 1 {fromCurrency?.symbol} is worth</span>
+                    <span className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-primary rounded-lg">Expired in 30D</span>
                   </div>
                   <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm text-gray-600 dark:text-gray-400">{toCurrency?.symbol}</span>
+                    <span className="text-sm text-muted-foreground">{toCurrency?.symbol}</span>
                     <input
                       type="number"
                       value={targetRate}
                       onChange={(e) => setTargetRate(e.target.value)}
-                      className="text-right text-xl font-bold text-gray-900 dark:text-white bg-transparent focus:outline-none w-32"
+                      className="text-right text-xl font-bold text-foreground bg-transparent focus:outline-none w-32"
                     />
                   </div>
-                  <div className="flex items-center justify-between text-xs text-gray-500 mb-4">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground mb-4">
                     <span>Market price {conversionRate?.toLocaleString()}</span>
                   </div>
                   <div className="flex gap-2">
@@ -775,8 +775,8 @@ export default function ConvertPage() {
                         }}
                         className={`px-3 py-1.5 text-xs rounded-lg transition-colors ${
                           option === 'Market price' 
-                            ? 'bg-blue-500 text-white'
-                            : 'bg-white dark:bg-[#1e2026] text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600'
+                            ? 'bg-primary text-primary-foreground'
+                            : 'bg-card text-muted-foreground border border-border hover:border-blue-300 dark:hover:border-blue-600'
                         }`}
                       >
                         {option}
@@ -787,14 +787,14 @@ export default function ConvertPage() {
               )}
 
               {/* Transaction Info */}
-              <div className="space-y-3 mb-6 p-4 bg-gray-50 dark:bg-[#2b2f36] rounded-lg">
+              <div className="space-y-3 mb-6 p-4 bg-muted dark:bg-[#2b2f36] rounded-lg">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-500">Transaction Fees</span>
+                  <span className="text-muted-foreground">Transaction Fees</span>
                   <span className="text-green-500 font-semibold">0 Fee</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-500">{activeTab === 'limit' ? 'Receivables' : 'You get'}</span>
-                  <span className="text-gray-900 dark:text-white font-semibold">
+                  <span className="text-muted-foreground">{activeTab === 'limit' ? 'Receivables' : 'You get'}</span>
+                  <span className="text-foreground font-semibold">
                     {toAmount ? `${parseFloat(toAmount).toFixed(6)}` : '--'} {toCurrency?.symbol}
                   </span>
                 </div>
@@ -804,14 +804,14 @@ export default function ConvertPage() {
               {error && (
                 <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-center gap-3">
                   <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-                  <span className="text-sm text-red-600 dark:text-red-400">{error}</span>
+                  <span className="text-sm text-destructive">{error}</span>
                 </div>
               )}
 
               {success && (
                 <div className="mb-4 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg flex items-center gap-3">
                   <Check className="w-5 h-5 text-green-500 flex-shrink-0" />
-                  <span className="text-sm text-green-600 dark:text-green-400">{success}</span>
+                  <span className="text-sm text-buy">{success}</span>
                 </div>
               )}
 
@@ -820,7 +820,7 @@ export default function ConvertPage() {
                 onClick={handleConvert}
                 disabled={converting || !fromAmount || !fromCurrency || !toCurrency}
                 aria-busy={converting}
-                className={`w-full py-4 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-200 dark:disabled:bg-gray-800 disabled:text-gray-400 text-white font-semibold rounded-lg transition-all duration-150 active:scale-[0.98] shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 disabled:shadow-none flex items-center justify-center gap-2 ${converting ? 'opacity-90' : ''}`}
+                className={`w-full py-4 bg-primary hover:bg-primary/85 disabled:bg-accent dark:disabled:bg-gray-800 disabled:text-muted-foreground text-white font-semibold rounded-lg transition-all duration-150 active:scale-[0.98] shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 disabled:shadow-none flex items-center justify-center gap-2 ${converting ? 'opacity-90' : ''}`}
               >
                 {converting ? (
                   <>
@@ -836,13 +836,13 @@ export default function ConvertPage() {
 
           {/* Active Orders (for Limit tab) */}
           {activeTab === 'limit' && (
-            <div className="mt-8 bg-white dark:bg-[#1e2026] rounded-lg p-6 border border-gray-200 dark:border-gray-700">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">Active orders</h2>
+            <div className="mt-8 bg-card rounded-lg p-6 border border-border">
+              <h2 className="text-lg font-semibold text-foreground mb-6">Active orders</h2>
               
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+                    <tr className="text-left text-muted-foreground border-b border-border">
                       <th className="py-2 px-2 font-medium uppercase tracking-wide">From</th>
                       <th className="py-2 px-2 font-medium uppercase tracking-wide">Quantity</th>
                       <th className="py-2 px-2 font-medium uppercase tracking-wide">To</th>
@@ -857,7 +857,7 @@ export default function ConvertPage() {
                   <tbody>
                     {activeOrders.length > 0 ? (
                       activeOrders.map((order) => (
-                        <tr key={order.id} className="border-b border-gray-100 dark:border-gray-800 transition-colors duration-100 hover:bg-gray-50 dark:hover:bg-white/5">
+                        <tr key={order.id} className="border-b border-border transition-colors duration-100 hover:bg-muted dark:hover:bg-card/5">
                           <td className="py-2 px-2 tabular-nums">
                             <div className="flex items-center gap-2">
                               {order.from_logo && (
@@ -881,7 +881,7 @@ export default function ConvertPage() {
                           <td className="py-2 px-2 tabular-nums">
                             {Math.ceil((new Date(order.expires_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24))}D
                           </td>
-                          <td className="py-2 px-2 text-gray-500 dark:text-gray-400 tabular-nums">{new Date(order.created_at).toLocaleString()}</td>
+                          <td className="py-2 px-2 text-muted-foreground tabular-nums">{new Date(order.created_at).toLocaleString()}</td>
                           <td className="py-2 px-2">
                             <button
                               onClick={() => handleCancelOrder(order.id)}
@@ -896,10 +896,10 @@ export default function ConvertPage() {
                       <tr>
                         <td colSpan={9} className="py-8 text-center">
                           <div className="flex flex-col items-center">
-                            <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mb-4">
-                              <History className="w-8 h-8 text-gray-400" />
+                            <div className="w-16 h-16 bg-accent rounded-full flex items-center justify-center mb-4">
+                              <History className="w-8 h-8 text-muted-foreground" />
                             </div>
-                            <p className="text-gray-500">No active orders yet</p>
+                            <p className="text-muted-foreground">No active orders yet</p>
                           </div>
                         </td>
                       </tr>
@@ -911,23 +911,23 @@ export default function ConvertPage() {
           )}
 
           {/* FAQ Section */}
-          <div className="mt-8 bg-white dark:bg-[#1e2026] rounded-lg p-6 border border-gray-200 dark:border-gray-700">
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-6">FAQ</h2>
+          <div className="mt-8 bg-card rounded-lg p-6 border border-border">
+            <h2 className="text-lg font-bold text-foreground mb-6">FAQ</h2>
             
             <div className="space-y-4">
               {FAQ_ITEMS.map((item, index) => (
-                <div key={index} className="border-b border-gray-100 dark:border-gray-800 pb-4">
+                <div key={index} className="border-b border-border pb-4">
                   <button
                     onClick={() => setExpandedFaq(expandedFaq === index ? null : index)}
                     className="w-full flex items-center justify-between text-left"
                   >
-                    <span className="text-gray-900 dark:text-white font-medium">
+                    <span className="text-foreground font-medium">
                       {index + 1}. {item.question}
                     </span>
-                    <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${expandedFaq === index ? 'rotate-180' : ''}`} />
+                    <ChevronDown className={`w-5 h-5 text-muted-foreground transition-transform ${expandedFaq === index ? 'rotate-180' : ''}`} />
                   </button>
                   {expandedFaq === index && (
-                    <p className="mt-3 text-gray-600 dark:text-gray-400 text-sm pl-4">
+                    <p className="mt-3 text-muted-foreground text-sm pl-4">
                       {item.answer}
                     </p>
                   )}
@@ -935,7 +935,7 @@ export default function ConvertPage() {
               ))}
             </div>
 
-            <button className="mt-6 text-blue-500 hover:text-blue-600 font-medium flex items-center gap-1">
+            <button className="mt-6 text-primary hover:text-primary/85 font-medium flex items-center gap-1">
               View more
               <ChevronDown className="w-4 h-4" />
             </button>
@@ -945,22 +945,22 @@ export default function ConvertPage() {
       {showHistory && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowHistory(false)} />
-          <div className="relative w-full max-w-4xl mx-4 bg-white dark:bg-[#1e2026] rounded-lg shadow-2xl overflow-hidden max-h-[80vh]">
-            <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Conversion History</h2>
-              <button onClick={() => setShowHistory(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg">
-                <X className="w-5 h-5 text-gray-500" />
+          <div className="relative w-full max-w-4xl mx-4 bg-card rounded-lg shadow-2xl overflow-hidden max-h-[80vh]">
+            <div className="flex items-center justify-between p-6 border-b border-border">
+              <h2 className="text-xl font-semibold text-foreground">Conversion History</h2>
+              <button onClick={() => setShowHistory(false)} className="p-2 hover:bg-accent rounded-lg">
+                <X className="w-5 h-5 text-muted-foreground" />
               </button>
             </div>
             <div className="p-6 overflow-y-auto max-h-[60vh]">
               {historyLoading ? (
                 <div className="flex items-center justify-center py-12">
-                  <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+                  <Loader2 className="w-8 h-8 animate-spin text-primary" />
                 </div>
               ) : history.length > 0 ? (
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+                    <tr className="text-left text-muted-foreground border-b border-border">
                       <th className="py-2 px-2 font-medium uppercase tracking-wide">Type</th>
                       <th className="py-2 px-2 font-medium uppercase tracking-wide">From</th>
                       <th className="py-2 px-2 font-medium uppercase tracking-wide">To</th>
@@ -971,7 +971,7 @@ export default function ConvertPage() {
                   </thead>
                   <tbody>
                     {history.map((item) => (
-                      <tr key={item.id} className="border-b border-gray-100 dark:border-gray-800 transition-colors duration-100 hover:bg-gray-50 dark:hover:bg-white/5">
+                      <tr key={item.id} className="border-b border-border transition-colors duration-100 hover:bg-muted dark:hover:bg-card/5">
                         <td className="py-2 px-2 capitalize">{item.conversion_type}</td>
                         <td className="py-2 px-2 tabular-nums">
                           <div className="flex items-center gap-2">
@@ -994,13 +994,13 @@ export default function ConvertPage() {
                           <span className={`px-2 py-1 rounded text-xs font-medium ${
                             item.status === 'completed' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
                             item.status === 'pending' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
-                            item.status === 'cancelled' ? 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400' :
+                            item.status === 'cancelled' ? 'bg-accent text-foreground/80 dark:bg-accent dark:text-muted-foreground' :
                             'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
                           }`}>
                             {item.status}
                           </span>
                         </td>
-                        <td className="py-2 px-2 text-gray-500 dark:text-gray-400 tabular-nums">
+                        <td className="py-2 px-2 text-muted-foreground tabular-nums">
                           {new Date(item.created_at).toLocaleString()}
                         </td>
                       </tr>
@@ -1010,7 +1010,7 @@ export default function ConvertPage() {
               ) : (
                 <div className="text-center py-8">
                   <History className="w-12 h-12 mx-auto text-gray-300 mb-4" />
-                  <p className="text-gray-500 text-xs">No conversion history yet</p>
+                  <p className="text-muted-foreground text-xs">No conversion history yet</p>
                 </div>
               )}
             </div>

@@ -138,7 +138,7 @@ export function GlobalSearch({ accessToken, className = '' }: GlobalSearchProps)
       </button>
 
       {open && (
-        <div className="absolute left-0 right-0 top-full mt-1 bg-popover dark:bg-[#1e2329] border border-border rounded-lg shadow-xl z-50 overflow-hidden">
+        <div className="absolute left-0 right-0 top-full mt-1 bg-popover dark:bg-card border border-border rounded-lg shadow-xl z-50 overflow-hidden">
           <div className="p-2 border-b border-border">
             <input
               ref={inputRef}

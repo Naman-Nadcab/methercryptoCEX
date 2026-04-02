@@ -4,7 +4,7 @@
 export function MiniSparkline({ change, className = '' }: { change: number | null; className?: string }) {
   if (change == null) {
     return (
-      <span className={`inline-block text-center text-[10px] text-gray-400 dark:text-gray-500 ${className}`} aria-hidden>
+      <span className={`inline-block text-center text-[10px] text-muted-foreground ${className}`} aria-hidden>
         —
       </span>
     );

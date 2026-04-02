@@ -95,24 +95,24 @@ function InsetField({
   children: ReactNode;
 }) {
   return (
-    <div className="rounded-md border border-gray-200/95 bg-gray-50/95 px-2 pb-1.5 pt-1 dark:border-gray-700/90 dark:bg-[#0b0e11]">
+    <div className="rounded-md border border-border/95 bg-muted/95 px-2 pb-1.5 pt-1 dark:border-border/90 dark:bg-background">
       <div className="mb-0 flex items-center justify-between gap-2">
-        <span className="text-[9px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-500">{label}</span>
+        <span className="text-[9px] font-bold uppercase tracking-wide text-muted-foreground">{label}</span>
         {headerRight}
       </div>
       <div className="flex min-h-[28px] items-center gap-1.5">
         {children}
-        <span className="shrink-0 text-[10px] font-bold tabular-nums text-gray-500 dark:text-gray-500">{suffix}</span>
+        <span className="shrink-0 text-[10px] font-bold tabular-nums text-muted-foreground">{suffix}</span>
       </div>
     </div>
   );
 }
 
 const insetInputClass =
-  'min-w-0 flex-1 border-0 bg-transparent p-0 font-mono text-[15px] font-semibold tabular-nums text-gray-900 outline-none focus:ring-0 dark:text-white';
+  'min-w-0 flex-1 border-0 bg-transparent p-0 font-mono text-[15px] font-semibold tabular-nums text-foreground outline-none focus:ring-0 dark:text-foreground';
 
 const fieldInputClass =
-  'h-9 w-full min-w-0 rounded-md border border-gray-200 bg-white px-2.5 font-mono text-sm text-gray-900 outline-none transition-shadow focus:ring-2 focus:ring-blue-500/25 dark:border-gray-700 dark:bg-[#0b0e11] dark:text-white';
+  'h-9 w-full min-w-0 rounded-md border border-border bg-card px-2.5 font-mono text-sm text-foreground outline-none transition-shadow focus:ring-2 focus:ring-primary/25 dark:border-border dark:bg-background dark:text-foreground';
 
 function SummaryRow({
   label,
@@ -127,7 +127,7 @@ function SummaryRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-3 text-[11px] leading-tight">
-      <span className="shrink-0 text-gray-500 dark:text-gray-500">{label}</span>
+      <span className="shrink-0 text-muted-foreground">{label}</span>
       <span
         className={`min-w-0 truncate text-right ${mono ? 'font-mono tabular-nums' : 'font-sans'} ${valueClassName}`}
       >
@@ -275,11 +275,11 @@ export function SpotOrderEntryPanel({
   const isPrimaryType = orderType === 'limit' || orderType === 'market';
 
   return (
-    <div id="spot-order-entry-panel" className="flex h-full min-h-0 flex-col bg-white dark:bg-[#181a20]">
+    <div id="spot-order-entry-panel" className="flex h-full min-h-0 flex-col bg-card">
       {/* Header — Bybit-style: title + activity shortcut (theme: blue) */}
-      <div className="flex flex-shrink-0 items-center justify-between border-b border-gray-200/90 px-2.5 py-2 dark:border-gray-800/90">
+      <div className="flex flex-shrink-0 items-center justify-between border-b border-border/90 px-2.5 py-2 dark:border-border/90">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-bold tracking-tight text-gray-900 dark:text-white">Trade</span>
+          <span className="text-sm font-bold tracking-tight text-foreground">Trade</span>
           <span className="rounded-md bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-700 dark:bg-blue-950/60 dark:text-blue-300">
             Spot
           </span>
@@ -287,7 +287,7 @@ export function SpotOrderEntryPanel({
         <div className="flex items-center gap-1">
           <Link
             href="#spot-terminal-activity"
-            className="flex h-8 w-8 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-gray-100 hover:text-blue-600 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-blue-400"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-primary dark:text-muted-foreground dark:hover:bg-accent dark:hover:text-primary"
             title="Open orders & history"
             aria-label="Scroll to orders and history"
           >
@@ -295,7 +295,7 @@ export function SpotOrderEntryPanel({
           </Link>
           <Link
             href={walletPath.convert}
-            className="rounded-md px-2 py-1 text-[10px] font-bold text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/40"
+            className="rounded-md px-2 py-1 text-[10px] font-bold text-primary hover:bg-blue-50 dark:text-primary dark:hover:bg-blue-950/40"
           >
             Convert
           </Link>
@@ -304,15 +304,15 @@ export function SpotOrderEntryPanel({
 
       {/* Buy / Sell — pill segment (theme colors) */}
       <div className="flex-shrink-0 px-2 pb-1.5 pt-0.5">
-        <div className="grid grid-cols-2 gap-1 rounded-full bg-gray-200/90 p-0.5 dark:bg-gray-800/90">
+        <div className="grid grid-cols-2 gap-1 rounded-full bg-accent/90 p-0.5 dark:bg-accent/90">
           <button
             type="button"
             onClick={() => onSideChange('buy')}
             aria-pressed={side === 'buy'}
             className={`rounded-full py-1.5 text-sm font-bold transition-all ${
               side === 'buy'
-                ? 'bg-buy text-white shadow-sm ring-1 ring-black/5 dark:ring-white/10'
-                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+                ? 'bg-buy text-foreground shadow-sm ring-1 ring-black/5 dark:ring-white/10'
+                : 'text-muted-foreground hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground/90'
             }`}
           >
             Buy
@@ -323,8 +323,8 @@ export function SpotOrderEntryPanel({
             aria-pressed={side === 'sell'}
             className={`rounded-full py-1.5 text-sm font-bold transition-all ${
               side === 'sell'
-                ? 'bg-sell text-white shadow-sm ring-1 ring-black/5 dark:ring-white/10'
-                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+                ? 'bg-sell text-foreground shadow-sm ring-1 ring-black/5 dark:ring-white/10'
+                : 'text-muted-foreground hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground/90'
             }`}
           >
             Sell
@@ -333,7 +333,7 @@ export function SpotOrderEntryPanel({
       </div>
 
       {/* Order type — Limit | Market tabs + More… (precision layout) */}
-      <div className="flex-shrink-0 border-b border-gray-200/90 px-2.5 pb-0 dark:border-gray-800/90">
+      <div className="flex-shrink-0 border-b border-border/90 px-2.5 pb-0 dark:border-border/90">
         <div className="flex items-stretch gap-0">
           {(['limit', 'market'] as const).map((t) => {
             const label = t === 'limit' ? 'Limit' : 'Market';
@@ -346,7 +346,7 @@ export function SpotOrderEntryPanel({
                 className={`relative flex-1 pb-2.5 pt-1 text-center text-[11px] font-bold transition-colors ${
                   active
                     ? 'text-blue-700 dark:text-blue-300'
-                    : 'text-gray-500 hover:text-gray-800 dark:text-gray-500 dark:hover:text-gray-200'
+                    : 'text-muted-foreground hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground/90'
                 }`}
               >
                 {label}
@@ -356,7 +356,7 @@ export function SpotOrderEntryPanel({
               </button>
             );
           })}
-          <div className="relative flex min-w-[5.25rem] flex-1 border-l border-gray-200/80 dark:border-gray-800/80">
+          <div className="relative flex min-w-[5.25rem] flex-1 border-l border-border">
             <select
               aria-label="More order types"
               title="Stop, trailing…"
@@ -365,7 +365,7 @@ export function SpotOrderEntryPanel({
                 const v = e.target.value as SpotOrderType;
                 if (v) onOrderTypeChange(v);
               }}
-              className="h-full min-w-0 flex-1 cursor-pointer appearance-none border-0 bg-transparent py-2.5 pl-2 pr-9 text-left text-[11px] font-bold leading-none text-gray-700 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/30 dark:text-gray-300 dark:focus-visible:ring-blue-400/25"
+              className="h-full min-w-0 flex-1 cursor-pointer appearance-none border-0 bg-transparent py-2.5 pl-2 pr-9 text-left text-[11px] font-bold leading-none text-foreground/80 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/30 dark:text-foreground/80 dark:focus-visible:ring-blue-400/25"
             >
               {/* Placeholder when Limit/Market; hidden from list when an advanced type is selected */}
               <option value="" hidden={!isPrimaryType}>
@@ -377,7 +377,7 @@ export function SpotOrderEntryPanel({
                 </option>
               ))}
             </select>
-            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" aria-hidden>
+            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden>
               <ChevronDown className="h-4 w-4 shrink-0" strokeWidth={2.5} />
             </span>
           </div>
@@ -385,8 +385,8 @@ export function SpotOrderEntryPanel({
       </div>
 
       {rulesLine ? (
-        <div className="flex-shrink-0 border-b border-gray-200/90 px-2.5 py-1 dark:border-gray-800/90">
-          <p className="text-[10px] font-mono leading-snug text-gray-600 dark:text-gray-400">{rulesLine}</p>
+        <div className="flex-shrink-0 border-b border-border/90 px-2.5 py-1 dark:border-border/90">
+          <p className="text-[10px] font-mono leading-snug text-muted-foreground">{rulesLine}</p>
         </div>
       ) : null}
 
@@ -394,14 +394,14 @@ export function SpotOrderEntryPanel({
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-1.5">
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between gap-2 text-[11px]">
-            <span className="font-semibold text-gray-500 dark:text-gray-500">Available</span>
+            <span className="font-semibold text-muted-foreground">Available</span>
             <div className="flex min-w-0 items-center gap-1.5">
-              <span className="truncate font-mono text-xs font-bold tabular-nums text-gray-900 dark:text-white">
+              <span className="truncate font-mono text-xs font-bold tabular-nums text-foreground">
                 {displayBalance} {balanceUnit}
               </span>
               <Link
                 href={walletPath.depositCrypto}
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-500 text-white shadow-sm hover:bg-blue-600 dark:bg-blue-600"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm hover:bg-primary/85 dark:bg-blue-600"
                 aria-label="Deposit"
               >
                 <Plus className="h-3.5 w-3.5" />
@@ -451,7 +451,7 @@ export function SpotOrderEntryPanel({
                         <button
                           type="button"
                           onClick={() => onPriceChange(bestBid!)}
-                          className="rounded px-1.5 py-0.5 font-mono text-[9px] font-bold text-price-up hover:bg-gray-200/80 dark:hover:bg-gray-800"
+                          className="rounded px-1.5 py-0.5 font-mono text-[9px] font-bold text-price-up hover:bg-accent/80 dark:hover:bg-accent"
                         >
                           B
                         </button>
@@ -460,7 +460,7 @@ export function SpotOrderEntryPanel({
                         <button
                           type="button"
                           onClick={() => onPriceChange(lastPrice!)}
-                          className="rounded px-1.5 py-0.5 font-mono text-[9px] font-bold text-gray-700 hover:bg-gray-200/80 dark:text-gray-300 dark:hover:bg-gray-800"
+                          className="rounded px-1.5 py-0.5 font-mono text-[9px] font-bold text-foreground/80 hover:bg-accent/80 dark:text-foreground/80 dark:hover:bg-accent"
                         >
                           L
                         </button>
@@ -469,7 +469,7 @@ export function SpotOrderEntryPanel({
                         <button
                           type="button"
                           onClick={() => onPriceChange(bestAsk!)}
-                          className="rounded px-1.5 py-0.5 font-mono text-[9px] font-bold text-price-down hover:bg-gray-200/80 dark:hover:bg-gray-800"
+                          className="rounded px-1.5 py-0.5 font-mono text-[9px] font-bold text-price-down hover:bg-accent/80 dark:hover:bg-accent"
                         >
                           A
                         </button>
@@ -530,7 +530,7 @@ export function SpotOrderEntryPanel({
                         ? side === 'buy'
                           ? 'border-buy bg-buy-light text-buy dark:border-buy dark:bg-buy-light dark:text-buy'
                           : 'border-sell bg-sell-light text-sell dark:border-sell dark:bg-sell-light dark:text-sell'
-                        : 'border-gray-200 bg-white text-gray-600 dark:border-gray-700 dark:bg-[#0b0e11] dark:text-gray-400'
+                        : 'border-border bg-card text-muted-foreground dark:border-border dark:bg-background dark:text-muted-foreground'
                     }`}
                   >
                     {pct}%
@@ -538,14 +538,14 @@ export function SpotOrderEntryPanel({
                 ))}
               </div>
               <div className="relative pt-0.5">
-                <div className="mb-1 flex justify-between text-[9px] font-medium tabular-nums text-gray-400 dark:text-gray-600">
+                <div className="mb-1 flex justify-between text-[9px] font-medium tabular-nums text-muted-foreground dark:text-muted-foreground">
                   <span>0</span>
                   <span>100%</span>
                 </div>
-                <div className="relative h-2 rounded-full bg-gray-200 dark:bg-gray-800">
+                <div className="relative h-2 rounded-full bg-accent">
                   <div className="absolute inset-x-0 top-1/2 flex -translate-y-1/2 justify-between px-[6%]">
                     {[25, 50, 75].map((m) => (
-                      <span key={m} className="h-1.5 w-px bg-gray-400/50 dark:bg-gray-600" aria-hidden />
+                      <span key={m} className="h-1.5 w-px bg-border dark:bg-border" aria-hidden />
                     ))}
                   </div>
                   <input
@@ -569,9 +569,9 @@ export function SpotOrderEntryPanel({
             </div>
           )}
 
-          <div className="flex items-center justify-between gap-2 text-[10px] text-gray-600 dark:text-gray-400">
+          <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
             <span className="font-semibold">Max. {side === 'buy' ? 'buying amount' : 'proceeds (est.)'}</span>
-            <span className="truncate font-mono font-bold tabular-nums text-gray-900 dark:text-white">
+            <span className="truncate font-mono font-bold tabular-nums text-foreground">
               {side === 'buy'
                 ? maxBuyBaseEstimate != null
                   ? `${maxBuyBaseEstimate} ${baseAsset}`
@@ -584,18 +584,18 @@ export function SpotOrderEntryPanel({
 
           <InsetField label={orderType === 'market' ? 'Order value (est.)' : 'Total'} suffix={quoteAsset}>
             {notionalQuote > 0 && total && total !== '0' ? (
-              <span className={`${insetInputClass} text-gray-900 dark:text-white`} aria-label={`Total ${quoteAsset}`}>
+              <span className={`${insetInputClass} text-foreground`} aria-label={`Total ${quoteAsset}`}>
                 {total}
               </span>
             ) : (
-              <span className={`${insetInputClass} text-gray-400 dark:text-gray-600`} aria-label={`Total ${quoteAsset}`}>
+              <span className={`${insetInputClass} text-muted-foreground dark:text-muted-foreground`} aria-label={`Total ${quoteAsset}`}>
                 —
               </span>
             )}
           </InsetField>
 
           {(showTif && onTimeInForceChange) || (orderType === 'limit' && onPostOnlyChange) ? (
-            <div className="flex flex-col gap-1.5 rounded-md border border-gray-200/90 bg-white px-2 py-1.5 dark:border-gray-800/90 dark:bg-[#0b0e11]/80">
+            <div className="flex flex-col gap-1.5 rounded-md border border-border/90 bg-card px-2 py-1.5 dark:border-border/90 dark:bg-background/80">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
                 {orderType === 'limit' && onPostOnlyChange && (
                   <label className="flex cursor-pointer items-center gap-1.5">
@@ -603,14 +603,14 @@ export function SpotOrderEntryPanel({
                       type="checkbox"
                       checked={postOnly}
                       onChange={(e) => onPostOnlyChange(e.target.checked)}
-                      className="h-3.5 w-3.5 rounded border-gray-300 text-buy accent-buy focus:ring-2 focus:ring-buy/25 dark:border-gray-600 dark:accent-buy"
+                      className="h-3.5 w-3.5 rounded border-border text-buy accent-buy focus:ring-2 focus:ring-buy/25 dark:border-border dark:accent-buy"
                     />
-                    <span className="text-[10px] font-semibold text-gray-800 dark:text-gray-200">Post-only</span>
+                    <span className="text-[10px] font-semibold text-foreground dark:text-foreground/90">Post-only</span>
                   </label>
                 )}
                 {showTif && onTimeInForceChange && (
                   <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:min-w-[12rem]">
-                    <span className="shrink-0 text-[9px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-500">
+                    <span className="shrink-0 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">
                       TIF
                     </span>
                     <div className="relative min-w-0 flex-1">
@@ -618,7 +618,7 @@ export function SpotOrderEntryPanel({
                         value={tif}
                         disabled={orderType === 'limit' && postOnly}
                         onChange={(e) => onTimeInForceChange(e.target.value as TimeInForce)}
-                        className="h-8 w-full cursor-pointer appearance-none rounded-md border border-gray-200 bg-gray-50 py-1.5 pl-2 pr-7 text-[10px] font-semibold text-gray-900 outline-none focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                        className="h-8 w-full cursor-pointer appearance-none rounded-md border border-border bg-muted py-1.5 pl-2 pr-7 text-[10px] font-semibold text-foreground outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60 dark:border-border dark:bg-card dark:text-foreground"
                         aria-label="Time in force"
                       >
                         {TIF_OPTIONS.map(({ v, label }) => (
@@ -627,7 +627,7 @@ export function SpotOrderEntryPanel({
                           </option>
                         ))}
                       </select>
-                      <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" aria-hidden />
+                      <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
                     </div>
                   </div>
                 )}
@@ -636,14 +636,14 @@ export function SpotOrderEntryPanel({
           ) : null}
 
           {orderType === 'market' && estimatedFillPrice && qtyNum > 0 && (
-            <div className="rounded-lg border border-dashed border-gray-300 bg-white/90 px-2.5 py-2 dark:border-gray-600 dark:bg-[#0b0e11]/90">
-              <SummaryRow label="Est. avg fill" value={estimatedFillPrice} valueClassName="text-gray-900 dark:text-white" />
+            <div className="rounded-lg border border-dashed border-border bg-card/90 px-2.5 py-2 dark:border-border dark:bg-background/90">
+              <SummaryRow label="Est. avg fill" value={estimatedFillPrice} valueClassName="text-foreground" />
               {estimatedSlippagePct != null && (
                 <div className="mt-1">
                   <SummaryRow
                     label="Est. slippage"
                     value={`${estimatedSlippagePct.toFixed(2)}%`}
-                    valueClassName={slippageWarning ? 'text-amber-600 dark:text-amber-400' : 'text-gray-900 dark:text-white'}
+                    valueClassName={slippageWarning ? 'text-amber-600 dark:text-amber-400' : 'text-foreground'}
                   />
                 </div>
               )}
@@ -653,7 +653,7 @@ export function SpotOrderEntryPanel({
       </div>
 
       {/* Sticky action + summary (always visible) */}
-      <div className="flex-shrink-0 border-t border-gray-200/90 bg-white px-2 pb-1.5 pt-1.5 dark:border-gray-800/90 dark:bg-[#181a20]">
+      <div className="flex-shrink-0 border-t border-border/90 bg-card px-2 pb-1.5 pt-1.5 dark:border-border/90 dark:bg-card">
         {slippageWarning && (
           <div className="mb-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[10px] font-medium text-amber-800 dark:text-amber-200">
             High slippage — consider a limit order.
@@ -668,7 +668,7 @@ export function SpotOrderEntryPanel({
         {!isAuth ? (
           <Link
             href={loginWithRedirect(SPOT_TRADE_HREF)}
-            className="flex min-h-[48px] h-12 w-full items-center justify-center rounded-md bg-blue-500 text-sm font-bold text-white transition-colors hover:bg-blue-600 sm:h-11 sm:min-h-0"
+            className="flex min-h-[48px] h-12 w-full items-center justify-center rounded-md bg-primary text-sm font-bold text-foreground transition-colors hover:bg-primary/85 sm:h-11 sm:min-h-0"
           >
             Sign in to trade
           </Link>
@@ -679,7 +679,7 @@ export function SpotOrderEntryPanel({
             disabled={!canSubmit || loading}
             onClick={() => setConfirmOpen(true)}
             aria-busy={loading}
-            className={`flex min-h-[48px] h-12 w-full items-center justify-center gap-2 rounded-md text-sm font-bold text-white shadow-sm ring-1 ring-black/10 transition-[transform,opacity,background-color] duration-200 active:scale-[0.99] dark:ring-white/10 sm:h-11 sm:min-h-0 ${
+            className={`flex min-h-[48px] h-12 w-full items-center justify-center gap-2 rounded-md text-sm font-bold text-foreground shadow-sm ring-1 ring-black/10 transition-[transform,opacity,background-color] duration-200 active:scale-[0.99] dark:ring-white/10 sm:h-11 sm:min-h-0 ${
               side === 'buy'
                 ? 'bg-buy hover:bg-buy-hover disabled:saturate-50'
                 : 'bg-sell hover:bg-sell-hover disabled:saturate-50'
@@ -690,13 +690,13 @@ export function SpotOrderEntryPanel({
           </button>
         )}
 
-        <div className="space-y-1 rounded-md bg-gray-50/90 px-2.5 py-2 dark:bg-gray-900/50">
-          <div className="flex items-start gap-1.5 text-[10px] text-gray-500 dark:text-gray-500">
+        <div className="space-y-1 rounded-md bg-muted/90 px-2.5 py-2 dark:bg-card/50">
+          <div className="flex items-start gap-1.5 text-[10px] text-muted-foreground">
             <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
             <span>
               Maker {(maker * 100).toFixed(3)}% · Taker {(taker * 100).toFixed(3)}%
               {notional > 0 ? (
-                <span className="text-gray-400 dark:text-gray-600">
+                <span className="text-muted-foreground dark:text-muted-foreground">
                   {' '}
                   · Est. @ {feeMeta.kind === 'maker' ? 'maker' : feeMeta.kind === 'taker' ? 'taker' : 'worst-case'}
                 </span>
@@ -708,36 +708,36 @@ export function SpotOrderEntryPanel({
               <SummaryRow
                 label={`Est. fee (${feeMeta.kind === 'maker' ? 'maker' : feeMeta.kind === 'taker' ? 'taker' : 'worst'})`}
                 value={`${formatValueFixedTrim(estimatedFee, Math.min(8, Math.max(2, pricePrecision)))} ${quoteAsset}`}
-                valueClassName="font-semibold text-gray-900 dark:text-white"
+                valueClassName="font-semibold text-foreground"
               />
               <SummaryRow
                 label="Net"
                 value={`${formatValueFixedTrim(netReceived, side === 'buy' ? qtyPrecision : Math.min(10, Math.max(2, pricePrecision)))} ${netReceivedAsset}`}
-                valueClassName="font-bold text-gray-900 dark:text-white"
+                valueClassName="font-bold text-foreground"
               />
             </>
           )}
         </div>
       </div>
 
-      <div className="flex-shrink-0 border-t border-gray-200/90 bg-gray-100/60 px-2.5 py-2.5 dark:border-gray-800/90 dark:bg-black/20">
-        <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-500">Account</p>
+      <div className="flex-shrink-0 border-t border-border/90 bg-accent/60 px-2.5 py-2.5 dark:border-border/90 dark:bg-black/20">
+        <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Account</p>
         <div className="flex flex-wrap gap-1.5">
           <Link
             href={walletPath.depositCrypto}
-            className="inline-flex min-h-9 items-center justify-center rounded-full bg-blue-500 px-4 py-2 text-center text-[10px] font-bold text-white transition-colors hover:bg-blue-600 sm:min-h-0 sm:px-3 sm:py-1.5"
+            className="inline-flex min-h-9 items-center justify-center rounded-full bg-primary px-4 py-2 text-center text-[10px] font-bold text-foreground transition-colors hover:bg-primary/85 sm:min-h-0 sm:px-3 sm:py-1.5"
           >
             Deposit
           </Link>
           <Link
             href={walletPath.transfer}
-            className="inline-flex min-h-9 items-center justify-center rounded-full border border-gray-300 bg-white px-4 py-2 text-[10px] font-bold text-gray-800 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:bg-[#0b0e11] dark:text-gray-200 dark:hover:bg-gray-800 sm:min-h-0 sm:px-3 sm:py-1.5"
+            className="inline-flex min-h-9 items-center justify-center rounded-full border border-border bg-card px-4 py-2 text-[10px] font-bold text-foreground transition-colors hover:bg-muted dark:border-border dark:bg-background dark:text-foreground/90 dark:hover:bg-accent sm:min-h-0 sm:px-3 sm:py-1.5"
           >
             Transfer
           </Link>
           <Link
             href={walletPath.depositCrypto}
-            className="inline-flex min-h-9 items-center justify-center gap-0.5 rounded-full border border-gray-300 px-4 py-2 text-[10px] font-bold text-blue-600 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:text-blue-400 dark:hover:bg-gray-800/50 sm:min-h-0 sm:px-3 sm:py-1.5"
+            className="inline-flex min-h-9 items-center justify-center gap-0.5 rounded-full border border-border px-4 py-2 text-[10px] font-bold text-primary transition-colors hover:bg-muted dark:border-border dark:text-primary dark:hover:bg-accent/50 sm:min-h-0 sm:px-3 sm:py-1.5"
           >
             Buy crypto
             <ArrowRight className="h-3 w-3" />
@@ -746,7 +746,7 @@ export function SpotOrderEntryPanel({
       </div>
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogContent className="max-w-sm border-gray-200 dark:border-gray-800">
+        <DialogContent className="max-w-sm border-border">
           <DialogHeader>
             <DialogTitle>Confirm {side === 'buy' ? 'buy' : 'sell'}</DialogTitle>
             <DialogDescription>Review before placing</DialogDescription>
@@ -761,7 +761,7 @@ export function SpotOrderEntryPanel({
                 </span>
               }
               mono={false}
-              valueClassName="text-gray-900 dark:text-white"
+              valueClassName="text-foreground"
             />
             {showPrice && <SummaryRow label="Price" value={`${price || '—'} ${quoteAsset}`} />}
             {showStopPrice && stopPrice ? <SummaryRow label="Trigger" value={`${stopPrice} ${quoteAsset}`} /> : null}
@@ -769,7 +769,7 @@ export function SpotOrderEntryPanel({
             <SummaryRow label="Total" value={`${total} ${quoteAsset}`} />
             {orderType === 'market' && estimatedFillPrice ? <SummaryRow label="Est. fill" value={estimatedFillPrice} /> : null}
             {notional > 0 && (
-              <div className="space-y-1 border-t border-gray-200 pt-2 dark:border-gray-800">
+              <div className="space-y-1 border-t border-border pt-2 dark:border-border">
                 <SummaryRow
                   label={`Est. fee (${feeMeta.kind === 'maker' ? 'maker' : feeMeta.kind === 'taker' ? 'taker' : 'worst'})`}
                   value={`${formatValueFixedTrim(estimatedFee, Math.min(8, Math.max(2, pricePrecision)))} ${quoteAsset}`}
@@ -782,7 +782,7 @@ export function SpotOrderEntryPanel({
             <button
               type="button"
               onClick={() => setConfirmOpen(false)}
-              className="min-h-11 w-full rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-semibold transition-colors hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800 sm:min-h-10 sm:w-auto"
+              className="min-h-11 w-full rounded-lg border border-border px-4 py-2.5 text-sm font-semibold transition-colors hover:bg-muted dark:border-border dark:hover:bg-accent sm:min-h-10 sm:w-auto"
             >
               Cancel
             </button>
@@ -800,7 +800,7 @@ export function SpotOrderEntryPanel({
                   setConfirmLoading(false);
                 }
               }}
-              className={`flex min-h-11 w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-bold text-white shadow-sm ring-1 ring-black/10 transition-opacity disabled:opacity-60 dark:ring-white/10 sm:min-h-10 sm:w-auto ${
+              className={`flex min-h-11 w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-bold text-foreground shadow-sm ring-1 ring-black/10 transition-opacity disabled:opacity-60 dark:ring-white/10 sm:min-h-10 sm:w-auto ${
                 side === 'buy' ? 'bg-buy hover:bg-buy-hover' : 'bg-sell hover:bg-sell-hover'
               }`}
             >

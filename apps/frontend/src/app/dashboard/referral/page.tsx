@@ -272,7 +272,7 @@ export default function ReferralProgramPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0b0e11]">
+    <div className="min-h-screen bg-background">
       {/* Hero Section */}
       <div className="relative overflow-hidden bg-gradient-to-br from-blue-600 via-blue-700 to-blue-800 dark:from-blue-900 dark:via-blue-800 dark:to-blue-900 text-white">
         {/* Background Pattern */}
@@ -285,7 +285,7 @@ export default function ReferralProgramPage() {
         <div className="relative max-w-6xl mx-auto px-4 lg:px-8 py-12 lg:py-16">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-8">
             <div className="lg:max-w-xl">
-              <div className="inline-flex items-center gap-2 px-4 py-2 bg-white/10 backdrop-blur-sm rounded-full mb-6">
+              <div className="inline-flex items-center gap-2 px-4 py-2 bg-card/10 backdrop-blur-sm rounded-full mb-6">
                 <Sparkles className="w-4 h-4 text-yellow-400" />
                 <span className="text-sm font-medium">Referral Program</span>
               </div>
@@ -302,14 +302,14 @@ export default function ReferralProgramPage() {
               <div className="flex flex-wrap gap-4">
                 <button
                   onClick={() => setShowInviteModal(true)}
-                  className="px-8 py-4 bg-white text-blue-700 font-semibold rounded-xl hover:bg-blue-50 transition-all shadow-lg shadow-blue-900/30 flex items-center gap-2"
+                  className="px-8 py-4 bg-card text-blue-700 font-semibold rounded-xl hover:bg-blue-50 transition-all shadow-lg shadow-blue-900/30 flex items-center gap-2"
                 >
                   <Share2 className="w-5 h-5" />
                   Invite Friends
                 </button>
                 <Link
                   href="/dashboard/referral/my-referrals"
-                  className="px-8 py-4 bg-white/10 backdrop-blur-sm text-white font-semibold rounded-xl hover:bg-white/20 transition-all flex items-center gap-2 border border-white/20"
+                  className="px-8 py-4 bg-card/10 backdrop-blur-sm text-white font-semibold rounded-xl hover:bg-card/20 transition-all flex items-center gap-2 border border-white/20"
                 >
                   <Users className="w-5 h-5" />
                   My Referrals
@@ -319,35 +319,35 @@ export default function ReferralProgramPage() {
 
             {/* Stats Cards */}
             <div className="grid grid-cols-2 gap-4 lg:w-[400px]">
-              <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-5 border border-white/10">
+              <div className="bg-card/10 backdrop-blur-sm rounded-xl p-5 border border-white/10">
                 <div className="w-12 h-12 bg-yellow-500/20 rounded-xl flex items-center justify-center mb-3">
                   <Trophy className="w-6 h-6 text-yellow-400" />
                 </div>
-                {loading ? <Skeleton className="h-8 w-16 mb-2 bg-white/20" /> : <p className="text-3xl font-bold">${stats && Number.isFinite(stats.totalEarnings) ? Math.max(0, stats.totalEarnings).toFixed(0) : '0'}</p>}
+                {loading ? <Skeleton className="h-8 w-16 mb-2 bg-card/20" /> : <p className="text-3xl font-bold">${stats && Number.isFinite(stats.totalEarnings) ? Math.max(0, stats.totalEarnings).toFixed(0) : '0'}</p>}
                 <p className="text-blue-200 text-sm">Your Earnings</p>
               </div>
-              <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-5 border border-white/10">
+              <div className="bg-card/10 backdrop-blur-sm rounded-xl p-5 border border-white/10">
                 <div className="w-12 h-12 bg-green-500/20 rounded-xl flex items-center justify-center mb-3">
                   <TrendingUp className="w-6 h-6 text-green-400" />
                 </div>
-                {loading ? <Skeleton className="h-8 w-12 mb-2 bg-white/20" /> : <p className="text-3xl font-bold">{stats ? Math.round(stats.commissionRate) : 20}%</p>}
+                {loading ? <Skeleton className="h-8 w-12 mb-2 bg-card/20" /> : <p className="text-3xl font-bold">{stats ? Math.round(stats.commissionRate) : 20}%</p>}
                 <p className="text-blue-200 text-sm inline-flex items-center gap-1">
                   Commission Rate <InfoTooltip content="This is the percentage you earn from your referrals' trading fees." className="text-blue-200/90" />
                 </p>
               </div>
-              <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-5 border border-white/10">
+              <div className="bg-card/10 backdrop-blur-sm rounded-xl p-5 border border-white/10">
                 <div className="w-12 h-12 bg-purple-500/20 rounded-xl flex items-center justify-center mb-3">
                   <Users className="w-6 h-6 text-purple-400" />
                 </div>
-                {loading ? <Skeleton className="h-8 w-12 mb-2 bg-white/20" /> : <p className="text-3xl font-bold">{stats?.totalReferrals ?? 0}</p>}
+                {loading ? <Skeleton className="h-8 w-12 mb-2 bg-card/20" /> : <p className="text-3xl font-bold">{stats?.totalReferrals ?? 0}</p>}
                 <p className="text-blue-200 text-sm">Your Referrals</p>
               </div>
-              <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-5 border border-white/10">
+              <div className="bg-card/10 backdrop-blur-sm rounded-xl p-5 border border-white/10">
                 <div className="w-12 h-12 bg-blue-400/20 rounded-xl flex items-center justify-center mb-3">
                   <Coins className="w-6 h-6 text-blue-300" />
                 </div>
                 {loading ? (
-                  <Skeleton className="h-8 w-16 mb-2 bg-white/20" />
+                  <Skeleton className="h-8 w-16 mb-2 bg-card/20" />
                 ) : (
                   <p className="text-3xl font-bold tabular-nums">—</p>
                 )}
@@ -363,14 +363,14 @@ export default function ReferralProgramPage() {
         {fetchError && (
           <div className="mb-6 rounded-xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-4 py-3 flex items-center justify-between">
             <p className="text-amber-800 dark:text-amber-200 text-sm">{fetchError}</p>
-            <button onClick={() => window.location.reload()} className="text-sm text-blue-600 dark:text-blue-400 hover:underline">Retry</button>
+            <button onClick={() => window.location.reload()} className="text-sm text-primary hover:underline">Retry</button>
           </div>
         )}
 
         {/* Growth Analytics */}
         <div className="mb-12">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Growth Analytics</h2>
-          <p className="text-gray-500 dark:text-gray-400 text-sm mb-6">Track referral performance and conversion</p>
+          <h2 className="text-2xl font-bold text-foreground mb-2">Growth Analytics</h2>
+          <p className="text-muted-foreground text-sm mb-6">Track referral performance and conversion</p>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
             <ReferralEarningsChart data={undefined} loading={loading} />
             <ReferralFunnel
@@ -388,8 +388,8 @@ export default function ReferralProgramPage() {
         <div className="mb-12">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">How to Get Rewards</h2>
-              <p className="text-gray-500 dark:text-gray-400 mt-1">Earn more by completing different tasks</p>
+              <h2 className="text-2xl font-bold text-foreground">How to Get Rewards</h2>
+              <p className="text-muted-foreground mt-1">Earn more by completing different tasks</p>
             </div>
           </div>
 
@@ -401,12 +401,12 @@ export default function ReferralProgramPage() {
           >
             {/* Your Earnings Card */}
             <div 
-              className={`bg-gradient-to-br from-blue-500 to-blue-700 rounded-2xl p-6 text-white cursor-pointer overflow-hidden shadow-xl shadow-blue-500/20
+              className={`bg-gradient-to-br from-blue-500 to-blue-700 rounded-xl p-6 text-white cursor-pointer overflow-hidden shadow-xl shadow-blue-500/20
                 transition-all duration-500 ease-in-out
                 ${activeCard === 'earnings' ? 'flex-[2]' : 'flex-1'}`}
             >
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+                <div className="w-10 h-10 bg-card/20 rounded-xl flex items-center justify-center">
                   <Gift className="w-5 h-5" />
                 </div>
                 <div>
@@ -421,7 +421,7 @@ export default function ReferralProgramPage() {
               {/* Expanded Content */}
               <div className={`transition-all duration-500 ease-in-out overflow-hidden
                 ${activeCard === 'earnings' ? 'opacity-100 max-h-48 mt-4' : 'opacity-0 max-h-0 mt-0'}`}>
-                <div className="grid grid-cols-4 gap-4 bg-white/10 rounded-xl p-4">
+                <div className="grid grid-cols-4 gap-4 bg-card/10 rounded-xl p-4">
                   <div className="text-center">
                     <p className="text-2xl font-bold">$10</p>
                     <p className="text-xs text-blue-200">First Referral</p>
@@ -448,40 +448,40 @@ export default function ReferralProgramPage() {
 
             {/* Tiered Commissions Card */}
             <div 
-              className={`bg-white dark:bg-[#181a20] rounded-2xl p-6 border border-gray-100 dark:border-gray-800 cursor-pointer overflow-hidden shadow-lg
+              className={`bg-card rounded-xl p-6 border border-border cursor-pointer overflow-hidden shadow-lg
                 transition-all duration-500 ease-in-out
                 ${activeCard === 'commissions' ? 'flex-[2]' : 'flex-1'}`}
             >
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center">
-                  <TrendingUp className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                  <TrendingUp className="w-5 h-5 text-primary" />
                 </div>
                 <div>
-                  <p className="font-semibold text-gray-900 dark:text-white">Tiered Commissions</p>
-                  <p className="text-gray-500 text-sm">More referrals = Higher rate</p>
+                  <p className="font-semibold text-foreground">Tiered Commissions</p>
+                  <p className="text-muted-foreground text-sm">More referrals = Higher rate</p>
                 </div>
               </div>
               
-              <p className="text-4xl font-bold text-gray-900 dark:text-white mb-2">Up to 30%</p>
-              <p className="text-gray-500 text-sm mb-4">Commission on trading fees</p>
+              <p className="text-4xl font-bold text-foreground mb-2">Up to 30%</p>
+              <p className="text-muted-foreground text-sm mb-4">Commission on trading fees</p>
               
               {/* Chart */}
               <div className={`flex items-end justify-center transition-all duration-500 ease-in-out
                 ${activeCard === 'commissions' ? 'gap-8 h-32' : 'gap-4 h-20'}`}>
                 <div className="flex flex-col items-center">
-                  <div className={`bg-gray-200 dark:bg-gray-700 rounded-t-lg transition-all duration-500 ease-in-out
+                  <div className={`bg-accent rounded-t-lg transition-all duration-500 ease-in-out
                     ${activeCard === 'commissions' ? 'w-16 h-[60px]' : 'w-10 h-[40px]'}`} />
-                  <span className="text-xs text-gray-500 mt-2 font-medium">20%</span>
+                  <span className="text-xs text-muted-foreground mt-2 font-medium">20%</span>
                 </div>
                 <div className="flex flex-col items-center">
                   <div className={`bg-gray-300 dark:bg-gray-600 rounded-t-lg transition-all duration-500 ease-in-out
                     ${activeCard === 'commissions' ? 'w-16 h-[80px]' : 'w-10 h-[55px]'}`} />
-                  <span className="text-xs text-gray-500 mt-2 font-medium">25%</span>
+                  <span className="text-xs text-muted-foreground mt-2 font-medium">25%</span>
                 </div>
                 <div className="flex flex-col items-center">
-                  <div className={`bg-blue-500 rounded-t-lg transition-all duration-500 ease-in-out
+                  <div className={`bg-primary rounded-t-lg transition-all duration-500 ease-in-out
                     ${activeCard === 'commissions' ? 'w-16 h-[100px]' : 'w-10 h-[70px]'}`} />
-                  <span className="text-xs text-blue-500 mt-2 font-semibold">30%</span>
+                  <span className="text-xs text-primary mt-2 font-semibold">30%</span>
                 </div>
               </div>
             </div>
@@ -490,85 +490,85 @@ export default function ReferralProgramPage() {
 
         {/* Invite More, Earn More */}
         <div className="mb-12">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Invite More, Earn More</h2>
+          <h2 className="text-2xl font-bold text-foreground mb-6">Invite More, Earn More</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Card 1 */}
-            <div className="bg-white dark:bg-[#181a20] rounded-2xl p-6 border border-gray-100 dark:border-gray-800 hover:shadow-xl transition-shadow">
+            <div className="bg-card rounded-xl p-6 border border-border hover:shadow-xl transition-shadow">
               <div className="flex items-start justify-between mb-4">
                 <div>
-                  <span className="text-xs font-medium text-blue-500 bg-blue-50 dark:bg-blue-900/30 px-2 py-1 rounded">Up to</span>
-                  <p className="text-4xl font-bold text-gray-900 dark:text-white mt-2">$3</p>
-                  <p className="text-gray-500 text-sm">Per Referred User</p>
+                  <span className="text-xs font-medium text-primary bg-blue-50 dark:bg-blue-900/30 px-2 py-1 rounded">Up to</span>
+                  <p className="text-4xl font-bold text-foreground mt-2">$3</p>
+                  <p className="text-muted-foreground text-sm">Per Referred User</p>
                 </div>
-                <div className="w-16 h-16 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-2xl flex items-center justify-center shadow-lg shadow-yellow-500/30">
+                <div className="w-16 h-16 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-xl flex items-center justify-center shadow-lg shadow-yellow-500/30">
                   <Coins className="w-8 h-8 text-white" />
                 </div>
               </div>
-              <p className="text-gray-600 dark:text-gray-400">Invite a friend to Methereum Earn</p>
+              <p className="text-muted-foreground">Invite a friend to Methereum Earn</p>
             </div>
 
             {/* Card 2 */}
-            <div className="bg-white dark:bg-[#181a20] rounded-2xl p-6 border border-gray-100 dark:border-gray-800 hover:shadow-xl transition-shadow">
+            <div className="bg-card rounded-xl p-6 border border-border hover:shadow-xl transition-shadow">
               <div className="flex items-start justify-between mb-4">
                 <div>
-                  <span className="text-xs font-medium text-blue-500 bg-blue-50 dark:bg-blue-900/30 px-2 py-1 rounded">Up to</span>
-                  <p className="text-4xl font-bold text-gray-900 dark:text-white mt-2">$20</p>
-                  <p className="text-gray-500 text-sm">Per Referred User</p>
+                  <span className="text-xs font-medium text-primary bg-blue-50 dark:bg-blue-900/30 px-2 py-1 rounded">Up to</span>
+                  <p className="text-4xl font-bold text-foreground mt-2">$20</p>
+                  <p className="text-muted-foreground text-sm">Per Referred User</p>
                 </div>
-                <div className="w-16 h-16 bg-gradient-to-br from-gray-600 to-gray-800 rounded-2xl flex items-center justify-center shadow-lg shadow-gray-500/30">
+                <div className="w-16 h-16 bg-gradient-to-br from-gray-600 to-gray-800 rounded-xl flex items-center justify-center shadow-lg shadow-gray-500/30">
                   <CreditCard className="w-8 h-8 text-white" />
                 </div>
               </div>
-              <p className="text-gray-600 dark:text-gray-400">Refer a friend to Methereum Card</p>
+              <p className="text-muted-foreground">Refer a friend to Methereum Card</p>
             </div>
 
             {/* Card 3 */}
-            <div className="bg-white dark:bg-[#181a20] rounded-2xl p-6 border border-gray-100 dark:border-gray-800 hover:shadow-xl transition-shadow">
+            <div className="bg-card rounded-xl p-6 border border-border hover:shadow-xl transition-shadow">
               <div className="flex items-start justify-between mb-4">
                 <div>
-                  <span className="text-xs font-medium text-blue-500 bg-blue-50 dark:bg-blue-900/30 px-2 py-1 rounded">Up to</span>
-                  <p className="text-4xl font-bold text-gray-900 dark:text-white mt-2">$665</p>
-                  <p className="text-gray-500 text-sm">Per Referred User</p>
+                  <span className="text-xs font-medium text-primary bg-blue-50 dark:bg-blue-900/30 px-2 py-1 rounded">Up to</span>
+                  <p className="text-4xl font-bold text-foreground mt-2">$665</p>
+                  <p className="text-muted-foreground text-sm">Per Referred User</p>
                 </div>
-                <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-700 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/30">
+                <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-700 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/30">
                   <TrendingUp className="w-8 h-8 text-white" />
                 </div>
               </div>
-              <p className="text-gray-600 dark:text-gray-400">Refer a friend to Copy Trading</p>
+              <p className="text-muted-foreground">Refer a friend to Copy Trading</p>
             </div>
           </div>
         </div>
 
         {/* How to Invite */}
         <div className="mb-12">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">How to Invite</h2>
+          <h2 className="text-2xl font-bold text-foreground mb-6">How to Invite</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             <div className="text-center">
-              <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/30">
+              <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/30">
                 <Share2 className="w-10 h-10 text-white" />
               </div>
-              <h3 className="font-bold text-gray-900 dark:text-white mb-2">Share Your Code</h3>
-              <p className="text-gray-500 dark:text-gray-400 text-sm">
+              <h3 className="font-bold text-foreground mb-2">Share Your Code</h3>
+              <p className="text-muted-foreground text-sm">
                 Share your unique referral code and link with friends via social media or direct message.
               </p>
             </div>
 
             <div className="text-center">
-              <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg shadow-purple-500/30">
+              <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-purple-500/30">
                 <MessageCircle className="w-10 h-10 text-white" />
               </div>
-              <h3 className="font-bold text-gray-900 dark:text-white mb-2">Friends Sign Up</h3>
-              <p className="text-gray-500 dark:text-gray-400 text-sm">
+              <h3 className="font-bold text-foreground mb-2">Friends Sign Up</h3>
+              <p className="text-muted-foreground text-sm">
                 Your friends sign up using your referral code and become linked to your account.
               </p>
             </div>
 
             <div className="text-center">
-              <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-green-500 to-green-600 rounded-2xl flex items-center justify-center shadow-lg shadow-green-500/30">
+              <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center shadow-lg shadow-green-500/30">
                 <Gift className="w-10 h-10 text-white" />
               </div>
-              <h3 className="font-bold text-gray-900 dark:text-white mb-2">Earn Rewards</h3>
-              <p className="text-gray-500 dark:text-gray-400 text-sm">
+              <h3 className="font-bold text-foreground mb-2">Earn Rewards</h3>
+              <p className="text-muted-foreground text-sm">
                 Get bonuses and commissions when your friends trade, apply for cards, or use copy trading.
               </p>
             </div>
@@ -576,23 +576,23 @@ export default function ReferralProgramPage() {
         </div>
 
         {/* Referral Code Section */}
-        <div className="bg-white dark:bg-[#181a20] rounded-2xl p-8 border border-gray-100 dark:border-gray-800 mb-12">
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-6">Your Referral Details</h2>
+        <div className="bg-card rounded-xl p-8 border border-border mb-12">
+          <h2 className="text-xl font-bold text-foreground mb-6">Your Referral Details</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">
+              <label className="block text-sm font-medium text-muted-foreground mb-2">
                 My Referral Code
               </label>
               <div className="flex items-center gap-3">
-                <div className="flex-1 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl px-5 py-4">
-                  <span className="text-xl font-bold text-gray-900 dark:text-white font-mono">{referralCode}</span>
+                <div className="flex-1 bg-muted border border-border rounded-xl px-5 py-4">
+                  <span className="text-xl font-bold text-foreground font-mono">{referralCode}</span>
                 </div>
                 <button
                   onClick={copyCode}
                   className={`p-4 rounded-xl transition-all ${
                     copiedCode 
                       ? 'bg-green-500 text-white' 
-                      : 'bg-blue-500 hover:bg-blue-600 text-white'
+                      : 'bg-primary hover:bg-primary/85 text-white'
                   }`}
                 >
                   {copiedCode ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
@@ -601,19 +601,19 @@ export default function ReferralProgramPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">
+              <label className="block text-sm font-medium text-muted-foreground mb-2">
                 My Referral Link
               </label>
               <div className="flex items-center gap-3">
-                <div className="flex-1 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl px-5 py-4 overflow-hidden">
-                  <span className="text-sm text-gray-600 dark:text-gray-300 truncate block">{referralLink}</span>
+                <div className="flex-1 bg-muted border border-border rounded-xl px-5 py-4 overflow-hidden">
+                  <span className="text-sm text-muted-foreground truncate block">{referralLink}</span>
                 </div>
                 <button
                   onClick={copyLink}
                   className={`p-4 rounded-xl transition-all ${
                     copiedLink 
                       ? 'bg-green-500 text-white' 
-                      : 'bg-blue-500 hover:bg-blue-600 text-white'
+                      : 'bg-primary hover:bg-primary/85 text-white'
                   }`}
                 >
                   {copiedLink ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
@@ -624,7 +624,7 @@ export default function ReferralProgramPage() {
         </div>
 
         {/* CTA Banner */}
-        <div className="relative overflow-hidden bg-gradient-to-r from-blue-600 to-blue-800 rounded-2xl p-8 text-center mb-12">
+        <div className="relative overflow-hidden bg-gradient-to-r from-blue-600 to-blue-800 rounded-xl p-8 text-center mb-12">
           <div className="absolute inset-0">
             <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/20 rounded-full blur-3xl" />
             <div className="absolute bottom-0 left-0 w-48 h-48 bg-blue-400/20 rounded-full blur-3xl" />
@@ -636,22 +636,22 @@ export default function ReferralProgramPage() {
             <p className="text-blue-100 mb-6 max-w-2xl mx-auto">
               Unlock up to 50% commission rates with our Affiliates Program. Perfect for influencers and content creators.
             </p>
-            <button className="px-8 py-4 bg-white text-blue-700 font-semibold rounded-xl hover:bg-blue-50 transition-all shadow-lg">
+            <button className="px-8 py-4 bg-card text-blue-700 font-semibold rounded-xl hover:bg-blue-50 transition-all shadow-lg">
               Apply Now <ArrowRight className="w-5 h-5 inline ml-2" />
             </button>
           </div>
         </div>
 
         {/* Terms */}
-        <div className="bg-gray-50 dark:bg-[#181a20] rounded-2xl p-6 border border-gray-100 dark:border-gray-800">
-          <h3 className="font-bold text-gray-900 dark:text-white mb-4">Terms & Conditions</h3>
-          <div className="text-sm text-gray-500 dark:text-gray-400 space-y-2">
+        <div className="bg-muted dark:bg-card rounded-xl p-6 border border-border">
+          <h3 className="font-bold text-foreground mb-4">Terms & Conditions</h3>
+          <div className="text-sm text-muted-foreground space-y-2">
             <p>• Referral rewards are subject to verification and may take up to 48 hours to process.</p>
             <p>• Commission rates are based on the total number of active referrals and their trading volume.</p>
             <p>• Each user can only use one referral code during registration.</p>
             <p>• Self-referrals are not permitted and may result in account suspension.</p>
           </div>
-          <button className="mt-4 text-blue-500 hover:text-blue-600 text-sm font-medium flex items-center gap-1">
+          <button className="mt-4 text-primary hover:text-primary/85 text-sm font-medium flex items-center gap-1">
             View Full Terms <ArrowRight className="w-4 h-4" />
           </button>
         </div>
@@ -662,14 +662,14 @@ export default function ReferralProgramPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowInviteModal(false)} />
           
-          <div className="relative bg-[#1e2329] rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto shadow-2xl">
+          <div className="relative bg-[#1e2329] rounded-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto shadow-2xl">
             <div className="flex items-center justify-between p-6 border-b border-gray-700 sticky top-0 bg-[#1e2329] z-10">
               <h2 className="text-xl font-bold text-white">Invite Friends</h2>
               <button 
                 onClick={() => setShowInviteModal(false)}
                 className="p-2 hover:bg-gray-700 rounded-xl transition-colors"
               >
-                <X className="w-6 h-6 text-gray-400" />
+                <X className="w-6 h-6 text-muted-foreground" />
               </button>
             </div>
 
@@ -677,15 +677,15 @@ export default function ReferralProgramPage() {
               {/* Left - Card Preview */}
               <div className="lg:w-[45%] relative flex-shrink-0">
                 <div className="relative">
-                  <div className="bg-gradient-to-br from-blue-600 via-blue-700 to-blue-800 rounded-2xl p-6 border border-blue-500/30 shadow-xl min-h-[400px] flex flex-col justify-between">
-                    <div className="absolute inset-0 rounded-2xl overflow-hidden">
+                  <div className="bg-gradient-to-br from-blue-600 via-blue-700 to-blue-800 rounded-xl p-6 border border-blue-500/30 shadow-xl min-h-[400px] flex flex-col justify-between">
+                    <div className="absolute inset-0 rounded-xl overflow-hidden">
                       <div className="absolute top-0 right-0 w-32 h-32 bg-blue-400/30 rounded-full blur-2xl" />
                       <div className="absolute bottom-0 left-0 w-24 h-24 bg-blue-300/30 rounded-full blur-2xl" />
                     </div>
 
                     <div className="relative z-10">
                       <div className="flex items-center gap-2 mb-6">
-                        <div className="w-10 h-10 bg-blue-500 rounded-xl flex items-center justify-center shadow-lg">
+                        <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center shadow-lg">
                           <span className="text-white font-bold text-lg">M</span>
                         </div>
                         <span className="text-white font-bold text-xl">Methereum</span>
@@ -706,9 +706,9 @@ export default function ReferralProgramPage() {
                         <p className="text-blue-200 text-sm">Scan to join!</p>
                         <p className="text-white font-bold">Code: {referralCode}</p>
                       </div>
-                      <div className="w-16 h-16 bg-white rounded-lg p-1">
-                        <div className="w-full h-full bg-gray-200 rounded flex items-center justify-center">
-                          <span className="text-[8px] text-gray-500">QR</span>
+                      <div className="w-16 h-16 bg-card rounded-lg p-1">
+                        <div className="w-full h-full bg-accent rounded flex items-center justify-center">
+                          <span className="text-[8px] text-muted-foreground">QR</span>
                         </div>
                       </div>
                     </div>
@@ -727,7 +727,7 @@ export default function ReferralProgramPage() {
                     <button
                       key={i}
                       onClick={() => setCurrentSlide(i)}
-                      className={`w-2 h-2 rounded-full transition-all ${currentSlide === i ? 'bg-blue-500 w-6' : 'bg-gray-600'}`}
+                      className={`w-2 h-2 rounded-full transition-all ${currentSlide === i ? 'bg-primary w-6' : 'bg-gray-600'}`}
                     />
                   ))}
                 </div>
@@ -736,20 +736,20 @@ export default function ReferralProgramPage() {
               {/* Right - Share Options */}
               <div className="flex-1 space-y-6">
                 <div>
-                  <label className="block text-gray-400 text-sm mb-2">Referral Code</label>
+                  <label className="block text-muted-foreground text-sm mb-2">Referral Code</label>
                   <div className="flex items-center bg-gray-800 rounded-xl overflow-hidden">
                     <input type="text" value={referralCode} readOnly className="flex-1 bg-transparent px-4 py-3.5 text-white font-bold font-mono outline-none" />
                     <button onClick={copyModalCode} className="p-3.5 hover:bg-gray-700 transition-colors">
-                      {modalCopiedCode ? <Check className="w-5 h-5 text-green-500" /> : <Copy className="w-5 h-5 text-gray-400" />}
+                      {modalCopiedCode ? <Check className="w-5 h-5 text-green-500" /> : <Copy className="w-5 h-5 text-muted-foreground" />}
                     </button>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-gray-400 text-sm mb-2">Customize your message</label>
+                  <label className="block text-muted-foreground text-sm mb-2">Customize your message</label>
                   <textarea
                     defaultValue={customText}
-                    className="w-full h-28 bg-gray-800 rounded-xl px-4 py-3 text-gray-300 text-sm outline-none resize-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full h-28 bg-gray-800 rounded-xl px-4 py-3 text-gray-300 text-sm outline-none resize-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
 
@@ -767,7 +767,7 @@ export default function ReferralProgramPage() {
                       <div className={`w-12 h-12 ${item.color} hover:opacity-80 rounded-full flex items-center justify-center transition-all`}>
                         <Icon className="w-5 h-5 text-white" />
                       </div>
-                      <span className="text-xs text-gray-400 group-hover:text-white">{item.label}</span>
+                      <span className="text-xs text-muted-foreground group-hover:text-white">{item.label}</span>
                     </button>
                     );
                   })}
@@ -791,7 +791,7 @@ export default function ReferralProgramPage() {
                           <Icon className="w-5 h-5 text-white" />
                         )}
                       </div>
-                      <span className="text-xs text-gray-400 group-hover:text-white">{item.label}</span>
+                      <span className="text-xs text-muted-foreground group-hover:text-white">{item.label}</span>
                     </button>
                     );
                   })}

@@ -460,51 +460,51 @@ export default function PasskeysPage() {
   return (
     <div className="p-4 lg:p-6 max-w-5xl">
       {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mb-4">
-        <Link href="/dashboard/security" className="hover:text-blue-500">Security</Link>
+      <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
+        <Link href="/dashboard/security" className="hover:text-primary">Security</Link>
         <ChevronRight className="w-4 h-4" />
-        <span className="text-gray-900 dark:text-white">Passkeys</span>
+        <span className="text-foreground">Passkeys</span>
       </div>
 
       {/* Main Card */}
-      <div className="bg-white dark:bg-[#181a20] rounded-xl p-6">
+      <div className="bg-card rounded-xl p-6">
         {/* Header */}
         <div className="mb-4">
-          <h1 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">Passkeys</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
+          <h1 className="text-xl font-semibold text-foreground mb-2">Passkeys</h1>
+          <p className="text-sm text-muted-foreground">
             Please add a passkey for faster and more secure account protection.{' '}
-            <Link href="/dashboard/help#passkeys" className="text-blue-500 hover:underline">Learn More →</Link>
+            <Link href="/dashboard/help#passkeys" className="text-primary hover:underline">Learn More →</Link>
           </p>
         </div>
 
         {/* Passkey Count Banner */}
         {passkeys.length > 0 && (
           <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 mb-4 flex items-center gap-2">
-            <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center">
+            <div className="w-5 h-5 bg-primary rounded-full flex items-center justify-center">
               <span className="text-white text-xs font-bold">!</span>
             </div>
-            <span className="text-sm text-gray-700 dark:text-gray-300">
+            <span className="text-sm text-foreground/80">
               You have created {passkeys.length} passkey(s) (up to 10 can be set).
             </span>
           </div>
         )}
 
         {/* Table */}
-        <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+        <div className="border border-border rounded-lg overflow-hidden">
           <table className="w-full">
             <thead>
-              <tr className="bg-gray-50 dark:bg-gray-800/50">
-                <th className="text-left px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Passkey Name</th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Creation Time:</th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Last Used Time:</th>
-                <th className="text-right px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Action</th>
+              <tr className="bg-muted/50">
+                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">Passkey Name</th>
+                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">Creation Time:</th>
+                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">Last Used Time:</th>
+                <th className="text-right px-4 py-3 text-sm font-medium text-muted-foreground">Action</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
                   <td colSpan={4} className="px-4 py-20 text-center">
-                    <Loader2 className="w-8 h-8 animate-spin mx-auto text-gray-400" />
+                    <Loader2 className="w-8 h-8 animate-spin mx-auto text-muted-foreground" />
                   </td>
                 </tr>
               ) : passkeys.length === 0 ? (
@@ -523,11 +523,11 @@ export default function PasskeysPage() {
                           <path d="M56 22 L60 22 M58 20 L58 24" stroke="#F59E0B" strokeWidth="1.5" strokeLinecap="round" />
                         </svg>
                       </div>
-                      <p className="text-gray-400 dark:text-gray-500 mb-4">No Passkeys Available</p>
+                      <p className="text-muted-foreground mb-4">No Passkeys Available</p>
                       <button
                         onClick={handleAddPasskeyClick}
                         disabled={creating}
-                        className="px-6 py-2.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-medium rounded-lg transition-colors flex items-center gap-2"
+                        className="px-6 py-2.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-medium rounded-lg transition-colors flex items-center gap-2"
                       >
                         {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : '+'}
                         Add Passkey
@@ -537,20 +537,20 @@ export default function PasskeysPage() {
                 </tr>
               ) : (
                 passkeys.map((passkey) => (
-                  <tr key={passkey.id} className="border-t border-gray-200 dark:border-gray-700">
+                  <tr key={passkey.id} className="border-t border-border">
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-3">
-                        <KeyRound className="w-5 h-5 text-gray-400" />
-                        <span className="text-sm text-gray-900 dark:text-white">{passkey.name}</span>
+                        <KeyRound className="w-5 h-5 text-muted-foreground" />
+                        <span className="text-sm text-foreground">{passkey.name}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400">{formatDate(passkey.created_at)}</td>
-                    <td className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400">{formatDate(passkey.last_used_at)}</td>
+                    <td className="px-4 py-4 text-sm text-muted-foreground">{formatDate(passkey.created_at)}</td>
+                    <td className="px-4 py-4 text-sm text-muted-foreground">{formatDate(passkey.last_used_at)}</td>
                     <td className="px-4 py-4 text-right">
                       <div className="flex items-center justify-end gap-4">
                         <button
                           onClick={() => handleRenameClick(passkey)}
-                          className="text-blue-500 hover:text-blue-600 text-sm font-medium"
+                          className="text-primary hover:text-primary/85 text-sm font-medium"
                         >
                           Rename
                         </button>
@@ -575,7 +575,7 @@ export default function PasskeysPage() {
             <button
               onClick={handleAddPasskeyClick}
               disabled={creating}
-              className="px-6 py-2.5 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white font-medium rounded-lg transition-colors flex items-center gap-2"
+              className="px-6 py-2.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-medium rounded-lg transition-colors flex items-center gap-2"
             >
               {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : '+'}
               Add Passkey
@@ -587,10 +587,10 @@ export default function PasskeysPage() {
       {/* Add Passkey Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md shadow-xl">
+          <div className="bg-card rounded-xl w-full max-w-md shadow-xl">
             <div className="p-6">
               <div className="flex justify-end mb-2">
-                <button onClick={closeAllModals} className="text-gray-400 hover:text-gray-600">
+                <button onClick={closeAllModals} className="text-muted-foreground hover:text-muted-foreground">
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -610,36 +610,36 @@ export default function PasskeysPage() {
                 </div>
               </div>
 
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white text-center mb-6">
+              <h2 className="text-xl font-semibold text-foreground text-center mb-6">
                 Add Passkey
               </h2>
 
               <div className="space-y-4 mb-6">
                 <div className="flex items-start gap-3">
-                  <Lock className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                  <Lock className="w-5 h-5 text-muted-foreground mt-0.5 flex-shrink-0" />
                   <div>
-                    <h3 className="font-medium text-gray-900 dark:text-white text-sm">No Need to Remember Passwords</h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                    <h3 className="font-medium text-foreground text-sm">No Need to Remember Passwords</h3>
+                    <p className="text-sm text-muted-foreground">
                       With a passkey, you can log in using fingerprint or face recognition.
                     </p>
                   </div>
                 </div>
 
                 <div className="flex items-start gap-3">
-                  <Monitor className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                  <Monitor className="w-5 h-5 text-muted-foreground mt-0.5 flex-shrink-0" />
                   <div>
-                    <h3 className="font-medium text-gray-900 dark:text-white text-sm">Works on All Your Devices</h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                    <h3 className="font-medium text-foreground text-sm">Works on All Your Devices</h3>
+                    <p className="text-sm text-muted-foreground">
                       Passkeys will automatically be available on all your synced devices.
                     </p>
                   </div>
                 </div>
 
                 <div className="flex items-start gap-3">
-                  <ShieldCheck className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                  <ShieldCheck className="w-5 h-5 text-muted-foreground mt-0.5 flex-shrink-0" />
                   <div>
-                    <h3 className="font-medium text-gray-900 dark:text-white text-sm">Ensure Your Account's Security</h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                    <h3 className="font-medium text-foreground text-sm">Ensure Your Account's Security</h3>
+                    <p className="text-sm text-muted-foreground">
                       Passkeys provide state-of-the-art phishing protection.
                     </p>
                   </div>
@@ -648,7 +648,7 @@ export default function PasskeysPage() {
 
               <button
                 onClick={handleContinue}
-                className="w-full py-3 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-lg transition-colors"
+                className="w-full py-3 bg-primary hover:bg-primary/85 text-white font-medium rounded-lg transition-colors"
               >
                 Continue
               </button>
@@ -660,17 +660,17 @@ export default function PasskeysPage() {
       {/* 2FA Verification Modal (for Add) */}
       {showVerifyModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md shadow-xl">
+          <div className="bg-card rounded-xl w-full max-w-md shadow-xl">
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Security Verification</h2>
-                <button onClick={closeAllModals} className="text-gray-400 hover:text-gray-600">
+                <h2 className="text-lg font-semibold text-foreground">Security Verification</h2>
+                <button onClick={closeAllModals} className="text-muted-foreground hover:text-muted-foreground">
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
               <div className="mb-6">
-                <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 mb-3">
+                <label className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
                   <Shield className="w-4 h-4" />
                   Google 2FA Code
                 </label>
@@ -686,20 +686,20 @@ export default function PasskeysPage() {
                       onChange={e => handleOtpInput(index, e.target.value)}
                       onKeyDown={e => handleOtpKeyDown(index, e)}
                       onPaste={handleOtpPaste}
-                      className="w-12 h-14 text-center text-xl font-semibold border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
+                      className="w-12 h-14 text-center text-xl font-semibold border border-border rounded-lg bg-accent text-foreground focus:border-blue-500 focus:ring-2 focus:ring-primary/20 outline-none"
                     />
                   ))}
                 </div>
               </div>
 
-              <p className="text-center text-sm text-blue-500 hover:underline cursor-pointer mb-6">
+              <p className="text-center text-sm text-primary hover:underline cursor-pointer mb-6">
                 Having problems with verification?
               </p>
 
               <button
                 onClick={verify2faAndCreatePasskey}
                 disabled={verifying || verifyCode.join('').length !== 6}
-                className="w-full py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+                className="w-full py-3 bg-primary hover:bg-primary/85 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
               >
                 {verifying ? (
                   <>
@@ -718,11 +718,11 @@ export default function PasskeysPage() {
       {/* Rename Modal */}
       {showRenameModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md shadow-xl">
+          <div className="bg-card rounded-xl w-full max-w-md shadow-xl">
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Rename Passkey</h2>
-                <button onClick={closeAllModals} className="text-gray-400 hover:text-gray-600">
+                <h2 className="text-lg font-semibold text-foreground">Rename Passkey</h2>
+                <button onClick={closeAllModals} className="text-muted-foreground hover:text-muted-foreground">
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -733,9 +733,9 @@ export default function PasskeysPage() {
                   value={renameName}
                   onChange={e => setRenameName(e.target.value.slice(0, 50))}
                   placeholder="Enter passkey name"
-                  className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
+                  className="w-full px-4 py-3 bg-accent border border-border rounded-lg text-foreground focus:border-blue-500 focus:ring-2 focus:ring-primary/20 outline-none"
                 />
-                <div className="text-right mt-1 text-sm text-gray-400">
+                <div className="text-right mt-1 text-sm text-muted-foreground">
                   {renameName.length}/50
                 </div>
               </div>
@@ -743,7 +743,7 @@ export default function PasskeysPage() {
               <button
                 onClick={submitRename}
                 disabled={renaming || !renameName.trim()}
-                className="w-full py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+                className="w-full py-3 bg-primary hover:bg-primary/85 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
               >
                 {renaming ? (
                   <>
@@ -762,10 +762,10 @@ export default function PasskeysPage() {
       {/* Delete Confirmation Modal */}
       {showDeleteConfirmModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md shadow-xl">
+          <div className="bg-card rounded-xl w-full max-w-md shadow-xl">
             <div className="p-6">
               <div className="flex justify-end mb-4">
-                <button onClick={closeAllModals} className="text-gray-400 hover:text-gray-600">
+                <button onClick={closeAllModals} className="text-muted-foreground hover:text-muted-foreground">
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -773,19 +773,19 @@ export default function PasskeysPage() {
               {/* Warning Icon */}
               <div className="flex justify-center mb-4">
                 <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
-                  <svg className="w-8 h-8 text-blue-500" viewBox="0 0 24 24" fill="currentColor">
+                  <svg className="w-8 h-8 text-primary" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
                   </svg>
                 </div>
               </div>
 
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white text-center mb-4">
+              <h2 className="text-lg font-semibold text-foreground text-center mb-4">
                 Are you sure you want to delete the passkey?
               </h2>
 
-              <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 mb-6">
-                <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Please note:</p>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
+              <div className="bg-accent/50 rounded-lg p-4 mb-6">
+                <p className="text-sm font-medium text-foreground/80 mb-2">Please note:</p>
+                <p className="text-sm text-muted-foreground">
                   For account security, please be aware that after deleting your passkey, on-chain withdrawals, internal transfers, fiat withdrawals, Card transactions, P2P Trading, and advertising will be suspended for 24 hours.
                 </p>
               </div>
@@ -793,13 +793,13 @@ export default function PasskeysPage() {
               <div className="flex gap-3">
                 <button
                   onClick={handleDeleteConfirm}
-                  className="flex-1 py-3 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-lg transition-colors"
+                  className="flex-1 py-3 bg-primary hover:bg-primary/85 text-white font-medium rounded-lg transition-colors"
                 >
                   Delete Passkey
                 </button>
                 <button
                   onClick={closeAllModals}
-                  className="flex-1 py-3 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-white font-medium rounded-lg transition-colors border border-gray-200 dark:border-gray-600"
+                  className="flex-1 py-3 bg-accent hover:bg-accent dark:hover:bg-gray-600 text-foreground/80 dark:text-foreground font-medium rounded-lg transition-colors border border-border"
                 >
                   Cancel
                 </button>
@@ -812,20 +812,20 @@ export default function PasskeysPage() {
       {/* Delete Verification Modal */}
       {showDeleteVerifyModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md shadow-xl">
+          <div className="bg-card rounded-xl w-full max-w-md shadow-xl">
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Security Verification</h2>
-                <button onClick={closeAllModals} className="text-gray-400 hover:text-gray-600">
+                <h2 className="text-lg font-semibold text-foreground">Security Verification</h2>
+                <button onClick={closeAllModals} className="text-muted-foreground hover:text-muted-foreground">
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
               {/* Email OTP */}
               <div className="mb-4">
-                <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 mb-2">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
                   <Mail className="w-4 h-4" />
-                  <span>A verification code will be sent to <strong className="text-gray-900 dark:text-white">{maskEmail(user?.email || '')}</strong></span>
+                  <span>A verification code will be sent to <strong className="text-foreground">{maskEmail(user?.email || '')}</strong></span>
                 </div>
                 <div className="relative">
                   <input
@@ -833,16 +833,16 @@ export default function PasskeysPage() {
                     value={deleteEmailOtp}
                     onChange={e => setDeleteEmailOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     placeholder="Please enter the email verification code"
-                    className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none pr-24"
+                    className="w-full px-4 py-3 bg-accent border border-border rounded-lg text-foreground focus:border-blue-500 focus:ring-2 focus:ring-primary/20 outline-none pr-24"
                   />
                   <div className="absolute right-3 top-1/2 -translate-y-1/2">
                     {deleteEmailOtpTimer > 0 ? (
-                      <span className="text-sm text-blue-500 font-medium">{deleteEmailOtpTimer}s</span>
+                      <span className="text-sm text-primary font-medium">{deleteEmailOtpTimer}s</span>
                     ) : (
                       <button
                         onClick={sendDeleteEmailOtp}
                         disabled={sendingDeleteEmailOtp}
-                        className="text-sm text-blue-500 hover:text-blue-600 font-medium"
+                        className="text-sm text-primary hover:text-primary/85 font-medium"
                       >
                         {sendingDeleteEmailOtp ? 'Sending...' : 'Send Verification Code'}
                       </button>
@@ -854,7 +854,7 @@ export default function PasskeysPage() {
               {/* Google 2FA Code */}
               {user2faEnabled && (
                 <div className="mb-6">
-                  <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 mb-2">
+                  <label className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
                     <Shield className="w-4 h-4" />
                     Google 2FA Code
                   </label>
@@ -863,7 +863,7 @@ export default function PasskeysPage() {
                     value={delete2faCode}
                     onChange={e => setDelete2faCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     placeholder="Please enter the Google Authenticator code"
-                    className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none"
+                    className="w-full px-4 py-3 bg-accent border border-border rounded-lg text-foreground focus:border-blue-500 focus:ring-2 focus:ring-primary/20 outline-none"
                   />
                 </div>
               )}
@@ -871,7 +871,7 @@ export default function PasskeysPage() {
               <button
                 onClick={submitDelete}
                 disabled={deleting || !deleteEmailOtp || (user2faEnabled && delete2faCode.length !== 6)}
-                className="w-full py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+                className="w-full py-3 bg-primary hover:bg-primary/85 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
               >
                 {deleting ? (
                   <>
@@ -883,7 +883,7 @@ export default function PasskeysPage() {
                 )}
               </button>
 
-              <p className="text-center text-sm text-blue-500 hover:underline cursor-pointer mt-4">
+              <p className="text-center text-sm text-primary hover:underline cursor-pointer mt-4">
                 Having problems with verification?
               </p>
             </div>

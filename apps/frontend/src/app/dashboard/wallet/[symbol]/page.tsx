@@ -78,8 +78,8 @@ export default function WalletSymbolPage() {
   if (!symbol) {
     return (
       <div className="p-6">
-        <p className="text-gray-500 dark:text-gray-400">Invalid asset.</p>
-        <Link href="/wallet" className="mt-2 inline-flex items-center gap-1 text-sm text-blue-500 dark:text-blue-400 hover:underline">
+        <p className="text-muted-foreground">Invalid asset.</p>
+        <Link href="/wallet" className="mt-2 inline-flex items-center gap-1 text-sm text-primary hover:underline">
           <ArrowLeft className="w-4 h-4" /> Back to Assets
         </Link>
       </div>
@@ -91,16 +91,16 @@ export default function WalletSymbolPage() {
       <div className="p-6 max-w-2xl">
         <Link
           href="/wallet"
-          className="inline-flex items-center gap-1 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white mb-4"
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground dark:hover:text-white mb-4"
         >
           <ArrowLeft className="w-4 h-4" /> Back to Assets
         </Link>
-        <div className="bg-white dark:bg-[#1e2329] rounded-lg border border-gray-200 dark:border-gray-700 p-6 text-center">
-          <p className="text-gray-900 dark:text-white font-medium">No balance for this asset</p>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{symbol} — Deposit to create a balance.</p>
+        <div className="bg-card rounded-lg border border-border p-6 text-center">
+          <p className="text-foreground font-medium">No balance for this asset</p>
+          <p className="text-sm text-muted-foreground mt-1">{symbol} — Deposit to create a balance.</p>
           <Link
             href={`/wallet/deposit/crypto${symbol ? `?coin=${encodeURIComponent(symbol)}` : ''}`}
-            className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium"
+            className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary hover:bg-primary/85 text-white text-sm font-medium"
           >
             <Download className="w-4 h-4" /> Deposit
           </Link>
@@ -118,30 +118,30 @@ export default function WalletSymbolPage() {
       <div className="flex items-center gap-4 mb-6">
         <Link
           href="/wallet"
-          className="inline-flex items-center gap-1 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground dark:hover:text-white"
         >
           <ArrowLeft className="w-4 h-4" /> Back
         </Link>
-        <h1 className="text-xl font-semibold text-gray-900 dark:text-white">{symbol} Wallet</h1>
+        <h1 className="text-xl font-semibold text-foreground">{symbol} Wallet</h1>
       </div>
 
       {/* Balance summary card */}
-      <div className="bg-white dark:bg-[#1e2329] rounded-lg border border-gray-200 dark:border-gray-700 p-5 mb-6">
+      <div className="bg-card rounded-lg border border-border p-5 mb-6">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Total balance</p>
-            <p className="mt-1 text-lg font-semibold text-gray-900 dark:text-white tabular-nums">{total}</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">{symbol}</p>
+            <p className="text-xs text-muted-foreground uppercase tracking-wide">Total balance</p>
+            <p className="mt-1 text-lg font-semibold text-foreground tabular-nums">{total}</p>
+            <p className="text-xs text-muted-foreground">{symbol}</p>
           </div>
           <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Available balance</p>
-            <p className="mt-1 text-lg font-semibold text-gray-900 dark:text-white tabular-nums">{funding}</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">{symbol}</p>
+            <p className="text-xs text-muted-foreground uppercase tracking-wide">Available balance</p>
+            <p className="mt-1 text-lg font-semibold text-foreground tabular-nums">{funding}</p>
+            <p className="text-xs text-muted-foreground">{symbol}</p>
           </div>
           <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Locked</p>
-            <p className="mt-1 text-lg font-semibold text-gray-900 dark:text-white tabular-nums">0</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">{symbol}</p>
+            <p className="text-xs text-muted-foreground uppercase tracking-wide">Locked</p>
+            <p className="mt-1 text-lg font-semibold text-foreground tabular-nums">0</p>
+            <p className="text-xs text-muted-foreground">{symbol}</p>
           </div>
         </div>
       </div>
@@ -150,28 +150,28 @@ export default function WalletSymbolPage() {
       <div className="flex flex-wrap gap-3 mb-6">
         <Link
           href={`/wallet/deposit/crypto?coin=${encodeURIComponent(symbol)}`}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium transition-colors"
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary hover:bg-primary/85 text-white text-sm font-medium transition-colors"
         >
           <Download className="w-4 h-4" /> Deposit
         </Link>
         <Link
           href={`/wallet/withdraw/crypto?coin=${encodeURIComponent(symbol)}`}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm font-medium transition-colors"
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-card border border-border text-foreground/80 hover:bg-accent text-sm font-medium transition-colors"
         >
           <Upload className="w-4 h-4" /> Withdraw
         </Link>
       </div>
 
       {/* History */}
-      <div className="bg-white dark:bg-[#1e2329] rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
-          <FileText className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-          <h2 className="text-sm font-medium text-gray-900 dark:text-white">History</h2>
+      <div className="bg-card rounded-lg border border-border overflow-hidden">
+        <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+          <FileText className="w-4 h-4 text-muted-foreground" />
+          <h2 className="text-sm font-medium text-foreground">History</h2>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+              <tr className="text-left text-muted-foreground border-b border-border">
                 <th className="py-3 px-4 font-medium uppercase tracking-wide">Type</th>
                 <th className="py-3 px-4 font-medium uppercase tracking-wide">Amount</th>
                 <th className="py-3 px-4 font-medium uppercase tracking-wide">Status</th>
@@ -181,15 +181,15 @@ export default function WalletSymbolPage() {
             <tbody>
               {filteredHistory.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="py-8 text-center text-gray-500 dark:text-gray-400 text-sm">No history for this asset.</td>
+                  <td colSpan={4} className="py-8 text-center text-muted-foreground text-sm">No history for this asset.</td>
                 </tr>
               ) : (
                 filteredHistory.map((t) => (
-                  <tr key={t.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50/50 dark:hover:bg-white/5">
-                    <td className="py-3 px-4 font-medium text-gray-900 dark:text-white capitalize">{t.type}</td>
-                    <td className="py-3 px-4 tabular-nums text-gray-700 dark:text-gray-300">{t.type === 'deposit' ? '+' : '-'}{t.amount}</td>
-                    <td className="py-3 px-4 text-gray-600 dark:text-gray-400">{t.status}</td>
-                    <td className="py-3 px-4 text-gray-500 dark:text-gray-400">{t.created_at ? new Date(t.created_at).toLocaleString() : '—'}</td>
+                  <tr key={t.id} className="border-b border-border last:border-0 hover:bg-gray-50/50 dark:hover:bg-card/5">
+                    <td className="py-3 px-4 font-medium text-foreground capitalize">{t.type}</td>
+                    <td className="py-3 px-4 tabular-nums text-foreground/80">{t.type === 'deposit' ? '+' : '-'}{t.amount}</td>
+                    <td className="py-3 px-4 text-muted-foreground">{t.status}</td>
+                    <td className="py-3 px-4 text-muted-foreground">{t.created_at ? new Date(t.created_at).toLocaleString() : '—'}</td>
                   </tr>
                 ))
               )}

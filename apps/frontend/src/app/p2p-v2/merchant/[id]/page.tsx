@@ -33,39 +33,39 @@ export default function P2PV2MerchantProfilePage() {
 
   return (
     <div className="space-y-6">
-      <Link href="/p2p" className="text-sm text-blue-600 hover:underline dark:text-blue-400">
+      <Link href="/p2p" className="text-sm text-primary hover:underline dark:text-blue-400">
         ← Marketplace
       </Link>
       {isLoading ? (
-        <div className="space-y-3 rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-[#1e2329]">
+        <div className="space-y-3 rounded-xl border border-border bg-card p-5 dark:border-border dark:bg-card">
           <Skeleton className="h-6 w-32" />
           <Skeleton className="h-4 w-full max-w-sm" />
         </div>
       ) : null}
-      {!isLoading && !head && <p className="text-sm text-gray-500">No active ads for this user.</p>}
+      {!isLoading && !head && <p className="text-sm text-muted-foreground">No active ads for this user.</p>}
       {head && (
-        <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-[#1e2329]">
-          <h1 className="text-lg font-semibold text-gray-900 dark:text-white">Merchant</h1>
+        <div className="rounded-xl border border-border bg-card p-5 dark:border-border dark:bg-card">
+          <h1 className="text-lg font-semibold text-foreground">Merchant</h1>
           <div className="mt-2">
             <P2PMerchantCard ad={head} fiat={fiat} />
           </div>
         </div>
       )}
 
-      <h2 className="text-sm font-medium text-gray-900 dark:text-white">Active ads</h2>
+      <h2 className="text-sm font-medium text-foreground">Active ads</h2>
       <div className="space-y-2">
         {ads.map((ad) => {
           const sym = formatFiatSymbol(ad.fiat_currency || fiat);
           return (
             <div
               key={ad.id}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-[#1e2329]"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-4 py-3 dark:border-border dark:bg-card"
             >
-              <span className="text-sm text-gray-900 dark:text-white">
+              <span className="text-sm text-foreground">
                 {ad.crypto_symbol} · {sym}
                 {p2pAdDisplayPrice(ad)}
               </span>
-              <Link href="/p2p" className="text-xs text-blue-600 dark:text-blue-400">
+              <Link href="/p2p" className="text-xs text-primary">
                 Trade on marketplace
               </Link>
             </div>

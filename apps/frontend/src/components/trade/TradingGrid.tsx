@@ -8,9 +8,9 @@ import { BottomPanel } from './BottomPanel';
 
 export function TradingGrid() {
   return (
-    <div className="h-screen w-full flex flex-col bg-[#0b0e11] text-white">
+    <div className="h-screen w-full flex flex-col bg-background text-foreground">
       <PairHeader />
-      <div className="flex-1 min-h-0 grid grid-cols-[58fr_21fr_21fr] gap-[1px] bg-white/5">
+      <div className="flex-1 min-h-0 grid grid-cols-[58fr_21fr_21fr] gap-[1px] bg-card/5">
         <ChartPanel />
         <OrderbookPanel />
         <OrderEntryPanel />

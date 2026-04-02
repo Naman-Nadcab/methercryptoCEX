@@ -103,7 +103,7 @@ export default function TelegramLoginButton({
 
   if (loading) {
     return (
-      <div className="w-14 h-14 flex items-center justify-center rounded-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+      <div className="w-14 h-14 flex items-center justify-center rounded-full border border-border bg-card">
         <Loader2 className="w-5 h-5 animate-spin text-[#0088cc]" />
       </div>
     );
@@ -113,16 +113,16 @@ export default function TelegramLoginButton({
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowWidget(false)}>
         <div 
-          className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-xl"
+          className="bg-card p-8 rounded-xl shadow-xl"
           onClick={(e) => e.stopPropagation()}
         >
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 text-center">
+          <h3 className="text-lg font-semibold text-foreground mb-4 text-center">
             Log in with Telegram
           </h3>
           <div ref={containerRef} className="flex justify-center min-h-[44px]" />
           <button
             onClick={() => setShowWidget(false)}
-            className="mt-4 w-full py-2 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+            className="mt-4 w-full py-2 text-sm text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300"
           >
             Cancel
           </button>
@@ -135,7 +135,7 @@ export default function TelegramLoginButton({
     <button
       type="button"
       onClick={handleClick}
-      className="w-14 h-14 flex items-center justify-center rounded-full border border-gray-200 dark:border-gray-700 hover:border-purple-500 dark:hover:border-purple-500 bg-white dark:bg-gray-800 transition-colors"
+      className="w-14 h-14 flex items-center justify-center rounded-full border border-border hover:border-purple-500 dark:hover:border-purple-500 bg-card transition-colors"
     >
       <svg className="w-6 h-6 text-[#0088cc]" fill="currentColor" viewBox="0 0 24 24">
         <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />

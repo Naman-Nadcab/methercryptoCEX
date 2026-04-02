@@ -199,11 +199,11 @@ export default function FeeRatesPage() {
     <button
       onClick={onChange}
       className={`relative w-12 h-6 rounded-full transition-colors ${
-        enabled ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
+        enabled ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-600'
       }`}
     >
       <span
-        className={`absolute top-0.5 w-5 h-5 bg-white rounded-full transition-all shadow ${
+        className={`absolute top-0.5 w-5 h-5 bg-card rounded-full transition-all shadow ${
           enabled ? 'right-0.5' : 'left-0.5'
         }`}
       />
@@ -214,9 +214,9 @@ export default function FeeRatesPage() {
   const ProgressBar = ({ current, required }: { current: number; required: number }) => {
     const percentage = Math.min((current / required) * 100, 100);
     return (
-      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 mt-2">
+      <div className="w-full bg-accent rounded-full h-1.5 mt-2">
         <div
-          className="bg-blue-500 h-1.5 rounded-full transition-all"
+          className="bg-primary h-1.5 rounded-full transition-all"
           style={{ width: `${percentage}%` }}
         />
       </div>
@@ -224,32 +224,32 @@ export default function FeeRatesPage() {
   };
 
   return (
-    <div className="p-4 lg:p-8 bg-gray-50 dark:bg-[#0b0e11] min-h-full">
+    <div className="p-4 lg:p-8 bg-background min-h-full">
       <div className="max-w-5xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">My Fee Rates</h1>
+          <h1 className="text-3xl font-bold text-foreground">My Fee Rates</h1>
         </div>
 
         {/* Volume-based spot tier (from fee_tiers table) */}
         {volumeTier && (
-          <div className="mb-6 p-4 rounded-xl bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700" aria-label="Spot volume fee tier">
-            <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Spot volume tier</h3>
-            <p className="text-lg font-semibold text-gray-900 dark:text-white">{volumeTier.tierName ?? `Tier ${volumeTier.tierLevel}`}</p>
-            <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
+          <div className="mb-6 p-4 rounded-xl bg-card border border-border" aria-label="Spot volume fee tier">
+            <h3 className="text-sm font-medium text-muted-foreground mb-2">Spot volume tier</h3>
+            <p className="text-lg font-semibold text-foreground">{volumeTier.tierName ?? `Tier ${volumeTier.tierLevel}`}</p>
+            <p className="text-sm text-muted-foreground mt-1">
               Maker: {(Number(volumeTier.maker) * 100).toFixed(2)}% · Taker: {(Number(volumeTier.taker) * 100).toFixed(2)}%
             </p>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            <p className="text-sm text-muted-foreground mt-1">
               30d volume: {formatNumber(Number(volumeTier.volume30d))} USD
             </p>
             {volumeTier.nextTierMinVolume && (
               <div className="mt-2">
-                <p className="text-xs text-gray-500 dark:text-gray-400">Progress to next tier</p>
+                <p className="text-xs text-muted-foreground">Progress to next tier</p>
                 <ProgressBar
                   current={Number(volumeTier.volume30d)}
                   required={Number(volumeTier.nextTierMinVolume)}
                 />
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   Next tier at {formatNumber(Number(volumeTier.nextTierMinVolume))} USD
                 </p>
               </div>
@@ -258,34 +258,34 @@ export default function FeeRatesPage() {
         )}
 
         {/* VIP Level Card */}
-        <div className="bg-gradient-to-br from-blue-600 to-blue-700 dark:from-[#1e2329] dark:to-[#181a20] rounded-2xl overflow-hidden mb-8 shadow-lg shadow-blue-500/20 dark:shadow-none">
+        <div className="bg-gradient-to-br from-blue-600 to-blue-700 dark:from-[#1e2329] dark:to-[#181a20] rounded-xl overflow-hidden mb-8 shadow-lg shadow-blue-500/20 dark:shadow-none">
           <div className="p-6 lg:p-8">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
               {/* Left: VIP Info */}
               <div className="flex items-center gap-4">
-                <div className="w-14 h-14 bg-white/20 dark:bg-blue-500/20 rounded-full flex items-center justify-center" aria-hidden="true">
+                <div className="w-14 h-14 bg-card/20 dark:bg-blue-500/20 rounded-full flex items-center justify-center" aria-hidden="true">
                   <Award className="w-8 h-8 text-white dark:text-blue-400" />
                 </div>
                 <div>
-                  <p className="text-sm text-blue-100 dark:text-gray-400">My Fee Level</p>
+                  <p className="text-sm text-blue-100 dark:text-muted-foreground">My Fee Level</p>
                   <h2 className="text-2xl font-bold text-white">{feeData.vipLevelName}</h2>
                 </div>
               </div>
             </div>
 
             {/* Tabs */}
-            <div className="flex gap-6 mt-6 border-b border-white/20 dark:border-gray-700">
+            <div className="flex gap-6 mt-6 border-b border-white/20 dark:border-border">
               <button
                 onClick={() => setActiveTab('trading')}
                 className={`pb-3 text-sm font-medium transition-colors relative ${
                   activeTab === 'trading'
                     ? 'text-white'
-                    : 'text-blue-200 dark:text-gray-400 hover:text-white dark:hover:text-gray-300'
+                    : 'text-blue-200 dark:text-muted-foreground hover:text-white dark:hover:text-gray-300'
                 }`}
               >
                 Trading Fees
                 {activeTab === 'trading' && (
-                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-white dark:bg-blue-500" />
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-card dark:bg-primary" />
                 )}
               </button>
               <button
@@ -293,12 +293,12 @@ export default function FeeRatesPage() {
                 className={`pb-3 text-sm font-medium transition-colors relative ${
                   activeTab === 'interest'
                     ? 'text-white'
-                    : 'text-blue-200 dark:text-gray-400 hover:text-white dark:hover:text-gray-300'
+                    : 'text-blue-200 dark:text-muted-foreground hover:text-white dark:hover:text-gray-300'
                 }`}
               >
                 Interest Rates
                 {activeTab === 'interest' && (
-                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-white dark:bg-blue-500" />
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-card dark:bg-primary" />
                 )}
               </button>
             </div>
@@ -307,17 +307,17 @@ export default function FeeRatesPage() {
           {/* Tab Content */}
           {loading ? (
             <div className="flex items-center justify-center py-20">
-              <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
             </div>
           ) : activeTab === 'trading' ? (
             <div className="px-6 lg:px-8 pb-8">
               {/* Spot Trading Fees */}
-              <div className="bg-white dark:bg-[#181a20] rounded-xl p-6">
+              <div className="bg-card rounded-xl p-6">
                 <div className="flex items-center justify-between mb-6">
                   <div>
-                    <h3 className="text-lg font-bold text-gray-900 dark:text-white">Spot</h3>
+                    <h3 className="text-lg font-bold text-foreground">Spot</h3>
                     <div className="flex items-center gap-3 mt-2">
-                      <span className="text-sm text-gray-500 dark:text-gray-400">MNT 25% fee discount</span>
+                      <span className="text-sm text-muted-foreground">MNT 25% fee discount</span>
                       <Toggle enabled={mntDiscountEnabled} onChange={toggleMntDiscount} />
                     </div>
                   </div>
@@ -326,14 +326,14 @@ export default function FeeRatesPage() {
                 {/* Fee Table */}
                 <div className="grid grid-cols-2 gap-8 mb-6">
                   <div>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Maker</p>
-                    <p className="text-xl font-bold text-gray-900 dark:text-white">
+                    <p className="text-sm text-muted-foreground mb-1">Maker</p>
+                    <p className="text-xl font-bold text-foreground">
                       {formatFee(getDiscountedFee(feeData.spotFees.maker, mntDiscountEnabled ? 25 : 0))}
                     </p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Taker</p>
-                    <p className="text-xl font-bold text-gray-900 dark:text-white">
+                    <p className="text-sm text-muted-foreground mb-1">Taker</p>
+                    <p className="text-xl font-bold text-foreground">
                       {formatFee(getDiscountedFee(feeData.spotFees.taker, mntDiscountEnabled ? 25 : 0))}
                     </p>
                   </div>
@@ -341,16 +341,16 @@ export default function FeeRatesPage() {
 
                 {/* Fiat Pairs */}
                 {feeData.spotFees.fiatMaker !== undefined && (
-                  <div className="grid grid-cols-2 gap-8 mb-6 pt-4 border-t border-gray-100 dark:border-gray-800">
+                  <div className="grid grid-cols-2 gap-8 mb-6 pt-4 border-t border-border">
                     <div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Fiat Pairs Maker</p>
-                      <p className="text-xl font-bold text-gray-900 dark:text-white">
+                      <p className="text-sm text-muted-foreground mb-1">Fiat Pairs Maker</p>
+                      <p className="text-xl font-bold text-foreground">
                         {formatFee(getDiscountedFee(feeData.spotFees.fiatMaker || 0.15, mntDiscountEnabled ? 25 : 0))}
                       </p>
                     </div>
                     <div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Fiat Pairs Taker</p>
-                      <p className="text-xl font-bold text-gray-900 dark:text-white">
+                      <p className="text-sm text-muted-foreground mb-1">Fiat Pairs Taker</p>
+                      <p className="text-xl font-bold text-foreground">
                         {formatFee(getDiscountedFee(feeData.spotFees.fiatTaker || 0.2, mntDiscountEnabled ? 25 : 0))}
                       </p>
                     </div>
@@ -360,29 +360,29 @@ export default function FeeRatesPage() {
                 {/* Trade Link */}
                 <Link
                   href="/trade/spot"
-                  className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm font-medium"
+                  className="inline-flex items-center gap-1 text-primary hover:text-blue-700 dark:hover:text-blue-300 text-sm font-medium"
                 >
                   Trade Spot <ChevronRight className="w-4 h-4" />
                 </Link>
               </div>
 
               {/* Info Notes */}
-              <div className="mt-6 space-y-3 text-sm text-gray-600 dark:text-gray-400">
+              <div className="mt-6 space-y-3 text-sm text-muted-foreground">
                 <p>
                   Your VIP Level and fees will be updated at 7AM UTC if you meet the respective requirements.
-                  <Link href="/dashboard/help#vip-requirements" className="text-blue-600 dark:text-blue-400 hover:underline ml-1">
+                  <Link href="/dashboard/help#vip-requirements" className="text-primary hover:underline ml-1">
                     Check out the requirements.
                   </Link>
                 </p>
                 <p>
                   View Fiat Trading Fees
-                  <Link href="/dashboard/help#fiat-fees" className="text-blue-600 dark:text-blue-400 hover:underline ml-1">
+                  <Link href="/dashboard/help#fiat-fees" className="text-primary hover:underline ml-1">
                     Find out the details.
                   </Link>
                 </p>
                 <p>
                   The MNT discount is only applicable to Spot (incl. fiat pairs) trading.
-                  <Link href="/dashboard/help#mnt-discount" className="text-blue-600 dark:text-blue-400 hover:underline ml-1">
+                  <Link href="/dashboard/help#mnt-discount" className="text-primary hover:underline ml-1">
                     Find out the details.
                   </Link>
                 </p>
@@ -391,20 +391,20 @@ export default function FeeRatesPage() {
           ) : (
             <div className="px-6 lg:px-8 pb-8">
               {/* Interest Rates Tab */}
-              <div className="bg-white dark:bg-[#181a20] rounded-xl p-6">
-                <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Spot Interest Rates</h3>
-                <p className="text-gray-500 dark:text-gray-400 text-sm mb-6">
+              <div className="bg-card rounded-xl p-6">
+                <h3 className="text-lg font-bold text-foreground mb-4">Spot Interest Rates</h3>
+                <p className="text-muted-foreground text-sm mb-6">
                   This exchange supports Spot and P2P only. Rates shown are for reference.
                 </p>
 
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead>
-                      <tr className="border-b border-gray-100 dark:border-gray-800">
-                        <th className="text-left py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Asset</th>
-                        <th className="text-right py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Hourly Rate</th>
-                        <th className="text-right py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Daily Rate</th>
-                        <th className="text-right py-3 text-sm font-medium text-gray-500 dark:text-gray-400">Annual Rate (APR)</th>
+                      <tr className="border-b border-border">
+                        <th className="text-left py-3 text-sm font-medium text-muted-foreground">Asset</th>
+                        <th className="text-right py-3 text-sm font-medium text-muted-foreground">Hourly Rate</th>
+                        <th className="text-right py-3 text-sm font-medium text-muted-foreground">Daily Rate</th>
+                        <th className="text-right py-3 text-sm font-medium text-muted-foreground">Annual Rate (APR)</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -414,18 +414,18 @@ export default function FeeRatesPage() {
                         { asset: 'ETH', hourly: 0.000208, daily: 0.005, annual: 1.825 },
                         { asset: 'USDC', hourly: 0.000417, daily: 0.01, annual: 3.65 },
                       ].map((row) => (
-                        <tr key={row.asset} className="border-b border-gray-50 dark:border-gray-800/50">
-                          <td className="py-4 font-medium text-gray-900 dark:text-white">{row.asset}</td>
-                          <td className="py-4 text-right text-gray-600 dark:text-gray-300">{row.hourly.toFixed(6)}%</td>
-                          <td className="py-4 text-right text-gray-600 dark:text-gray-300">{row.daily.toFixed(4)}%</td>
-                          <td className="py-4 text-right text-gray-600 dark:text-gray-300">{row.annual.toFixed(2)}%</td>
+                        <tr key={row.asset} className="border-b border-gray-50 dark:border-border/50">
+                          <td className="py-4 font-medium text-foreground">{row.asset}</td>
+                          <td className="py-4 text-right text-muted-foreground">{row.hourly.toFixed(6)}%</td>
+                          <td className="py-4 text-right text-muted-foreground">{row.daily.toFixed(4)}%</td>
+                          <td className="py-4 text-right text-muted-foreground">{row.annual.toFixed(2)}%</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
 
-                <p className="text-xs text-gray-400 mt-4">
+                <p className="text-xs text-muted-foreground mt-4">
                   * Interest rates are subject to change based on market conditions. Higher VIP levels receive preferential rates.
                 </p>
               </div>
@@ -436,12 +436,12 @@ export default function FeeRatesPage() {
         {/* Enjoy Even Lower Fees Section */}
         <div className="mb-8">
           <div className="flex items-center gap-2 mb-3">
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Enjoy Even Lower Fees</h2>
-            <HelpCircle className="w-5 h-5 text-gray-400" />
+            <h2 className="text-2xl font-bold text-foreground">Enjoy Even Lower Fees</h2>
+            <HelpCircle className="w-5 h-5 text-muted-foreground" />
           </div>
-          <p className="text-gray-600 dark:text-gray-400">
+          <p className="text-muted-foreground">
             Meet any of the following requirements to level up to{' '}
-            <span className="text-blue-600 dark:text-blue-400 font-medium">VIP 1</span> and enjoy lower fee rates.
+            <span className="text-primary font-medium">VIP 1</span> and enjoy lower fee rates.
           </p>
         </div>
 
@@ -449,12 +449,12 @@ export default function FeeRatesPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
           {vipRequirements.map((req, index) => (
             <div key={req.id} className="relative">
-              <div className="bg-white dark:bg-[#181a20] rounded-2xl border border-gray-100 dark:border-gray-800 p-6 h-full">
+              <div className="bg-card rounded-xl border border-border p-6 h-full">
                 <div className="flex items-start justify-between mb-4">
-                  <h3 className="text-sm font-medium text-gray-900 dark:text-white pr-6">{req.title}</h3>
+                  <h3 className="text-sm font-medium text-foreground pr-6">{req.title}</h3>
                   {req.helpText && (
                     <div className="group relative">
-                      <HelpCircle className="w-4 h-4 text-gray-400 cursor-help" />
+                      <HelpCircle className="w-4 h-4 text-muted-foreground cursor-help" />
                       <div className="hidden group-hover:block absolute right-0 top-6 w-48 p-2 bg-gray-900 text-white text-xs rounded-lg z-10">
                         {req.helpText}
                       </div>
@@ -462,7 +462,7 @@ export default function FeeRatesPage() {
                   )}
                 </div>
 
-                <p className="text-lg text-gray-500 dark:text-gray-400 mb-2">
+                <p className="text-lg text-muted-foreground mb-2">
                   {formatNumber(req.current)}/{formatNumber(req.required)} {req.unit}
                 </p>
 
@@ -470,7 +470,7 @@ export default function FeeRatesPage() {
 
                 <Link
                   href={req.link}
-                  className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm font-medium mt-4"
+                  className="inline-flex items-center gap-1 text-primary hover:text-blue-700 dark:hover:text-blue-300 text-sm font-medium mt-4"
                 >
                   {req.linkText} <ChevronRight className="w-4 h-4" />
                 </Link>
@@ -479,7 +479,7 @@ export default function FeeRatesPage() {
               {/* OR Badge */}
               {index < vipRequirements.length - 1 && (
                 <div className="hidden md:flex absolute -right-2 top-1/2 -translate-y-1/2 z-10">
-                  <span className="px-2 py-1 bg-gray-100 dark:bg-gray-800 text-gray-500 text-xs font-medium rounded">
+                  <span className="px-2 py-1 bg-accent text-muted-foreground text-xs font-medium rounded">
                     OR
                   </span>
                 </div>
@@ -489,18 +489,18 @@ export default function FeeRatesPage() {
         </div>
 
         {/* Footer */}
-        <div className="border-t border-gray-200 dark:border-gray-800 pt-8">
-          <div className="flex flex-wrap items-center justify-center gap-6 text-sm text-gray-500 dark:text-gray-400">
-            <Link href="/markets" className="hover:text-gray-900 dark:hover:text-white">
+        <div className="border-t border-border pt-8">
+          <div className="flex flex-wrap items-center justify-center gap-6 text-sm text-muted-foreground">
+            <Link href="/markets" className="hover:text-foreground dark:hover:text-white">
               Market Overview
             </Link>
-            <Link href="/dashboard/fee-rates" className="hover:text-gray-900 dark:hover:text-white">
+            <Link href="/dashboard/fee-rates" className="hover:text-foreground dark:hover:text-white">
               Trading Fee
             </Link>
-            <Link href="/dashboard/api" className="hover:text-gray-900 dark:hover:text-white">
+            <Link href="/dashboard/api" className="hover:text-foreground dark:hover:text-white">
               API
             </Link>
-            <Link href="/dashboard/help" className="hover:text-gray-900 dark:hover:text-white">
+            <Link href="/dashboard/help" className="hover:text-foreground dark:hover:text-white">
               Help Center
             </Link>
             <span>© 2024 Methereum</span>

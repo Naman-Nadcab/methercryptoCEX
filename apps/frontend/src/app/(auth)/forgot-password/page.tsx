@@ -159,27 +159,27 @@ export default function ForgotPasswordPage() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-gradient-to-br from-background via-background to-muted/30">
       <div className="w-full max-w-md">
-        <Link href="/login" className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 mb-8">
+        <Link href="/login" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-8">
           <ArrowLeft className="w-4 h-4" />
           Back to login
         </Link>
-        <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-800 p-8">
+        <div className="bg-card rounded-xl shadow-xl border border-border p-8">
           {step === 'request' ? (
             <form onSubmit={handleRequestSubmit} className="space-y-6">
               <div>
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">Forgot password?</h1>
-                <p className="text-gray-500 dark:text-gray-400">
+                <h1 className="text-2xl font-bold text-foreground mb-1">Forgot password?</h1>
+                <p className="text-muted-foreground">
                   Enter your email or phone to receive a reset code
                 </p>
               </div>
-              <div className="flex border-b border-gray-200 dark:border-gray-700">
+              <div className="flex border-b border-border">
                 <button
                   type="button"
                   onClick={() => setIdentifierType('email')}
                   className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${
                     identifierType === 'email'
-                      ? 'text-gray-900 dark:text-white border-gray-900 dark:border-white'
-                      : 'text-gray-500 border-transparent hover:text-gray-700 dark:hover:text-gray-300'
+                      ? 'text-foreground border-gray-900 dark:border-white'
+                      : 'text-muted-foreground border-transparent hover:text-foreground/80 dark:hover:text-gray-300'
                   }`}
                 >
                   Email
@@ -189,8 +189,8 @@ export default function ForgotPasswordPage() {
                   onClick={() => setIdentifierType('phone')}
                   className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${
                     identifierType === 'phone'
-                      ? 'text-gray-900 dark:text-white border-gray-900 dark:border-white'
-                      : 'text-gray-500 border-transparent hover:text-gray-700 dark:hover:text-gray-300'
+                      ? 'text-foreground border-gray-900 dark:border-white'
+                      : 'text-muted-foreground border-transparent hover:text-foreground/80 dark:hover:text-gray-300'
                   }`}
                 >
                   Mobile
@@ -209,7 +209,7 @@ export default function ForgotPasswordPage() {
                     }
                   }}
                   placeholder={identifierType === 'email' ? 'Email address' : 'Mobile number'}
-                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-gray-900 dark:text-white dark:bg-gray-800"
+                  className="w-full px-4 py-3 border border-border dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent outline-none text-foreground dark:bg-accent"
                   required
                 />
               </div>
@@ -226,9 +226,9 @@ export default function ForgotPasswordPage() {
           ) : (
             <form onSubmit={handleResetSubmit} className="space-y-6">
               <div>
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">Reset password</h1>
-                <p className="text-gray-500 dark:text-gray-400">
-                  Enter the 6-digit code sent to <span className="font-medium text-gray-900 dark:text-white">{identifier}</span>
+                <h1 className="text-2xl font-bold text-foreground mb-1">Reset password</h1>
+                <p className="text-muted-foreground">
+                  Enter the 6-digit code sent to <span className="font-medium text-foreground">{identifier}</span>
                 </p>
               </div>
               <div className="flex gap-2 justify-center">
@@ -242,38 +242,38 @@ export default function ForgotPasswordPage() {
                     value={digit}
                     onChange={(e) => handleOtpChange(i, e.target.value)}
                     onKeyDown={(e) => handleOtpKeyDown(i, e)}
-                    className="w-12 h-14 text-center text-xl font-bold border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white dark:bg-gray-800"
+                    className="w-12 h-14 text-center text-xl font-bold border border-border dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary text-foreground dark:bg-accent"
                   />
                 ))}
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">New password</label>
+                <label className="block text-sm font-medium text-foreground/80 mb-1">New password</label>
                 <div className="relative">
                   <input
                     type={showPassword ? 'text' : 'password'}
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="Min 8 chars, uppercase, lowercase, number"
-                    className="w-full px-4 py-3 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white dark:bg-gray-800"
+                    className="w-full px-4 py-3 pr-10 border border-border dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary text-foreground dark:bg-accent"
                     required
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
                   >
                     {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                   </button>
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Confirm password</label>
+                <label className="block text-sm font-medium text-foreground/80 mb-1">Confirm password</label>
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="Re-enter password"
-                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-white dark:bg-gray-800"
+                  className="w-full px-4 py-3 border border-border dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary text-foreground dark:bg-accent"
                   required
                 />
               </div>
@@ -283,14 +283,14 @@ export default function ForgotPasswordPage() {
                   type="button"
                   onClick={handleResend}
                   disabled={countdown > 0 || loading}
-                  className={`${countdown > 0 ? 'text-gray-400 cursor-not-allowed' : 'text-blue-600 hover:underline'}`}
+                  className={`${countdown > 0 ? 'text-muted-foreground cursor-not-allowed' : 'text-primary hover:underline'}`}
                 >
                   Resend code {countdown > 0 && `(${formatCountdown(countdown)})`}
                 </button>
                 <button
                   type="button"
                   onClick={() => setStep('request')}
-                  className="text-blue-600 hover:underline"
+                  className="text-primary hover:underline"
                 >
                   Change {identifierType === 'email' ? 'email' : 'number'}
                 </button>
@@ -306,9 +306,9 @@ export default function ForgotPasswordPage() {
             </form>
           )}
         </div>
-        <p className="text-center text-sm text-gray-500 mt-6">
+        <p className="text-center text-sm text-muted-foreground mt-6">
           Remember your password?{' '}
-          <Link href="/login" className="text-blue-500 hover:underline font-medium">Log in</Link>
+          <Link href="/login" className="text-primary hover:underline font-medium">Log in</Link>
         </p>
       </div>
     </div>

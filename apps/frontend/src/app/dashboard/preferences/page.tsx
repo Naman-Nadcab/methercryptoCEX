@@ -196,15 +196,15 @@ export default function PreferencesPage() {
     <button
       onClick={() => onChange(!checked)}
       className={`relative w-12 h-7 rounded-full transition-all duration-300 ${
-        checked ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'
+        checked ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-600'
       }`}
     >
       <span
-        className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full transition-all duration-300 shadow-md flex items-center justify-center ${
+        className={`absolute top-1 left-1 w-5 h-5 bg-card rounded-full transition-all duration-300 shadow-md flex items-center justify-center ${
           checked ? 'translate-x-5' : 'translate-x-0'
         }`}
       >
-        {isSaving && <Loader2 className="w-3 h-3 animate-spin text-blue-500" />}
+        {isSaving && <Loader2 className="w-3 h-3 animate-spin text-primary" />}
       </span>
     </button>
   );
@@ -215,11 +215,11 @@ export default function PreferencesPage() {
     label: string;
     saving?: boolean;
   }) => (
-    <label className="flex items-center gap-3 cursor-pointer py-3 px-4 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+    <label className="flex items-center gap-3 cursor-pointer py-3 px-4 rounded-xl hover:bg-accent/50 transition-colors">
       <div
         onClick={(e) => { e.preventDefault(); onChange(!checked); }}
         className={`w-5 h-5 rounded-md flex items-center justify-center border-2 transition-all duration-200 ${
-          checked ? 'bg-blue-500 border-blue-500' : 'border-gray-300 dark:border-gray-600'
+          checked ? 'bg-primary border-blue-500' : 'border-border dark:border-gray-600'
         }`}
       >
         {isSaving ? (
@@ -228,7 +228,7 @@ export default function PreferencesPage() {
           <Check className="w-3 h-3 text-white" />
         ) : null}
       </div>
-      <span className="text-sm text-gray-700 dark:text-gray-300">{label}</span>
+      <span className="text-sm text-foreground/80">{label}</span>
     </label>
   );
 
@@ -243,19 +243,19 @@ export default function PreferencesPage() {
       className={`w-full p-4 rounded-xl border-2 text-left transition-all ${
         checked 
           ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
-          : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
+          : 'border-border hover:border-border dark:hover:border-gray-600'
       }`}
     >
       <div className="flex items-start gap-3">
         <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
-          checked ? 'border-blue-500' : 'border-gray-300 dark:border-gray-600'
+          checked ? 'border-blue-500' : 'border-border dark:border-gray-600'
         }`}>
-          {checked && <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />}
+          {checked && <div className="w-2.5 h-2.5 rounded-full bg-primary" />}
         </div>
         <div className="flex-1">
-          <span className={`font-medium ${checked ? 'text-blue-700 dark:text-blue-400' : 'text-gray-900 dark:text-white'}`}>{label}</span>
+          <span className={`font-medium ${checked ? 'text-blue-700 dark:text-blue-400' : 'text-foreground'}`}>{label}</span>
           {description && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{description}</p>
+            <p className="text-xs text-muted-foreground mt-1">{description}</p>
           )}
         </div>
       </div>
@@ -275,13 +275,13 @@ export default function PreferencesPage() {
     onChange: (v: boolean) => void;
     settingKey: string;
   }) => (
-    <div className="flex items-center justify-between py-4 px-2 border-b border-gray-100 dark:border-gray-800 last:border-0">
+    <div className="flex items-center justify-between py-4 px-2 border-b border-border last:border-0">
       <div className="flex-1 pr-4">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-gray-900 dark:text-white">{label}</span>
+          <span className="text-sm font-medium text-foreground">{label}</span>
           {description && (
             <div className="group relative">
-              <Info className="w-4 h-4 text-gray-400 cursor-help" />
+              <Info className="w-4 h-4 text-muted-foreground cursor-help" />
               <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
                 {description}
               </div>
@@ -300,16 +300,16 @@ export default function PreferencesPage() {
   ];
 
   return (
-    <div className="p-4 lg:p-8 bg-gray-50 dark:bg-[#0b0e11] min-h-full">
+    <div className="p-4 lg:p-8 bg-background min-h-full">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Preference Settings</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-2">Customize your trading experience and notification preferences</p>
+          <h1 className="text-3xl font-bold text-foreground">Preference Settings</h1>
+          <p className="text-muted-foreground mt-2">Customize your trading experience and notification preferences</p>
         </div>
 
         {/* Tabs */}
-        <div className="flex items-center gap-2 mb-8 p-1.5 bg-white dark:bg-[#181a20] rounded-2xl border border-gray-100 dark:border-gray-800">
+        <div className="flex items-center gap-2 mb-8 p-1.5 bg-card rounded-xl border border-border">
           {tabs.map(tab => {
             const Icon = tab.icon;
             return (
@@ -318,8 +318,8 @@ export default function PreferencesPage() {
                 onClick={() => setActiveTab(tab.id as any)}
                 className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium text-sm transition-all ${
                   activeTab === tab.id
-                    ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25'
-                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800'
+                    ? 'bg-primary text-primary-foreground shadow-lg shadow-blue-500/25'
+                    : 'text-muted-foreground hover:text-foreground dark:hover:text-white hover:bg-accent'
                 }`}
               >
                 <Icon className="w-4 h-4" />
@@ -332,8 +332,8 @@ export default function PreferencesPage() {
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <div className="text-center">
-              <Loader2 className="w-10 h-10 animate-spin text-blue-500 mx-auto mb-4" />
-              <p className="text-gray-500">Loading preferences...</p>
+              <Loader2 className="w-10 h-10 animate-spin text-primary mx-auto mb-4" />
+              <p className="text-muted-foreground">Loading preferences...</p>
             </div>
           </div>
         ) : (
@@ -342,19 +342,19 @@ export default function PreferencesPage() {
             {activeTab === 'general' && (
               <div className="space-y-6">
                 {/* Currency Section */}
-                <div className="bg-white dark:bg-[#181a20] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
-                  <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center gap-3">
+                <div className="bg-card rounded-xl border border-border overflow-hidden">
+                  <div className="px-6 py-4 border-b border-border flex items-center gap-3">
                     <div className="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-xl flex items-center justify-center">
-                      <DollarSign className="w-5 h-5 text-green-600 dark:text-green-400" />
+                      <DollarSign className="w-5 h-5 text-buy" />
                     </div>
                     <div>
-                      <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Currency</h2>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">Set your preferred display currency</p>
+                      <h2 className="text-lg font-semibold text-foreground">Currency</h2>
+                      <p className="text-xs text-muted-foreground">Set your preferred display currency</p>
                     </div>
                   </div>
                   
                   <div className="p-6">
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                    <label className="block text-sm font-medium text-foreground/80 mb-3">
                       Equivalent Currency
                     </label>
                     <div className="relative dropdown-container" style={{ zIndex: showCurrencyDropdown ? 50 : 1 }}>
@@ -365,24 +365,24 @@ export default function PreferencesPage() {
                           setShowLanguageDropdown(false);
                           setShowPriceChangeDropdown(false);
                         }}
-                        className="w-full max-w-md px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl text-left flex items-center justify-between hover:border-blue-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
+                        className="w-full max-w-md px-4 py-3.5 bg-muted border border-border rounded-xl text-left flex items-center justify-between hover:border-blue-500 focus:border-blue-500 focus:ring-2 focus:ring-primary/20 transition-all"
                       >
                         <div className="flex items-center gap-3">
                           <span className="text-2xl">{currencies.find(c => c.value === settings.equivalentCurrency)?.flag || '🌐'}</span>
                           <div className="flex flex-col">
-                            <span className="font-semibold text-gray-900 dark:text-white">
+                            <span className="font-semibold text-foreground">
                               {currencies.find(c => c.value === settings.equivalentCurrency)?.label || 'Select'}
                             </span>
-                            <span className="text-gray-500 dark:text-gray-400 text-sm">
+                            <span className="text-muted-foreground text-sm">
                               {currencies.find(c => c.value === settings.equivalentCurrency)?.name}
                             </span>
                           </div>
                         </div>
-                        <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform duration-200 ${showCurrencyDropdown ? 'rotate-180' : ''}`} />
+                        <ChevronDown className={`w-5 h-5 text-muted-foreground transition-transform duration-200 ${showCurrencyDropdown ? 'rotate-180' : ''}`} />
                       </button>
                       
                       {showCurrencyDropdown && (
-                        <div className="absolute top-full left-0 w-full max-w-md mt-2 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl overflow-hidden" style={{ zIndex: 100 }}>
+                        <div className="absolute top-full left-0 w-full max-w-md mt-2 bg-card border border-border rounded-xl shadow-2xl overflow-hidden" style={{ zIndex: 100 }}>
                           <div className="max-h-80 overflow-y-auto">
                             {currencies.map((currency, index) => (
                               <button
@@ -392,19 +392,19 @@ export default function PreferencesPage() {
                                   updateSetting('equivalentCurrency', currency.value);
                                   setShowCurrencyDropdown(false);
                                 }}
-                                className={`w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-100 dark:hover:bg-gray-800/80 transition-colors ${
+                                className={`w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-accent/80 transition-colors ${
                                   settings.equivalentCurrency === currency.value 
                                     ? 'bg-blue-50 dark:bg-blue-900/30 border-l-4 border-blue-500' 
                                     : 'border-l-4 border-transparent'
-                                } ${index !== currencies.length - 1 ? 'border-b border-gray-100 dark:border-gray-800' : ''}`}
+                                } ${index !== currencies.length - 1 ? 'border-b border-border' : ''}`}
                               >
                                 <span className="text-2xl">{currency.flag}</span>
                                 <div className="flex-1">
-                                  <div className="font-semibold text-gray-900 dark:text-white">{currency.label}</div>
-                                  <div className="text-sm text-gray-500 dark:text-gray-400">{currency.name}</div>
+                                  <div className="font-semibold text-foreground">{currency.label}</div>
+                                  <div className="text-sm text-muted-foreground">{currency.name}</div>
                                 </div>
                                 {settings.equivalentCurrency === currency.value && (
-                                  <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
+                                  <div className="w-6 h-6 bg-primary rounded-full flex items-center justify-center">
                                     <Check className="w-4 h-4 text-white" />
                                   </div>
                                 )}
@@ -418,21 +418,21 @@ export default function PreferencesPage() {
                 </div>
 
                 {/* Trade Section */}
-                <div className="bg-white dark:bg-[#181a20] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
-                  <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center gap-3">
+                <div className="bg-card rounded-xl border border-border overflow-hidden">
+                  <div className="px-6 py-4 border-b border-border flex items-center gap-3">
                     <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center">
-                      <TrendingUp className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                      <TrendingUp className="w-5 h-5 text-primary" />
                     </div>
                     <div>
-                      <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Trade</h2>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">Configure your trading interface preferences</p>
+                      <h2 className="text-lg font-semibold text-foreground">Trade</h2>
+                      <p className="text-xs text-muted-foreground">Configure your trading interface preferences</p>
                     </div>
                   </div>
                   
                   <div className="p-6">
                     {/* Price Change Reference */}
                     <div className="mb-6">
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                      <label className="block text-sm font-medium text-foreground/80 mb-3">
                         Price Change Reference
                       </label>
                       <div className="relative dropdown-container" style={{ zIndex: showPriceChangeDropdown ? 50 : 1 }}>
@@ -443,16 +443,16 @@ export default function PreferencesPage() {
                             setShowCurrencyDropdown(false);
                             setShowLanguageDropdown(false);
                           }}
-                          className="w-full max-w-md px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl text-left flex items-center justify-between hover:border-blue-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
+                          className="w-full max-w-md px-4 py-3.5 bg-muted border border-border rounded-xl text-left flex items-center justify-between hover:border-blue-500 focus:border-blue-500 focus:ring-2 focus:ring-primary/20 transition-all"
                         >
-                          <span className="font-semibold text-gray-900 dark:text-white">
+                          <span className="font-semibold text-foreground">
                             {priceChangeOptions.find(o => o.value === settings.priceChangeReference)?.label || 'Last 24 hours'}
                           </span>
-                          <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform duration-200 ${showPriceChangeDropdown ? 'rotate-180' : ''}`} />
+                          <ChevronDown className={`w-5 h-5 text-muted-foreground transition-transform duration-200 ${showPriceChangeDropdown ? 'rotate-180' : ''}`} />
                         </button>
                         
                         {showPriceChangeDropdown && (
-                          <div className="absolute top-full left-0 w-full max-w-md mt-2 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl overflow-hidden" style={{ zIndex: 100 }}>
+                          <div className="absolute top-full left-0 w-full max-w-md mt-2 bg-card border border-border rounded-xl shadow-2xl overflow-hidden" style={{ zIndex: 100 }}>
                             {priceChangeOptions.map((option, index) => (
                               <button
                                 key={option.value}
@@ -461,15 +461,15 @@ export default function PreferencesPage() {
                                   updateSetting('priceChangeReference', option.value);
                                   setShowPriceChangeDropdown(false);
                                 }}
-                                className={`w-full px-4 py-3.5 text-left flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-800/80 transition-colors ${
+                                className={`w-full px-4 py-3.5 text-left flex items-center justify-between hover:bg-accent/80 transition-colors ${
                                   settings.priceChangeReference === option.value 
                                     ? 'bg-blue-50 dark:bg-blue-900/30 border-l-4 border-blue-500' 
                                     : 'border-l-4 border-transparent'
-                                } ${index !== priceChangeOptions.length - 1 ? 'border-b border-gray-100 dark:border-gray-800' : ''}`}
+                                } ${index !== priceChangeOptions.length - 1 ? 'border-b border-border' : ''}`}
                               >
-                                <span className="font-semibold text-gray-900 dark:text-white">{option.label}</span>
+                                <span className="font-semibold text-foreground">{option.label}</span>
                                 {settings.priceChangeReference === option.value && (
-                                  <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
+                                  <div className="w-6 h-6 bg-primary rounded-full flex items-center justify-center">
                                     <Check className="w-4 h-4 text-white" />
                                   </div>
                                 )}
@@ -481,7 +481,7 @@ export default function PreferencesPage() {
                     </div>
 
                     {/* Checkboxes */}
-                    <div className="space-y-1 bg-gray-50 dark:bg-[#1e2329] rounded-xl p-2">
+                    <div className="space-y-1 bg-muted rounded-xl p-2">
                       <Checkbox
                         checked={settings.promptConfirmationOrders}
                         onChange={(v) => updateSetting('promptConfirmationOrders', v)}
@@ -511,14 +511,14 @@ export default function PreferencesPage() {
                 </div>
 
                 {/* Deposit Section */}
-                <div className="bg-white dark:bg-[#181a20] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
-                  <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center gap-3">
+                <div className="bg-card rounded-xl border border-border overflow-hidden">
+                  <div className="px-6 py-4 border-b border-border flex items-center gap-3">
                     <div className="w-10 h-10 bg-purple-100 dark:bg-purple-900/30 rounded-xl flex items-center justify-center">
                       <Wallet className="w-5 h-5 text-purple-600 dark:text-purple-400" />
                     </div>
                     <div>
-                      <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Deposit</h2>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">Configure automatic deposit transfers</p>
+                      <h2 className="text-lg font-semibold text-foreground">Deposit</h2>
+                      <p className="text-xs text-muted-foreground">Configure automatic deposit transfers</p>
                     </div>
                   </div>
                   
@@ -546,14 +546,14 @@ export default function PreferencesPage() {
             {activeTab === 'notification' && (
               <div className="space-y-6">
                 {/* Language */}
-                <div className="bg-white dark:bg-[#181a20] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
-                  <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center gap-3">
+                <div className="bg-card rounded-xl border border-border overflow-hidden">
+                  <div className="px-6 py-4 border-b border-border flex items-center gap-3">
                     <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-900/30 rounded-xl flex items-center justify-center">
                       <Globe className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
                     </div>
                     <div>
-                      <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Language</h2>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">Choose your notification language</p>
+                      <h2 className="text-lg font-semibold text-foreground">Language</h2>
+                      <p className="text-xs text-muted-foreground">Choose your notification language</p>
                     </div>
                   </div>
                   
@@ -566,19 +566,19 @@ export default function PreferencesPage() {
                           setShowCurrencyDropdown(false);
                           setShowPriceChangeDropdown(false);
                         }}
-                        className="w-full max-w-md px-4 py-3.5 bg-gray-50 dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl text-left flex items-center justify-between hover:border-blue-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
+                        className="w-full max-w-md px-4 py-3.5 bg-muted border border-border rounded-xl text-left flex items-center justify-between hover:border-blue-500 focus:border-blue-500 focus:ring-2 focus:ring-primary/20 transition-all"
                       >
                         <div className="flex items-center gap-3">
                           <span className="text-2xl">{languages.find(l => l.value === settings.notificationLanguage)?.flag || '🌐'}</span>
-                          <span className="font-semibold text-gray-900 dark:text-white">
+                          <span className="font-semibold text-foreground">
                             {languages.find(l => l.value === settings.notificationLanguage)?.label || 'English'}
                           </span>
                         </div>
-                        <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform duration-200 ${showLanguageDropdown ? 'rotate-180' : ''}`} />
+                        <ChevronDown className={`w-5 h-5 text-muted-foreground transition-transform duration-200 ${showLanguageDropdown ? 'rotate-180' : ''}`} />
                       </button>
                       
                       {showLanguageDropdown && (
-                        <div className="absolute top-full left-0 w-full max-w-md mt-2 bg-white dark:bg-[#1e2329] border border-gray-200 dark:border-gray-700 rounded-xl shadow-2xl overflow-hidden" style={{ zIndex: 100 }}>
+                        <div className="absolute top-full left-0 w-full max-w-md mt-2 bg-card border border-border rounded-xl shadow-2xl overflow-hidden" style={{ zIndex: 100 }}>
                           <div className="max-h-80 overflow-y-auto">
                             {languages.map((lang, index) => (
                               <button
@@ -588,16 +588,16 @@ export default function PreferencesPage() {
                                   updateSetting('notificationLanguage', lang.value);
                                   setShowLanguageDropdown(false);
                                 }}
-                                className={`w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-100 dark:hover:bg-gray-800/80 transition-colors ${
+                                className={`w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-accent/80 transition-colors ${
                                   settings.notificationLanguage === lang.value 
                                     ? 'bg-blue-50 dark:bg-blue-900/30 border-l-4 border-blue-500' 
                                     : 'border-l-4 border-transparent'
-                                } ${index !== languages.length - 1 ? 'border-b border-gray-100 dark:border-gray-800' : ''}`}
+                                } ${index !== languages.length - 1 ? 'border-b border-border' : ''}`}
                               >
                                 <span className="text-2xl">{lang.flag}</span>
-                                <span className="flex-1 font-semibold text-gray-900 dark:text-white">{lang.label}</span>
+                                <span className="flex-1 font-semibold text-foreground">{lang.label}</span>
                                 {settings.notificationLanguage === lang.value && (
-                                  <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
+                                  <div className="w-6 h-6 bg-primary rounded-full flex items-center justify-center">
                                     <Check className="w-4 h-4 text-white" />
                                   </div>
                                 )}
@@ -611,14 +611,14 @@ export default function PreferencesPage() {
                 </div>
 
                 {/* Notification Toggles */}
-                <div className="bg-white dark:bg-[#181a20] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
-                  <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center gap-3">
+                <div className="bg-card rounded-xl border border-border overflow-hidden">
+                  <div className="px-6 py-4 border-b border-border flex items-center gap-3">
                     <div className="w-10 h-10 bg-orange-100 dark:bg-orange-900/30 rounded-xl flex items-center justify-center">
                       <Bell className="w-5 h-5 text-orange-600 dark:text-orange-400" />
                     </div>
                     <div>
-                      <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Push Notifications</h2>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">Manage your in-app notifications</p>
+                      <h2 className="text-lg font-semibold text-foreground">Push Notifications</h2>
+                      <p className="text-xs text-muted-foreground">Manage your in-app notifications</p>
                     </div>
                   </div>
                   
@@ -636,22 +636,22 @@ export default function PreferencesPage() {
                 </div>
 
                 {/* Telegram Notifications */}
-                <div className="bg-white dark:bg-[#181a20] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
-                  <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center gap-3">
+                <div className="bg-card rounded-xl border border-border overflow-hidden">
+                  <div className="px-6 py-4 border-b border-border flex items-center gap-3">
                     <div className="w-10 h-10 bg-sky-100 dark:bg-sky-900/30 rounded-xl flex items-center justify-center">
                       <MessageCircle className="w-5 h-5 text-sky-600 dark:text-sky-400" />
                     </div>
                     <div>
-                      <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Telegram Notifications</h2>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">Receive notifications via Telegram bot</p>
+                      <h2 className="text-lg font-semibold text-foreground">Telegram Notifications</h2>
+                      <p className="text-xs text-muted-foreground">Receive notifications via Telegram bot</p>
                     </div>
                   </div>
                   
                   <div className="p-6">
-                    <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-[#1e2329] rounded-xl mb-4">
+                    <div className="flex items-center justify-between p-4 bg-muted rounded-xl mb-4">
                       <div>
-                        <span className="font-medium text-gray-900 dark:text-white">Enable Telegram Notifications</span>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Connect your Telegram account to receive alerts</p>
+                        <span className="font-medium text-foreground">Enable Telegram Notifications</span>
+                        <p className="text-xs text-muted-foreground mt-1">Connect your Telegram account to receive alerts</p>
                       </div>
                       <Toggle checked={settings.telegramNotification} onChange={(v) => updateSetting('telegramNotification', v)} saving={saving === 'telegramNotification'} />
                     </div>
@@ -679,28 +679,28 @@ export default function PreferencesPage() {
             {activeTab === 'email' && (
               <div className="space-y-6">
                 {/* Events Reminders */}
-                <div className="bg-white dark:bg-[#181a20] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
+                <div className="bg-card rounded-xl border border-border overflow-hidden">
                   <button
                     onClick={() => setEventsRemindersExpanded(!eventsRemindersExpanded)}
-                    className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+                    className="w-full px-6 py-4 flex items-center justify-between hover:bg-accent/50 transition-colors"
                   >
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 bg-pink-100 dark:bg-pink-900/30 rounded-xl flex items-center justify-center">
                         <Bell className="w-5 h-5 text-pink-600 dark:text-pink-400" />
                       </div>
                       <div className="text-left">
-                        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Events Reminders</h2>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">Airdrops, rewards, and event notifications</p>
+                        <h2 className="text-lg font-semibold text-foreground">Events Reminders</h2>
+                        <p className="text-xs text-muted-foreground">Airdrops, rewards, and event notifications</p>
                       </div>
                     </div>
-                    <div className={`w-8 h-8 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center transition-transform ${eventsRemindersExpanded ? '' : '-rotate-180'}`}>
-                      <ChevronUp className="w-5 h-5 text-gray-500" />
+                    <div className={`w-8 h-8 rounded-lg bg-accent flex items-center justify-center transition-transform ${eventsRemindersExpanded ? '' : '-rotate-180'}`}>
+                      <ChevronUp className="w-5 h-5 text-muted-foreground" />
                     </div>
                   </button>
                   
                   {eventsRemindersExpanded && (
                     <div className="px-6 pb-6">
-                      <div className="space-y-1 bg-gray-50 dark:bg-[#1e2329] rounded-xl p-2">
+                      <div className="space-y-1 bg-muted rounded-xl p-2">
                         <SettingRow label="Airdrop award alert" checked={settings.airdropAwardAlert} onChange={(v) => updateSetting('airdropAwardAlert', v)} settingKey="airdropAwardAlert" />
                         <SettingRow label="Commissions received" checked={settings.commissionsReceived} onChange={(v) => updateSetting('commissionsReceived', v)} settingKey="commissionsReceived" />
                         <SettingRow label="Event Reminder / New events" checked={settings.eventReminderNewEvents} onChange={(v) => updateSetting('eventReminderNewEvents', v)} settingKey="eventReminderNewEvents" />
@@ -715,28 +715,28 @@ export default function PreferencesPage() {
                 </div>
 
                 {/* General Announcement */}
-                <div className="bg-white dark:bg-[#181a20] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
+                <div className="bg-card rounded-xl border border-border overflow-hidden">
                   <button
                     onClick={() => setGeneralAnnouncementExpanded(!generalAnnouncementExpanded)}
-                    className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+                    className="w-full px-6 py-4 flex items-center justify-between hover:bg-accent/50 transition-colors"
                   >
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 bg-amber-100 dark:bg-amber-900/30 rounded-xl flex items-center justify-center">
                         <Mail className="w-5 h-5 text-amber-600 dark:text-amber-400" />
                       </div>
                       <div className="text-left">
-                        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">General Announcement</h2>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">Platform updates and maintenance alerts</p>
+                        <h2 className="text-lg font-semibold text-foreground">General Announcement</h2>
+                        <p className="text-xs text-muted-foreground">Platform updates and maintenance alerts</p>
                       </div>
                     </div>
-                    <div className={`w-8 h-8 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center transition-transform ${generalAnnouncementExpanded ? '' : '-rotate-180'}`}>
-                      <ChevronUp className="w-5 h-5 text-gray-500" />
+                    <div className={`w-8 h-8 rounded-lg bg-accent flex items-center justify-center transition-transform ${generalAnnouncementExpanded ? '' : '-rotate-180'}`}>
+                      <ChevronUp className="w-5 h-5 text-muted-foreground" />
                     </div>
                   </button>
                   
                   {generalAnnouncementExpanded && (
                     <div className="px-6 pb-6">
-                      <div className="space-y-1 bg-gray-50 dark:bg-[#1e2329] rounded-xl p-2">
+                      <div className="space-y-1 bg-muted rounded-xl p-2">
                         <SettingRow label="System maintenance" checked={settings.systemMaintenance} onChange={(v) => updateSetting('systemMaintenance', v)} settingKey="systemMaintenance" />
                         <SettingRow label="Platform announcements" checked={settings.platformAnnouncements} onChange={(v) => updateSetting('platformAnnouncements', v)} settingKey="platformAnnouncements" />
                         <SettingRow label="New features" checked={settings.newFeatures} onChange={(v) => updateSetting('newFeatures', v)} settingKey="newFeatures" />

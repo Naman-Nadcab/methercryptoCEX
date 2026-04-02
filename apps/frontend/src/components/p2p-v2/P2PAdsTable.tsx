@@ -28,7 +28,7 @@ function P2PAdsLoadingSkeleton() {
         {Array.from({ length: 4 }).map((_, i) => (
           <div
             key={i}
-            className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-[#1e2329]"
+            className="rounded-xl border border-border bg-card p-4 dark:border-border dark:bg-card"
           >
             <div className="flex justify-between gap-2">
               <Skeleton className="h-4 w-32" />
@@ -41,9 +41,9 @@ function P2PAdsLoadingSkeleton() {
           </div>
         ))}
       </div>
-      <div className="hidden overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-[#1e2329] md:block">
+      <div className="hidden overflow-hidden rounded-xl border border-border bg-card dark:border-border dark:bg-card md:block">
         <table className="w-full min-w-[720px] text-left text-sm">
-          <thead className="border-b border-gray-200 bg-gray-50 text-xs font-medium text-gray-500 dark:border-gray-800 dark:bg-gray-900/50 dark:text-gray-400">
+          <thead className="border-b border-border bg-muted text-xs font-medium text-muted-foreground dark:border-border dark:bg-card/50 dark:text-muted-foreground">
             <tr>
               <th className="px-4 py-3">Advertiser</th>
               <th className="px-4 py-3">Side</th>
@@ -53,7 +53,7 @@ function P2PAdsLoadingSkeleton() {
               <th className="w-28 px-4 py-3" />
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+          <tbody className="divide-y divide-border">
             {Array.from({ length: 6 }).map((_, i) => (
               <tr key={i}>
                 <td className="px-4 py-3">
@@ -131,7 +131,7 @@ export function P2PAdsTable({
 
   if (filtered.length === 0) {
     return (
-      <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-[#1e2329]">
+      <div className="rounded-xl border border-border bg-card dark:border-border dark:bg-card">
         <EmptyState
           icon={Store}
           title="No ads match your filters"
@@ -139,7 +139,7 @@ export function P2PAdsTable({
           className="py-14"
         />
         {paymentFilter ? (
-          <p className="px-4 pb-6 text-center text-xs text-gray-500 dark:text-gray-400">
+          <p className="px-4 pb-6 text-center text-xs text-muted-foreground">
             Remove the payment filter in the bar above to see more listings.
           </p>
         ) : null}
@@ -164,42 +164,42 @@ export function P2PAdsTable({
           return (
             <div
               key={ad.id}
-              className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-[#1e2329]"
+              className="rounded-xl border border-border bg-card p-4 shadow-sm dark:border-border dark:bg-card"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <P2PMerchantCard ad={ad} fiat={ad.fiat_currency || fiat} />
                 </div>
-                <span className="shrink-0 rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium capitalize text-gray-800 dark:bg-gray-800 dark:text-gray-200">
+                <span className="shrink-0 rounded-full bg-accent px-2.5 py-1 text-xs font-medium capitalize text-foreground dark:bg-accent dark:text-gray-200">
                   {side}
                 </span>
               </div>
               <div className="mt-3 grid gap-2 text-sm">
                 <div className="flex justify-between gap-2">
-                  <span className="text-gray-500 dark:text-gray-400">Price</span>
-                  <span className="font-mono font-medium text-gray-900 dark:text-white">
+                  <span className="text-muted-foreground">Price</span>
+                  <span className="font-mono font-medium text-foreground">
                     {sym}
                     {price}
-                    <span className="ml-1 text-xs font-normal text-gray-500">/{ad.crypto_symbol}</span>
+                    <span className="ml-1 text-xs font-normal text-muted-foreground">/{ad.crypto_symbol}</span>
                   </span>
                 </div>
                 <div className="flex justify-between gap-2">
-                  <span className="text-gray-500 dark:text-gray-400">Completion</span>
-                  <span className="font-medium text-gray-900 dark:text-white">{completion}</span>
+                  <span className="text-muted-foreground">Completion</span>
+                  <span className="font-medium text-foreground">{completion}</span>
                 </div>
                 <div className="flex justify-between gap-2">
-                  <span className="text-gray-500 dark:text-gray-400">Available</span>
-                  <span className="font-mono text-gray-900 dark:text-white">{ad.available_amount}</span>
+                  <span className="text-muted-foreground">Available</span>
+                  <span className="font-mono text-foreground">{ad.available_amount}</span>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <span className="text-gray-500 dark:text-gray-400">Limits ({fiat})</span>
-                  <span className="font-mono text-xs text-gray-700 dark:text-gray-300">
+                  <span className="text-muted-foreground">Limits ({fiat})</span>
+                  <span className="font-mono text-xs text-foreground/80">
                     {minA} — {maxA}
                   </span>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <span className="text-gray-500 dark:text-gray-400">Payment methods</span>
-                  <span className="break-words text-xs leading-relaxed text-gray-800 dark:text-gray-200">{payments}</span>
+                  <span className="text-muted-foreground">Payment methods</span>
+                  <span className="break-words text-xs leading-relaxed text-foreground dark:text-gray-200">{payments}</span>
                 </div>
               </div>
               <button
@@ -218,10 +218,10 @@ export function P2PAdsTable({
       </div>
 
       {/* Desktop: table */}
-      <div className="hidden overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-[#1e2329] md:block">
+      <div className="hidden overflow-hidden rounded-xl border border-border bg-card dark:border-border dark:bg-card md:block">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] text-left text-sm">
-            <thead className="border-b border-gray-200 bg-gray-50 text-xs font-medium text-gray-500 dark:border-gray-800 dark:bg-gray-900/50 dark:text-gray-400">
+            <thead className="border-b border-border bg-muted text-xs font-medium text-muted-foreground dark:border-border dark:bg-card/50 dark:text-muted-foreground">
               <tr>
                 <th className="px-4 py-3">Advertiser</th>
                 <th className="px-4 py-3">Side</th>
@@ -231,23 +231,23 @@ export function P2PAdsTable({
                 <th className="w-28 px-4 py-3" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+            <tbody className="divide-y divide-border">
               {filtered.map((ad) => {
                 const side = p2pAdSide(ad);
                 const price = p2pAdDisplayPrice(ad);
                 const minA = ad.min_amount ?? '0';
                 const maxA = ad.max_amount ?? '0';
                 return (
-                  <tr key={ad.id} className="hover:bg-gray-50/80 dark:hover:bg-gray-900/30">
+                  <tr key={ad.id} className="hover:bg-background/80 dark:hover:bg-gray-900/30">
                     <td className="px-4 py-3">
                       <P2PMerchantCard ad={ad} fiat={ad.fiat_currency || fiat} />
                     </td>
-                    <td className="px-4 py-3 capitalize text-gray-900 dark:text-white">{side}</td>
-                    <td className="px-4 py-3 font-mono text-gray-900 dark:text-white">
+                    <td className="px-4 py-3 capitalize text-foreground">{side}</td>
+                    <td className="px-4 py-3 font-mono text-foreground">
                       {sym}
                       {price}
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-300">
+                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
                       {minA} — {maxA}
                     </td>
                     <td className="px-4 py-3 font-mono text-xs">{ad.available_amount}</td>

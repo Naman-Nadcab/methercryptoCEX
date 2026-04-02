@@ -19,8 +19,8 @@ export function ErrorState({
       role="alert"
     >
       <AlertCircle className="mb-3 h-10 w-10 text-red-500" aria-hidden />
-      <h3 className="text-sm font-medium text-gray-900 dark:text-white">{title}</h3>
-      {message ? <p className="mt-1 max-w-sm text-sm text-gray-600 dark:text-gray-400">{message}</p> : null}
+      <h3 className="text-sm font-medium text-foreground">{title}</h3>
+      {message ? <p className="mt-1 max-w-sm text-sm text-muted-foreground">{message}</p> : null}
       {onRetry ? (
         <button
           type="button"

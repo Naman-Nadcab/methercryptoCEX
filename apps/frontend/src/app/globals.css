@@ -4,61 +4,60 @@
 
 @layer base {
   :root {
-    /* Spot — tier-1 trading green/red (saturated; works with blue/gray chrome elsewhere) */
-    --exchange-buy: 158 88% 36%;
-    --exchange-sell: 350 92% 48%;
-    --price-up: 158 88% 36%;
-    --price-down: 350 92% 48%;
-    --panel: 220 14% 96%;
+    --exchange-buy: 160 84% 39%;
+    --exchange-sell: 353 91% 53%;
+    --price-up: 160 84% 39%;
+    --price-down: 353 91% 53%;
+    --panel: 0 0% 98%;
 
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --background: 0 0% 98%;
+    --foreground: 220 20% 14%;
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 220 20% 14%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 45 93% 47%;
-    --primary-foreground: 0 0% 0%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 45 93% 47%;
+    --popover-foreground: 220 20% 14%;
+    --primary: 47 96% 60%;
+    --primary-foreground: 0 0% 7%;
+    --secondary: 220 13% 95%;
+    --secondary-foreground: 220 20% 14%;
+    --muted: 220 13% 95%;
+    --muted-foreground: 218 11% 53%;
+    --accent: 220 13% 95%;
+    --accent-foreground: 220 20% 14%;
+    --destructive: 353 91% 53%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 13% 93%;
+    --input: 220 13% 93%;
+    --ring: 47 96% 60%;
     --radius: 0.5rem;
   }
 
   .dark {
-    --exchange-buy: 158 90% 42%;
-    --exchange-sell: 350 95% 54%;
-    --price-up: 158 90% 42%;
-    --price-down: 350 95% 54%;
-    --panel: 222 47% 8%;
+    --exchange-buy: 160 84% 39%;
+    --exchange-sell: 353 91% 53%;
+    --price-up: 160 84% 39%;
+    --price-down: 353 91% 53%;
+    --panel: 220 17% 13%;
 
-    --background: 224 71% 4%;
-    --foreground: 213 31% 91%;
-    --card: 224 71% 4%;
-    --card-foreground: 213 31% 91%;
-    --popover: 224 71% 4%;
-    --popover-foreground: 213 31% 91%;
-    --primary: 45 93% 47%;
-    --primary-foreground: 0 0% 0%;
-    --secondary: 222.2 47.4% 11.2%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 223 47% 11%;
-    --muted-foreground: 215.4 16.3% 56.9%;
-    --accent: 216 34% 17%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 63% 31%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 216 34% 17%;
-    --input: 216 34% 17%;
-    --ring: 45 93% 47%;
+    --background: 225 16% 11%;
+    --foreground: 220 13% 93%;
+    --card: 220 17% 13%;
+    --card-foreground: 220 13% 93%;
+    --popover: 216 18% 16%;
+    --popover-foreground: 220 13% 93%;
+    --primary: 47 96% 60%;
+    --primary-foreground: 0 0% 7%;
+    --secondary: 216 18% 16%;
+    --secondary-foreground: 220 13% 93%;
+    --muted: 216 18% 16%;
+    --muted-foreground: 218 11% 58%;
+    --accent: 216 18% 16%;
+    --accent-foreground: 220 13% 93%;
+    --destructive: 353 91% 53%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 216 18% 16%;
+    --input: 216 18% 16%;
+    --ring: 47 96% 60%;
   }
 }
 

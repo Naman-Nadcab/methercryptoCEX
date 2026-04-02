@@ -19,7 +19,7 @@ function P2POrderDetailSkeleton() {
   return (
     <div className="space-y-6" aria-busy="true">
       <Skeleton className="h-4 w-40" />
-      <div className="space-y-3 rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-[#1e2329]">
+      <div className="space-y-3 rounded-xl border border-border bg-card p-5 dark:border-border dark:bg-card">
         <Skeleton className="h-6 w-56" />
         <Skeleton className="h-4 w-full" />
         <Skeleton className="h-4 w-3/4" />
@@ -77,7 +77,7 @@ function OrderDetailInner() {
   });
 
   if (!orderId) {
-    return <p className="text-sm text-gray-500">Invalid order</p>;
+    return <p className="text-sm text-muted-foreground">Invalid order</p>;
   }
 
   if (isLoading) {
@@ -115,7 +115,7 @@ function OrderDetailInner() {
 
   return (
     <div className="space-y-6">
-      <Link href="/p2p/orders" className="text-sm text-blue-600 hover:underline dark:text-blue-400">
+      <Link href="/p2p/orders" className="text-sm text-primary hover:underline dark:text-blue-400">
         ← Back to orders
       </Link>
 

@@ -130,28 +130,28 @@ function DocumentUploadContent() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+    <div className="min-h-screen bg-muted dark:bg-background">
       {/* Header */}
-      <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 px-6 py-4">
+      <header className="bg-card border-b border-border px-6 py-4">
         <div className="max-w-2xl mx-auto flex items-center gap-4">
           <button
             onClick={() => router.back()}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
+            className="p-2 hover:bg-accent rounded-full transition-colors"
           >
-            <ChevronLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+            <ChevronLeft className="w-5 h-5 text-muted-foreground" />
           </button>
           <div>
-            <h1 className="text-lg font-semibold text-gray-900 dark:text-white">
+            <h1 className="text-lg font-semibold text-foreground">
               Upload {documentLabels[documentType] || 'Document'}
             </h1>
-            <p className="text-sm text-gray-500">Step {['front', 'back', 'selfie', 'review'].indexOf(step) + 1} of {needsBackImage ? 4 : 3}</p>
+            <p className="text-sm text-muted-foreground">Step {['front', 'back', 'selfie', 'review'].indexOf(step) + 1} of {needsBackImage ? 4 : 3}</p>
           </div>
         </div>
       </header>
 
       {/* Main Content */}
       <main className="max-w-2xl mx-auto px-6 py-8">
-        <div className="bg-white dark:bg-gray-900 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-800">
+        <div className="bg-card rounded-xl p-6 shadow-sm border border-border">
           
           {/* Progress Bar */}
           <div className="flex gap-2 mb-8">
@@ -160,15 +160,15 @@ function DocumentUploadContent() {
                 key={s}
                 className={`flex-1 h-1 rounded-full ${
                   ['front', ...(needsBackImage ? ['back'] : []), 'selfie', 'review'].indexOf(step) >= i
-                    ? 'bg-blue-500'
-                    : 'bg-gray-200 dark:bg-gray-700'
+                    ? 'bg-primary'
+                    : 'bg-accent'
                 }`}
               />
             ))}
           </div>
 
           {error && (
-            <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl flex items-center gap-2 text-red-600 dark:text-red-400">
+            <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl flex items-center gap-2 text-destructive">
               <AlertCircle className="w-5 h-5" />
               {error}
             </div>
@@ -178,17 +178,17 @@ function DocumentUploadContent() {
           {step === 'front' && (
             <div className="space-y-6">
               <div className="text-center">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+                <h2 className="text-xl font-semibold text-foreground mb-2">
                   Upload Front Side
                 </h2>
-                <p className="text-gray-500 dark:text-gray-400">
+                <p className="text-muted-foreground">
                   Take a clear photo of the front of your {documentLabels[documentType]}
                 </p>
               </div>
 
               <div
                 onClick={() => frontInputRef.current?.click()}
-                className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-12 text-center cursor-pointer hover:border-blue-500 transition-colors"
+                className="border-2 border-dashed border-border dark:border-gray-600 rounded-xl p-12 text-center cursor-pointer hover:border-blue-500 transition-colors"
               >
                 {frontPreview ? (
                   <div className="relative">
@@ -206,9 +206,9 @@ function DocumentUploadContent() {
                   </div>
                 ) : (
                   <>
-                    <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                    <p className="text-gray-600 dark:text-gray-400">Click to upload or drag and drop</p>
-                    <p className="text-sm text-gray-400 mt-1">PNG, JPG up to 10MB</p>
+                    <Upload className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                    <p className="text-muted-foreground">Click to upload or drag and drop</p>
+                    <p className="text-sm text-muted-foreground mt-1">PNG, JPG up to 10MB</p>
                   </>
                 )}
               </div>
@@ -222,7 +222,7 @@ function DocumentUploadContent() {
 
               <button
                 onClick={() => frontInputRef.current?.click()}
-                className="w-full py-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-900 dark:text-white font-medium rounded-xl transition-colors flex items-center justify-center gap-2"
+                className="w-full py-3 bg-accent hover:bg-accent text-foreground font-medium rounded-xl transition-colors flex items-center justify-center gap-2"
               >
                 <Camera className="w-5 h-5" />
                 Take Photo
@@ -234,17 +234,17 @@ function DocumentUploadContent() {
           {step === 'back' && (
             <div className="space-y-6">
               <div className="text-center">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+                <h2 className="text-xl font-semibold text-foreground mb-2">
                   Upload Back Side
                 </h2>
-                <p className="text-gray-500 dark:text-gray-400">
+                <p className="text-muted-foreground">
                   Take a clear photo of the back of your {documentLabels[documentType]}
                 </p>
               </div>
 
               <div
                 onClick={() => backInputRef.current?.click()}
-                className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-12 text-center cursor-pointer hover:border-blue-500 transition-colors"
+                className="border-2 border-dashed border-border dark:border-gray-600 rounded-xl p-12 text-center cursor-pointer hover:border-blue-500 transition-colors"
               >
                 {backPreview ? (
                   <div className="relative">
@@ -262,9 +262,9 @@ function DocumentUploadContent() {
                   </div>
                 ) : (
                   <>
-                    <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                    <p className="text-gray-600 dark:text-gray-400">Click to upload or drag and drop</p>
-                    <p className="text-sm text-gray-400 mt-1">PNG, JPG up to 10MB</p>
+                    <Upload className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                    <p className="text-muted-foreground">Click to upload or drag and drop</p>
+                    <p className="text-sm text-muted-foreground mt-1">PNG, JPG up to 10MB</p>
                   </>
                 )}
               </div>
@@ -279,13 +279,13 @@ function DocumentUploadContent() {
               <div className="flex gap-3">
                 <button
                   onClick={() => setStep('front')}
-                  className="flex-1 py-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-900 dark:text-white font-medium rounded-xl transition-colors"
+                  className="flex-1 py-3 bg-accent hover:bg-accent text-foreground font-medium rounded-xl transition-colors"
                 >
                   Back
                 </button>
                 <button
                   onClick={() => backInputRef.current?.click()}
-                  className="flex-1 py-3 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-xl transition-colors flex items-center justify-center gap-2"
+                  className="flex-1 py-3 bg-primary hover:bg-primary/85 text-white font-medium rounded-xl transition-colors flex items-center justify-center gap-2"
                 >
                   <Camera className="w-5 h-5" />
                   Take Photo
@@ -298,17 +298,17 @@ function DocumentUploadContent() {
           {step === 'selfie' && (
             <div className="space-y-6">
               <div className="text-center">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+                <h2 className="text-xl font-semibold text-foreground mb-2">
                   Take a Selfie
                 </h2>
-                <p className="text-gray-500 dark:text-gray-400">
+                <p className="text-muted-foreground">
                   Take a clear selfie holding your {documentLabels[documentType]}
                 </p>
               </div>
 
               <div
                 onClick={() => selfieInputRef.current?.click()}
-                className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-12 text-center cursor-pointer hover:border-blue-500 transition-colors"
+                className="border-2 border-dashed border-border dark:border-gray-600 rounded-xl p-12 text-center cursor-pointer hover:border-blue-500 transition-colors"
               >
                 {selfiePreview ? (
                   <div className="relative">
@@ -326,10 +326,10 @@ function DocumentUploadContent() {
                   </div>
                 ) : (
                   <>
-                    <div className="w-24 h-24 rounded-full bg-gray-200 dark:bg-gray-700 mx-auto mb-4 flex items-center justify-center">
-                      <Camera className="w-10 h-10 text-gray-400" />
+                    <div className="w-24 h-24 rounded-full bg-accent mx-auto mb-4 flex items-center justify-center">
+                      <Camera className="w-10 h-10 text-muted-foreground" />
                     </div>
-                    <p className="text-gray-600 dark:text-gray-400">Click to take or upload a selfie</p>
+                    <p className="text-muted-foreground">Click to take or upload a selfie</p>
                   </>
                 )}
               </div>
@@ -345,13 +345,13 @@ function DocumentUploadContent() {
               <div className="flex gap-3">
                 <button
                   onClick={() => setStep(needsBackImage ? 'back' : 'front')}
-                  className="flex-1 py-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-900 dark:text-white font-medium rounded-xl transition-colors"
+                  className="flex-1 py-3 bg-accent hover:bg-accent text-foreground font-medium rounded-xl transition-colors"
                 >
                   Back
                 </button>
                 <button
                   onClick={() => selfieInputRef.current?.click()}
-                  className="flex-1 py-3 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-xl transition-colors flex items-center justify-center gap-2"
+                  className="flex-1 py-3 bg-primary hover:bg-primary/85 text-white font-medium rounded-xl transition-colors flex items-center justify-center gap-2"
                 >
                   <Camera className="w-5 h-5" />
                   Take Selfie
@@ -364,45 +364,45 @@ function DocumentUploadContent() {
           {step === 'review' && (
             <div className="space-y-6">
               <div className="text-center">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+                <h2 className="text-xl font-semibold text-foreground mb-2">
                   Review Your Documents
                 </h2>
-                <p className="text-gray-500 dark:text-gray-400">
+                <p className="text-muted-foreground">
                   Make sure all images are clear and readable
                 </p>
               </div>
 
               <div className="grid gap-4">
-                <div className="flex items-center gap-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
+                <div className="flex items-center gap-4 p-4 bg-muted rounded-xl">
                   {frontPreview && (
                     <img src={frontPreview} alt="Front" className="w-20 h-14 object-cover rounded-lg" />
                   )}
                   <div className="flex-1">
-                    <p className="font-medium text-gray-900 dark:text-white">Front Side</p>
+                    <p className="font-medium text-foreground">Front Side</p>
                     <p className="text-sm text-green-500 flex items-center gap-1">
                       <Check className="w-4 h-4" /> Uploaded
                     </p>
                   </div>
                   <button
                     onClick={() => setStep('front')}
-                    className="text-blue-500 text-sm hover:underline"
+                    className="text-primary text-sm hover:underline"
                   >
                     Change
                   </button>
                 </div>
 
                 {needsBackImage && backPreview && (
-                  <div className="flex items-center gap-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
+                  <div className="flex items-center gap-4 p-4 bg-muted rounded-xl">
                     <img src={backPreview} alt="Back" className="w-20 h-14 object-cover rounded-lg" />
                     <div className="flex-1">
-                      <p className="font-medium text-gray-900 dark:text-white">Back Side</p>
+                      <p className="font-medium text-foreground">Back Side</p>
                       <p className="text-sm text-green-500 flex items-center gap-1">
                         <Check className="w-4 h-4" /> Uploaded
                       </p>
                     </div>
                     <button
                       onClick={() => setStep('back')}
-                      className="text-blue-500 text-sm hover:underline"
+                      className="text-primary text-sm hover:underline"
                     >
                       Change
                     </button>
@@ -410,17 +410,17 @@ function DocumentUploadContent() {
                 )}
 
                 {selfiePreview && (
-                  <div className="flex items-center gap-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
+                  <div className="flex items-center gap-4 p-4 bg-muted rounded-xl">
                     <img src={selfiePreview} alt="Selfie" className="w-20 h-20 object-cover rounded-full" />
                     <div className="flex-1">
-                      <p className="font-medium text-gray-900 dark:text-white">Selfie</p>
+                      <p className="font-medium text-foreground">Selfie</p>
                       <p className="text-sm text-green-500 flex items-center gap-1">
                         <Check className="w-4 h-4" /> Uploaded
                       </p>
                     </div>
                     <button
                       onClick={() => setStep('selfie')}
-                      className="text-blue-500 text-sm hover:underline"
+                      className="text-primary text-sm hover:underline"
                     >
                       Change
                     </button>
@@ -431,14 +431,14 @@ function DocumentUploadContent() {
               <div className="flex gap-3">
                 <button
                   onClick={() => setStep('selfie')}
-                  className="flex-1 py-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-900 dark:text-white font-medium rounded-xl transition-colors"
+                  className="flex-1 py-3 bg-accent hover:bg-accent text-foreground font-medium rounded-xl transition-colors"
                 >
                   Back
                 </button>
                 <button
                   onClick={handleSubmit}
                   disabled={loading}
-                  className="flex-1 py-3 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  className="flex-1 py-3 bg-primary hover:bg-primary/85 text-white font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {loading ? (
                     <>
@@ -457,7 +457,7 @@ function DocumentUploadContent() {
         {/* Tips */}
         <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl">
           <h3 className="font-medium text-blue-800 dark:text-blue-400 mb-2">Tips for a successful verification</h3>
-          <ul className="text-sm text-blue-700 dark:text-blue-500 space-y-1">
+          <ul className="text-sm text-blue-700 dark:text-primary space-y-1">
             <li>• Make sure the document is fully visible and not cut off</li>
             <li>• Avoid glare and ensure good lighting</li>
             <li>• All text should be clearly readable</li>
@@ -472,8 +472,8 @@ function DocumentUploadContent() {
 export default function DocumentUploadPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+      <div className="min-h-screen bg-muted dark:bg-background flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     }>
       <DocumentUploadContent />

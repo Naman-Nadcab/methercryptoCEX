@@ -41,9 +41,9 @@ export function ReferralFunnel({ metrics, loading = false }: ReferralFunnelProps
   const m = metrics ?? defaultMetrics;
 
   return (
-    <div className="bg-white dark:bg-[#181a20] rounded-2xl p-6 border border-gray-100 dark:border-gray-800 card-bybit">
-      <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">Referral Funnel</h3>
-      <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">Conversion from clicks to revenue</p>
+    <div className="bg-card rounded-xl p-6 border border-border card-bybit">
+      <h3 className="text-sm font-semibold text-foreground mb-1">Referral Funnel</h3>
+      <p className="text-xs text-muted-foreground mb-4">Conversion from clicks to revenue</p>
       {loading ? (
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
           {steps.map((s) => (
@@ -61,15 +61,15 @@ export function ReferralFunnel({ metrics, loading = false }: ReferralFunnelProps
             return (
               <div
                 key={s.key}
-                className="flex flex-col items-center sm:items-start p-3 rounded-xl bg-gray-50 dark:bg-[#1e2329] border border-gray-100 dark:border-gray-800"
+                className="flex flex-col items-center sm:items-start p-3 rounded-xl bg-muted border border-border"
               >
                 <div className="flex items-center gap-2 mb-1">
                   <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                    <Icon className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    <Icon className="w-4 h-4 text-primary" />
                   </div>
-                  <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{s.label}</span>
+                  <span className="text-xs font-medium text-muted-foreground">{s.label}</span>
                 </div>
-                <span className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">
+                <span className="text-lg font-bold text-foreground tabular-nums">
                   {formatMetric(s.key, value)}
                 </span>
               </div>

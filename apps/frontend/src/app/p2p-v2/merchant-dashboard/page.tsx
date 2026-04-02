@@ -33,23 +33,23 @@ function DashInner() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Merchant dashboard</h1>
+      <h1 className="text-xl font-semibold text-foreground">Merchant dashboard</h1>
       <div className="grid gap-4 sm:grid-cols-2">
-        <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-[#1e2329]">
-          <p className="text-xs text-gray-500">Completion rate</p>
-          <p className="text-2xl font-semibold text-gray-900 dark:text-white">
+        <div className="rounded-xl border border-border bg-card p-4 dark:border-border dark:bg-card">
+          <p className="text-xs text-muted-foreground">Completion rate</p>
+          <p className="text-2xl font-semibold text-foreground">
             {s.completion_rate != null ? String(s.completion_rate) : '—'}%
           </p>
         </div>
-        <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-[#1e2329]">
-          <p className="text-xs text-gray-500">Total orders (stats)</p>
-          <p className="text-2xl font-semibold text-gray-900 dark:text-white">
+        <div className="rounded-xl border border-border bg-card p-4 dark:border-border dark:bg-card">
+          <p className="text-xs text-muted-foreground">Total orders (stats)</p>
+          <p className="text-2xl font-semibold text-foreground">
             {s.total_orders != null ? String(s.total_orders) : '—'}
           </p>
         </div>
-        <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-[#1e2329]">
-          <p className="text-xs text-gray-500">Avg release (min)</p>
-          <p className="text-2xl font-semibold text-gray-900 dark:text-white">
+        <div className="rounded-xl border border-border bg-card p-4 dark:border-border dark:bg-card">
+          <p className="text-xs text-muted-foreground">Avg release (min)</p>
+          <p className="text-2xl font-semibold text-foreground">
             {s.avg_release_time != null
               ? String(s.avg_release_time)
               : s.avg_release_time_minutes != null
@@ -57,20 +57,20 @@ function DashInner() {
                 : '—'}
           </p>
         </div>
-        <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-[#1e2329]">
-          <p className="text-xs text-gray-500">Completed (recent list)</p>
-          <p className="text-2xl font-semibold text-gray-900 dark:text-white">{completed}</p>
+        <div className="rounded-xl border border-border bg-card p-4 dark:border-border dark:bg-card">
+          <p className="text-xs text-muted-foreground">Completed (recent list)</p>
+          <p className="text-2xl font-semibold text-foreground">{completed}</p>
         </div>
       </div>
-      <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-[#1e2329]">
-        <p className="text-xs text-gray-500">Approx. completed fiat (from loaded orders)</p>
-        <p className="text-lg font-mono text-gray-900 dark:text-white">{volumeApprox.toFixed(2)}</p>
+      <div className="rounded-xl border border-border bg-card p-4 dark:border-border dark:bg-card">
+        <p className="text-xs text-muted-foreground">Approx. completed fiat (from loaded orders)</p>
+        <p className="text-lg font-mono text-foreground">{volumeApprox.toFixed(2)}</p>
       </div>
       <div className="flex flex-wrap gap-3 text-sm">
-        <Link href="/p2p/my-ads" className="text-blue-600 hover:underline dark:text-blue-400">
+        <Link href="/p2p/my-ads" className="text-primary hover:underline dark:text-blue-400">
           Manage ads
         </Link>
-        <Link href="/p2p/orders" className="text-blue-600 hover:underline dark:text-blue-400">
+        <Link href="/p2p/orders" className="text-primary hover:underline dark:text-blue-400">
           View orders
         </Link>
       </div>

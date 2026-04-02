@@ -20,9 +20,9 @@ export default function AppError({
   }, [error]);
 
   return (
-    <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 bg-gray-50 px-4 py-16 text-center dark:bg-[#0b0e11]">
-      <h1 className="text-lg font-semibold text-gray-900 dark:text-white">Something went wrong</h1>
-      <p className="max-w-md text-sm text-gray-600 dark:text-gray-400">
+    <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 bg-muted px-4 py-16 text-center dark:bg-background">
+      <h1 className="text-lg font-semibold text-foreground">Something went wrong</h1>
+      <p className="max-w-md text-sm text-muted-foreground">
         {process.env.NODE_ENV === 'development' ? error.message : 'Please try again or return home.'}
       </p>
       <div className="flex flex-wrap items-center justify-center gap-3">
@@ -33,7 +33,7 @@ export default function AppError({
         >
           Try again
         </button>
-        <Link href={ROUTES.home} className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400">
+        <Link href={ROUTES.home} className="text-sm font-medium text-primary hover:underline dark:text-blue-400">
           Home
         </Link>
       </div>

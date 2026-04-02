@@ -32,8 +32,8 @@ export function PortfolioChangeCard({
   const isZero = change24h === 0 && change24hPercent === 0;
 
   return (
-    <div className="bg-white dark:bg-[#1e2329] rounded-2xl p-6 border border-gray-100 dark:border-gray-800 card-bybit">
-      <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 inline-flex items-center gap-1">
+    <div className="bg-card rounded-xl p-6 border border-border card-bybit">
+      <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2 inline-flex items-center gap-1">
         Total Balance <InfoTooltip content="Combined funding and trading account balance in USD." />
       </p>
       {loading ? (
@@ -43,21 +43,21 @@ export function PortfolioChangeCard({
         </>
       ) : (
         <>
-          <h2 className="text-4xl font-bold text-gray-900 dark:text-white tabular-nums">
-            {showBalance ? formatNumber(totalUsd) : '******'} <span className="text-xl font-normal text-gray-500">USD</span>
+          <h2 className="text-4xl font-bold text-foreground tabular-nums">
+            {showBalance ? formatNumber(totalUsd) : '******'} <span className="text-xl font-normal text-muted-foreground">USD</span>
           </h2>
-          <p className="text-base text-gray-500 dark:text-gray-400 mt-1">
+          <p className="text-base text-muted-foreground mt-1">
             ≈ {showBalance ? formatNumber(totalBtc, 8) : '********'} BTC
           </p>
-          <div className="flex flex-wrap items-center gap-4 mt-4 pt-4 border-t border-gray-100 dark:border-[rgba(255,255,255,0.05)]">
+          <div className="flex flex-wrap items-center gap-4 mt-4 pt-4 border-t border-border dark:border-[rgba(255,255,255,0.05)]">
             <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">24h Change</span>
+              <span className="text-xs text-muted-foreground uppercase tracking-wider">24h Change</span>
               {isZero ? (
-                <span className="text-sm font-medium text-gray-500 dark:text-gray-400 tabular-nums">0.00 (0.00%)</span>
+                <span className="text-sm font-medium text-muted-foreground tabular-nums">0.00 (0.00%)</span>
               ) : (
                 <span
                   className={`inline-flex items-center gap-1 text-sm font-medium tabular-nums ${
-                    isPositive ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+                    isPositive ? 'text-buy' : 'text-destructive'
                   }`}
                 >
                   {isPositive ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
@@ -65,7 +65,7 @@ export function PortfolioChangeCard({
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Clock className="w-3.5 h-3.5" />
               Last updated: {lastUpdated ? new Date(lastUpdated).toLocaleString() : '--'}
             </div>

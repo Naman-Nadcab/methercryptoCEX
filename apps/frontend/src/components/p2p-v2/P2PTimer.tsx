@@ -51,7 +51,7 @@ export function P2PTimer({ expiresAtIso, active, onExpire }: Props) {
       className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
         urgent
           ? 'border-amber-500/50 bg-amber-500/10 text-amber-900 dark:text-amber-200'
-          : 'border-gray-200 bg-gray-50 text-gray-800 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-200'
+          : 'border-border bg-muted text-foreground dark:border-border dark:bg-card/40 dark:text-gray-200'
       }`}
     >
       <Clock className="h-4 w-4 shrink-0" />

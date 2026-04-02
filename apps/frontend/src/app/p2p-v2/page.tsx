@@ -72,26 +72,26 @@ function TakeOrderModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog">
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-[#1e2329]">
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-border bg-card p-5 dark:border-border dark:bg-card">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+          <h2 className="text-lg font-semibold text-foreground">
             {side === 'sell' ? 'Buy' : 'Sell'} {ad.crypto_symbol}
           </h2>
-          <button type="button" onClick={onClose} className="rounded p-1 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
+          <button type="button" onClick={onClose} className="rounded p-1 text-muted-foreground hover:bg-accent">
             <X className="h-5 w-5" />
           </button>
         </div>
-        <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">
+        <p className="mb-2 text-sm text-muted-foreground">
           Price {sym}
           {price} / {ad.crypto_symbol} · Limits {min}–{max} {fiat}
         </p>
-        <label className="mb-2 block text-xs font-medium text-gray-700 dark:text-gray-300">Amount ({ad.crypto_symbol})</label>
+        <label className="mb-2 block text-xs font-medium text-foreground/80">Amount ({ad.crypto_symbol})</label>
         <input
           value={qty}
           onChange={(e) => setQty(e.target.value)}
-          className="mb-4 w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-sm dark:border-gray-700 dark:bg-[#0b0e11] dark:text-white"
+          className="mb-4 w-full rounded-lg border border-border px-3 py-2 font-mono text-sm dark:border-border dark:bg-background dark:text-foreground"
         />
-        <label className="mb-2 block text-xs font-medium text-gray-700 dark:text-gray-300">Your payment method</label>
+        <label className="mb-2 block text-xs font-medium text-foreground/80">Your payment method</label>
         {pmLoading ? (
           <div className="mb-4 space-y-2" aria-hidden>
             <Skeleton className="h-10 w-full rounded-lg" />
@@ -108,7 +108,7 @@ function TakeOrderModal({
           <select
             value={pmId}
             onChange={(e) => setPmId(e.target.value)}
-            className="mb-4 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-[#0b0e11] dark:text-white"
+            className="mb-4 w-full rounded-lg border border-border px-3 py-2 text-sm dark:border-border dark:bg-background dark:text-foreground"
           >
             <option value="">Select…</option>
             {selectable.map((m: P2PPaymentMethodRow) => (
@@ -160,8 +160,8 @@ export default function P2PV2MarketplacePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold text-gray-900 dark:text-white">P2P marketplace</h1>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+        <h1 className="text-xl font-semibold text-foreground">P2P marketplace</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
           Trade with verified peers. Escrow protects every deal.
         </p>
       </div>

@@ -99,7 +99,7 @@ export default function ApiPage() {
     const days = Math.ceil((new Date(expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
     if (days < 0) return { text: 'Expired', color: 'text-red-500' };
     if (days < 30) return { text: `${days} days`, color: 'text-yellow-500' };
-    return { text: `${days} days`, color: 'text-gray-500' };
+    return { text: `${days} days`, color: 'text-muted-foreground' };
   };
 
   const handleCreateKey = (type: 'system' | 'self') => {
@@ -131,14 +131,14 @@ export default function ApiPage() {
   };
 
   return (
-    <div className="p-4 lg:p-8 bg-gray-50 dark:bg-[#0b0e11] min-h-full">
+    <div className="p-4 lg:p-8 bg-background min-h-full">
       <div className="max-w-7xl mx-auto">
         {/* Banner */}
-        <div className="relative overflow-hidden bg-gradient-to-r from-blue-600 to-blue-700 dark:from-blue-700 dark:to-blue-800 rounded-2xl px-6 py-4 mb-8">
+        <div className="relative overflow-hidden bg-gradient-to-r from-blue-600 to-blue-700 dark:from-blue-700 dark:to-blue-800 rounded-xl px-6 py-4 mb-8">
           <div className="absolute inset-0 bg-[url('/grid-pattern.svg')] opacity-10"></div>
           <div className="relative flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+              <div className="w-10 h-10 bg-card/20 rounded-xl flex items-center justify-center">
                 <span className="text-2xl">🚀</span>
               </div>
               <div>
@@ -150,7 +150,7 @@ export default function ApiPage() {
               href={process.env.NEXT_PUBLIC_API_DOCS_URL || '/dashboard/announcements'}
               target={process.env.NEXT_PUBLIC_API_DOCS_URL ? '_blank' : undefined}
               rel={process.env.NEXT_PUBLIC_API_DOCS_URL ? 'noopener noreferrer' : undefined}
-              className="px-4 py-2 bg-white/20 hover:bg-white/30 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+              className="px-4 py-2 bg-card/20 hover:bg-card/30 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
               aria-label="API Documentation"
             >
               Documentation <ChevronRight className="w-4 h-4" />
@@ -161,12 +161,12 @@ export default function ApiPage() {
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">API Management</h1>
-            <p className="text-gray-500 dark:text-gray-400 mt-1">Manage your API keys for automated trading and integrations</p>
+            <h1 className="text-3xl font-bold text-foreground">API Management</h1>
+            <p className="text-muted-foreground mt-1">Manage your API keys for automated trading and integrations</p>
           </div>
           <button
             onClick={() => setShowTypeModal(true)}
-            className="px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-xl transition-all shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 flex items-center gap-2"
+            className="px-6 py-3 bg-primary hover:bg-primary/85 text-white font-semibold rounded-xl transition-all shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 flex items-center gap-2"
           >
             <Key className="w-5 h-5" />
             Create New Key
@@ -175,40 +175,40 @@ export default function ApiPage() {
 
         {/* Info Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          <div className="bg-white dark:bg-[#181a20] rounded-xl p-5 border border-gray-100 dark:border-gray-800">
+          <div className="bg-card rounded-xl p-5 border border-border">
             <div className="flex items-center gap-3 mb-3">
               <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
-                <Key className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                <Key className="w-5 h-5 text-primary" />
               </div>
               <div>
-                <h3 className="font-semibold text-gray-900 dark:text-white inline-flex items-center gap-1">
+                <h3 className="font-semibold text-foreground inline-flex items-center gap-1">
                   API Keys <InfoTooltip content="Your API keys for trading and integrations. Keys without IP binding expire in 3 months." />
                 </h3>
-                <p className="text-xs text-gray-500">{apiKeys.length} / 20 keys</p>
+                <p className="text-xs text-muted-foreground">{apiKeys.length} / 20 keys</p>
               </div>
             </div>
-            <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-2">
+            <div className="w-full bg-accent rounded-full h-2">
               <div 
-                className="bg-blue-500 h-2 rounded-full transition-all"
+                className="bg-primary h-2 rounded-full transition-all"
                 style={{ width: `${(apiKeys.length / 20) * 100}%` }}
               ></div>
             </div>
           </div>
 
-          <div className="bg-white dark:bg-[#181a20] rounded-xl p-5 border border-gray-100 dark:border-gray-800">
+          <div className="bg-card rounded-xl p-5 border border-border">
             <div className="flex items-center gap-3 mb-2">
               <div className="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center">
-                <Shield className="w-5 h-5 text-green-600 dark:text-green-400" />
+                <Shield className="w-5 h-5 text-buy" />
               </div>
               <div>
-                <h3 className="font-semibold text-gray-900 dark:text-white">Security</h3>
-                <p className="text-xs text-gray-500">IP Whitelisting recommended</p>
+                <h3 className="font-semibold text-foreground">Security</h3>
+                <p className="text-xs text-muted-foreground">IP Whitelisting recommended</p>
               </div>
             </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Keys without IP binding expire in 3 months</p>
+            <p className="text-xs text-muted-foreground mt-2">Keys without IP binding expire in 3 months</p>
           </div>
 
-          <div className="bg-white dark:bg-[#181a20] rounded-xl p-5 border border-gray-100 dark:border-gray-800">
+          <div className="bg-card rounded-xl p-5 border border-border">
             <div className="flex items-center gap-3 mb-2">
               <div className="w-10 h-10 bg-purple-100 dark:bg-purple-900/30 rounded-lg flex items-center justify-center">
                 <svg className="w-5 h-5 text-purple-600 dark:text-purple-400" fill="currentColor" viewBox="0 0 24 24">
@@ -216,13 +216,13 @@ export default function ApiPage() {
                 </svg>
               </div>
               <div>
-                <h3 className="font-semibold text-gray-900 dark:text-white">Community</h3>
-                <p className="text-xs text-gray-500">Join our Telegram</p>
+                <h3 className="font-semibold text-foreground">Community</h3>
+                <p className="text-xs text-muted-foreground">Join our Telegram</p>
               </div>
             </div>
             <div className="flex gap-2 mt-2">
-              <button className="text-xs text-blue-500 hover:text-blue-600">English Group →</button>
-              <button className="text-xs text-blue-500 hover:text-blue-600">中文群组 →</button>
+              <button className="text-xs text-primary hover:text-primary/85">English Group →</button>
+              <button className="text-xs text-primary hover:text-primary/85">中文群组 →</button>
             </div>
           </div>
         </div>
@@ -241,7 +241,7 @@ export default function ApiPage() {
         {/* API Security Indicators & Doc Links */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
           <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Security</p>
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Security</p>
             <APISecurityIndicators
               ipWhitelistCount={apiKeys.filter((k) => k.ipAddresses?.length > 0).length}
               readOnlyCount={apiKeys.filter((k) => k.permission === 'read_only').length}
@@ -250,35 +250,35 @@ export default function ApiPage() {
             />
           </div>
           <div>
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Documentation</p>
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Documentation</p>
             <APIDocLinks />
           </div>
         </div>
 
         {/* API Key Records */}
-        <div className="bg-white dark:bg-[#181a20] rounded-2xl border border-gray-100 dark:border-gray-800 overflow-hidden">
-          <div className="px-6 py-5 border-b border-gray-100 dark:border-gray-800">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">API Key Records</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Your active API keys and their permissions</p>
+        <div className="bg-card rounded-xl border border-border overflow-hidden">
+          <div className="px-6 py-5 border-b border-border">
+            <h2 className="text-lg font-semibold text-foreground">API Key Records</h2>
+            <p className="text-sm text-muted-foreground mt-1">Your active API keys and their permissions</p>
           </div>
 
           {loading ? (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="bg-gray-50 dark:bg-[#1e2329]">
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Name</th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Type</th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">API Key</th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Secret</th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Permission</th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">IP Bound</th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Created</th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Expires</th>
-                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
+                  <tr className="bg-muted">
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Name</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Type</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">API Key</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Secret</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Permission</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">IP Bound</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Created</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Expires</th>
+                    <th className="px-6 py-4 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                <tbody className="divide-y divide-border">
                   <SkeletonTableBody rows={4} columns={9} />
                 </tbody>
               </table>
@@ -287,7 +287,7 @@ export default function ApiPage() {
             <div className="py-20">
               {/* Empty State */}
               <div className="flex flex-col items-center justify-center">
-                <div className="w-24 h-24 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mb-6">
+                <div className="w-24 h-24 bg-accent rounded-full flex items-center justify-center mb-6">
                   <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
                     <rect x="8" y="12" width="32" height="24" rx="4" className="fill-gray-200 dark:fill-gray-700"/>
                     <path d="M16 20h16M16 26h10" className="stroke-gray-300 dark:stroke-gray-600" strokeWidth="2" strokeLinecap="round"/>
@@ -295,13 +295,13 @@ export default function ApiPage() {
                     <path d="M33 36l2 2 4-4" className="stroke-blue-500" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                 </div>
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">No API Keys Yet</h3>
-                <p className="text-gray-500 dark:text-gray-400 text-center max-w-md mb-6">
+                <h3 className="text-lg font-semibold text-foreground mb-2">No API Keys Yet</h3>
+                <p className="text-muted-foreground text-center max-w-md mb-6">
                   Create your first API key to start integrating with our trading platform and automate your strategies.
                 </p>
                 <button
                   onClick={() => setShowTypeModal(true)}
-                  className="px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-xl transition-colors"
+                  className="px-6 py-3 bg-primary hover:bg-primary/85 text-white font-medium rounded-xl transition-colors"
                 >
                   Create Your First Key
                 </button>
@@ -311,31 +311,31 @@ export default function ApiPage() {
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="bg-gray-50 dark:bg-[#1e2329]">
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Name</th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Type</th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">API Key</th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Secret</th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Permission</th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">IP Bound</th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Created</th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Expires</th>
-                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
+                  <tr className="bg-muted">
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Name</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Type</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">API Key</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Secret</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Permission</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">IP Bound</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Created</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Expires</th>
+                    <th className="px-6 py-4 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                <tbody className="divide-y divide-border">
                   {apiKeys.map(key => {
                     const expiration = getDaysToExpiration(key.expiresAt);
                     return (
-                      <tr key={key.id} className="hover:bg-gray-50 dark:hover:bg-[#1e2329] transition-colors">
+                      <tr key={key.id} className="hover:bg-muted dark:hover:bg-[#1e2329] transition-colors">
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
                             <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
                               <Key className="w-5 h-5 text-white" />
                             </div>
                             <div>
-                              <p className="font-medium text-gray-900 dark:text-white">{key.name}</p>
-                              <p className="text-xs text-gray-500">{key.apiKeyUsage === 'transaction' ? 'API Transaction' : 'Third-Party'}</p>
+                              <p className="font-medium text-foreground">{key.name}</p>
+                              <p className="text-xs text-muted-foreground">{key.apiKeyUsage === 'transaction' ? 'API Transaction' : 'Third-Party'}</p>
                             </div>
                           </div>
                         </td>
@@ -350,34 +350,34 @@ export default function ApiPage() {
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-2">
-                            <code className="text-sm font-mono text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
+                            <code className="text-sm font-mono text-foreground/80 bg-accent px-2 py-1 rounded">
                               {key.apiKey.slice(0, 8)}...{key.apiKey.slice(-4)}
                             </code>
                             <button
                               onClick={() => copyToClipboard(key.apiKey, `key-${key.id}`)}
-                              className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+                              className="p-1.5 hover:bg-accent rounded-lg transition-colors"
                             >
                               {copiedKey === `key-${key.id}` ? (
                                 <Check className="w-4 h-4 text-green-500" />
                               ) : (
-                                <Copy className="w-4 h-4 text-gray-400" />
+                                <Copy className="w-4 h-4 text-muted-foreground" />
                               )}
                             </button>
                           </div>
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-2">
-                            <code className="text-sm font-mono text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
+                            <code className="text-sm font-mono text-foreground/80 bg-accent px-2 py-1 rounded">
                               {visibleSecrets.has(key.id) ? key.apiSecret?.slice(0, 16) + '...' : '••••••••••••'}
                             </code>
                             <button
                               onClick={() => toggleSecretVisibility(key.id)}
-                              className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+                              className="p-1.5 hover:bg-accent rounded-lg transition-colors"
                             >
                               {visibleSecrets.has(key.id) ? (
-                                <EyeOff className="w-4 h-4 text-gray-400" />
+                                <EyeOff className="w-4 h-4 text-muted-foreground" />
                               ) : (
-                                <Eye className="w-4 h-4 text-gray-400" />
+                                <Eye className="w-4 h-4 text-muted-foreground" />
                               )}
                             </button>
                           </div>
@@ -386,22 +386,22 @@ export default function ApiPage() {
                           <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium ${
                             key.permission === 'read_write'
                               ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
-                              : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-400'
+                              : 'bg-accent text-foreground/70'
                           }`}>
                             {key.permission === 'read_write' ? 'Read-Write' : 'Read-Only'}
                           </span>
                         </td>
                         <td className="px-6 py-4">
                           {key.ipAddresses.length > 0 ? (
-                            <span className="inline-flex items-center gap-1 text-sm text-green-600 dark:text-green-400">
+                            <span className="inline-flex items-center gap-1 text-sm text-buy">
                               <Shield className="w-4 h-4" />
                               {key.ipAddresses.length} IPs
                             </span>
                           ) : (
-                            <span className="text-sm text-gray-400">None</span>
+                            <span className="text-sm text-muted-foreground">None</span>
                           )}
                         </td>
-                        <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
+                        <td className="px-6 py-4 text-sm text-muted-foreground">
                           {formatDate(key.createdAt)}
                         </td>
                         <td className="px-6 py-4">
@@ -417,7 +417,7 @@ export default function ApiPage() {
                               title="Edit coming soon - create a new key to change settings"
                               aria-label="Edit API key - coming soon"
                             >
-                              <Edit3 className="w-4 h-4 text-gray-500" aria-hidden />
+                              <Edit3 className="w-4 h-4 text-muted-foreground" aria-hidden />
                             </button>
                             <button
                               onClick={() => handleDeleteKey(key)}
@@ -463,17 +463,17 @@ export default function ApiPage() {
       {/* Select API Key Type Modal */}
       {showTypeModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-[#1e2329] rounded-2xl w-full max-w-lg shadow-2xl animate-in fade-in zoom-in duration-200">
+          <div className="bg-card rounded-xl w-full max-w-lg shadow-2xl animate-in fade-in zoom-in duration-200">
             {/* Header */}
-            <div className="flex items-center justify-between p-6 border-b border-gray-100 dark:border-gray-800">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+            <div className="flex items-center justify-between p-6 border-b border-border">
+              <h2 className="text-xl font-bold text-foreground">
                 Select Your API Key Type
               </h2>
               <button
                 onClick={() => setShowTypeModal(false)}
-                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors"
+                className="p-2 hover:bg-accent rounded-xl transition-colors"
               >
-                <X className="w-5 h-5 text-gray-400" />
+                <X className="w-5 h-5 text-muted-foreground" />
               </button>
             </div>
 
@@ -490,15 +490,15 @@ export default function ApiPage() {
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center justify-between">
-                      <h3 className="text-lg font-bold text-gray-900 dark:text-white">System-generated API Keys</h3>
-                      <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-blue-500 transition-colors" />
+                      <h3 className="text-lg font-bold text-foreground">System-generated API Keys</h3>
+                      <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
                     </div>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-2 leading-relaxed">
-                      Uses <span className="font-semibold text-blue-600 dark:text-blue-400">HMAC encryption</span>. You'll receive a public and private key pair. Keep them secure like passwords.
+                    <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
+                      Uses <span className="font-semibold text-primary">HMAC encryption</span>. You'll receive a public and private key pair. Keep them secure like passwords.
                     </p>
                     <div className="flex items-center gap-2 mt-3">
                       <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-xs font-medium rounded">Recommended</span>
-                      <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-xs rounded">Easier Setup</span>
+                      <span className="px-2 py-1 bg-accent text-muted-foreground text-xs rounded">Easier Setup</span>
                     </div>
                   </div>
                 </div>
@@ -515,15 +515,15 @@ export default function ApiPage() {
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center justify-between">
-                      <h3 className="text-lg font-bold text-gray-900 dark:text-white">Self-generated API Keys</h3>
-                      <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-purple-500 transition-colors" />
+                      <h3 className="text-lg font-bold text-foreground">Self-generated API Keys</h3>
+                      <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-purple-500 transition-colors" />
                     </div>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-2 leading-relaxed">
+                    <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
                       Uses <span className="font-semibold text-purple-600 dark:text-purple-400">RSA encryption</span>. Create your own key pair locally. We only store your public key - maximum security.
                     </p>
                     <div className="flex items-center gap-2 mt-3">
                       <span className="px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 text-xs font-medium rounded">Advanced</span>
-                      <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-xs rounded">API v3 & v5</span>
+                      <span className="px-2 py-1 bg-accent text-muted-foreground text-xs rounded">API v3 & v5</span>
                     </div>
                   </div>
                 </div>

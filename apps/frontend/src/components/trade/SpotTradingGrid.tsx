@@ -381,28 +381,28 @@ export function SpotTradingGrid() {
 
   if (marketsLoading && markets.length === 0 && !marketsError) {
     return (
-      <div className="flex h-screen w-full flex-col items-center justify-center gap-4 bg-gray-50 px-4 dark:bg-[#0b0e11]">
+      <div className="flex h-screen w-full flex-col items-center justify-center gap-4 bg-muted px-4 dark:bg-background">
         <div className="h-10 w-10 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" aria-hidden />
-        <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Loading spot markets…</p>
+        <p className="text-sm font-medium text-muted-foreground">Loading spot markets…</p>
       </div>
     );
   }
 
   if (markets.length === 0) {
     return (
-      <div className="flex h-screen w-full flex-col items-center justify-center gap-5 bg-gray-50 px-4 dark:bg-[#0b0e11]">
-        <div className="max-w-md rounded-xl border border-gray-200 bg-white p-6 text-center shadow-sm dark:border-gray-800 dark:bg-[#181a20]">
-          <p className="text-sm font-semibold text-gray-900 dark:text-white">
+      <div className="flex h-screen w-full flex-col items-center justify-center gap-5 bg-muted px-4 dark:bg-background">
+        <div className="max-w-md rounded-xl border border-border bg-card p-6 text-center shadow-sm dark:border-border dark:bg-card">
+          <p className="text-sm font-semibold text-foreground">
             {marketsError || 'No spot markets available'}
           </p>
-          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+          <p className="mt-2 text-xs text-muted-foreground">
             Start the backend (default{' '}
-            <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">http://localhost:4000</code>
+            <code className="rounded bg-accent px-1 dark:bg-accent">http://localhost:4000</code>
             ), ensure Postgres is up, and run migrations/seed if{' '}
-            <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">spot_markets</code> is empty.
+            <code className="rounded bg-accent px-1 dark:bg-accent">spot_markets</code> is empty.
           </p>
           {typeof window !== 'undefined' && (
-            <p className="mt-1 text-[11px] text-gray-400 dark:text-gray-500">
+            <p className="mt-1 text-[11px] text-muted-foreground">
               API base: <span className="font-mono">{getApiBaseUrl() || '(same origin)'}</span>
               {' · '}
               Override with <span className="font-mono">NEXT_PUBLIC_API_BASE_URL</span>
@@ -413,7 +413,7 @@ export function SpotTradingGrid() {
               type="button"
               onClick={() => fetchMarkets()}
               disabled={marketsLoading}
-              className="mt-4 rounded-lg bg-blue-500 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-600 disabled:opacity-50"
+              className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-foreground hover:bg-primary/85 disabled:opacity-50"
             >
               Retry
             </button>
@@ -426,11 +426,11 @@ export function SpotTradingGrid() {
   if (markets.length > 0 && !symbol) {
     return (
       <div
-        className="flex h-screen w-full flex-col bg-gray-50 dark:bg-[#0b0e11]"
+        className="flex h-screen w-full flex-col bg-background"
         aria-busy="true"
         aria-label="Preparing trading terminal"
       >
-        <div className="flex h-12 shrink-0 items-center gap-3 border-b border-gray-200 px-4 dark:border-gray-800">
+        <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4 dark:border-border">
           <Skeleton className="h-8 w-36" />
           <Skeleton className="h-8 max-w-sm flex-1" />
         </div>

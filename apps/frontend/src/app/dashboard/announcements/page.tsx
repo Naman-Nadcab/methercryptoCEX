@@ -37,21 +37,21 @@ export default function AnnouncementsListPage() {
           <Bell className="w-5 h-5 text-orange-600 dark:text-orange-400" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Announcements</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Latest updates and news from the platform</p>
+          <h1 className="text-2xl font-bold text-foreground">Announcements</h1>
+          <p className="text-sm text-muted-foreground">Latest updates and news from the platform</p>
         </div>
       </div>
 
       {loading ? (
         <div className="flex items-center justify-center py-16">
-          <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+          <Loader2 className="w-8 h-8 text-primary animate-spin" />
         </div>
       ) : list.length === 0 ? (
         <EmptyState
           icon={Bell}
           title="No announcements"
           description="There are no announcements at the moment. Check back later for updates."
-          className="bg-white dark:bg-[#181a20] rounded-2xl border border-gray-100 dark:border-gray-800"
+          className="bg-card rounded-xl border border-border"
         />
       ) : (
         <div className="space-y-2">
@@ -61,7 +61,7 @@ export default function AnnouncementsListPage() {
               <Link
                 key={a.id}
                 href={`/dashboard/announcements/${a.id}`}
-                className="block bg-white dark:bg-[#181a20] rounded-xl border border-gray-100 dark:border-gray-800 p-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+                className="block bg-card rounded-xl border border-border p-4 hover:bg-accent/50 transition-colors"
               >
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex items-center gap-3 min-w-0">
@@ -69,15 +69,15 @@ export default function AnnouncementsListPage() {
                       <span className="px-2 py-0.5 bg-red-500 text-white text-xs font-medium rounded flex-shrink-0">NEW</span>
                     )}
                     <div className="min-w-0">
-                      <p className="font-medium text-gray-900 dark:text-white truncate">{a.title}</p>
-                      {a.summary && <p className="text-sm text-gray-500 dark:text-gray-400 truncate mt-0.5">{a.summary}</p>}
+                      <p className="font-medium text-foreground truncate">{a.title}</p>
+                      {a.summary && <p className="text-sm text-muted-foreground truncate mt-0.5">{a.summary}</p>}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="text-xs text-gray-400 dark:text-gray-500">
+                    <span className="text-xs text-muted-foreground">
                       {a.published_at ? new Date(a.published_at).toLocaleDateString() : new Date(a.created_at).toLocaleDateString()}
                     </span>
-                    <ChevronRight className="w-5 h-5 text-gray-400" />
+                    <ChevronRight className="w-5 h-5 text-muted-foreground" />
                   </div>
                 </div>
               </Link>

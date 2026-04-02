@@ -237,14 +237,14 @@ export default function LoginPage() {
       {step === 'identifier' && (
         <form onSubmit={(e) => { e.preventDefault(); sendOtp(); }} className="space-y-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Welcome back</h1>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Enter your email or mobile to continue</p>
+            <h1 className="text-2xl font-bold text-foreground">Welcome back</h1>
+            <p className="mt-1 text-sm text-muted-foreground">Enter your email or mobile to continue</p>
           </div>
 
           {/* Type tabs */}
-          <div className="flex p-1 rounded-xl bg-gray-100 dark:bg-gray-800/80">
-            <button type="button" onClick={() => setType('email')} className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${type === 'email' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'}`}>Email</button>
-            <button type="button" onClick={() => setType('phone')} className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${type === 'phone' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'}`}>Mobile</button>
+          <div className="flex p-1 rounded-xl bg-accent/80">
+            <button type="button" onClick={() => setType('email')} className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${type === 'email' ? 'bg-card dark:bg-accent text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'}`}>Email</button>
+            <button type="button" onClick={() => setType('phone')} className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${type === 'phone' ? 'bg-card dark:bg-accent text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'}`}>Mobile</button>
           </div>
 
           <div>
@@ -255,7 +255,7 @@ export default function LoginPage() {
               onChange={(e) => setIdentifier(type === 'phone' ? e.target.value.replace(/\D/g, '').slice(0, 15) : e.target.value)}
               placeholder={type === 'email' ? 'Email address' : 'Phone number'}
               aria-label={type === 'email' ? 'Email address' : 'Phone number'}
-              className="w-full px-4 py-3.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/50 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-shadow"
+              className="w-full px-4 py-3.5 rounded-xl border border-border bg-card/50 text-foreground placeholder:text-muted-foreground dark:placeholder:text-muted-foreground focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-shadow"
               required
             />
           </div>
@@ -268,23 +268,23 @@ export default function LoginPage() {
                 </button>
               </div>
               <div className="flex items-center gap-3">
-                <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
-                <span className="text-xs text-gray-400 dark:text-gray-500 font-medium">or continue with OTP</span>
-                <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+                <div className="flex-1 h-px bg-accent" />
+                <span className="text-xs text-muted-foreground font-medium">or continue with OTP</span>
+                <div className="flex-1 h-px bg-accent" />
               </div>
             </>
           )}
 
-          {error && <p className="text-red-500 dark:text-red-400 text-sm rounded-lg bg-red-50 dark:bg-red-950/30 px-3 py-2" role="alert">{error}</p>}
+          {error && <p className="text-destructive text-sm rounded-lg bg-red-50 dark:bg-red-950/30 px-3 py-2" role="alert">{error}</p>}
 
-          <button type="submit" disabled={sendingOtp || !identifier.trim()} className="w-full py-3.5 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-semibold hover:bg-gray-800 dark:hover:bg-gray-100 disabled:opacity-50 transition-colors">
+          <button type="submit" disabled={sendingOtp || !identifier.trim()} className="w-full py-3.5 rounded-xl bg-gray-900 dark:bg-card text-white dark:text-foreground font-semibold hover:bg-gray-800 dark:hover:bg-accent disabled:opacity-50 transition-colors">
             {sendingOtp ? <span className="inline-flex items-center gap-2"><Loader2 className="w-5 h-5 animate-spin" aria-hidden /> Sending code…</span> : 'Continue with OTP'}
           </button>
 
-          <p className="text-center text-sm text-gray-500 dark:text-gray-400">
-            <Link href="/forgot-password" className="text-blue-500 dark:text-blue-400 hover:underline font-medium">Forgot password?</Link>
+          <p className="text-center text-sm text-muted-foreground">
+            <Link href="/forgot-password" className="text-primary hover:underline font-medium">Forgot password?</Link>
             {' · '}
-            <Link href="/signup" className="text-blue-500 dark:text-blue-400 hover:underline font-medium">Sign up</Link>
+            <Link href="/signup" className="text-primary hover:underline font-medium">Sign up</Link>
           </p>
         </form>
       )}
@@ -292,10 +292,10 @@ export default function LoginPage() {
       {step === 'otp' && (
         <form ref={formRef} onSubmit={(e) => { e.preventDefault(); verifyOtp(otp.join('')); }} className="space-y-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Enter verification code</h1>
-            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-              We sent a 6-digit code to <strong className="text-gray-700 dark:text-gray-300">{identifier}</strong>
-              <button type="button" onClick={() => setStep('identifier')} className="ml-2 text-blue-500 dark:text-blue-400 hover:underline inline-flex items-center gap-1 font-medium" aria-label="Change email or phone"><ExternalLink className="w-3.5 h-3.5" /> Change</button>
+            <h1 className="text-2xl font-bold text-foreground">Enter verification code</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              We sent a 6-digit code to <strong className="text-foreground/80">{identifier}</strong>
+              <button type="button" onClick={() => setStep('identifier')} className="ml-2 text-primary hover:underline inline-flex items-center gap-1 font-medium" aria-label="Change email or phone"><ExternalLink className="w-3.5 h-3.5" /> Change</button>
             </p>
           </div>
 
@@ -312,21 +312,21 @@ export default function LoginPage() {
                 onChange={(e) => handleOtpChange(i, e.target.value)}
                 onKeyDown={(e) => e.key === 'Backspace' && !otp[i] && i > 0 && otpRefs.current[i - 1]?.focus()}
                 aria-label={`Digit ${i + 1} of 6`}
-                className="w-11 h-14 sm:w-12 sm:h-14 text-center text-xl font-bold rounded-lg border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/50 text-gray-900 dark:text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+                className="w-11 h-14 sm:w-12 sm:h-14 text-center text-xl font-bold rounded-lg border-2 border-border bg-card/50 text-foreground focus:border-blue-500 focus:ring-2 focus:ring-primary/20 outline-none transition-all"
               />
             ))}
           </div>
 
-          {error && <p className="text-red-500 dark:text-red-400 text-sm text-center rounded-lg bg-red-50 dark:bg-red-950/30 px-3 py-2" role="alert">{error}</p>}
+          {error && <p className="text-destructive text-sm text-center rounded-lg bg-red-50 dark:bg-red-950/30 px-3 py-2" role="alert">{error}</p>}
 
           <div className="flex justify-between items-center text-sm">
-            <button type="button" onClick={resend} disabled={countdown > 0} className={countdown > 0 ? 'text-gray-400 dark:text-gray-500 cursor-not-allowed' : 'text-blue-500 dark:text-blue-400 hover:underline font-medium'}>
+            <button type="button" onClick={resend} disabled={countdown > 0} className={countdown > 0 ? 'text-muted-foreground cursor-not-allowed' : 'text-primary hover:underline font-medium'}>
               Resend code
             </button>
-            {countdown > 0 && <span className="text-gray-500 dark:text-gray-400 tabular-nums">{fmt(countdown)}</span>}
+            {countdown > 0 && <span className="text-muted-foreground tabular-nums">{fmt(countdown)}</span>}
           </div>
 
-          <button type="submit" disabled={loading || otp.join('').length !== 6} className="w-full py-3.5 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-semibold disabled:opacity-50 transition-colors">
+          <button type="submit" disabled={loading || otp.join('').length !== 6} className="w-full py-3.5 rounded-xl bg-primary hover:bg-primary/85 text-white font-semibold disabled:opacity-50 transition-colors">
             {loading ? <span className="inline-flex items-center gap-2"><Loader2 className="w-5 h-5 animate-spin" aria-hidden /> Verifying…</span> : 'Verify & continue'}
           </button>
         </form>
