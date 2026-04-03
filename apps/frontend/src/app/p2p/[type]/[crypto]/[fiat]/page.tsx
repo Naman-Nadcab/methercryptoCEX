@@ -13,7 +13,7 @@ export default function P2PLegacyRedirect() {
     router.replace('/p2p');
   }, [router, type, crypto, fiat]);
   return (
-    <div className="min-h-screen bg-[#0b0e11] flex items-center justify-center">
+    <div className="min-h-screen bg-muted flex items-center justify-center">
       <p className="text-muted-foreground">Redirecting to P2P...</p>
     </div>
   );

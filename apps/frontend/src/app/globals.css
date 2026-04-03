@@ -33,31 +33,31 @@
   }
 
   .dark {
-    --exchange-buy: 160 84% 39%;
-    --exchange-sell: 353 91% 53%;
-    --price-up: 160 84% 39%;
-    --price-down: 353 91% 53%;
-    --panel: 220 17% 13%;
+    --exchange-buy: 157 87% 43%;
+    --exchange-sell: 352 91% 62%;
+    --price-up: 157 87% 43%;
+    --price-down: 352 91% 62%;
+    --panel: 228 11% 13%;
 
-    --background: 225 16% 11%;
-    --foreground: 220 13% 93%;
-    --card: 220 17% 13%;
-    --card-foreground: 220 13% 93%;
-    --popover: 216 18% 16%;
-    --popover-foreground: 220 13% 93%;
-    --primary: 47 96% 60%;
+    --background: 228 14% 11%;
+    --foreground: 216 15% 93%;
+    --card: 228 11% 13%;
+    --card-foreground: 216 15% 93%;
+    --popover: 222 12% 19%;
+    --popover-foreground: 216 15% 93%;
+    --primary: 46 93% 49%;
     --primary-foreground: 0 0% 7%;
-    --secondary: 216 18% 16%;
-    --secondary-foreground: 220 13% 93%;
-    --muted: 216 18% 16%;
-    --muted-foreground: 218 11% 58%;
-    --accent: 216 18% 16%;
-    --accent-foreground: 220 13% 93%;
-    --destructive: 353 91% 53%;
+    --secondary: 222 12% 19%;
+    --secondary-foreground: 216 15% 93%;
+    --muted: 222 12% 19%;
+    --muted-foreground: 215 11% 57%;
+    --accent: 222 12% 19%;
+    --accent-foreground: 216 15% 93%;
+    --destructive: 352 91% 62%;
     --destructive-foreground: 0 0% 100%;
-    --border: 216 18% 16%;
-    --input: 216 18% 16%;
-    --ring: 47 96% 60%;
+    --border: 222 12% 19%;
+    --input: 222 12% 19%;
+    --ring: 46 93% 49%;
   }
 }
 
@@ -139,7 +139,7 @@ input[type="number"] {
 /* Trading panel layout */
 .trading-layout {
   display: grid;
-  grid-template-columns: 280px 1fr 320px;
+  grid-template-columns: 260px 1fr 260px;
   grid-template-rows: auto 1fr auto;
   gap: 1px;
   height: calc(100vh - 64px);
@@ -377,4 +377,12 @@ input[type="number"] {
 .admin-panel table .num {
   font-variant-numeric: tabular-nums;
   text-align: right;
+}
+
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.animate-marquee {
+  animation: marquee 30s linear infinite;
 }

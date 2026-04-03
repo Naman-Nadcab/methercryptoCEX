@@ -33,7 +33,7 @@ function DisputeInner() {
 
   return (
     <div className="mx-auto max-w-xl space-y-4">
-      <Link href="/p2p/orders" className="text-sm text-primary hover:underline dark:text-blue-400">
+      <Link href="/p2p/orders" className="text-sm text-primary hover:underline">
         ← Orders
       </Link>
       <h1 className="text-xl font-semibold text-foreground">Dispute</h1>
@@ -73,7 +73,7 @@ function DisputeInner() {
         {d.admin_notes && (
           <div className="border-t border-border pt-3 dark:border-border">
             <p className="text-xs font-medium text-amber-700 dark:text-amber-400">Support / admin</p>
-            <p className="mt-1 whitespace-pre-wrap text-sm text-foreground dark:text-gray-200">{d.admin_notes}</p>
+            <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{d.admin_notes}</p>
           </div>
         )}
         {d.resolution && (

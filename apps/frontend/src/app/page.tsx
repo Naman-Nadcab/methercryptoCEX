@@ -7,11 +7,10 @@ import {
   ArrowRight,
   Shield,
   Users,
-  Headphones,
-  Award,
   ChevronUp,
   ChevronDown,
   RefreshCw,
+  BarChart3,
 } from 'lucide-react';
 import ThemeToggle from '@/components/ThemeToggle';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
@@ -176,18 +175,23 @@ function logoUrl(symbol: string) {
 
 function HeroTickerSkeleton() {
   return (
-    <div className="flex items-center justify-between rounded-xl bg-card border border-border p-4 animate-pulse">
+    <div className="flex items-center justify-between rounded-xl border border-border bg-card p-4 animate-pulse">
       <div className="flex items-center gap-2">
-        <div className="w-8 h-8 rounded-lg bg-accent" />
-        <div className="h-4 w-16 bg-accent rounded" />
+        <div className="h-8 w-8 rounded-lg bg-muted" />
+        <div className="h-4 w-16 rounded bg-muted" />
       </div>
-      <div className="text-right space-y-2">
-        <div className="h-4 w-14 bg-accent rounded ml-auto" />
-        <div className="h-3 w-10 bg-accent rounded ml-auto" />
+      <div className="space-y-2 text-right">
+        <div className="ml-auto h-4 w-14 rounded bg-muted" />
+        <div className="ml-auto h-3 w-10 rounded bg-muted" />
       </div>
     </div>
   );
 }
+
+const btnPrimary =
+  'inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90';
+const btnSecondary =
+  'inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-background px-5 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-muted';
 
 export default function HomePage() {
   const { tickers, loading: tickersLoading, error: tickersError, retry: retryTickers } = useMarketPrices();
@@ -195,24 +199,49 @@ export default function HomePage() {
   const { accessToken, _hasHydrated } = useAuthStore();
   const spotHref = _hasHydrated && accessToken ? SPOT_TRADE_HREF : ROUTES.spotLegacy;
 
+  const features = [
+    {
+      icon: BarChart3,
+      title: 'Spot trading',
+      description: 'Deep liquidity, real-time order books, and tight spreads across major pairs.',
+      href: spotHref,
+      cta: 'Trade spot',
+    },
+    {
+      icon: Users,
+      title: 'P2P marketplace',
+      description: 'Buy and sell with peers using local payment methods and escrow-backed settlement.',
+      href: ROUTES.p2p,
+      cta: 'Open P2P',
+    },
+    {
+      icon: Shield,
+      title: 'Security first',
+      description: 'Cold storage, encryption, and monitoring designed to protect your assets.',
+      href: ROUTES.dashboard.security,
+      cta: 'Security center',
+    },
+  ] as const;
+
   return (
     <div className="min-h-screen bg-background">
-      {/* Header - same style as dashboard */}
-      <header className="fixed top-0 left-0 right-0 z-50 border-b border-border bg-card/80 dark:bg-background/90 backdrop-blur-md">
-        <div className="container mx-auto flex h-14 items-center justify-between px-4 lg:px-6">
-          <Link href={ROUTES.home} className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
-              <span className="text-white font-bold text-sm">M</span>
+      <header className="fixed top-0 left-0 right-0 z-50 border-b border-border bg-card/90 backdrop-blur-md">
+        <div className="container mx-auto flex h-14 max-w-[1400px] items-center justify-between px-4 lg:px-6">
+          <Link href={ROUTES.home} className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary font-display text-sm font-bold text-primary-foreground">
+              M
             </div>
-            <span className="text-lg font-bold text-foreground hidden sm:inline">Methereum</span>
+            <span className="hidden font-display text-lg font-bold tracking-tight text-foreground sm:inline">
+              Methereum
+            </span>
           </Link>
 
-          <nav className="hidden lg:flex items-center gap-1">
+          <nav className="hidden items-center gap-0.5 lg:flex">
             {NAV_LINKS(spotHref).map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
-                className="px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground dark:hover:text-white rounded-lg hover:bg-accent dark:hover:bg-accent transition-colors"
+                className="rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               >
                 {link.label}
               </Link>
@@ -221,144 +250,162 @@ export default function HomePage() {
 
           <div className="flex items-center gap-2">
             <ThemeToggle variant="icon" size="sm" />
-            <Link
-              href={ROUTES.login}
-              className="text-sm font-medium text-foreground/80 hover:text-foreground px-3 py-2 rounded-lg hover:bg-accent dark:hover:bg-accent transition-colors"
-            >
-              Log In
+            <Link href={ROUTES.login} className={`${btnSecondary} hidden px-3 py-2 sm:inline-flex`}>
+              Log in
             </Link>
-            <Link
-              href={ROUTES.signup}
-              className="text-sm font-medium text-white bg-primary hover:bg-primary/85 px-4 py-2 rounded-lg transition-colors"
-            >
-              Sign Up
+            <Link href={ROUTES.signup} className={btnPrimary}>
+              Sign up
             </Link>
           </div>
         </div>
       </header>
 
-      {/* Hero */}
-      <section className="pt-24 pb-16 px-4 lg:px-6">
-        <div className="container mx-auto">
-          <div className="max-w-2xl">
-            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-foreground tracking-tight">
-              Your crypto journey, simplified.
-            </h1>
-            <p className="mt-4 text-lg text-muted-foreground">
-              Trade spot and P2P with ease. Secure, fast, and built for everyone.
-            </p>
-            <div className="mt-8 flex flex-wrap gap-3">
-              <Link
-                href={ROUTES.signup}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-white bg-primary hover:bg-primary/85 transition-colors"
-              >
-                Start Trading <ArrowRight className="h-4 w-4" />
-              </Link>
-              <Link
-                href={ROUTES.markets}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-foreground/80 border border-border dark:border-border hover:bg-muted dark:hover:bg-accent transition-colors"
-              >
-                View Markets
-              </Link>
-            </div>
-          </div>
-
-          {/* Live reference prices from backend (convert/market-prices) */}
-          <div className="mt-12 max-w-2xl">
-            {tickersLoading ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <HeroTickerSkeleton key={i} />
-                ))}
-              </div>
-            ) : tickersError ? (
-              <div className="rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50/80 dark:bg-amber-950/20 p-4 text-sm text-foreground dark:text-foreground">
-                <p>{tickersError}</p>
-                <button
-                  type="button"
-                  onClick={() => retryTickers()}
-                  className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline"
-                >
-                  <RefreshCw className="h-4 w-4" aria-hidden />
-                  Retry
-                </button>
-              </div>
-            ) : tickers.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No live prices available.{' '}
-                <Link href={ROUTES.markets} className="text-primary hover:underline">
-                  Browse markets
-                </Link>
+      <section className="border-b border-border bg-background px-4 pb-20 pt-24 lg:px-6">
+        <div className="container mx-auto max-w-[1400px]">
+          <div className="grid gap-12 lg:grid-cols-[1fr_minmax(0,420px)] lg:items-start lg:gap-16">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Methereum Exchange</p>
+              <h1 className="mt-4 font-display text-3xl font-bold tracking-tight text-foreground sm:text-4xl lg:text-5xl">
+                Trade spot &amp; P2P with confidence
+              </h1>
+              <p className="mt-4 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
+                Professional tools, strong security, and a streamlined path from first deposit to live markets.
               </p>
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {tickers.map((t) => {
-                  const change = parseFloat(t.change_24h_percent);
-                  const up = change >= 0;
-                  return (
-                    <Link
-                      key={t.base_symbol}
-                      href={ROUTES.markets}
-                      className="flex items-center justify-between rounded-xl bg-card border border-border p-4 hover:border-blue-500/30 dark:hover:border-blue-500/30 transition-colors"
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-lg bg-accent dark:bg-background flex items-center justify-center overflow-hidden">
-                          <Image
-                            src={logoUrl(t.base_symbol)}
-                            alt=""
-                            width={20}
-                            height={20}
-                            className="object-contain"
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).style.display = 'none';
-                            }}
-                          />
-                        </div>
-                        <span className="text-sm font-medium text-foreground">{t.base_symbol}/USDT</span>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-medium text-foreground">${t.price}</p>
-                        <span
-                          className={`text-xs font-medium flex items-center justify-end gap-0.5 ${
-                            up ? 'text-emerald-500' : 'text-red-500'
-                          }`}
-                        >
-                          {up ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                          {t.change_24h_percent}%
-                        </span>
-                      </div>
-                    </Link>
-                  );
-                })}
+              <div className="mt-8 flex flex-wrap gap-3">
+                <Link href={ROUTES.signup} className={btnPrimary}>
+                  Start trading
+                  <ArrowRight className="h-4 w-4" aria-hidden />
+                </Link>
+                <Link href={ROUTES.markets} className={btnSecondary}>
+                  View markets
+                </Link>
               </div>
-            )}
+            </div>
+
+            <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+              <p className="text-sm font-semibold text-foreground">Reference prices</p>
+              <p className="mt-1 text-xs text-muted-foreground">Live data from convert markets</p>
+              <div className="mt-4">
+                {tickersLoading ? (
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-2">
+                    {Array.from({ length: 6 }).map((_, i) => (
+                      <HeroTickerSkeleton key={i} />
+                    ))}
+                  </div>
+                ) : tickersError ? (
+                  <div className="rounded-xl border border-border bg-muted/50 p-4 text-sm text-foreground">
+                    <p className="text-muted-foreground">{tickersError}</p>
+                    <button
+                      type="button"
+                      onClick={() => retryTickers()}
+                      className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline"
+                    >
+                      <RefreshCw className="h-4 w-4" aria-hidden />
+                      Retry
+                    </button>
+                  </div>
+                ) : tickers.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No live prices available.{' '}
+                    <Link href={ROUTES.markets} className="font-medium text-primary hover:underline">
+                      Browse markets
+                    </Link>
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    {tickers.map((t) => {
+                      const change = parseFloat(t.change_24h_percent);
+                      const up = change >= 0;
+                      return (
+                        <Link
+                          key={t.base_symbol}
+                          href={ROUTES.markets}
+                          className="flex items-center justify-between rounded-xl border border-border bg-background p-4 transition-colors hover:border-primary/35 hover:bg-muted/30"
+                        >
+                          <div className="flex items-center gap-2">
+                            <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-lg bg-muted">
+                              <Image
+                                src={logoUrl(t.base_symbol)}
+                                alt=""
+                                width={20}
+                                height={20}
+                                className="object-contain"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).style.display = 'none';
+                                }}
+                              />
+                            </div>
+                            <span className="text-sm font-medium text-foreground">{t.base_symbol}/USDT</span>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-medium tabular-nums text-foreground">${t.price}</p>
+                            <span
+                              className={`flex items-center justify-end gap-0.5 text-xs font-medium ${
+                                up ? 'text-buy' : 'text-sell'
+                              }`}
+                            >
+                              {up ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                              {t.change_24h_percent}%
+                            </span>
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* Spot Listings - light/dark section */}
-      <section className="py-16 px-4 lg:px-6 bg-card border-y border-border">
-        <div className="container mx-auto">
-          <h2 className="text-2xl font-bold text-foreground">
-            Never miss a Spot listing
-          </h2>
-          <p className="mt-1 text-muted-foreground">
-            New pairs and launches. Follow our channels to be the first to know.
-          </p>
-          <div className="mt-6 flex flex-wrap gap-3 min-h-[5rem]">
-            {spotSummary.loading ? (
-              <div className="flex flex-wrap gap-3 w-full">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="w-28 h-20 rounded-xl bg-accent border border-border animate-pulse"
-                  />
-                ))}
+      <section className="border-b border-border bg-card px-4 py-16 lg:px-6">
+        <div className="container mx-auto max-w-[1400px]">
+          <div className="max-w-2xl">
+            <h2 className="font-display text-2xl font-bold text-foreground sm:text-3xl">Built for every trader</h2>
+            <p className="mt-2 text-muted-foreground">
+              Spot execution, peer-to-peer flexibility, and institutional-grade safeguards in one platform.
+            </p>
+          </div>
+          <div className="mt-10 grid gap-6 md:grid-cols-3">
+            {features.map((item) => (
+              <div
+                key={item.title}
+                className="flex flex-col rounded-2xl border border-border bg-background p-6 transition-colors hover:border-primary/25"
+              >
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-muted">
+                  <item.icon className="h-5 w-5 text-primary" aria-hidden />
+                </div>
+                <h3 className="mt-4 font-semibold text-foreground">{item.title}</h3>
+                <p className="mt-2 flex-1 text-sm leading-relaxed text-muted-foreground">{item.description}</p>
+                <Link
+                  href={item.href}
+                  className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-primary hover:underline"
+                >
+                  {item.cta}
+                  <ArrowRight className="h-4 w-4" aria-hidden />
+                </Link>
               </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="border-b border-border bg-background px-4 py-16 lg:px-6">
+        <div className="container mx-auto max-w-[1400px]">
+          <h2 className="font-display text-2xl font-bold text-foreground">Spot pairs</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Jump into a market or explore the full list.</p>
+          <div className="mt-6 flex min-h-[5rem] flex-wrap gap-3">
+            {spotSummary.loading ? (
+              <>
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div key={i} className="h-20 w-28 animate-pulse rounded-xl border border-border bg-card" />
+                ))}
+              </>
             ) : spotSummary.preview.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 No active spot markets.{' '}
-                <Link href={ROUTES.markets} className="text-primary hover:underline">
+                <Link href={ROUTES.markets} className="font-medium text-primary hover:underline">
                   Check status
                 </Link>
               </p>
@@ -367,7 +414,7 @@ export default function HomePage() {
                 <Link
                   key={m.symbol}
                   href={tradeSpotWithSymbol(m.symbol)}
-                  className="w-28 h-20 rounded-xl bg-background border border-border flex items-center justify-center text-sm font-semibold text-foreground dark:text-foreground hover:border-blue-500/50 hover:bg-blue-50/50 dark:hover:bg-blue-500/10 transition-colors"
+                  className="flex h-20 w-28 items-center justify-center rounded-xl border border-border bg-card text-sm font-semibold text-foreground transition-colors hover:border-primary/40 hover:bg-muted/40"
                 >
                   {m.base_asset}/{m.quote_asset}
                 </Link>
@@ -375,63 +422,22 @@ export default function HomePage() {
             )}
           </div>
           <Link
-                      href={ROUTES.markets}
-            className="mt-6 inline-flex items-center gap-1 text-sm font-medium text-primary hover:text-primary/85 dark:text-blue-400"
+            href={ROUTES.markets}
+            className="mt-6 inline-flex items-center gap-1 text-sm font-semibold text-primary hover:underline"
           >
-            View all markets <ArrowRight className="h-4 w-4" />
+            View all markets
+            <ArrowRight className="h-4 w-4" aria-hidden />
           </Link>
         </div>
       </section>
 
-      {/* P2P */}
-      <section className="py-16 px-4 lg:px-6">
-        <div className="container mx-auto flex flex-col lg:flex-row items-center gap-12">
-          <div className="flex-1">
-            <h2 className="text-2xl font-bold text-foreground">
-              Buy & sell crypto with P2P
-            </h2>
-            <p className="mt-3 text-muted-foreground max-w-lg">
-              Trade directly with other users. Multiple payment methods, escrow protection, and fast settlement.
-            </p>
-            <ul className="mt-6 space-y-3 text-foreground/80">
-              <li className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center">1</span>
-                Bank transfer, UPI, and more
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center">2</span>
-                Escrow protection on every trade
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center">3</span>
-                24/7 dispute resolution
-              </li>
-            </ul>
-            <Link
-              href={ROUTES.p2p}
-              className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-white bg-primary hover:bg-primary/85 transition-colors"
-            >
-              Go to P2P <ArrowRight className="h-4 w-4" />
-            </Link>
-          </div>
-          <div className="flex-1 flex justify-center">
-            <div className="w-full max-w-sm aspect-video rounded-xl bg-gradient-to-br from-blue-500/10 to-indigo-500/10 dark:from-blue-500/20 dark:to-indigo-500/20 border border-border flex items-center justify-center">
-              <Users className="w-16 h-16 text-blue-500/60" />
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Trust metrics */}
-      <section className="py-16 px-4 lg:px-6 bg-card border-y border-border">
-        <div className="container mx-auto">
-          <h2 className="text-2xl font-bold text-foreground">
-            Robust and reliable, trusted by traders
-          </h2>
+      <section className="border-b border-border bg-card px-4 py-16 lg:px-6">
+        <div className="container mx-auto max-w-[1400px]">
+          <h2 className="font-display text-2xl font-bold text-foreground">Platform activity</h2>
           {spotSummary.loading ? (
             <div className="mt-6 space-y-3">
-              <div className="h-10 w-56 bg-accent rounded animate-pulse" />
-              <div className="h-4 w-72 bg-accent dark:bg-card rounded animate-pulse" />
+              <div className="h-10 w-56 animate-pulse rounded bg-muted" />
+              <div className="h-4 w-72 animate-pulse rounded bg-muted" />
             </div>
           ) : spotSummary.error ? (
             <div className="mt-6 text-sm text-muted-foreground">
@@ -439,7 +445,7 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={() => spotSummary.retry()}
-                className="ml-3 text-primary hover:underline inline-flex items-center gap-1"
+                className="ml-3 inline-flex items-center gap-1 font-medium text-primary hover:underline"
               >
                 <RefreshCw className="h-3.5 w-3.5" aria-hidden />
                 Retry
@@ -448,116 +454,76 @@ export default function HomePage() {
           ) : (
             <>
               <div className="mt-6 flex flex-wrap items-baseline gap-x-8 gap-y-2">
-                <p className="text-3xl sm:text-4xl font-bold text-foreground tabular-nums">
+                <p className="font-display text-3xl font-bold tabular-nums text-foreground sm:text-4xl">
                   {spotSummary.volume24hQuote != null && spotSummary.volume24hQuote > 0
                     ? formatCompactNotional(spotSummary.volume24hQuote)
                     : '—'}
                 </p>
-                <p className="text-muted-foreground">24h quote volume (spot, all markets)</p>
+                <p className="text-sm text-muted-foreground">24h quote volume (spot, all markets)</p>
               </div>
-              <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-lg">
-                <div className="rounded-xl bg-background border border-border p-5">
-                  <p className="text-xl font-bold text-foreground tabular-nums">
+              <div className="mt-8 grid max-w-lg grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="rounded-2xl border border-border bg-background p-5">
+                  <p className="font-display text-xl font-bold tabular-nums text-foreground">
                     {spotSummary.marketCount != null ? spotSummary.marketCount : '—'}
                   </p>
                   <p className="text-sm text-muted-foreground">Active spot markets</p>
                 </div>
-                <div className="rounded-xl bg-background border border-border p-5">
+                <div className="rounded-2xl border border-border bg-background p-5">
                   <p className="text-sm font-semibold text-foreground">Spot &amp; P2P</p>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Live order books and escrow-backed P2P trades.
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Live order books and escrow-backed peer trades.
                   </p>
-                  <Link
-                    href={spotHref}
-                    className="mt-3 inline-flex text-sm font-medium text-primary hover:text-primary/85 dark:text-blue-400"
-                  >
+                  <Link href={spotHref} className="mt-3 inline-flex text-sm font-semibold text-primary hover:underline">
                     Open trading →
                   </Link>
                 </div>
               </div>
             </>
           )}
-          <Link
-                href={ROUTES.signup}
-            className="mt-8 inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-white bg-primary hover:bg-primary/85 transition-colors"
-          >
-            Join now <ArrowRight className="h-4 w-4" />
+          <Link href={ROUTES.signup} className={`${btnPrimary} mt-8`}>
+            Create account
+            <ArrowRight className="h-4 w-4" aria-hidden />
           </Link>
         </div>
       </section>
 
-      {/* Safety */}
-      <section className="py-16 px-4 lg:px-6">
-        <div className="container mx-auto">
-          <h2 className="text-2xl font-bold text-foreground">
-            You&apos;re safe to grow with us
-          </h2>
-          <div className="mt-8 grid md:grid-cols-3 gap-6">
-            {[
-              { icon: Headphones, title: '24/7 support', desc: 'Multi-lingual customer support when you need it.' },
-              { icon: Shield, title: 'Robust security', desc: 'Cold storage, encryption, and industry best practices.' },
-              { icon: Award, title: 'Proven track record', desc: 'Built for reliability and compliance.' },
-            ].map((item) => (
-              <div
-                key={item.title}
-                className="rounded-xl bg-card border border-border p-6"
-              >
-                <div className="w-10 h-10 rounded-lg bg-blue-500/10 dark:bg-blue-500/20 flex items-center justify-center">
-                  <item.icon className="w-5 h-5 text-primary" />
-                </div>
-                <h3 className="mt-3 font-semibold text-foreground">{item.title}</h3>
-                <p className="mt-1 text-sm text-muted-foreground">{item.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* CTA */}
-      <section className="py-16 px-4 lg:px-6 bg-accent dark:bg-card border-t border-border">
-        <div className="container mx-auto text-center">
-          <h2 className="text-2xl font-bold text-foreground">
-            Ready to start trading?
-          </h2>
-          <p className="mt-2 text-muted-foreground max-w-md mx-auto">
-            Join thousands of traders. Spot and P2P in one place.
+      <section className="border-b border-border bg-background px-4 py-16 lg:px-6">
+        <div className="container mx-auto max-w-[1400px] text-center">
+          <h2 className="font-display text-2xl font-bold text-foreground sm:text-3xl">Ready when you are</h2>
+          <p className="mx-auto mt-2 max-w-md text-muted-foreground">
+            Open an account in minutes and access spot and P2P from one dashboard.
           </p>
-          <div className="mt-6 flex flex-wrap justify-center gap-3">
-            <Link
-              href={ROUTES.signup}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-white bg-primary hover:bg-primary/85 transition-colors"
-            >
-              Create account <ArrowRight className="h-4 w-4" />
+          <div className="mt-8 flex flex-wrap justify-center gap-3">
+            <Link href={ROUTES.signup} className={btnPrimary}>
+              Get started
+              <ArrowRight className="h-4 w-4" aria-hidden />
             </Link>
-            <Link
-              href={ROUTES.login}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium text-foreground/80 border border-border dark:border-border hover:bg-muted dark:hover:bg-accent transition-colors"
-            >
-              Log In
+            <Link href={ROUTES.login} className={btnSecondary}>
+              Log in
             </Link>
           </div>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="py-12 px-4 lg:px-6 border-t border-border bg-card dark:bg-background">
-        <div className="container mx-auto">
-          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-8">
-            <div>
-              <Link href={ROUTES.home} className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
-                  <span className="text-white font-bold text-sm">M</span>
-                </div>
-                <span className="text-lg font-bold text-foreground">Methereum</span>
-              </Link>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
+      <footer className="border-t border-border bg-card px-4 py-12 lg:px-6">
+        <div className="container mx-auto max-w-[1400px]">
+          <div className="flex flex-col gap-8 md:flex-row md:items-start md:justify-between">
+            <Link href={ROUTES.home} className="flex items-center gap-2.5">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary font-display text-sm font-bold text-primary-foreground">
+                M
+              </div>
+              <span className="font-display text-lg font-bold text-foreground">Methereum</span>
+            </Link>
+            <div className="grid grid-cols-2 gap-8 sm:grid-cols-3">
               <div>
-                <h4 className="text-sm font-semibold text-foreground mb-3">Products</h4>
+                <h4 className="mb-3 text-sm font-semibold text-foreground">Products</h4>
                 <ul className="space-y-2">
                   {FOOTER_PRODUCTS(spotHref).map((link) => (
                     <li key={link.href}>
-                      <Link href={link.href} className="text-sm text-muted-foreground hover:text-foreground dark:hover:text-white transition-colors">
+                      <Link
+                        href={link.href}
+                        className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                      >
                         {link.label}
                       </Link>
                     </li>
@@ -565,11 +531,14 @@ export default function HomePage() {
                 </ul>
               </div>
               <div>
-                <h4 className="text-sm font-semibold text-foreground mb-3">Support</h4>
+                <h4 className="mb-3 text-sm font-semibold text-foreground">Support</h4>
                 <ul className="space-y-2">
                   {FOOTER_SUPPORT.map((link) => (
                     <li key={link.href}>
-                      <Link href={link.href} className="text-sm text-muted-foreground hover:text-foreground dark:hover:text-white transition-colors">
+                      <Link
+                        href={link.href}
+                        className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                      >
                         {link.label}
                       </Link>
                     </li>
@@ -577,11 +546,14 @@ export default function HomePage() {
                 </ul>
               </div>
               <div>
-                <h4 className="text-sm font-semibold text-foreground mb-3">Legal</h4>
+                <h4 className="mb-3 text-sm font-semibold text-foreground">Legal</h4>
                 <ul className="space-y-2">
                   {FOOTER_LEGAL.map((link) => (
                     <li key={link.label}>
-                      <Link href={link.href} className="text-sm text-muted-foreground hover:text-foreground dark:hover:text-white transition-colors">
+                      <Link
+                        href={link.href}
+                        className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                      >
                         {link.label}
                       </Link>
                     </li>
@@ -590,7 +562,7 @@ export default function HomePage() {
               </div>
             </div>
           </div>
-          <div className="mt-10 pt-8 border-t border-border text-center text-sm text-muted-foreground">
+          <div className="mt-10 border-t border-border pt-8 text-center text-sm text-muted-foreground">
             © {new Date().getFullYear()} Methereum. All rights reserved.
           </div>
         </div>

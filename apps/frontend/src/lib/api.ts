@@ -25,10 +25,22 @@ interface RequestOptions extends Omit<RequestInit, 'body'> {
 }
 
 /**
- * Get the current access token from the auth store
+ * Get the current access token — checks Zustand store first, then falls back to
+ * localStorage during the hydration window (prevents "Please log in" flash on reload).
  */
 function getAccessToken(): string | null {
-  return useAuthStore.getState().accessToken;
+  const storeToken = useAuthStore.getState().accessToken;
+  if (storeToken) return storeToken;
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem('auth-storage');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { state?: { accessToken?: string | null } };
+    const token = parsed?.state?.accessToken;
+    return typeof token === 'string' && token.length > 0 ? token : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -161,6 +173,9 @@ export async function apiRequest<T = unknown>(
 
     return data as ApiResponse<T>;
   } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      return { success: false, error: { code: 'ABORTED', message: 'Request aborted' } };
+    }
     console.error('API request failed:', error);
     const msg = error instanceof Error ? error.message : 'Network error';
     if (notifyOnError && typeof window !== 'undefined') {

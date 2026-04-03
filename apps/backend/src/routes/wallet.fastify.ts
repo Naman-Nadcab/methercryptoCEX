@@ -20,6 +20,8 @@ import { config } from '../config/index.js';
 import { creditOverdueDepositsForUser, applyBalanceForOneCompletedDeposit } from '../services/deposit-credit.service.js';
 import { recordAndEvaluate } from '../services/aml-transaction-monitor.service.js';
 import { handleWithdrawPreview, type WithdrawPreviewQuerystring } from './wallet-withdraw-preview.js';
+import { getPortfolioHistory } from '../services/portfolio-snapshot.service.js';
+import { getCoinInfo } from '../services/coin-info.service.js';
 
 const ROUND_DOWN = 1;
 const AMOUNT_PRECISION = 8;
@@ -3600,12 +3602,14 @@ export default async function walletRoutes(app: FastifyInstance) {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
 
-      // Get trading history for P&L calculation
+      // Get trading history for P&L calculation (period-scoped spot fills)
       const tradesResult = await db.query(`
         SELECT 
           t.symbol,
           SUM(CASE WHEN o.side = 'buy' THEN o.filled_amount * o.price ELSE 0 END) as buy_value,
-          SUM(CASE WHEN o.side = 'sell' THEN o.filled_amount * o.price ELSE 0 END) as sell_value
+          SUM(CASE WHEN o.side = 'sell' THEN o.filled_amount * o.price ELSE 0 END) as sell_value,
+          SUM(CASE WHEN o.side = 'buy' THEN o.filled_amount ELSE 0 END) as buy_qty,
+          SUM(CASE WHEN o.side = 'sell' THEN o.filled_amount ELSE 0 END) as sell_qty
         FROM orders o
         JOIN tokens t ON o.token_id = t.id
         WHERE o.user_id = $1 
@@ -3613,42 +3617,63 @@ export default async function walletRoutes(app: FastifyInstance) {
           AND o.created_at >= $2
           ${symbol !== 'all' ? 'AND UPPER(t.symbol) = UPPER($3)' : ''}
         GROUP BY t.symbol
-        ORDER BY (sell_value - buy_value) DESC
+        ORDER BY (SUM(CASE WHEN o.side = 'sell' THEN o.filled_amount * o.price ELSE 0 END) - SUM(CASE WHEN o.side = 'buy' THEN o.filled_amount * o.price ELSE 0 END)) DESC
       `, symbol !== 'all' ? [userId, startDate, symbol] : [userId, startDate]);
 
-      const rankings = tradesResult.rows.map((row) => {
-        const r = row as { symbol?: string; sell_value?: string; buy_value?: string };
+      type PnlRow = {
+        symbol?: string;
+        sell_value?: string;
+        buy_value?: string;
+        buy_qty?: string;
+        sell_qty?: string;
+      };
+
+      const assets = tradesResult.rows.map((row) => {
+        const r = row as PnlRow;
+        const buyVal = new Decimal(r.buy_value || '0');
+        const sellVal = new Decimal(r.sell_value || '0');
+        const buyQty = new Decimal(r.buy_qty || '0');
+        const sellQty = new Decimal(r.sell_qty || '0');
+        const pnl = sellVal.minus(buyVal).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+        const avgBuyPrice = buyQty.gt(0)
+          ? buyVal.div(buyQty).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toNumber()
+          : 0;
+        const quantity = Decimal.max(0, buyQty.minus(sellQty)).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toNumber();
+        const pnlPercent = buyVal.gt(0)
+          ? pnl.div(buyVal).times(100).toDecimalPlaces(2, ROUND_DOWN).toNumber()
+          : 0;
         return {
           symbol: r.symbol ?? 'Unknown',
-          pnl: new Decimal(r.sell_value || '0').minus(r.buy_value || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toString(),
-          pnlPercentage: 0
+          pnl: pnl.toNumber(),
+          pnlPercent,
+          avgBuyPrice,
+          currentPrice: 0,
+          quantity,
         };
       });
 
-      const totalPnl = rankings.reduce((sum, r) => sum.plus(r.pnl).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN), new Decimal(0));
-      const totalFilledValue = tradesResult.rows.reduce((sum, r) => {
-        const row = r as { buy_value?: string; sell_value?: string };
-        return sum.plus(row.buy_value || '0').plus(row.sell_value || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
-      }, new Decimal(0));
+      const totalPnlDec = assets.reduce((sum, a) => sum.plus(a.pnl), new Decimal(0)).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+      const totalBuyDec = tradesResult.rows.reduce((sum, row) => {
+        const r = row as PnlRow;
+        return sum.plus(r.buy_value || '0');
+      }, new Decimal(0)).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+      const totalPnlPercent = totalBuyDec.gt(0)
+        ? totalPnlDec.div(totalBuyDec).times(100).toDecimalPlaces(2, ROUND_DOWN).toNumber()
+        : 0;
 
-      // Generate chart data
-      const chartData = [];
-      for (let i = days - 1; i >= 0; i--) {
-        const date = new Date();
-        date.setDate(date.getDate() - i);
-        chartData.push({
-          date: date.toISOString().split('T')[0],
-          value: 0
-        });
-      }
+      const totalPnl = totalPnlDec.toNumber();
+      const unrealizedPnl = 0;
+      const realizedPnl = totalPnl;
 
       return {
         success: true,
         data: {
-          summary: { totalPnl: totalPnl.toString(), totalFilledValue: totalFilledValue.toString() },
-          rankings,
-          chartData
-        }
+          totalPnl,
+          totalPnlPercent,
+          unrealizedPnl,
+          realizedPnl,
+          assets,
+        },
       };
     } catch (error) {
       logger.error('Failed to get P&L data', { 
@@ -4088,6 +4113,9 @@ export default async function walletRoutes(app: FastifyInstance) {
       });
     }
   });
+
+  // Register advanced tier-1 wallet endpoints
+  await registerAdvancedWalletRoutes(app);
 }
 
 /** Block confirmations required for deposit crediting only (chain-level setting). */
@@ -4104,4 +4132,249 @@ function getDepositNotice(chainType: string, confirmations: number | undefined):
   }
 
   return notices.join(' ');
+}
+
+/* ─────────────────────────────────────────────
+   Advanced wallet endpoints (tier-1 features)
+   ───────────────────────────────────────────── */
+
+export async function registerAdvancedWalletRoutes(app: FastifyInstance): Promise<void> {
+
+  // Portfolio balance history (for chart)
+  app.get<{ Querystring: { period?: string } }>(
+    '/portfolio-history',
+    { preHandler: [app.authenticate] },
+    async (request, reply) => {
+      try {
+        const userId = request.user!.id;
+        const period = (request.query.period || '7d') as '24h' | '7d' | '30d' | '90d' | '1y';
+        const validPeriods = ['24h', '7d', '30d', '90d', '1y'];
+        const safePeriod = validPeriods.includes(period) ? period : '7d';
+        const data = await getPortfolioHistory(userId, safePeriod as '24h' | '7d' | '30d' | '90d' | '1y');
+        return reply.send({ success: true, data });
+      } catch (e) {
+        logger.error(`portfolio-history error: ${e instanceof Error ? e.message : 'unknown'}`);
+        return reply.status(500).send({ success: false, error: { message: 'Failed to load portfolio history' } });
+      }
+    }
+  );
+
+  // Coin info (CoinGecko data)
+  app.get<{ Params: { symbol: string } }>(
+    '/coin-info/:symbol',
+    async (request, reply) => {
+      try {
+        const { symbol } = request.params;
+        if (!symbol || symbol.length > 20) {
+          return reply.status(400).send({ success: false, error: { message: 'Invalid symbol' } });
+        }
+        const info = await getCoinInfo(symbol);
+        return reply.send({ success: true, data: info });
+      } catch (e) {
+        logger.error(`coin-info error: ${e instanceof Error ? e.message : 'unknown'}`);
+        return reply.status(500).send({ success: false, error: { message: 'Failed to load coin info' } });
+      }
+    }
+  );
+
+  // Dust conversion - convert all small balances (< threshold USD) to USDT
+  app.post<{ Body: { threshold?: number } }>(
+    '/convert-dust',
+    { preHandler: [app.authenticate] },
+    async (request, reply) => {
+      try {
+        const userId = request.user!.id;
+        const threshold = Math.min(request.body?.threshold ?? 1, 10); // max $10 per asset
+        
+        const { rows: balances } = await db.query<{
+          currency_id: string; symbol: string; balance: string; account_type: string;
+        }>(
+          `SELECT ub.currency_id, c.symbol, ub.balance, ub.account_type
+           FROM user_balances ub
+           JOIN currencies c ON c.id = ub.currency_id
+           WHERE ub.user_id = $1 AND ub.account_type = 'funding'
+             AND CAST(ub.balance AS NUMERIC) > 0
+             AND c.symbol NOT IN ('USDT', 'USDC', 'DAI')`,
+          [userId]
+        );
+
+        // Get prices to determine USD value
+        const { rows: tickers } = await db.query<{ symbol: string; last_price: string }>(
+          `SELECT sm.symbol, COALESCE(tp.last_price, '0') AS last_price
+           FROM spot_markets sm
+           LEFT JOIN trading_pairs tp ON tp.symbol = sm.symbol
+           WHERE sm.is_active = true`
+        );
+        const priceMap: Record<string, number> = {};
+        for (const t of tickers) {
+          const base = t.symbol.split('_')[0];
+          if (base) priceMap[base] = parseFloat(t.last_price) || 0;
+        }
+
+        const converted: Array<{ symbol: string; amount: string; usd_value: string }> = [];
+        const usdtCurrencyId = await getCurrencyIdBySymbol('USDT');
+        if (!usdtCurrencyId) {
+          return reply.status(400).send({ success: false, error: { message: 'USDT currency not found' } });
+        }
+
+        for (const b of balances) {
+          const amt = parseFloat(b.balance) || 0;
+          const price = priceMap[b.symbol] ?? 0;
+          const usdVal = amt * price;
+
+          if (usdVal > 0 && usdVal < threshold && price > 0) {
+            try {
+              const usdtAmount = new Decimal(amt).mul(price).toFixed(AMOUNT_PRECISION, ROUND_DOWN);
+              if (parseFloat(usdtAmount) <= 0) continue;
+
+              await db.transaction(async (client) => {
+                // Deduct from source
+                const deductResult = await client.query(
+                  `UPDATE user_balances SET balance = (CAST(balance AS NUMERIC) - $1)::TEXT,
+                   available_balance = (CAST(available_balance AS NUMERIC) - $1)::TEXT,
+                   updated_at = NOW()
+                   WHERE user_id = $2 AND currency_id = $3 AND account_type = 'funding'
+                     AND CAST(available_balance AS NUMERIC) >= $1
+                   RETURNING id`,
+                  [b.balance, userId, b.currency_id]
+                );
+                if (deductResult.rowCount === 0) return;
+
+                // Credit USDT
+                await ensureUserBalanceRow(userId, usdtCurrencyId, 'funding');
+                await client.query(
+                  `UPDATE user_balances SET balance = (CAST(balance AS NUMERIC) + $1)::TEXT,
+                   available_balance = (CAST(available_balance AS NUMERIC) + $1)::TEXT,
+                   updated_at = NOW()
+                   WHERE user_id = $2 AND currency_id = $3 AND account_type = 'funding'`,
+                  [usdtAmount, userId, usdtCurrencyId]
+                );
+
+                // Record ledger entries for dust conversion
+                const refId = crypto.randomUUID();
+                await client.query(
+                  `INSERT INTO balance_ledger (user_id, currency_id, reference_type, reference_id, debit, credit, balance_before, balance_after, balance_type, description, created_at)
+                   VALUES ($1, $2, 'adjustment'::ledger_reference_type, $3, $4::numeric, 0, 0, 0, 'available'::balance_type, $5, NOW())`,
+                  [userId, b.currency_id, refId, b.balance, `Dust convert ${b.symbol} to USDT`]
+                );
+                await client.query(
+                  `INSERT INTO balance_ledger (user_id, currency_id, reference_type, reference_id, debit, credit, balance_before, balance_after, balance_type, description, created_at)
+                   VALUES ($1, $2, 'adjustment'::ledger_reference_type, $3, 0, $4::numeric, 0, 0, 'available'::balance_type, $5, NOW())`,
+                  [userId, usdtCurrencyId, refId, usdtAmount, `Dust convert from ${b.symbol}`]
+                );
+
+                converted.push({ symbol: b.symbol, amount: b.balance, usd_value: usdVal.toFixed(2) });
+              });
+            } catch (e) {
+              logger.warn(`dust convert failed for ${b.symbol}: ${e instanceof Error ? e.message : 'unknown'}`);
+            }
+          }
+        }
+
+        return reply.send({
+          success: true,
+          data: {
+            converted_count: converted.length,
+            converted_assets: converted,
+            total_usdt_received: converted.reduce((s, c) => s + parseFloat(c.usd_value), 0).toFixed(2),
+          },
+        });
+      } catch (e) {
+        logger.error(`convert-dust error: ${e instanceof Error ? e.message : 'unknown'}`);
+        return reply.status(500).send({ success: false, error: { message: 'Dust conversion failed' } });
+      }
+    }
+  );
+
+  // Transaction statement export (CSV)
+  app.get<{ Querystring: { year?: string; format?: string } }>(
+    '/statement',
+    { preHandler: [app.authenticate] },
+    async (request, reply) => {
+      try {
+        const userId = request.user!.id;
+        const year = parseInt(request.query.year || String(new Date().getFullYear()), 10);
+        const startDate = `${year}-01-01`;
+        const endDate = `${year + 1}-01-01`;
+
+        const { rows } = await db.query<{
+          type: string; symbol: string; amount: string; fee: string;
+          status: string; created_at: string; description: string;
+        }>(
+          `SELECT
+             CASE
+               WHEN reference_type = 'deposit' THEN 'Deposit'
+               WHEN reference_type = 'withdrawal' THEN 'Withdrawal'
+               WHEN reference_type = 'internal_transfer' THEN 'Transfer'
+               WHEN reference_type = 'conversion' THEN 'Convert'
+               WHEN reference_type IN ('spot_trade', 'trade') THEN 'Trade'
+               ELSE reference_type
+             END AS type,
+             c.symbol,
+             bl.amount,
+             '0' AS fee,
+             'completed' AS status,
+             bl.created_at::TEXT AS created_at,
+             COALESCE(bl.description, '') AS description
+           FROM balance_ledger bl
+           JOIN currencies c ON c.id = bl.currency_id
+           WHERE bl.user_id = $1
+             AND bl.created_at >= $2 AND bl.created_at < $3
+           ORDER BY bl.created_at ASC
+           LIMIT 10000`,
+          [userId, startDate, endDate]
+        );
+
+        const fmt = request.query.format || 'json';
+        if (fmt === 'csv') {
+          const header = 'Date,Type,Asset,Amount,Fee,Status,Description\n';
+          const body = rows.map((r) =>
+            `${r.created_at},${r.type},${r.symbol},${r.amount},${r.fee},${r.status},"${r.description.replace(/"/g, '""')}"`
+          ).join('\n');
+          reply.header('Content-Type', 'text/csv');
+          reply.header('Content-Disposition', `attachment; filename="statement-${year}.csv"`);
+          return reply.send(header + body);
+        }
+
+        return reply.send({ success: true, data: { year, transactions: rows, count: rows.length } });
+      } catch (e) {
+        logger.error(`statement error: ${e instanceof Error ? e.message : 'unknown'}`);
+        return reply.status(500).send({ success: false, error: { message: 'Failed to generate statement' } });
+      }
+    }
+  );
+
+  // Explorer URL for a specific chain
+  app.get<{ Params: { chainId: string }; Querystring: { txHash?: string; address?: string } }>(
+    '/explorer-url/:chainId',
+    async (request, reply) => {
+      try {
+        const { chainId } = request.params;
+        const { txHash, address } = request.query;
+
+        const { rows } = await db.query<{ explorer_url: string; chain_type: string }>(
+          `SELECT explorer_url, chain_type FROM blockchains WHERE id = $1 LIMIT 1`,
+          [chainId]
+        );
+
+        const row = rows[0];
+        if (!row || !row.explorer_url) {
+          return reply.send({ success: true, data: { url: null } });
+        }
+
+        const baseUrl = row.explorer_url.replace(/\/+$/, '');
+        let url = baseUrl;
+
+        if (txHash) {
+          url = `${baseUrl}/tx/${txHash}`;
+        } else if (address) {
+          url = `${baseUrl}/address/${address}`;
+        }
+
+        return reply.send({ success: true, data: { url, explorer_base: baseUrl } });
+      } catch (e) {
+        return reply.status(500).send({ success: false, error: { message: 'Failed to get explorer URL' } });
+      }
+    }
+  );
 }

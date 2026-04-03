@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth';
 import { useTransferBalances } from '@/lib/balances';
 import Link from 'next/link';
-import Image from 'next/image';
+import { CoinIcon } from '@/components/ui/CoinIcon';
 import {
   ArrowLeftRight,
   ChevronDown,
@@ -175,13 +175,13 @@ export default function TransferPage() {
     if (account === 'funding') {
       return (
         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
-          <Wallet className="w-5 h-5 text-white" />
+          <Wallet className="w-5 h-5 text-primary-foreground" />
         </div>
       );
     }
     return (
       <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center">
-        <TrendingUp className="w-5 h-5 text-white" />
+        <TrendingUp className="w-5 h-5 text-primary-foreground" />
       </div>
     );
   };
@@ -214,7 +214,7 @@ export default function TransferPage() {
           {/* Header */}
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h1 className="text-2xl font-bold text-foreground">Internal Transfer</h1>
+              <h1 className="text-xl font-semibold text-foreground">Internal Transfer</h1>
               <p className="text-sm text-muted-foreground mt-1">Transfer assets between your accounts instantly and free</p>
             </div>
             <Link
@@ -243,7 +243,7 @@ export default function TransferPage() {
                             setShowToDropdown(false);
                             setShowCoinDropdown(false);
                           }}
-                          className="w-full flex items-center gap-3 px-4 py-4 bg-muted dark:bg-[#2b2f36] border border-border rounded-xl hover:border-blue-400 dark:hover:border-blue-500 transition-colors"
+                          className="w-full flex items-center gap-3 px-4 py-4 bg-muted border border-border rounded-xl hover:border-primary/50 transition-colors"
                         >
                           {getAccountIcon(fromAccount)}
                           <div className="flex-1 text-left">
@@ -269,7 +269,7 @@ export default function TransferPage() {
                                   account === fromAccount
                                     ? 'bg-blue-50 dark:bg-blue-900/30 text-primary'
                                     : account === toAccount
-                                    ? 'text-gray-300 dark:text-muted-foreground cursor-not-allowed'
+                                    ? 'text-muted-foreground cursor-not-allowed'
                                     : 'text-foreground/80 hover:bg-accent'
                                 }`}
                               >
@@ -300,7 +300,7 @@ export default function TransferPage() {
                             setShowFromDropdown(false);
                             setShowCoinDropdown(false);
                           }}
-                          className="w-full flex items-center gap-3 px-4 py-4 bg-muted dark:bg-[#2b2f36] border border-border rounded-xl hover:border-blue-400 dark:hover:border-blue-500 transition-colors"
+                          className="w-full flex items-center gap-3 px-4 py-4 bg-muted border border-border rounded-xl hover:border-primary/50 transition-colors"
                         >
                           {getAccountIcon(toAccount)}
                           <div className="flex-1 text-left">
@@ -325,7 +325,7 @@ export default function TransferPage() {
                                   account === toAccount
                                     ? 'bg-blue-50 dark:bg-blue-900/30 text-primary'
                                     : account === fromAccount
-                                    ? 'text-gray-300 dark:text-muted-foreground cursor-not-allowed'
+                                    ? 'text-muted-foreground cursor-not-allowed'
                                     : 'text-foreground/80 hover:bg-accent'
                                 }`}
                               >
@@ -350,25 +350,12 @@ export default function TransferPage() {
                         setShowFromDropdown(false);
                         setShowToDropdown(false);
                       }}
-                      className="w-full flex items-center justify-between px-4 py-4 bg-muted dark:bg-[#2b2f36] border border-border rounded-xl hover:border-blue-400 dark:hover:border-blue-500 transition-colors"
+                      className="w-full flex items-center justify-between px-4 py-4 bg-muted border border-border rounded-xl hover:border-primary/50 transition-colors"
                     >
                       <div className="flex items-center gap-3">
                         {selectedToken ? (
                           <>
-                            {selectedToken.iconUrl ? (
-                              <Image
-                                src={selectedToken.iconUrl}
-                                alt={selectedToken.symbol}
-                                width={32}
-                                height={32}
-                                className="rounded-full"
-                                unoptimized
-                              />
-                            ) : (
-                              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
-                                <span className="text-white text-sm font-bold">{selectedToken.symbol.charAt(0)}</span>
-                              </div>
-                            )}
+                            <CoinIcon symbol={selectedToken.symbol} size={32} />
                             <div className="text-left">
                               <p className="text-foreground font-semibold">{selectedToken.symbol}</p>
                               <p className="text-xs text-muted-foreground">{selectedToken.name}</p>
@@ -396,7 +383,7 @@ export default function TransferPage() {
                               placeholder="Search coins..."
                               value={searchQuery}
                               onChange={(e) => setSearchQuery(e.target.value)}
-                              className="w-full pl-10 pr-4 py-2.5 bg-muted dark:bg-[#2b2f36] border-0 rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:ring-2 focus:ring-primary outline-none"
+                              className="w-full pl-10 pr-4 py-2.5 bg-muted border-0 rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:ring-2 focus:ring-primary outline-none"
                             />
                           </div>
                         </div>
@@ -424,20 +411,7 @@ export default function TransferPage() {
                                 }`}
                               >
                                 <div className="flex items-center gap-3">
-                                  {token.iconUrl ? (
-                                    <Image
-                                      src={token.iconUrl}
-                                      alt={token.symbol}
-                                      width={32}
-                                      height={32}
-                                      className="rounded-full"
-                                      unoptimized
-                                    />
-                                  ) : (
-                                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
-                                      <span className="text-white text-sm font-bold">{token.symbol.charAt(0)}</span>
-                                    </div>
-                                  )}
+                                  <CoinIcon symbol={token.symbol} size={32} />
                                   <div className="text-left">
                                     <p className="font-medium text-foreground">{token.symbol}</p>
                                     <p className="text-xs text-muted-foreground">{token.name}</p>
@@ -454,7 +428,7 @@ export default function TransferPage() {
                 </div>
 
                 {/* Transferable Amount */}
-                <div className="flex items-center justify-between text-sm py-3 px-4 bg-muted dark:bg-[#2b2f36] rounded-xl mb-6">
+                <div className="flex items-center justify-between text-sm py-3 px-4 bg-muted rounded-xl mb-6">
                   <span className="text-muted-foreground">Transferable Amount</span>
                   <span className="font-semibold text-foreground">
                     {selectedToken
@@ -479,7 +453,7 @@ export default function TransferPage() {
                           }
                         }}
                         placeholder="Enter amount"
-                        className="w-full px-4 py-4 pr-24 bg-muted dark:bg-[#2b2f36] border border-border rounded-xl text-lg font-semibold text-foreground placeholder:text-muted-foreground focus:border-blue-500 focus:ring-1 focus:ring-primary/20 outline-none transition-all"
+                        className="w-full px-4 py-4 pr-24 bg-muted border border-border rounded-xl text-lg font-semibold text-foreground placeholder:text-muted-foreground focus:border-primary focus:ring-1 focus:ring-primary/20 outline-none transition-all"
                       />
                       <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
                         <button
@@ -488,7 +462,7 @@ export default function TransferPage() {
                         >
                           MAX
                         </button>
-                        <span className="text-sm font-medium text-muted-foreground border-l border-border dark:border-gray-600 pl-2">
+                        <span className="text-sm font-medium text-muted-foreground border-l border-border pl-2">
                           {selectedToken.symbol}
                         </span>
                       </div>
@@ -500,7 +474,7 @@ export default function TransferPage() {
                 <div className="bg-blue-50 dark:bg-blue-900/10 rounded-xl p-4 border border-blue-100 dark:border-blue-800/30 mb-6">
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Transfer Fee</span>
-                    <span className="font-semibold text-green-500">Free</span>
+                    <span className="font-semibold text-buy">Free</span>
                   </div>
                   <div className="flex items-center justify-between text-sm mt-2">
                     <span className="text-muted-foreground">You will receive</span>
@@ -512,16 +486,16 @@ export default function TransferPage() {
 
                 {/* Error Message */}
                 {error && (
-                  <div className="flex items-center gap-2 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl mb-6">
-                    <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+                  <div className="flex items-center gap-2 p-4 bg-sell-light border border-sell/20 rounded-xl mb-6">
+                    <AlertCircle className="w-5 h-5 text-sell flex-shrink-0" />
                     <p className="text-sm text-destructive">{error}</p>
                   </div>
                 )}
 
                 {/* Success Message */}
                 {success && (
-                  <div className="flex items-center gap-2 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl mb-6">
-                    <CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" />
+                  <div className="flex items-center gap-2 p-4 bg-buy-light border border-buy/20 rounded-xl mb-6">
+                    <CheckCircle2 className="w-5 h-5 text-buy flex-shrink-0" />
                     <p className="text-sm text-buy">Transfer completed successfully!</p>
                   </div>
                 )}
@@ -533,7 +507,7 @@ export default function TransferPage() {
                   aria-busy={submitting}
                   className={`w-full py-4 rounded-xl font-semibold transition-all ${
                     selectedToken && amount && !submitting
-                      ? 'bg-primary hover:bg-primary/85 text-white shadow-lg shadow-blue-500/25'
+                      ? 'bg-primary hover:bg-primary/85 text-primary-foreground shadow-lg shadow-blue-500/25'
                       : 'bg-accent text-muted-foreground cursor-not-allowed'
                   }`}
                 >
@@ -555,7 +529,7 @@ export default function TransferPage() {
               <div className="bg-card rounded-xl border border-border p-6">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
-                    <ArrowLeftRight className="w-5 h-5 text-white" />
+                    <ArrowLeftRight className="w-5 h-5 text-primary-foreground" />
                   </div>
                   <div>
                     <h3 className="font-semibold text-foreground">Internal Transfer</h3>
@@ -564,15 +538,15 @@ export default function TransferPage() {
                 </div>
                 <ul className="space-y-3 text-sm">
                   <li className="flex items-start gap-2 text-muted-foreground">
-                    <CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
+                    <CheckCircle2 className="w-4 h-4 text-buy mt-0.5 flex-shrink-0" />
                     <span>Instant transfers between accounts</span>
                   </li>
                   <li className="flex items-start gap-2 text-muted-foreground">
-                    <CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
+                    <CheckCircle2 className="w-4 h-4 text-buy mt-0.5 flex-shrink-0" />
                     <span>No transaction fees</span>
                   </li>
                   <li className="flex items-start gap-2 text-muted-foreground">
-                    <CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
+                    <CheckCircle2 className="w-4 h-4 text-buy mt-0.5 flex-shrink-0" />
                     <span>Available 24/7</span>
                   </li>
                 </ul>
@@ -584,7 +558,7 @@ export default function TransferPage() {
                 <div className="space-y-2">
                   <Link
                     href="/wallet/deposit/crypto"
-                    className="flex items-center justify-between p-3 bg-muted dark:bg-[#2b2f36] rounded-xl hover:bg-accent transition-colors"
+                    className="flex items-center justify-between p-3 bg-muted rounded-xl hover:bg-accent transition-colors"
                   >
                     <div className="flex items-center gap-3">
                       <TrendingUp className="w-5 h-5 text-primary" />
@@ -594,7 +568,7 @@ export default function TransferPage() {
                   </Link>
                   <Link
                     href="/wallet/withdraw/crypto"
-                    className="flex items-center justify-between p-3 bg-muted dark:bg-[#2b2f36] rounded-xl hover:bg-accent transition-colors"
+                    className="flex items-center justify-between p-3 bg-muted rounded-xl hover:bg-accent transition-colors"
                   >
                     <div className="flex items-center gap-3">
                       <Send className="w-5 h-5 text-primary" />
@@ -604,7 +578,7 @@ export default function TransferPage() {
                   </Link>
                   <Link
                     href="/wallet/convert"
-                    className="flex items-center justify-between p-3 bg-muted dark:bg-[#2b2f36] rounded-xl hover:bg-accent transition-colors"
+                    className="flex items-center justify-between p-3 bg-muted rounded-xl hover:bg-accent transition-colors"
                   >
                     <div className="flex items-center gap-3">
                       <ArrowRight className="w-5 h-5 text-primary" />
@@ -643,11 +617,14 @@ export default function TransferPage() {
                 <div className="divide-y divide-border">
                   {transferHistory.map((transfer) => (
                     <div key={transfer.id} className="grid grid-cols-6 gap-4 px-6 py-4 text-sm items-center">
-                      <span className="font-medium text-foreground">{transfer.symbol}</span>
+                      <div className="flex items-center gap-2">
+                        <CoinIcon symbol={transfer.symbol} size={24} />
+                        <span className="font-medium text-foreground">{transfer.symbol}</span>
+                      </div>
                       <span className="text-muted-foreground">{transfer.from_account}</span>
                       <span className="text-muted-foreground">{transfer.to_account}</span>
                       <span className="font-medium text-foreground">{parseFloat(transfer.amount).toFixed(6)}</span>
-                      <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-buy w-fit">
+                      <span className="px-2 py-1 rounded-full text-xs font-medium bg-buy-light text-buy w-fit">
                         {transfer.status}
                       </span>
                       <span className="text-muted-foreground text-xs">
@@ -663,7 +640,7 @@ export default function TransferPage() {
       </div>
 
       {/* Help Button */}
-      <button className="fixed bottom-6 right-6 w-12 h-12 bg-primary hover:bg-primary/85 text-white rounded-full shadow-lg shadow-blue-500/25 flex items-center justify-center transition-colors z-40">
+      <button className="fixed bottom-6 right-6 w-12 h-12 bg-primary hover:bg-primary/85 text-primary-foreground rounded-full shadow-lg shadow-blue-500/25 flex items-center justify-center transition-colors z-40">
         <HelpCircle className="w-6 h-6" />
       </button>
     </div>

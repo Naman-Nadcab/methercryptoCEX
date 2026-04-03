@@ -82,7 +82,7 @@ export default function LanguageSelector({ className = '' }: LanguageSelectorPro
                     onClick={() => handleSelectLanguage(lang.code)}
                     className={`px-4 py-3 rounded-lg text-left transition-all ${
                       selectedLanguage === lang.code
-                        ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white'
+                        ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-foreground'
                         : 'hover:bg-accent text-foreground/80'
                     }`}
                   >

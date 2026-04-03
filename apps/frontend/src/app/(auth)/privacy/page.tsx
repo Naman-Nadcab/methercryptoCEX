@@ -11,7 +11,7 @@ export default function PrivacyPolicyPage() {
         <div className="max-w-4xl mx-auto px-6 py-4">
           <Link
             href="/signup"
-            className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground dark:hover:text-white transition-colors"
+            className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
             <span>Back</span>
@@ -48,7 +48,7 @@ export default function PrivacyPolicyPage() {
                 2. Information We Collect
               </h2>
               
-              <h3 className="text-lg font-medium text-foreground dark:text-gray-200 mb-3 mt-6">
+              <h3 className="text-lg font-medium text-foreground mb-3 mt-6">
                 2.1 Personal Information
               </h3>
               <p className="text-muted-foreground leading-relaxed mb-4">
@@ -64,7 +64,7 @@ export default function PrivacyPolicyPage() {
                 <li>Financial information, including bank account details</li>
               </ul>
 
-              <h3 className="text-lg font-medium text-foreground dark:text-gray-200 mb-3 mt-6">
+              <h3 className="text-lg font-medium text-foreground mb-3 mt-6">
                 2.2 Technical Information
               </h3>
               <p className="text-muted-foreground leading-relaxed mb-4">
@@ -78,7 +78,7 @@ export default function PrivacyPolicyPage() {
                 <li>Location data (if permitted)</li>
               </ul>
 
-              <h3 className="text-lg font-medium text-foreground dark:text-gray-200 mb-3 mt-6">
+              <h3 className="text-lg font-medium text-foreground mb-3 mt-6">
                 2.3 Transaction Information
               </h3>
               <ul className="list-disc list-inside text-muted-foreground space-y-2 ml-4">
@@ -227,13 +227,13 @@ export default function PrivacyPolicyPage() {
               </p>
               <div className="mt-4 p-4 bg-muted rounded-xl">
                 <p className="text-muted-foreground">
-                  Privacy Team: <a href="mailto:privacy@exchange.com" className="text-purple-600 dark:text-purple-400 hover:underline">privacy@exchange.com</a>
+                  Privacy Team: <a href="mailto:privacy@exchange.com" className="text-primary hover:underline">privacy@exchange.com</a>
                 </p>
                 <p className="text-muted-foreground mt-2">
-                  Data Protection Officer: <a href="mailto:dpo@exchange.com" className="text-purple-600 dark:text-purple-400 hover:underline">dpo@exchange.com</a>
+                  Data Protection Officer: <a href="mailto:dpo@exchange.com" className="text-primary hover:underline">dpo@exchange.com</a>
                 </p>
                 <p className="text-muted-foreground mt-2">
-                  General Support: <a href="mailto:support@exchange.com" className="text-purple-600 dark:text-purple-400 hover:underline">support@exchange.com</a>
+                  General Support: <a href="mailto:support@exchange.com" className="text-primary hover:underline">support@exchange.com</a>
                 </p>
               </div>
             </section>

@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { ROUTES } from '@/lib/routes';
+import { CoinIcon } from '@/components/ui/CoinIcon';
 
 interface SpotPairHeaderProps {
   symbol: string;
@@ -29,6 +30,7 @@ export function SpotPairHeader({
   return (
     <header className="h-12 flex-shrink-0 flex items-center gap-4 lg:gap-6 px-3 lg:px-4 bg-card border-b border-border overflow-x-auto">
       <div className="flex items-center gap-2 flex-shrink-0">
+        <CoinIcon symbol={symbol.split('_')[0] || symbol} size={24} />
         <span className="text-base font-semibold text-foreground font-mono tabular-nums">{display}</span>
         <span className="text-[10px] text-muted-foreground px-1.5 py-0.5 bg-accent rounded">Spot</span>
         <Link href={ROUTES.markets} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Markets</Link>

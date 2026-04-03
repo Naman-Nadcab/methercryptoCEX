@@ -8,6 +8,7 @@ import { useBalancesByAccount, type ByAccountRow } from '@/lib/balances';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
 import Link from 'next/link';
 import Image from 'next/image';
+import { CoinIcon } from '@/components/ui/CoinIcon';
 import {
   ChevronDown,
   Copy,
@@ -27,6 +28,7 @@ import {
   CreditCard,
   LayoutGrid,
 } from 'lucide-react';
+import { toast } from '@/components/ui/toaster';
 
 interface Chain {
   id: string;
@@ -100,7 +102,7 @@ interface Withdrawal {
 }
 
 const FAQ_LINKS = [
-  { title: 'Crypto Withdrawal FAQs', href: '/dashboard/announcements' },
+  { title: 'Crypto Withdrawal FAQs', href: '/dashboard/help' },
   { title: 'How to Withdraw Through Internal Transfer', href: '/wallet/transfer' },
   { title: 'View the Deposit/Withdrawal Status of All Coins', href: '/wallet/history' },
   { title: 'How to Change Your Withdrawal Limit', href: '/dashboard/security/withdrawal-limits' },
@@ -615,7 +617,7 @@ export default function WithdrawCryptoPage() {
         <main className="flex-1 p-6">
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
-            <h1 className="text-2xl font-bold text-foreground">Withdraw</h1>
+            <h1 className="text-xl font-semibold text-foreground">Withdraw</h1>
             <Link
               href="/wallet/withdraw/fiat"
               className="flex items-center gap-2 px-4 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-xl border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
@@ -653,14 +655,7 @@ export default function WithdrawCryptoPage() {
                       >
                         {selectedToken ? (
                           <div className="flex items-center gap-3">
-                            <Image
-                              src={getTokenIcon(selectedToken.symbol)}
-                              alt={selectedToken.symbol}
-                              width={28}
-                              height={28}
-                              className="rounded-full"
-                              unoptimized
-                            />
+                            <CoinIcon symbol={selectedToken.symbol} size={28} />
                             <div>
                               <span className="font-semibold text-foreground">{selectedToken.symbol}</span>
                               <span className="text-sm text-muted-foreground ml-2">{selectedToken.name}</span>
@@ -786,7 +781,11 @@ export default function WithdrawCryptoPage() {
                             placeholder="Please enter or select from address book"
                             className="w-full px-4 py-3.5 pr-12 bg-muted dark:bg-[#2b2f36] border border-border rounded-xl text-foreground placeholder:text-muted-foreground focus:border-blue-500 focus:ring-1 focus:ring-primary/20 outline-none transition-all"
                           />
-                          <button className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 hover:bg-accent rounded-lg transition-colors">
+                          <button
+                            type="button"
+                            onClick={() => toast({ title: 'QR Scanner', description: 'Paste a wallet address or use your camera app to scan a QR code.' })}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 hover:bg-accent rounded-lg transition-colors"
+                          >
                             <QrCode className="w-5 h-5 text-muted-foreground" />
                           </button>
                         </div>
@@ -892,7 +891,7 @@ export default function WithdrawCryptoPage() {
                           </span>
                         )}
                         <span className="text-xs text-muted-foreground">Amount</span>
-                        <button className="text-xs text-primary hover:text-primary/85 font-medium">Raise Amount</button>
+                        <Link href="/dashboard/security/withdrawal-limits" className="text-xs text-primary hover:text-primary/85 font-medium">Raise Limit</Link>
                       </div>
                     </div>
                     <div className="relative">
@@ -980,6 +979,12 @@ export default function WithdrawCryptoPage() {
                             : (amount ? `${getReceivedAmount().toFixed(8)} ${selectedToken?.symbol || ''}` : '--')}
                       </span>
                     </div>
+                    {previewData?.min_withdrawal && parseFloat(previewData.min_withdrawal) > 0 && (
+                      <div className="flex items-center justify-between text-sm mt-2 pt-2 border-t border-border/50">
+                        <span className="text-muted-foreground">Min. Withdrawal</span>
+                        <span className="text-foreground">{previewData.min_withdrawal} {selectedToken?.symbol || ''}</span>
+                      </div>
+                    )}
                     {previewData?.fee_exceeds_amount && (
                       <p className="text-amber-600 dark:text-amber-400 text-sm mt-2">Fee exceeds amount. Increase amount or choose another option.</p>
                     )}
@@ -1229,14 +1234,7 @@ export default function WithdrawCryptoPage() {
                     return (
                     <div key={withdrawal.id} className="grid grid-cols-8 gap-4 px-6 py-4 text-sm items-center hover:bg-accent/50 transition-colors">
                       <div className="flex items-center gap-2">
-                        <Image
-                          src={getTokenIcon(coin)}
-                          alt={coin}
-                          width={24}
-                          height={24}
-                          className="rounded-full"
-                          unoptimized
-                        />
+                        <CoinIcon symbol={coin} size={24} />
                         <span className="font-medium text-foreground">{coin}</span>
                       </div>
                       <span className="text-muted-foreground">{chainLabel}</span>
@@ -1257,9 +1255,14 @@ export default function WithdrawCryptoPage() {
                         {txHash ? (
                           <>
                             <span className="text-primary font-mono text-xs">{formatAddress(txHash)}</span>
-                            <button className="text-muted-foreground hover:text-primary transition-colors">
+                            <a
+                              href={selectedChain?.explorer_url ? `${selectedChain.explorer_url.replace(/\/$/, '')}/tx/${txHash}` : `https://etherscan.io/tx/${txHash}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-muted-foreground hover:text-primary transition-colors"
+                            >
                               <ExternalLink className="w-3.5 h-3.5" />
-                            </button>
+                            </a>
                           </>
                         ) : (
                           <span className="text-muted-foreground">-</span>

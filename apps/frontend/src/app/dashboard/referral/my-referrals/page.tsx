@@ -91,7 +91,7 @@ export default function MyReferralsPage() {
       <div className="max-w-5xl mx-auto px-4 lg:px-8 py-6">
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-sm mb-6">
-          <Link href="/dashboard/referral" className="text-muted-foreground hover:text-foreground dark:hover:text-white">
+          <Link href="/dashboard/referral" className="text-muted-foreground hover:text-foreground">
             Referral Program
           </Link>
           <span className="text-muted-foreground dark:text-muted-foreground">{'\u003e'}</span>
@@ -152,7 +152,7 @@ export default function MyReferralsPage() {
               className={`text-sm font-medium pb-2 border-b-2 transition-colors ${
                 signupTab === tab.id
                   ? 'text-foreground border-blue-500'
-                  : 'text-muted-foreground border-transparent hover:text-foreground/80 dark:hover:text-gray-300'
+                  : 'text-muted-foreground border-transparent hover:text-foreground/80'
               }`}
             >
               {tab.label}
@@ -182,7 +182,7 @@ export default function MyReferralsPage() {
                   <p className="text-muted-foreground text-sm mb-2">Withdrawable Balance</p>
                   <div className="flex items-center gap-3">
                     <p className="text-xl font-semibold text-foreground">{Number.isFinite(totalEarnings) ? totalEarnings.toFixed(2) : '0.00'} <span className="text-sm text-muted-foreground">USDT</span></p>
-                    <button className="px-4 py-1.5 bg-transparent border border-border dark:border-gray-600 text-foreground/80 dark:text-foreground text-sm rounded-lg hover:bg-accent transition-colors">
+                    <button className="px-4 py-1.5 bg-transparent border border-border text-foreground/80 dark:text-foreground text-sm rounded-lg hover:bg-accent transition-colors">
                       Withdraw
                     </button>
                   </div>
@@ -226,7 +226,7 @@ export default function MyReferralsPage() {
                   className={`px-4 py-2 text-sm rounded-lg transition-colors ${
                     historyTab === tab.id
                       ? 'bg-accent text-foreground'
-                      : 'bg-accent dark:bg-card text-muted-foreground hover:text-foreground/80 dark:hover:text-white'
+                      : 'bg-accent dark:bg-card text-muted-foreground hover:text-foreground/80'
                   }`}
                 >
                   {tab.label}
@@ -242,8 +242,8 @@ export default function MyReferralsPage() {
                   onClick={() => setSpotTab(tab.id)}
                   className={`text-sm pb-2 transition-colors ${
                     spotTab === tab.id
-                      ? 'text-foreground border-b-2 border-gray-900 dark:border-white -mb-[10px]'
-                      : 'text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'
+                      ? 'text-foreground border-b-2 border-foreground -mb-[10px]'
+                      : 'text-muted-foreground hover:text-foreground/80'
                   }`}
                 >
                   {tab.label}
@@ -480,7 +480,7 @@ export default function MyReferralsPage() {
       </div>
 
       {/* Help Button */}
-      <button className="fixed bottom-6 right-6 w-12 h-12 bg-primary hover:bg-primary/85 text-white rounded-full shadow-lg flex items-center justify-center transition-colors z-40">
+      <button className="fixed bottom-6 right-6 w-12 h-12 bg-primary hover:bg-primary/85 text-primary-foreground rounded-full shadow-lg flex items-center justify-center transition-colors z-40">
         <HelpCircle className="w-6 h-6" />
       </button>
 
@@ -492,7 +492,7 @@ export default function MyReferralsPage() {
             <div className="col-span-2 md:col-span-1">
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-                  <span className="text-white font-bold">M</span>
+                  <span className="text-primary-foreground font-bold">M</span>
                 </div>
                 <span className="text-xl font-bold text-foreground">Methereum</span>
               </div>
@@ -512,16 +512,16 @@ export default function MyReferralsPage() {
             <div>
               <h4 className="font-semibold mb-3 text-foreground">About</h4>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">About Methereum</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Meet Mantle</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Press Room</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Communities</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Announcements</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Risk Disclosure</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Whistleblower Channel</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Careers</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Islamic Account</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Fees & Transactions Overview</li>
+                <li className="hover:text-foreground cursor-pointer">About Methereum</li>
+                <li className="hover:text-foreground cursor-pointer">Meet Mantle</li>
+                <li className="hover:text-foreground cursor-pointer">Press Room</li>
+                <li className="hover:text-foreground cursor-pointer">Communities</li>
+                <li className="hover:text-foreground cursor-pointer">Announcements</li>
+                <li className="hover:text-foreground cursor-pointer">Risk Disclosure</li>
+                <li className="hover:text-foreground cursor-pointer">Whistleblower Channel</li>
+                <li className="hover:text-foreground cursor-pointer">Careers</li>
+                <li className="hover:text-foreground cursor-pointer">Islamic Account</li>
+                <li className="hover:text-foreground cursor-pointer">Fees & Transactions Overview</li>
               </ul>
             </div>
 
@@ -529,14 +529,14 @@ export default function MyReferralsPage() {
             <div>
               <h4 className="font-semibold mb-3 text-foreground">Services</h4>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">One-Click Buy</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">P2P Trading (0 Fees)</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">VIP Program</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Referral Program</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Institutional Services</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Listing Application</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Tax API</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Audit</li>
+                <li className="hover:text-foreground cursor-pointer">One-Click Buy</li>
+                <li className="hover:text-foreground cursor-pointer">P2P Trading (0 Fees)</li>
+                <li className="hover:text-foreground cursor-pointer">VIP Program</li>
+                <li className="hover:text-foreground cursor-pointer">Referral Program</li>
+                <li className="hover:text-foreground cursor-pointer">Institutional Services</li>
+                <li className="hover:text-foreground cursor-pointer">Listing Application</li>
+                <li className="hover:text-foreground cursor-pointer">Tax API</li>
+                <li className="hover:text-foreground cursor-pointer">Audit</li>
               </ul>
             </div>
 
@@ -544,14 +544,14 @@ export default function MyReferralsPage() {
             <div>
               <h4 className="font-semibold mb-3 text-foreground">Support</h4>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Submit a Request</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Help Center</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Support Hub</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">User Feedback</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Methereum Learn</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Trading Fee</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">API</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Authenticity Check</li>
+                <li className="hover:text-foreground cursor-pointer">Submit a Request</li>
+                <li className="hover:text-foreground cursor-pointer">Help Center</li>
+                <li className="hover:text-foreground cursor-pointer">Support Hub</li>
+                <li className="hover:text-foreground cursor-pointer">User Feedback</li>
+                <li className="hover:text-foreground cursor-pointer">Methereum Learn</li>
+                <li className="hover:text-foreground cursor-pointer">Trading Fee</li>
+                <li className="hover:text-foreground cursor-pointer">API</li>
+                <li className="hover:text-foreground cursor-pointer">Authenticity Check</li>
               </ul>
             </div>
 
@@ -559,12 +559,12 @@ export default function MyReferralsPage() {
             <div>
               <h4 className="font-semibold mb-3 text-foreground">Products</h4>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Trade</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">P2P</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Earn</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Launchpad</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">Methereum Card</li>
-                <li className="hover:text-foreground dark:hover:text-white cursor-pointer">TradingView</li>
+                <li className="hover:text-foreground cursor-pointer">Trade</li>
+                <li className="hover:text-foreground cursor-pointer">P2P</li>
+                <li className="hover:text-foreground cursor-pointer">Earn</li>
+                <li className="hover:text-foreground cursor-pointer">Launchpad</li>
+                <li className="hover:text-foreground cursor-pointer">Methereum Card</li>
+                <li className="hover:text-foreground cursor-pointer">TradingView</li>
               </ul>
             </div>
           </div>
@@ -572,8 +572,8 @@ export default function MyReferralsPage() {
           {/* Copyright */}
           <div className="pt-6 border-t border-border flex flex-wrap items-center justify-center gap-4 text-sm text-muted-foreground">
             <span>© 2018-2026 Methereum.com. All rights reserved.</span>
-            <Link href="/terms" className="hover:text-foreground dark:hover:text-white">Terms of Service</Link>
-            <Link href="/privacy" className="hover:text-foreground dark:hover:text-white">Privacy Terms</Link>
+            <Link href="/terms" className="hover:text-foreground">Terms of Service</Link>
+            <Link href="/privacy" className="hover:text-foreground">Privacy Terms</Link>
           </div>
         </div>
       </footer>

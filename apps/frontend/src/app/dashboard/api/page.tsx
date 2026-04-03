@@ -95,10 +95,10 @@ export default function ApiPage() {
   };
 
   const getDaysToExpiration = (expiresAt: string | null) => {
-    if (!expiresAt) return { text: 'Never', color: 'text-green-500' };
+    if (!expiresAt) return { text: 'Never', color: 'text-buy' };
     const days = Math.ceil((new Date(expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-    if (days < 0) return { text: 'Expired', color: 'text-red-500' };
-    if (days < 30) return { text: `${days} days`, color: 'text-yellow-500' };
+    if (days < 0) return { text: 'Expired', color: 'text-sell' };
+    if (days < 30) return { text: `${days} days`, color: 'text-warning' };
     return { text: `${days} days`, color: 'text-muted-foreground' };
   };
 
@@ -142,15 +142,15 @@ export default function ApiPage() {
                 <span className="text-2xl">🚀</span>
               </div>
               <div>
-                <h3 className="text-white font-semibold">Methereum OpenAPI V5</h3>
-                <p className="text-blue-100 text-sm">Transition from legacy versions to our latest API with enhanced features</p>
+                <h3 className="text-primary-foreground font-semibold">Methereum OpenAPI V5</h3>
+                <p className="text-primary-foreground/80 text-sm">Transition from legacy versions to our latest API with enhanced features</p>
               </div>
             </div>
             <Link
               href={process.env.NEXT_PUBLIC_API_DOCS_URL || '/dashboard/announcements'}
               target={process.env.NEXT_PUBLIC_API_DOCS_URL ? '_blank' : undefined}
               rel={process.env.NEXT_PUBLIC_API_DOCS_URL ? 'noopener noreferrer' : undefined}
-              className="px-4 py-2 bg-card/20 hover:bg-card/30 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+              className="px-4 py-2 bg-card/20 hover:bg-card/30 text-primary-foreground rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
               aria-label="API Documentation"
             >
               Documentation <ChevronRight className="w-4 h-4" />
@@ -161,12 +161,12 @@ export default function ApiPage() {
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-foreground">API Management</h1>
+            <h1 className="text-xl font-semibold text-foreground">API Management</h1>
             <p className="text-muted-foreground mt-1">Manage your API keys for automated trading and integrations</p>
           </div>
           <button
             onClick={() => setShowTypeModal(true)}
-            className="px-6 py-3 bg-primary hover:bg-primary/85 text-white font-semibold rounded-xl transition-all shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 flex items-center gap-2"
+            className="px-6 py-3 bg-primary hover:bg-primary/85 text-primary-foreground font-semibold rounded-xl transition-all shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 flex items-center gap-2"
           >
             <Key className="w-5 h-5" />
             Create New Key
@@ -177,7 +177,7 @@ export default function ApiPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
           <div className="bg-card rounded-xl p-5 border border-border">
             <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
+              <div className="w-10 h-10 bg-muted rounded-lg flex items-center justify-center">
                 <Key className="w-5 h-5 text-primary" />
               </div>
               <div>
@@ -197,7 +197,7 @@ export default function ApiPage() {
 
           <div className="bg-card rounded-xl p-5 border border-border">
             <div className="flex items-center gap-3 mb-2">
-              <div className="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center">
+              <div className="w-10 h-10 bg-buy-light rounded-lg flex items-center justify-center">
                 <Shield className="w-5 h-5 text-buy" />
               </div>
               <div>
@@ -210,8 +210,8 @@ export default function ApiPage() {
 
           <div className="bg-card rounded-xl p-5 border border-border">
             <div className="flex items-center gap-3 mb-2">
-              <div className="w-10 h-10 bg-purple-100 dark:bg-purple-900/30 rounded-lg flex items-center justify-center">
-                <svg className="w-5 h-5 text-purple-600 dark:text-purple-400" fill="currentColor" viewBox="0 0 24 24">
+              <div className="w-10 h-10 bg-muted rounded-lg flex items-center justify-center">
+                <svg className="w-5 h-5 text-primary" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
                 </svg>
               </div>
@@ -289,10 +289,10 @@ export default function ApiPage() {
               <div className="flex flex-col items-center justify-center">
                 <div className="w-24 h-24 bg-accent rounded-full flex items-center justify-center mb-6">
                   <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-                    <rect x="8" y="12" width="32" height="24" rx="4" className="fill-gray-200 dark:fill-gray-700"/>
-                    <path d="M16 20h16M16 26h10" className="stroke-gray-300 dark:stroke-gray-600" strokeWidth="2" strokeLinecap="round"/>
-                    <circle cx="36" cy="36" r="8" className="fill-blue-100 dark:fill-blue-900/50"/>
-                    <path d="M33 36l2 2 4-4" className="stroke-blue-500" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    <rect x="8" y="12" width="32" height="24" rx="4" className="fill-muted"/>
+                    <path d="M16 20h16M16 26h10" className="stroke-muted-foreground" strokeWidth="2" strokeLinecap="round"/>
+                    <circle cx="36" cy="36" r="8" className="fill-primary/15"/>
+                    <path d="M33 36l2 2 4-4" className="stroke-primary" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                 </div>
                 <h3 className="text-lg font-semibold text-foreground mb-2">No API Keys Yet</h3>
@@ -301,7 +301,7 @@ export default function ApiPage() {
                 </p>
                 <button
                   onClick={() => setShowTypeModal(true)}
-                  className="px-6 py-3 bg-primary hover:bg-primary/85 text-white font-medium rounded-xl transition-colors"
+                  className="px-6 py-3 bg-primary hover:bg-primary/85 text-primary-foreground font-medium rounded-xl transition-colors"
                 >
                   Create Your First Key
                 </button>
@@ -327,11 +327,11 @@ export default function ApiPage() {
                   {apiKeys.map(key => {
                     const expiration = getDaysToExpiration(key.expiresAt);
                     return (
-                      <tr key={key.id} className="hover:bg-muted dark:hover:bg-[#1e2329] transition-colors">
+                      <tr key={key.id} className="hover:bg-muted transition-colors">
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
                             <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
-                              <Key className="w-5 h-5 text-white" />
+                              <Key className="w-5 h-5 text-primary-foreground" />
                             </div>
                             <div>
                               <p className="font-medium text-foreground">{key.name}</p>
@@ -342,8 +342,8 @@ export default function ApiPage() {
                         <td className="px-6 py-4">
                           <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium ${
                             key.keyType === 'system' 
-                              ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'
-                              : 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400'
+                              ? 'bg-muted text-primary'
+                              : 'bg-accent text-foreground/80'
                           }`}>
                             {key.keyType === 'system' ? 'HMAC' : 'RSA'}
                           </span>
@@ -358,7 +358,7 @@ export default function ApiPage() {
                               className="p-1.5 hover:bg-accent rounded-lg transition-colors"
                             >
                               {copiedKey === `key-${key.id}` ? (
-                                <Check className="w-4 h-4 text-green-500" />
+                                <Check className="w-4 h-4 text-buy" />
                               ) : (
                                 <Copy className="w-4 h-4 text-muted-foreground" />
                               )}
@@ -385,7 +385,7 @@ export default function ApiPage() {
                         <td className="px-6 py-4">
                           <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium ${
                             key.permission === 'read_write'
-                              ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+                              ? 'bg-buy-light text-buy'
                               : 'bg-accent text-foreground/70'
                           }`}>
                             {key.permission === 'read_write' ? 'Read-Write' : 'Read-Only'}
@@ -422,14 +422,14 @@ export default function ApiPage() {
                             <button
                               onClick={() => handleDeleteKey(key)}
                               disabled={!!deletingId}
-                              className="p-2 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors disabled:opacity-50"
+                              className="p-2 hover:bg-sell-light rounded-lg transition-colors disabled:opacity-50"
                               title="Delete API key"
                               aria-label={`Delete API key ${key.name}`}
                             >
                               {deletingId === key.id ? (
-                                <Loader2 className="w-4 h-4 text-red-500 animate-spin" />
+                                <Loader2 className="w-4 h-4 text-sell animate-spin" />
                               ) : (
-                                <Trash2 className="w-4 h-4 text-red-500" />
+                                <Trash2 className="w-4 h-4 text-sell" />
                               )}
                             </button>
                           </div>
@@ -444,12 +444,12 @@ export default function ApiPage() {
         </div>
 
         {/* Security Notice */}
-        <div className="mt-6 p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl">
+        <div className="mt-6 p-4 bg-warning-light border border-warning/30 rounded-xl">
           <div className="flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-yellow-600 dark:text-yellow-500 flex-shrink-0 mt-0.5" />
-            <div className="text-sm text-yellow-700 dark:text-yellow-400">
+            <AlertCircle className="w-5 h-5 text-warning flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-foreground/90">
               <p className="font-medium mb-1">Security Recommendations</p>
-              <ul className="list-disc list-inside space-y-1 text-yellow-600 dark:text-yellow-500">
+              <ul className="list-disc list-inside space-y-1 text-muted-foreground">
                 <li>Never share your API secret with anyone</li>
                 <li>Add IP addresses to your keys for enhanced security</li>
                 <li>Regularly rotate your API keys</li>
@@ -482,11 +482,11 @@ export default function ApiPage() {
               {/* System-generated */}
               <button
                 onClick={() => handleCreateKey('system')}
-                className="w-full p-5 bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-800/50 border-2 border-transparent hover:border-blue-500 rounded-xl transition-all text-left group"
+                className="w-full p-5 bg-gradient-to-r from-muted to-muted/80 border-2 border-transparent hover:border-primary rounded-xl transition-all text-left group"
               >
                 <div className="flex items-start gap-4">
                   <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg shadow-blue-500/25">
-                    <Key className="w-7 h-7 text-white" />
+                    <Key className="w-7 h-7 text-primary-foreground" />
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center justify-between">
@@ -497,7 +497,7 @@ export default function ApiPage() {
                       Uses <span className="font-semibold text-primary">HMAC encryption</span>. You'll receive a public and private key pair. Keep them secure like passwords.
                     </p>
                     <div className="flex items-center gap-2 mt-3">
-                      <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-xs font-medium rounded">Recommended</span>
+                      <span className="px-2 py-1 bg-muted text-primary text-xs font-medium rounded">Recommended</span>
                       <span className="px-2 py-1 bg-accent text-muted-foreground text-xs rounded">Easier Setup</span>
                     </div>
                   </div>
@@ -507,22 +507,22 @@ export default function ApiPage() {
               {/* Self-generated */}
               <button
                 onClick={() => handleCreateKey('self')}
-                className="w-full p-5 bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-800/50 border-2 border-transparent hover:border-purple-500 rounded-xl transition-all text-left group"
+                className="w-full p-5 bg-gradient-to-r from-muted to-muted/80 border-2 border-transparent hover:border-primary rounded-xl transition-all text-left group"
               >
                 <div className="flex items-start gap-4">
                   <div className="w-14 h-14 bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg shadow-purple-500/25">
-                    <Shield className="w-7 h-7 text-white" />
+                    <Shield className="w-7 h-7 text-primary-foreground" />
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center justify-between">
                       <h3 className="text-lg font-bold text-foreground">Self-generated API Keys</h3>
-                      <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-purple-500 transition-colors" />
+                      <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
                     </div>
                     <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
-                      Uses <span className="font-semibold text-purple-600 dark:text-purple-400">RSA encryption</span>. Create your own key pair locally. We only store your public key - maximum security.
+                      Uses <span className="font-semibold text-primary">RSA encryption</span>. Create your own key pair locally. We only store your public key - maximum security.
                     </p>
                     <div className="flex items-center gap-2 mt-3">
-                      <span className="px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 text-xs font-medium rounded">Advanced</span>
+                      <span className="px-2 py-1 bg-muted text-primary text-xs font-medium rounded">Advanced</span>
                       <span className="px-2 py-1 bg-accent text-muted-foreground text-xs rounded">API v3 & v5</span>
                     </div>
                   </div>

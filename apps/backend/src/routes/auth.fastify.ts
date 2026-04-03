@@ -3057,7 +3057,16 @@ export default async function authRoutes(app: FastifyInstance) {
     try {
       await request.jwtVerify();
       const userId = (request.user?.userId ?? request.user?.id)!;
-      const { type, phone, purpose } = request.body as { type: 'email' | 'phone'; phone?: string; purpose?: string };
+      const body = request.body as {
+        type?: 'email' | 'phone';
+        channel?: string;
+        phone?: string;
+        purpose?: string;
+      };
+      const type: 'email' | 'phone' | undefined =
+        body.channel === 'sms' ? 'phone' : body.type;
+      const phone = body.phone;
+      const purpose = body.purpose;
 
       // Get user data
       const userResult = await db.query<{ email: string; phone: string | null }>(
@@ -3150,7 +3159,18 @@ export default async function authRoutes(app: FastifyInstance) {
     try {
       await request.jwtVerify();
       const userId = (request.user?.userId ?? request.user?.id)!;
-      const { type, otp, purpose } = request.body as { type: 'email' | 'phone'; otp: string; purpose?: string };
+      const body = request.body as {
+        type?: 'email' | 'phone';
+        channel?: string;
+        phone?: string;
+        otp?: string;
+        code?: string;
+        purpose?: string;
+      };
+      const type: 'email' | 'phone' | undefined =
+        body.channel === 'sms' ? 'phone' : body.type;
+      const otp = body.otp ?? body.code ?? '';
+      const purpose = body.purpose;
 
       // Get user data
       const userResult = await db.query<{ email: string; phone: string | null }>(
@@ -3172,6 +3192,13 @@ export default async function authRoutes(app: FastifyInstance) {
         return reply.status(400).send({
           success: false,
           error: { code: 'NO_PHONE', message: 'No phone number registered' },
+        });
+      }
+
+      if (!type || !otp) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_REQUEST', message: 'Type and verification code are required' },
         });
       }
 
@@ -3210,12 +3237,13 @@ export default async function authRoutes(app: FastifyInstance) {
     try {
       await request.jwtVerify();
       const userId = (request.user?.userId ?? request.user?.id)!;
-      const { phone, otp } = request.body as { phone: string; otp: string };
+      const { phone, otp, code } = request.body as { phone: string; otp?: string; code?: string };
+      const otpCode = otp ?? code ?? '';
 
-      if (!phone || !otp) {
+      if (!phone || !otpCode) {
         return reply.status(400).send({
           success: false,
-          error: { code: 'MISSING_DATA', message: 'Phone and OTP are required' },
+          error: { code: 'MISSING_DATA', message: 'Phone and verification code are required' },
         });
       }
 
@@ -3223,7 +3251,7 @@ export default async function authRoutes(app: FastifyInstance) {
       const cleanPhone = normalizePhoneNumber(phone);
 
       // Verify OTP
-      const result = await otpService.verifyOTP(cleanPhone, 'phone', otp);
+      const result = await otpService.verifyOTP(cleanPhone, 'phone', otpCode);
       if (!result.valid) {
         return reply.status(400).send({
           success: false,

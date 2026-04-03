@@ -20,17 +20,14 @@ export function P2PMerchantCard({ ad, fiat }: Props) {
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
       {uid ? (
-        <Link
-          href={p2pProfilePath(String(uid))}
-          className="font-medium text-primary hover:underline dark:text-blue-400"
-        >
+        <Link href={p2pProfilePath(String(uid))} className="font-medium text-primary hover:underline">
           {ad.username || 'Merchant'}
         </Link>
       ) : (
         <span className="font-medium text-foreground">{ad.username || 'Merchant'}</span>
       )}
       {verified && (
-        <span className="inline-flex items-center gap-0.5 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
+        <span className="inline-flex items-center gap-0.5 rounded bg-buy-light px-1.5 py-0.5 text-[10px] font-medium text-buy">
           <ShieldCheck className="h-3 w-3" />
           Verified
         </span>

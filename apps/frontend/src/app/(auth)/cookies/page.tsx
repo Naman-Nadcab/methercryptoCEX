@@ -10,7 +10,7 @@ export default function CookiePolicyPage() {
         <div className="max-w-4xl mx-auto px-6 py-4">
           <Link
             href="/login"
-            className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground dark:hover:text-white transition-colors"
+            className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
             <span>Back</span>

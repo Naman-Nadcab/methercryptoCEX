@@ -17,6 +17,7 @@ import { P2PAdsTable } from '@/components/p2p-v2/P2PAdsTable';
 import { p2pAdDisplayPrice, p2pAdSide, formatFiatSymbol } from '@/lib/p2p-v2-utils';
 import { X } from 'lucide-react';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { CoinIcon } from '@/components/ui/CoinIcon';
 
 function TakeOrderModal({
   ad,
@@ -71,10 +72,14 @@ function TakeOrderModal({
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog">
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-border bg-card p-5 dark:border-border dark:bg-card">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4 backdrop-blur-sm"
+      role="dialog"
+    >
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-lg">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-foreground">
+          <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+            <CoinIcon symbol={ad.crypto_symbol || ''} size={24} />
             {side === 'sell' ? 'Buy' : 'Sell'} {ad.crypto_symbol}
           </h2>
           <button type="button" onClick={onClose} className="rounded p-1 text-muted-foreground hover:bg-accent">
@@ -89,7 +94,7 @@ function TakeOrderModal({
         <input
           value={qty}
           onChange={(e) => setQty(e.target.value)}
-          className="mb-4 w-full rounded-lg border border-border px-3 py-2 font-mono text-sm dark:border-border dark:bg-background dark:text-foreground"
+          className="mb-4 w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-sm text-foreground"
         />
         <label className="mb-2 block text-xs font-medium text-foreground/80">Your payment method</label>
         {pmLoading ? (
@@ -98,9 +103,9 @@ function TakeOrderModal({
             <Skeleton className="h-3 w-3/4 max-w-sm" />
           </div>
         ) : selectable.length === 0 ? (
-          <p className="text-sm text-amber-600">
+          <p className="text-sm text-muted-foreground">
             No matching payment method.{' '}
-            <Link href="/p2p/payment-methods" className="underline">
+            <Link href="/p2p/payment-methods" className="font-medium text-primary underline underline-offset-2">
               Add one
             </Link>
           </p>
@@ -108,7 +113,7 @@ function TakeOrderModal({
           <select
             value={pmId}
             onChange={(e) => setPmId(e.target.value)}
-            className="mb-4 w-full rounded-lg border border-border px-3 py-2 text-sm dark:border-border dark:bg-background dark:text-foreground"
+            className="mb-4 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
           >
             <option value="">Select…</option>
             {selectable.map((m: P2PPaymentMethodRow) => (
@@ -118,12 +123,12 @@ function TakeOrderModal({
             ))}
           </select>
         )}
-        {err && <p className="mb-2 text-sm text-red-600">{err}</p>}
+        {err && <p className="mb-2 text-sm text-sell">{err}</p>}
         <button
           type="button"
           disabled={mut.isPending || !pmId || selectable.length === 0}
           onClick={() => mut.mutate()}
-          className="w-full rounded-lg bg-blue-600 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          className="w-full rounded-lg bg-primary py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
           {mut.isPending ? 'Creating…' : 'Create order'}
         </button>
@@ -158,10 +163,10 @@ export default function P2PV2MarketplacePage() {
   });
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-foreground">P2P marketplace</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+    <div className="space-y-5 sm:space-y-6">
+      <div className="space-y-1">
+        <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">P2P marketplace</h1>
+        <p className="text-sm text-muted-foreground">
           Trade with verified peers. Escrow protects every deal.
         </p>
       </div>

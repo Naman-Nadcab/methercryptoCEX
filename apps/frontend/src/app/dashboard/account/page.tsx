@@ -166,7 +166,7 @@ export default function AccountInfoPage() {
       <div className="flex items-center gap-4">
         {status && (
           <span className={`flex items-center gap-1.5 text-sm font-medium ${statusColor}`}>
-            <span className={`w-2 h-2 rounded-full ${statusColor?.includes('green') ? 'bg-green-500' : statusColor?.includes('orange') ? 'bg-orange-500' : 'bg-gray-400'}`}></span>
+            <span className={`w-2 h-2 rounded-full ${statusColor?.includes('text-buy') ? 'bg-buy' : statusColor?.includes('text-warning') ? 'bg-warning' : 'bg-muted-foreground'}`}></span>
             {status}
           </span>
         )}
@@ -174,9 +174,9 @@ export default function AccountInfoPage() {
           onClick={action}
           className={`px-5 py-2.5 text-sm font-medium rounded-xl transition-all ${
             actionVariant === 'primary'
-              ? 'bg-primary hover:bg-primary/85 text-white shadow-lg shadow-blue-500/25'
+              ? 'bg-primary hover:bg-primary/85 text-primary-foreground shadow-lg shadow-blue-500/25'
               : actionVariant === 'success'
-              ? 'bg-green-500 hover:bg-green-600 text-white shadow-lg shadow-green-500/25'
+              ? 'bg-buy hover:bg-buy-hover text-primary-foreground shadow-lg shadow-buy/25'
               : 'bg-accent hover:bg-accent text-foreground/80'
           }`}
         >
@@ -191,7 +191,7 @@ export default function AccountInfoPage() {
       <div className="max-w-5xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground">Account Info</h1>
+          <h1 className="text-xl font-semibold text-foreground">Account Info</h1>
           <p className="text-muted-foreground mt-2">Manage your profile and account settings</p>
         </div>
 
@@ -207,11 +207,11 @@ export default function AccountInfoPage() {
                     {user?.avatarUrl ? (
                       <img src={user.avatarUrl} alt="Avatar" className="w-full h-full rounded-xl object-cover" />
                     ) : (
-                      <User className="w-10 h-10 text-white" />
+                      <User className="w-10 h-10 text-primary-foreground" />
                     )}
                   </div>
                   <button className="absolute -bottom-1 -right-1 w-8 h-8 bg-primary hover:bg-primary/85 rounded-xl flex items-center justify-center transition-colors shadow-lg">
-                    <Camera className="w-4 h-4 text-white" />
+                    <Camera className="w-4 h-4 text-primary-foreground" />
                   </button>
                 </div>
 
@@ -238,7 +238,7 @@ export default function AccountInfoPage() {
                         className="p-1 hover:bg-accent rounded-lg transition-colors"
                       >
                         {copiedUID ? (
-                          <Check className="w-4 h-4 text-green-500" />
+                          <Check className="w-4 h-4 text-buy" />
                         ) : (
                           <Copy className="w-4 h-4 text-muted-foreground" />
                         )}
@@ -259,9 +259,9 @@ export default function AccountInfoPage() {
 
               {/* Right: Security Alert - Dynamic based on security level */}
               {security.status !== 'High' ? (
-                <div className="flex items-start gap-4 p-4 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800/50 rounded-xl max-w-sm">
-                  <div className="w-12 h-12 bg-orange-100 dark:bg-orange-900/40 rounded-xl flex items-center justify-center flex-shrink-0">
-                    <ShieldAlert className="w-6 h-6 text-orange-500" />
+                <div className="flex items-start gap-4 p-4 bg-warning-light border border-warning/30 rounded-xl max-w-sm">
+                  <div className="w-12 h-12 bg-muted rounded-xl flex items-center justify-center flex-shrink-0">
+                    <ShieldAlert className="w-6 h-6 text-warning" />
                   </div>
                   <div>
                     <p className="font-medium text-foreground mb-1">Security Alert</p>
@@ -279,9 +279,9 @@ export default function AccountInfoPage() {
                   </div>
                 </div>
               ) : (
-                <div className="flex items-start gap-4 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800/50 rounded-xl max-w-sm">
-                  <div className="w-12 h-12 bg-green-100 dark:bg-green-900/40 rounded-xl flex items-center justify-center flex-shrink-0">
-                    <Shield className="w-6 h-6 text-green-500" />
+                <div className="flex items-start gap-4 p-4 bg-buy-light border border-buy/20 rounded-xl max-w-sm">
+                  <div className="w-12 h-12 bg-muted rounded-xl flex items-center justify-center flex-shrink-0">
+                    <Shield className="w-6 h-6 text-buy" />
                   </div>
                   <div>
                     <p className="font-medium text-foreground mb-1">Account Secured</p>
@@ -290,7 +290,7 @@ export default function AccountInfoPage() {
                     </p>
                     <Link 
                       href="/dashboard/security"
-                      className="text-sm text-green-500 hover:text-green-600 font-medium flex items-center gap-1"
+                      className="text-sm text-buy hover:text-buy/90 font-medium flex items-center gap-1"
                     >
                       View Settings <ChevronRight className="w-4 h-4" />
                     </Link>
@@ -305,16 +305,16 @@ export default function AccountInfoPage() {
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-medium text-foreground/80">Security Level</span>
               <span className={`text-sm font-semibold ${
-                security.color === 'green' ? 'text-green-500' : 
-                security.color === 'yellow' ? 'text-yellow-500' : 'text-orange-500'
+                security.color === 'green' ? 'text-buy' : 
+                security.color === 'yellow' ? 'text-warning' : 'text-warning'
               }`}>{security.status}</span>
             </div>
             <div className="w-full bg-accent rounded-full h-2">
               <div 
                 className={`h-2 rounded-full transition-all duration-500 ${
-                  security.color === 'green' ? 'bg-gradient-to-r from-green-500 to-green-400' : 
-                  security.color === 'yellow' ? 'bg-gradient-to-r from-yellow-500 to-yellow-400' : 
-                  'bg-gradient-to-r from-orange-500 to-orange-400'
+                  security.color === 'green' ? 'bg-gradient-to-r from-buy to-buy/80' : 
+                  security.color === 'yellow' ? 'bg-gradient-to-r from-warning to-warning/80' : 
+                  'bg-gradient-to-r from-warning to-warning/70'
                 }`} 
                 style={{ width: `${security.score}%` }}
               ></div>
@@ -333,7 +333,7 @@ export default function AccountInfoPage() {
               title="Profile Picture"
               description="Personalize your account with a custom avatar"
               status="Set up"
-              statusColor="text-green-500"
+              statusColor="text-buy"
               actionLabel="Settings"
             />
             <SettingRow
@@ -349,9 +349,9 @@ export default function AccountInfoPage() {
               description="Complete KYC to increase withdrawal limits"
               status={kycDisplay.text}
               statusColor={
-                kycDisplay.color === 'green' ? 'text-green-500' : 
-                kycDisplay.color === 'yellow' ? 'text-yellow-500' : 
-                kycDisplay.color === 'red' ? 'text-red-500' : 'text-muted-foreground'
+                kycDisplay.color === 'green' ? 'text-buy' : 
+                kycDisplay.color === 'yellow' ? 'text-warning' : 
+                kycDisplay.color === 'red' ? 'text-sell' : 'text-muted-foreground'
               }
               actionLabel={profileData?.kycStatus === 'approved' ? 'View' : 'Verify Now'}
               actionVariant={profileData?.kycStatus === 'approved' ? 'default' : 'primary'}
@@ -363,8 +363,8 @@ export default function AccountInfoPage() {
         {/* Account Integrations */}
         <div className="bg-card rounded-xl border border-border overflow-hidden mb-6">
           <div className="px-6 py-4 border-b border-border flex items-center gap-3">
-            <div className="w-10 h-10 bg-purple-100 dark:bg-purple-900/30 rounded-xl flex items-center justify-center">
-              <Link2 className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+            <div className="w-10 h-10 bg-muted rounded-xl flex items-center justify-center">
+              <Link2 className="w-5 h-5 text-primary" />
             </div>
             <div>
               <h2 className="text-lg font-semibold text-foreground">Account Integrations</h2>
@@ -416,15 +416,15 @@ export default function AccountInfoPage() {
             />
             <div className="flex items-center justify-between p-5 hover:bg-accent/30 transition-colors">
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-red-100 dark:bg-red-900/30 rounded-xl flex items-center justify-center">
-                  <Trash2 className="w-6 h-6 text-red-500" />
+                <div className="w-12 h-12 bg-sell-light rounded-xl flex items-center justify-center">
+                  <Trash2 className="w-6 h-6 text-sell" />
                 </div>
                 <div>
                   <h3 className="font-medium text-foreground">Delete Account</h3>
                   <p className="text-sm text-muted-foreground mt-0.5">Permanently delete your account and data</p>
                 </div>
               </div>
-              <button className="px-5 py-2.5 text-sm font-medium rounded-xl bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 text-destructive transition-colors">
+              <button className="px-5 py-2.5 text-sm font-medium rounded-xl bg-sell-light hover:bg-sell/20 text-destructive transition-colors">
                 Delete
               </button>
             </div>

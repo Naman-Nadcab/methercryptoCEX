@@ -141,7 +141,7 @@ function DocumentUploadContent() {
             <ChevronLeft className="w-5 h-5 text-muted-foreground" />
           </button>
           <div>
-            <h1 className="text-lg font-semibold text-foreground">
+            <h1 className="text-xl font-semibold text-foreground">
               Upload {documentLabels[documentType] || 'Document'}
             </h1>
             <p className="text-sm text-muted-foreground">Step {['front', 'back', 'selfie', 'review'].indexOf(step) + 1} of {needsBackImage ? 4 : 3}</p>
@@ -168,7 +168,7 @@ function DocumentUploadContent() {
           </div>
 
           {error && (
-            <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl flex items-center gap-2 text-destructive">
+            <div className="mb-6 p-4 bg-sell-light border border-sell/20 rounded-xl flex items-center gap-2 text-destructive">
               <AlertCircle className="w-5 h-5" />
               {error}
             </div>
@@ -188,7 +188,7 @@ function DocumentUploadContent() {
 
               <div
                 onClick={() => frontInputRef.current?.click()}
-                className="border-2 border-dashed border-border dark:border-gray-600 rounded-xl p-12 text-center cursor-pointer hover:border-blue-500 transition-colors"
+                className="border-2 border-dashed border-border rounded-xl p-12 text-center cursor-pointer hover:border-primary transition-colors"
               >
                 {frontPreview ? (
                   <div className="relative">
@@ -199,7 +199,7 @@ function DocumentUploadContent() {
                         setFrontImage(null);
                         setFrontPreview(null);
                       }}
-                      className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full"
+                      className="absolute top-2 right-2 p-1 bg-sell text-destructive-foreground rounded-full"
                     >
                       <X className="w-4 h-4" />
                     </button>
@@ -244,7 +244,7 @@ function DocumentUploadContent() {
 
               <div
                 onClick={() => backInputRef.current?.click()}
-                className="border-2 border-dashed border-border dark:border-gray-600 rounded-xl p-12 text-center cursor-pointer hover:border-blue-500 transition-colors"
+                className="border-2 border-dashed border-border rounded-xl p-12 text-center cursor-pointer hover:border-primary transition-colors"
               >
                 {backPreview ? (
                   <div className="relative">
@@ -255,7 +255,7 @@ function DocumentUploadContent() {
                         setBackImage(null);
                         setBackPreview(null);
                       }}
-                      className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full"
+                      className="absolute top-2 right-2 p-1 bg-sell text-destructive-foreground rounded-full"
                     >
                       <X className="w-4 h-4" />
                     </button>
@@ -285,7 +285,7 @@ function DocumentUploadContent() {
                 </button>
                 <button
                   onClick={() => backInputRef.current?.click()}
-                  className="flex-1 py-3 bg-primary hover:bg-primary/85 text-white font-medium rounded-xl transition-colors flex items-center justify-center gap-2"
+                  className="flex-1 py-3 bg-primary hover:bg-primary/85 text-primary-foreground font-medium rounded-xl transition-colors flex items-center justify-center gap-2"
                 >
                   <Camera className="w-5 h-5" />
                   Take Photo
@@ -308,7 +308,7 @@ function DocumentUploadContent() {
 
               <div
                 onClick={() => selfieInputRef.current?.click()}
-                className="border-2 border-dashed border-border dark:border-gray-600 rounded-xl p-12 text-center cursor-pointer hover:border-blue-500 transition-colors"
+                className="border-2 border-dashed border-border rounded-xl p-12 text-center cursor-pointer hover:border-primary transition-colors"
               >
                 {selfiePreview ? (
                   <div className="relative">
@@ -319,7 +319,7 @@ function DocumentUploadContent() {
                         setSelfie(null);
                         setSelfiePreview(null);
                       }}
-                      className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full"
+                      className="absolute top-2 right-2 p-1 bg-sell text-destructive-foreground rounded-full"
                     >
                       <X className="w-4 h-4" />
                     </button>
@@ -351,7 +351,7 @@ function DocumentUploadContent() {
                 </button>
                 <button
                   onClick={() => selfieInputRef.current?.click()}
-                  className="flex-1 py-3 bg-primary hover:bg-primary/85 text-white font-medium rounded-xl transition-colors flex items-center justify-center gap-2"
+                  className="flex-1 py-3 bg-primary hover:bg-primary/85 text-primary-foreground font-medium rounded-xl transition-colors flex items-center justify-center gap-2"
                 >
                   <Camera className="w-5 h-5" />
                   Take Selfie
@@ -379,7 +379,7 @@ function DocumentUploadContent() {
                   )}
                   <div className="flex-1">
                     <p className="font-medium text-foreground">Front Side</p>
-                    <p className="text-sm text-green-500 flex items-center gap-1">
+                    <p className="text-sm text-buy flex items-center gap-1">
                       <Check className="w-4 h-4" /> Uploaded
                     </p>
                   </div>
@@ -396,7 +396,7 @@ function DocumentUploadContent() {
                     <img src={backPreview} alt="Back" className="w-20 h-14 object-cover rounded-lg" />
                     <div className="flex-1">
                       <p className="font-medium text-foreground">Back Side</p>
-                      <p className="text-sm text-green-500 flex items-center gap-1">
+                      <p className="text-sm text-buy flex items-center gap-1">
                         <Check className="w-4 h-4" /> Uploaded
                       </p>
                     </div>
@@ -414,7 +414,7 @@ function DocumentUploadContent() {
                     <img src={selfiePreview} alt="Selfie" className="w-20 h-20 object-cover rounded-full" />
                     <div className="flex-1">
                       <p className="font-medium text-foreground">Selfie</p>
-                      <p className="text-sm text-green-500 flex items-center gap-1">
+                      <p className="text-sm text-buy flex items-center gap-1">
                         <Check className="w-4 h-4" /> Uploaded
                       </p>
                     </div>
@@ -438,7 +438,7 @@ function DocumentUploadContent() {
                 <button
                   onClick={handleSubmit}
                   disabled={loading}
-                  className="flex-1 py-3 bg-primary hover:bg-primary/85 text-white font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  className="flex-1 py-3 bg-primary hover:bg-primary/85 text-primary-foreground font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {loading ? (
                     <>
@@ -455,9 +455,9 @@ function DocumentUploadContent() {
         </div>
 
         {/* Tips */}
-        <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl">
-          <h3 className="font-medium text-blue-800 dark:text-blue-400 mb-2">Tips for a successful verification</h3>
-          <ul className="text-sm text-blue-700 dark:text-primary space-y-1">
+        <div className="mt-6 p-4 bg-muted border border-border rounded-xl">
+          <h3 className="font-medium text-foreground mb-2">Tips for a successful verification</h3>
+          <ul className="text-sm text-muted-foreground space-y-1">
             <li>• Make sure the document is fully visible and not cut off</li>
             <li>• Avoid glare and ensure good lighting</li>
             <li>• All text should be clearly readable</li>

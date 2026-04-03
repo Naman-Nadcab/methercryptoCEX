@@ -97,7 +97,7 @@ export async function fetchP2PAds(params: {
   if (params.advertiser_id) q.set('advertiser_id', params.advertiser_id);
   if (params.limit != null) q.set('limit', String(params.limit));
   if (params.offset != null) q.set('offset', String(params.offset));
-  const res = await api.get<{ success: boolean; data?: P2PAdRow[] }>(`${P2P_PREFIX}/ads?${q.toString()}`);
+  const res = await api.get<{ success: boolean; data?: P2PAdRow[] }>(`${P2P_PREFIX}/ads?${q.toString()}`, { skipAuth: true, notifyOnError: false });
   if (!res.success || !Array.isArray(res.data)) return [];
   return res.data;
 }
@@ -140,7 +140,7 @@ export interface PlatformPaymentMethod {
 export async function fetchPlatformPaymentMethods(): Promise<PlatformPaymentMethod[]> {
   const res = await api.get<{ success: boolean; data?: PlatformPaymentMethod[]; error?: { message?: string } }>(
     `${P2P_PREFIX}/payment-methods`,
-    { notifyOnError: false }
+    { skipAuth: true, notifyOnError: false }
   );
   if (!res.success) {
     throw new Error(res.error?.message ?? 'Failed to load payment types');
@@ -296,7 +296,7 @@ export async function fetchP2PReferencePrice(asset: string, fiat: string): Promi
   q.set('fiat', fiat);
   const res = await api.get<P2PReferencePriceResponse>(
     `${P2P_PREFIX}/reference-price?${q.toString()}`,
-    { notifyOnError: false }
+    { skipAuth: true, notifyOnError: false }
   );
   if (!res.success || res.data == null) return null;
   return res.data;

@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { X, ArrowLeftRight, ChevronDown, AlertCircle, CheckCircle2, Loader2, Search, Wallet, ArrowRight } from 'lucide-react';
 import Image from 'next/image';
 import { useAuthStore } from '@/store/auth';
+import { CoinIcon } from '@/components/ui/CoinIcon';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
 
 interface Token {
@@ -186,13 +187,13 @@ export default function TransferModal({
     if (account === 'funding') {
       return (
         <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
-          <Wallet className="w-3.5 h-3.5 text-white" />
+          <Wallet className="w-3.5 h-3.5 text-foreground" />
         </div>
       );
     }
     return (
       <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center">
-        <ArrowRight className="w-3.5 h-3.5 text-white" />
+        <ArrowRight className="w-3.5 h-3.5 text-foreground" />
       </div>
     );
   };
@@ -234,7 +235,7 @@ export default function TransferModal({
                     setShowToDropdown(false);
                     setShowCoinDropdown(false);
                   }}
-                  className="w-full flex items-center gap-2 px-3 py-2.5 bg-muted dark:bg-[#2b2f36] border border-border rounded-xl hover:border-blue-400 transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-2.5 bg-card border border-border rounded-xl hover:border-blue-400 transition-colors"
                 >
                   {getAccountIcon(fromAccount)}
                   <span className="text-foreground font-medium text-sm flex-1 text-left truncate">
@@ -289,7 +290,7 @@ export default function TransferModal({
                     setShowFromDropdown(false);
                     setShowCoinDropdown(false);
                   }}
-                  className="w-full flex items-center gap-2 px-3 py-2.5 bg-muted dark:bg-[#2b2f36] border border-border rounded-xl hover:border-blue-400 transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-2.5 bg-card border border-border rounded-xl hover:border-blue-400 transition-colors"
                 >
                   {getAccountIcon(toAccount)}
                   <span className="text-foreground font-medium text-sm flex-1 text-left truncate">
@@ -337,27 +338,12 @@ export default function TransferModal({
                   setShowFromDropdown(false);
                   setShowToDropdown(false);
                 }}
-                className="w-full flex items-center justify-between px-3 py-2.5 bg-muted dark:bg-[#2b2f36] border border-border rounded-xl hover:border-blue-400 transition-colors"
+                className="w-full flex items-center justify-between px-3 py-2.5 bg-card border border-border rounded-xl hover:border-blue-400 transition-colors"
               >
                 <div className="flex items-center gap-2">
                   {selectedToken ? (
                     <>
-                      {selectedToken.iconUrl ? (
-                        <Image
-                          src={selectedToken.iconUrl}
-                          alt={selectedToken.symbol}
-                          width={24}
-                          height={24}
-                          className="rounded-full"
-                          unoptimized
-                        />
-                      ) : (
-                        <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
-                          <span className="text-white text-xs font-bold">
-                            {selectedToken.symbol.charAt(0)}
-                          </span>
-                        </div>
-                      )}
+                      <CoinIcon symbol={selectedToken.symbol} size={24} />
                       <span className="text-foreground font-medium text-sm">{selectedToken.symbol}</span>
                     </>
                   ) : (
@@ -378,7 +364,7 @@ export default function TransferModal({
                         placeholder="Search coin..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full pl-8 pr-3 py-2 bg-muted dark:bg-[#2b2f36] border-0 rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:ring-2 focus:ring-primary outline-none"
+                        className="w-full pl-8 pr-3 py-2 bg-card border-0 rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:ring-2 focus:ring-primary outline-none"
                       />
                     </div>
                   </div>
@@ -407,22 +393,7 @@ export default function TransferModal({
                           }`}
                         >
                           <div className="flex items-center gap-2">
-                            {token.iconUrl ? (
-                              <Image
-                                src={token.iconUrl}
-                                alt={token.symbol}
-                                width={28}
-                                height={28}
-                                className="rounded-full"
-                                unoptimized
-                              />
-                            ) : (
-                              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
-                                <span className="text-white text-xs font-bold">
-                                  {token.symbol.charAt(0)}
-                                </span>
-                              </div>
-                            )}
+                            <CoinIcon symbol={token.symbol} size={28} />
                             <div className="text-left">
                               <p className="text-sm font-medium text-foreground">{token.symbol}</p>
                               <p className="text-xs text-muted-foreground truncate max-w-[120px]">{token.name}</p>
@@ -463,7 +434,7 @@ export default function TransferModal({
                     }
                   }}
                   placeholder="Enter amount"
-                  className="w-full px-3 py-3 pr-24 bg-muted dark:bg-[#2b2f36] border border-border rounded-xl text-foreground placeholder:text-muted-foreground focus:border-blue-500 focus:ring-1 focus:ring-primary/20 outline-none transition-all"
+                  className="w-full px-3 py-3 pr-24 bg-card border border-border rounded-xl text-foreground placeholder:text-muted-foreground focus:border-blue-500 focus:ring-1 focus:ring-primary/20 outline-none transition-all"
                 />
                 <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
                   <button
@@ -501,7 +472,7 @@ export default function TransferModal({
             className={`w-full py-3 rounded-lg font-medium text-sm transition-all active:scale-[0.98] ${
               !selectedToken || !amount || submitting || success
                 ? 'bg-accent text-muted-foreground cursor-not-allowed'
-                : 'bg-primary hover:bg-primary/85 text-white'
+                : 'bg-primary hover:bg-primary/85 text-primary-foreground'
             }`}
           >
             {submitting ? (

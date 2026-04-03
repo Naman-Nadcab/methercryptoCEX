@@ -1,34 +1,24 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { useAuthStore } from '@/store/auth';
-import { useConvertBalances } from '@/lib/balances';
-import { notifyError } from '@/lib/notifyError';
-import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Image from 'next/image';
 import Link from 'next/link';
-import { 
-  ArrowUpDown, 
-  ChevronDown, 
-  RefreshCw, 
-  History, 
-  TrendingUp, 
-  HelpCircle,
+import {
+  ArrowUpDown,
+  ChevronDown,
+  RefreshCw,
+  History,
   Search,
-  X,
-  Clock,
   Check,
-  AlertCircle,
   Loader2,
-  LayoutGrid,
   Wallet,
-  ChevronRight,
-  Download,
-  Upload,
-  ArrowLeftRight,
-  Send,
+  Sparkles,
 } from 'lucide-react';
+import { api } from '@/lib/api';
+import { useAuthStore } from '@/store/auth';
+import { useConvertBalances, type ConvertBalanceRow } from '@/lib/balances';
+import { CoinIcon } from '@/components/ui/CoinIcon';
 
 interface Currency {
   id: string;
@@ -38,32 +28,15 @@ interface Currency {
   decimals: number;
 }
 
-interface MarketPrice {
-  base_symbol: string;
-  base_name: string;
-  base_logo: string;
-  quote_symbol: string;
-  price: string;
-  change_24h_percent: string;
+interface QuotePayload {
+  toAmount: string;
+  rate: string;
+  expiresAtMs: number;
+  fromCurrencyId: string;
+  toCurrencyId: string;
 }
 
-interface ActiveOrder {
-  id: string;
-  from_symbol: string;
-  from_logo: string;
-  from_amount: string;
-  to_symbol: string;
-  to_logo: string;
-  to_amount: string;
-  conversion_rate: string;
-  target_rate: string;
-  expires_at: string;
-  created_at: string;
-  account_type: string;
-  status: string;
-}
-
-interface ConversionHistory {
+interface ConversionHistoryRow {
   id: string;
   conversion_type: string;
   from_symbol: string;
@@ -76,947 +49,752 @@ interface ConversionHistory {
   status: string;
   created_at: string;
   completed_at: string;
+  account_type: string;
 }
 
-const FAQ_ITEMS = [
-  {
-    question: "What is Methereum Convert and how does it work?",
-    answer: "Methereum Convert allows you to instantly swap one cryptocurrency for another at the current market rate, or set a limit order to convert when your target rate is reached."
-  },
-  {
-    question: "How is Methereum Convert different from Spot trading?",
-    answer: "Convert provides a simpler one-click swap experience without complex order books. Spot trading offers more control with limit orders, market orders, and advanced trading features."
-  },
-  {
-    question: "Does Methereum Convert charge any fees?",
-    answer: "Methereum Convert offers zero trading fees on all conversions. The rate you see is the rate you get."
-  },
-  {
-    question: "Where do my converted assets go?",
-    answer: "Converted assets are deposited into the same account type (Funding or Trading) that you selected for the conversion."
-  },
-  {
-    question: "Why is the rate different from the Spot market price?",
-    answer: "The Convert rate is derived from real-time market data and may include a small spread to ensure instant execution."
-  },
-  {
-    question: "What are the minimum and maximum amounts I can convert?",
-    answer: "Minimum amounts vary by cryptocurrency. There are no maximum limits for most coins, subject to your available balance."
-  },
-  {
-    question: "What if my conversion doesn't go through?",
-    answer: "If an instant conversion fails, your funds remain in your account. For limit orders, you can cancel at any time to retrieve your locked funds."
-  },
-  {
-    question: "Can I use Convert on the Methereum App?",
-    answer: "Yes, Convert is available on both the web platform and mobile app with the same features and rates."
+type AccountType = 'funding' | 'spot' | 'trading';
+
+function formatCountdown(ms: number): string {
+  if (ms <= 0) return '0:00';
+  const s = Math.ceil(ms / 1000);
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${r.toString().padStart(2, '0')}`;
+}
+
+function apiFailureMessage(res: { error?: unknown }): string {
+  const e = res.error;
+  if (typeof e === 'string') return e;
+  if (e && typeof e === 'object' && 'message' in e && typeof (e as { message: unknown }).message === 'string') {
+    return (e as { message: string }).message;
   }
-];
+  return 'Request failed';
+}
 
 export default function ConvertPage() {
   const queryClient = useQueryClient();
   const { accessToken, _hasHydrated } = useAuthStore();
-  const API_URL = getApiBaseUrl();
 
-  // Tab state
-  const [activeTab, setActiveTab] = useState<'instant' | 'limit'>('instant');
-  
-  // Data states
   const [currencies, setCurrencies] = useState<Currency[]>([]);
-  const [marketPrices, setMarketPrices] = useState<MarketPrice[]>([]);
-  const [activeOrders, setActiveOrders] = useState<ActiveOrder[]>([]);
-  
-  // Form states
   const [fromCurrency, setFromCurrency] = useState<Currency | null>(null);
   const [toCurrency, setToCurrency] = useState<Currency | null>(null);
   const [fromAmount, setFromAmount] = useState('');
-  const [toAmount, setToAmount] = useState('');
-  const [conversionRate, setConversionRate] = useState<number | null>(null);
-  const [targetRate, setTargetRate] = useState('');
-  const [accountType, setAccountType] = useState<'funding' | 'trading'>('funding');
-  
-  // UI states
+  const [accountType, setAccountType] = useState<AccountType>('spot');
+
   const [showFromDropdown, setShowFromDropdown] = useState(false);
   const [showToDropdown, setShowToDropdown] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [quoteLoading, setQuoteLoading] = useState(false);
-  const [converting, setConverting] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
-  const [showHistory, setShowHistory] = useState(false);
-  const [history, setHistory] = useState<ConversionHistory[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
 
-  // Fetch initial data
+  const [quote, setQuote] = useState<QuotePayload | null>(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const [nowTick, setNowTick] = useState(() => Date.now());
+
+  const [converting, setConverting] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [successPhase, setSuccessPhase] = useState<'idle' | 'animating' | 'done'>('idle');
+  const [successSummary, setSuccessSummary] = useState<string | null>(null);
+
+  const [dustConverting, setDustConverting] = useState(false);
+  const [dustResult, setDustResult] = useState<{ assetsConverted: number; totalUsdt: string } | null>(null);
+
+  const authReady = !!_hasHydrated && !!accessToken;
+
+  const { data: balancesData = [] } = useConvertBalances(accountType, authReady);
+  const balances: ConvertBalanceRow[] = balancesData;
+
+  const { data: history = [], isLoading: historyLoading, refetch: refetchHistory } = useQuery({
+    queryKey: ['convert', 'history'],
+    queryFn: async () => {
+      const res = await api.get<ConversionHistoryRow[]>('/api/v1/convert/history?limit=50', {
+        notifyOnError: false,
+      });
+      if (res.success && Array.isArray(res.data)) return res.data;
+      return [];
+    },
+    enabled: authReady,
+    staleTime: 30_000,
+  });
+
   useEffect(() => {
-    fetchCurrencies();
-    fetchMarketPrices();
+    let cancelled = false;
+    (async () => {
+      const res = await api.get<Currency[]>('/api/v1/convert/currencies', { skipAuth: true });
+      if (cancelled || !res.success || !Array.isArray(res.data)) return;
+      setCurrencies(res.data);
+      const btc = res.data.find((c) => c.symbol.toUpperCase() === 'BTC');
+      const usdt = res.data.find((c) => c.symbol.toUpperCase() === 'USDT');
+      setFromCurrency((prev) => prev ?? btc ?? null);
+      setToCurrency((prev) => prev ?? usdt ?? null);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const { data: balancesData = [] } = useConvertBalances(accountType, !!_hasHydrated && !!accessToken);
-  const balances = balancesData;
+  const quoteRemainingMs = quote ? quote.expiresAtMs - nowTick : 0;
+  const quoteExpired = quote !== null && quoteRemainingMs <= 0;
 
   useEffect(() => {
-    if (_hasHydrated && accessToken) {
-      fetchActiveOrders();
-    }
-  }, [_hasHydrated, accessToken, accountType]);
+    if (!quote || quoteExpired) return;
+    const id = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [quote, quoteExpired]);
 
-  // Fetch quote when currencies or amount changes (AbortController avoids stale response overwriting)
   useEffect(() => {
-    if (!fromCurrency || !toCurrency || !fromAmount || parseFloat(fromAmount) <= 0) {
-      setToAmount('');
-      setConversionRate(null);
-      return;
+    if (quoteExpired && quote) {
+      setQuote(null);
+      setFormError('Quote expired. Get a new quote to continue.');
     }
-    const controller = new AbortController();
-    fetchQuote(controller.signal);
-    return () => controller.abort();
-  }, [fromCurrency, toCurrency, fromAmount]);
+  }, [quoteExpired, quote]);
 
-  const fetchCurrencies = async () => {
-    try {
-      const response = await fetch(`${API_URL}/api/v1/convert/currencies`);
-      const data = await response.json();
-      if (data.success) {
-        setCurrencies(data.data);
-        const btc = data.data.find((c: Currency) => c.symbol.toUpperCase() === 'BTC');
-        const usdt = data.data.find((c: Currency) => c.symbol.toUpperCase() === 'USDT');
-        if (btc) setFromCurrency(btc);
-        if (usdt) setToCurrency(usdt);
-      }
-    } catch (err) {
-      notifyError('Failed to load currencies. Please try again.');
-    }
-  };
+  const clearQuoteOnInputChange = useCallback(() => {
+    setQuote(null);
+    setFormError('');
+    setSuccessPhase('idle');
+    setSuccessSummary(null);
+  }, []);
 
-  const fetchMarketPrices = async () => {
-    try {
-      const response = await fetch(`${API_URL}/api/v1/convert/market-prices`);
-      const data = await response.json();
-      if (data.success) {
-        setMarketPrices(data.data);
-      }
-    } catch (err) {
-      notifyError('Failed to load market prices. Please try again.');
-    }
-  };
-
-  const fetchActiveOrders = async () => {
-    try {
-      const response = await fetch(`${API_URL}/api/v1/convert/orders/active`, {
-        headers: { Authorization: `Bearer ${accessToken}` }
-      });
-      const data = await response.json();
-      if (data.success) {
-        setActiveOrders(data.data);
-      }
-    } catch (err) {
-      notifyError('Failed to load active orders. Please try again.');
-    }
-  };
-
-  const fetchQuote = useCallback(async (signal?: AbortSignal) => {
-    if (!fromCurrency || !toCurrency) return;
-    setQuoteLoading(true);
-    try {
-      const response = await fetch(
-        `${API_URL}/api/v1/convert/quote?from=${fromCurrency.symbol}&to=${toCurrency.symbol}&amount=${fromAmount}`,
-        { signal: signal ?? undefined }
-      );
-      const data = await response.json();
-      if (signal?.aborted) return;
-      if (data.success && data.data) {
-        const toVal = parseFloat(data.data.to?.amount);
-        const rateVal = parseFloat(data.data.rate);
-        if (Number.isFinite(toVal)) setToAmount(toVal.toFixed(6));
-        if (Number.isFinite(rateVal)) {
-          setConversionRate(rateVal);
-          if (activeTab === 'limit' && !targetRate) setTargetRate(rateVal.toFixed(2));
-        }
-      }
-    } catch (err) {
-      if ((err as Error).name === 'AbortError') return;
-      notifyError('Failed to get quote. Please try again.');
-    } finally {
-      if (!signal?.aborted) setQuoteLoading(false);
-    }
-  }, [fromCurrency, toCurrency, fromAmount, API_URL, activeTab, targetRate]);
-
-  const fetchHistory = async () => {
-    setHistoryLoading(true);
-    try {
-      const response = await fetch(`${API_URL}/api/v1/convert/history?limit=20`, {
-        headers: { Authorization: `Bearer ${accessToken}` }
-      });
-      const data = await response.json();
-      if (data.success) {
-        setHistory(data.data);
-      }
-    } catch (err) {
-      notifyError('Failed to load conversion history. Please try again.');
-    } finally {
-      setHistoryLoading(false);
-    }
-  };
-
-  const handleSwapCurrencies = () => {
-    const temp = fromCurrency;
-    setFromCurrency(toCurrency);
-    setToCurrency(temp);
-    setFromAmount(toAmount);
-    setToAmount('');
-  };
+  const getAvailableBalance = useCallback((): string => {
+    if (!fromCurrency) return '0';
+    const row = balances.find((b) => b.currency_id === fromCurrency.id);
+    return row?.available_balance ?? '0';
+  }, [fromCurrency, balances]);
 
   const handleSetMax = () => {
-    if (fromCurrency) {
-      const bal = getAvailableBalance();
-      setFromAmount(bal);
+    clearQuoteOnInputChange();
+    const bal = getAvailableBalance();
+    setFromAmount(bal);
+  };
+
+  const handleSwapDirection = () => {
+    clearQuoteOnInputChange();
+    const f = fromCurrency;
+    const t = toCurrency;
+    setFromCurrency(t);
+    setToCurrency(f);
+    setFromAmount('');
+  };
+
+  const filteredCurrencies = useMemo(
+    () =>
+      currencies.filter(
+        (c) =>
+          c.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          c.name.toLowerCase().includes(searchQuery.toLowerCase())
+      ),
+    [currencies, searchQuery]
+  );
+
+  const handleGetQuote = async () => {
+    setFormError('');
+    setSuccessPhase('idle');
+    setSuccessSummary(null);
+
+    if (!fromCurrency || !toCurrency) {
+      setFormError('Select both assets.');
+      return;
+    }
+    if (fromCurrency.id === toCurrency.id) {
+      setFormError('Choose two different assets.');
+      return;
+    }
+    const amt = parseFloat(fromAmount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      setFormError('Enter a valid amount.');
+      return;
+    }
+
+    const available = parseFloat(getAvailableBalance() || '0');
+    if (amt > available) {
+      setFormError('Amount exceeds available balance.');
+      return;
+    }
+
+    setQuoteLoading(true);
+    try {
+      const q = new URLSearchParams({
+        from: fromCurrency.symbol,
+        to: toCurrency.symbol,
+        amount: fromAmount,
+        accountType,
+      });
+      const res = await api.get<{
+        from?: { amount?: string; id?: string };
+        to?: { amount?: string; id?: string };
+        fromAmount?: string;
+        toAmount?: string;
+        rate?: string;
+        expiresAt?: string;
+        expiresIn?: number;
+      }>(`/api/v1/convert/quote?${q.toString()}`, { skipAuth: true, notifyOnError: false });
+
+      if (!res.success || !res.data) {
+        setFormError(apiFailureMessage(res));
+        setQuote(null);
+        return;
+      }
+
+      const d = res.data;
+      const toAmt = d.to?.amount ?? d.toAmount ?? '';
+      const rateStr = d.rate ?? '';
+      const fromId = d.from?.id ?? fromCurrency.id;
+      const toId = d.to?.id ?? toCurrency.id;
+
+      let expiresAtMs: number;
+      if (d.expiresAt) {
+        expiresAtMs = new Date(d.expiresAt).getTime();
+      } else {
+        const sec = typeof d.expiresIn === 'number' ? d.expiresIn : 30;
+        expiresAtMs = Date.now() + sec * 1000;
+      }
+
+      if (!toAmt || !rateStr) {
+        setFormError('Invalid quote response.');
+        setQuote(null);
+        return;
+      }
+
+      setQuote({
+        toAmount: toAmt,
+        rate: rateStr,
+        expiresAtMs,
+        fromCurrencyId: fromId,
+        toCurrencyId: toId,
+      });
+      setNowTick(Date.now());
+    } finally {
+      setQuoteLoading(false);
     }
   };
 
   const handleConvert = async () => {
-    if (!fromCurrency || !toCurrency || !fromAmount) {
-      setError('Select from and to assets and enter an amount.');
+    setFormError('');
+    if (!quote || quoteExpired) {
+      setFormError('Get a valid quote first.');
       return;
     }
-    const fromNum = parseFloat(fromAmount);
-    if (!Number.isFinite(fromNum) || fromNum <= 0) {
-      setError('Enter a positive amount to convert.');
+    if (!authReady) {
+      setFormError('Please sign in to convert.');
       return;
     }
-    const availableStr = getAvailableBalance();
-    if (fromNum > parseFloat(availableStr || '0')) {
-      setError('Insufficient balance in this account. Transfer in or reduce the amount.');
-      return;
-    }
-    if (!accessToken) {
-      setError('Session expired or not signed in. Please sign in again.');
+
+    const amt = parseFloat(fromAmount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      setFormError('Enter a valid amount.');
       return;
     }
 
     setConverting(true);
-    setError('');
-    setSuccess('');
-
     try {
-      const endpoint = activeTab === 'instant' ? '/api/v1/convert/instant' : '/api/v1/convert/limit';
-      const body: any = {
-        fromCurrencyId: fromCurrency.id,
-        toCurrencyId: toCurrency.id,
-        fromAmount,
-        accountType
-      };
-
-      if (activeTab === 'limit') {
-        body.targetRate = targetRate;
-        body.expiresInDays = 30;
-      }
-
-      const response = await fetch(`${API_URL}${endpoint}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-          'Idempotency-Key': crypto.randomUUID(),
+      const idempotencyKey = crypto.randomUUID();
+      const res = await api.post<{
+        from?: { currency?: string; amount?: string };
+        to?: { currency?: string; amount?: string };
+      }>(
+        '/api/v1/convert/instant',
+        {
+          fromCurrencyId: quote.fromCurrencyId,
+          toCurrencyId: quote.toCurrencyId,
+          fromAmount,
+          accountType,
         },
-        body: JSON.stringify(body)
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        setSuccess(
-          activeTab === 'instant'
-            ? `Successfully converted ${fromAmount} ${fromCurrency.symbol} to ${data.data.to.amount} ${toCurrency.symbol}`
-            : `Limit order placed successfully. Your order will execute when the rate reaches ${targetRate}`
-        );
-        setFromAmount('');
-        setToAmount('');
-        queryClient.invalidateQueries({ queryKey: ['balances'] });
-        if (activeTab === 'limit') {
-          fetchActiveOrders();
+        {
+          notifyOnError: false,
+          headers: { 'Idempotency-Key': idempotencyKey },
         }
-      } else {
-        setError(data.error || 'Conversion could not be completed. Check your balance and try again, or try a smaller amount.');
+      );
+
+      if (!res.success) {
+        setFormError(apiFailureMessage(res));
+        return;
       }
-    } catch (err) {
-      setError('Conversion could not be completed. Check your connection and try again.');
+
+      const got = res.data?.to?.amount;
+      const sym = res.data?.to?.currency ?? toCurrency?.symbol ?? '';
+      setSuccessSummary(
+        got != null
+          ? `Received ${got} ${sym}`
+          : 'Conversion completed.'
+      );
+      setSuccessPhase('animating');
+      setQuote(null);
+      setFromAmount('');
+      queryClient.invalidateQueries({ queryKey: ['balances'] });
+      refetchHistory();
+
+      window.setTimeout(() => {
+        setSuccessPhase('done');
+      }, 1800);
     } finally {
       setConverting(false);
     }
   };
 
-  const handleCancelOrder = async (orderId: string) => {
+  const handleConvertDust = async () => {
+    if (!authReady) {
+      setFormError('Please sign in first.');
+      return;
+    }
+    setDustConverting(true);
+    setDustResult(null);
+    setFormError('');
     try {
-      const response = await fetch(`${API_URL}/api/v1/convert/limit/${orderId}/cancel`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Idempotency-Key': crypto.randomUUID(),
-        },
-      });
+      const res = await api.post<{
+        assetsConverted?: number;
+        totalUsdt?: string;
+        converted_count?: number;
+        total_usdt?: string;
+      }>('/api/v1/wallet/convert-dust', { threshold: 1 }, { notifyOnError: false });
 
-      const data = await response.json();
-      if (data.success) {
-        queryClient.invalidateQueries({ queryKey: ['balances'] });
-        fetchActiveOrders();
-      } else {
-        notifyError(data.error?.message || 'Failed to cancel order.');
+      if (!res.success) {
+        setFormError(apiFailureMessage(res));
+        return;
       }
-    } catch (err) {
-      notifyError('Failed to cancel order. Please try again.');
+      const d = res.data;
+      const count = d?.assetsConverted ?? d?.converted_count ?? 0;
+      const total = d?.totalUsdt ?? d?.total_usdt ?? '0';
+      setDustResult({ assetsConverted: count, totalUsdt: total });
+      queryClient.invalidateQueries({ queryKey: ['balances'] });
+      refetchHistory();
+    } finally {
+      setDustConverting(false);
     }
   };
 
-  const getAvailableBalance = (): string => {
-    if (!fromCurrency || !Array.isArray(balances)) return '0';
-    const balance = balances.find(b => b?.currency_id === fromCurrency.id);
-    return balance?.available_balance ?? '0';
+  const dismissSuccess = () => {
+    setSuccessPhase('idle');
+    setSuccessSummary(null);
   };
 
-  const filteredCurrencies = currencies.filter(c => 
-    c.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const rateDisplay =
+    quote && fromCurrency && toCurrency
+      ? `1 ${fromCurrency.symbol} ≈ ${parseFloat(quote.rate).toLocaleString(undefined, {
+          maximumSignificantDigits: 8,
+        })} ${toCurrency.symbol}`
+      : null;
 
-  const trendingPrices = marketPrices.slice(0, 6);
-  const newlyListedPrices = marketPrices.slice(6, 12);
+  const toDisplayEstimate = quote && !quoteExpired ? quote.toAmount : '—';
 
   return (
-    <div className="p-6">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-8">
-            <div>
-              <h1 className="text-2xl font-bold text-foreground">Convert</h1>
-              <p className="text-sm text-muted-foreground mt-1">Zero fees | Real-time swap | Multi-asset support</p>
+    <div className="min-h-full bg-background p-4 sm:p-6">
+      <div className="mx-auto max-w-md">
+        <div className="mb-6 text-center">
+          <h1 className="text-xl font-semibold text-foreground">Convert</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Instant swap at live rates. Zero trading fees.
+          </p>
+        </div>
+
+        <div className="mb-4 rounded-lg border border-border bg-card p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Sparkles className="h-4 w-4 text-primary" />
+              <span>Convert balances under $1 to USDT</span>
             </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => { setShowHistory(true); fetchHistory(); }}
-                className="flex items-center gap-2 px-4 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-lg border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
-              >
-                <History className="w-4 h-4" />
-                History
-              </button>
-              <Link
-                href="/wallet/deposit/crypto"
-                className="flex items-center gap-2 px-5 py-2.5 bg-primary hover:bg-primary/85 text-white font-medium text-sm rounded-lg shadow-lg shadow-blue-500/25 transition-all hover:shadow-blue-500/40"
-              >
-                <Download className="w-4 h-4" />
-                Deposit
-              </Link>
-              <Link
-                href="/wallet/transfer"
-                className="flex items-center gap-2 px-4 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-lg border border-border hover:border-border dark:hover:border-gray-600 transition-colors"
-              >
-                <ArrowLeftRight className="w-4 h-4" />
-                Transfer
-              </Link>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            {/* Left Side - Market Highlights / Chart */}
-            <div>
-              {activeTab === 'instant' ? (
-                <div className="bg-card rounded-lg p-6 border border-border">
-                  <h2 className="text-lg font-semibold text-foreground mb-6">Market highlights</h2>
-                  
-                  <div className="grid grid-cols-2 gap-8">
-                    <div>
-                      <p className="text-sm text-muted-foreground mb-4">Trending</p>
-                      <div className="space-y-3">
-                        {trendingPrices.map((item, index) => (
-                          <div key={index} className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              {item.base_logo && (
-                                <Image src={item.base_logo} alt={item.base_symbol} width={20} height={20} className="rounded-full" unoptimized />
-                              )}
-                              <span className="text-sm font-medium text-foreground">
-                                {item.base_symbol}{item.quote_symbol}
-                              </span>
-                            </div>
-                            <span className="text-sm text-muted-foreground">
-                              {parseFloat(item.price).toLocaleString()}
-                            </span>
-                            <span className={`text-sm ${parseFloat(item.change_24h_percent) >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                              {parseFloat(item.change_24h_percent) >= 0 ? '+' : ''}{parseFloat(item.change_24h_percent).toFixed(2)}%
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div>
-                      <p className="text-sm text-muted-foreground mb-4">Newly listed</p>
-                      <div className="space-y-3">
-                        {newlyListedPrices.map((item, index) => (
-                          <div key={index} className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              {item.base_logo && (
-                                <Image src={item.base_logo} alt={item.base_symbol} width={20} height={20} className="rounded-full" unoptimized />
-                              )}
-                              <span className="text-sm font-medium text-foreground">
-                                {item.base_symbol}{item.quote_symbol}
-                              </span>
-                            </div>
-                            <span className="text-sm text-muted-foreground">
-                              {parseFloat(item.price).toLocaleString()}
-                            </span>
-                            <span className={`text-sm ${parseFloat(item.change_24h_percent) >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                              {parseFloat(item.change_24h_percent) >= 0 ? '+' : ''}{parseFloat(item.change_24h_percent).toFixed(2)}%
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-muted-foreground mt-6">
-                    ⓘ The market data is for reference only. Final price is based on the executed quote.
-                  </p>
-                </div>
+            <button
+              type="button"
+              onClick={handleConvertDust}
+              disabled={dustConverting || !authReady}
+              className="flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {dustConverting ? (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Converting…
+                </>
               ) : (
-                <div className="bg-card rounded-lg p-6 border border-border">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      {fromCurrency?.logo_url && toCurrency?.logo_url && (
-                        <div className="flex -space-x-2">
-                          <Image src={fromCurrency.logo_url} alt={fromCurrency.symbol} width={32} height={32} className="rounded-full border-2 border-white dark:border-[#1e2329]" unoptimized />
-                          <Image src={toCurrency.logo_url} alt={toCurrency.symbol} width={32} height={32} className="rounded-full border-2 border-white dark:border-[#1e2329]" unoptimized />
-                        </div>
-                      )}
-                      <span className="text-lg font-semibold text-foreground">
-                        {fromCurrency?.symbol}/{toCurrency?.symbol}
-                      </span>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xl font-bold text-foreground">
-                        {conversionRate?.toLocaleString() || '--'}
-                      </p>
-                      {conversionRate && (
-                        <p className="text-sm text-green-500">+0.33%</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex gap-2 mb-4">
-                    {['24H', '1W', '1M'].map((period) => (
-                      <button
-                        key={period}
-                        className={`px-3 py-1.5 text-xs rounded-lg transition-colors ${
-                          period === '24H' 
-                            ? 'bg-primary text-primary-foreground' 
-                            : 'text-muted-foreground hover:bg-accent'
-                        }`}
-                      >
-                        {period}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="h-64 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/10 dark:to-indigo-900/10 rounded-lg flex items-center justify-center p-4">
-                    {fromCurrency && toCurrency && conversionRate != null && conversionRate > 0 ? (
-                      <div className="text-center w-full">
-                        <p className="text-2xl font-bold text-foreground mb-1">
-                          1 {fromCurrency.symbol} = {conversionRate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} {toCurrency.symbol}
-                        </p>
-                        {marketPrices.find(m => m.base_symbol === fromCurrency.symbol && m.quote_symbol === toCurrency.symbol) && (
-                          <p className={`text-sm ${parseFloat(marketPrices.find(m => m.base_symbol === fromCurrency.symbol && m.quote_symbol === toCurrency.symbol)?.change_24h_percent || '0') >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                            24h: {parseFloat(marketPrices.find(m => m.base_symbol === fromCurrency.symbol && m.quote_symbol === toCurrency.symbol)?.change_24h_percent || '0').toFixed(2)}%
-                          </p>
-                        )}
-                        <p className="text-xs text-muted-foreground mt-2">Live rate from spot market</p>
-                      </div>
-                    ) : (
-                      <div className="text-center text-muted-foreground">
-                        <TrendingUp className="w-12 h-12 mx-auto mb-2 opacity-30" />
-                        <p className="text-sm">Select currencies to see live rate</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                'Convert Small Balances'
               )}
+            </button>
+          </div>
+          {dustResult && (
+            <div className="mt-2 rounded-md bg-muted px-3 py-2 text-sm text-foreground">
+              Converted <span className="font-semibold">{dustResult.assetsConverted}</span> asset{dustResult.assetsConverted !== 1 ? 's' : ''} →{' '}
+              <span className="font-semibold">{parseFloat(dustResult.totalUsdt).toFixed(4)} USDT</span> received
             </div>
+          )}
+        </div>
 
-            {/* Right Side - Conversion Form */}
-            <div className="bg-card rounded-lg p-6 border border-border">
-              {/* Tab Selector */}
-              <div className="flex mb-6 bg-accent dark:bg-[#2b2f36] rounded-lg p-1">
-                <button
-                  onClick={() => setActiveTab('instant')}
-                  className={`flex-1 py-3 text-center font-medium rounded-lg transition-all ${
-                    activeTab === 'instant'
-                      ? 'bg-card text-primary shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'
-                  }`}
-                >
-                  Instant
-                </button>
-                <button
-                  onClick={() => setActiveTab('limit')}
-                  className={`flex-1 py-3 text-center font-medium rounded-lg transition-all ${
-                    activeTab === 'limit'
-                      ? 'bg-card text-primary shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'
-                  }`}
-                >
-                  Limit
-                </button>
-              </div>
-
-              {/* Account Type Selector */}
-              <div className="flex items-center gap-2 mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800/30">
-                <Wallet className="w-4 h-4 text-primary" />
-                <select
-                  value={accountType}
-                  onChange={(e) => setAccountType(e.target.value as 'funding' | 'trading')}
-                  className="bg-transparent text-sm text-primary font-medium focus:outline-none cursor-pointer"
-                >
-                  <option value="funding">Funding</option>
-                  <option value="trading">Trading</option>
-                </select>
-              </div>
-
-              {/* From Currency */}
-              <div className="mb-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-foreground/80">From</span>
-                  <div className="flex items-center gap-2 text-sm">
-                    <span className="text-muted-foreground">Available: {(() => { const n = parseFloat(getAvailableBalance()); return Number.isFinite(n) ? n.toFixed(6) : '0.000000'; })()} {fromCurrency?.symbol ?? ''}</span>
-                    <Link href="/wallet/deposit/crypto" className="text-primary hover:text-primary/85 font-medium">Deposit</Link>
-                    <Link href="/wallet/transfer" className="text-primary hover:text-primary/85 font-medium">
-                      Transfer
-                    </Link>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 p-4 bg-muted dark:bg-[#2b2f36] rounded-lg border border-border">
-                  <div className="relative">
-                    <button
-                      onClick={() => { setShowFromDropdown(!showFromDropdown); setShowToDropdown(false); }}
-                      className="flex items-center gap-2 px-3 py-2 bg-card rounded-lg hover:bg-accent transition-colors border border-border"
-                    >
-                      {fromCurrency?.logo_url && (
-                        <Image src={fromCurrency.logo_url} alt={fromCurrency.symbol} width={24} height={24} className="rounded-full" unoptimized />
-                      )}
-                      <span className="font-medium text-foreground">{fromCurrency?.symbol || 'Select'}</span>
-                      <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                    </button>
-                    {fromCurrency && (
-                      <p className="text-xs text-muted-foreground mt-1 ml-1">{fromCurrency.name}</p>
-                    )}
-
-                    {showFromDropdown && (
-                      <div className="absolute top-full left-0 mt-2 w-64 bg-card rounded-lg shadow-2xl border border-border z-50 overflow-hidden">
-                        <div className="p-3 border-b border-border">
-                          <div className="relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                            <input
-                              type="text"
-                              placeholder="Search coin..."
-                              value={searchQuery}
-                              onChange={(e) => setSearchQuery(e.target.value)}
-                              className="w-full pl-10 pr-4 py-2 bg-muted dark:bg-[#2b2f36] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                            />
-                          </div>
-                        </div>
-                        <div className="max-h-64 overflow-y-auto">
-                          {filteredCurrencies.map((currency) => (
-                            <button
-                              key={currency.id}
-                              onClick={() => {
-                                setFromCurrency(currency);
-                                setShowFromDropdown(false);
-                                setSearchQuery('');
-                              }}
-                              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent transition-colors"
-                            >
-                              {currency.logo_url && (
-                                <Image src={currency.logo_url} alt={currency.symbol} width={24} height={24} className="rounded-full" unoptimized />
-                              )}
-                              <div className="text-left">
-                                <p className="font-medium text-foreground">{currency.symbol}</p>
-                                <p className="text-xs text-muted-foreground">{currency.name}</p>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  <input
-                    type="number"
-                    value={fromAmount}
-                    onChange={(e) => setFromAmount(e.target.value)}
-                    placeholder="0.00"
-                    className="flex-1 bg-transparent text-right text-lg font-medium text-foreground focus:outline-none"
-                  />
-                  <button
-                    onClick={handleSetMax}
-                    className="text-sm text-primary hover:text-primary/85 font-medium"
-                  >
-                    All
-                  </button>
-                </div>
-              </div>
-
-              {/* Swap Button */}
-              <div className="flex justify-center my-3">
-                <button
-                  onClick={handleSwapCurrencies}
-                  className="p-3 rounded-full bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-800/30 transition-colors border border-blue-200 dark:border-blue-700"
-                >
-                  <ArrowUpDown className="w-5 h-5 text-primary" />
-                </button>
-              </div>
-
-              {/* To Currency */}
-              <div className="mb-6">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-foreground/80">To</span>
-                </div>
-                <div className="flex items-center gap-3 p-4 bg-muted dark:bg-[#2b2f36] rounded-lg border border-border">
-                  <div className="relative">
-                    <button
-                      onClick={() => { setShowToDropdown(!showToDropdown); setShowFromDropdown(false); }}
-                      className="flex items-center gap-2 px-3 py-2 bg-card rounded-lg hover:bg-accent transition-colors border border-border"
-                    >
-                      {toCurrency?.logo_url && (
-                        <Image src={toCurrency.logo_url} alt={toCurrency.symbol} width={24} height={24} className="rounded-full" unoptimized />
-                      )}
-                      <span className="font-medium text-foreground">{toCurrency?.symbol || 'Select'}</span>
-                      <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                    </button>
-                    {toCurrency && (
-                      <p className="text-xs text-muted-foreground mt-1 ml-1">{toCurrency.name}</p>
-                    )}
-
-                    {showToDropdown && (
-                      <div className="absolute top-full left-0 mt-2 w-64 bg-card rounded-lg shadow-2xl border border-border z-50 overflow-hidden">
-                        <div className="p-3 border-b border-border">
-                          <div className="relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                            <input
-                              type="text"
-                              placeholder="Search coin..."
-                              value={searchQuery}
-                              onChange={(e) => setSearchQuery(e.target.value)}
-                              className="w-full pl-10 pr-4 py-2 bg-muted dark:bg-[#2b2f36] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                            />
-                          </div>
-                        </div>
-                        <div className="max-h-64 overflow-y-auto">
-                          {filteredCurrencies.map((currency) => (
-                            <button
-                              key={currency.id}
-                              onClick={() => {
-                                setToCurrency(currency);
-                                setShowToDropdown(false);
-                                setSearchQuery('');
-                              }}
-                              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent transition-colors"
-                            >
-                              {currency.logo_url && (
-                                <Image src={currency.logo_url} alt={currency.symbol} width={24} height={24} className="rounded-full" unoptimized />
-                              )}
-                              <div className="text-left">
-                                <p className="font-medium text-foreground">{currency.symbol}</p>
-                                <p className="text-xs text-muted-foreground">{currency.name}</p>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  <input
-                    type="text"
-                    value={quoteLoading ? 'Loading...' : toAmount || '--'}
-                    readOnly
-                    className="flex-1 bg-transparent text-right text-lg font-medium text-foreground focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              {/* Limit Order Price Settings */}
-              {activeTab === 'limit' && (
-                <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/10 rounded-lg border border-blue-100 dark:border-blue-800/30">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm text-muted-foreground">When 1 {fromCurrency?.symbol} is worth</span>
-                    <span className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-primary rounded-lg">Expired in 30D</span>
-                  </div>
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm text-muted-foreground">{toCurrency?.symbol}</span>
-                    <input
-                      type="number"
-                      value={targetRate}
-                      onChange={(e) => setTargetRate(e.target.value)}
-                      className="text-right text-xl font-bold text-foreground bg-transparent focus:outline-none w-32"
-                    />
-                  </div>
-                  <div className="flex items-center justify-between text-xs text-muted-foreground mb-4">
-                    <span>Market price {conversionRate?.toLocaleString()}</span>
-                  </div>
-                  <div className="flex gap-2">
-                    {['+1%', '+5%', '+10%', 'Market price'].map((option) => (
-                      <button
-                        key={option}
-                        onClick={() => {
-                          if (conversionRate) {
-                            if (option === 'Market price') {
-                              setTargetRate(conversionRate.toFixed(2));
-                            } else {
-                              const percent = parseFloat(option) / 100;
-                              setTargetRate((conversionRate * (1 + percent)).toFixed(2));
-                            }
-                          }
-                        }}
-                        className={`px-3 py-1.5 text-xs rounded-lg transition-colors ${
-                          option === 'Market price' 
-                            ? 'bg-primary text-primary-foreground'
-                            : 'bg-card text-muted-foreground border border-border hover:border-blue-300 dark:hover:border-blue-600'
-                        }`}
-                      >
-                        {option}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Transaction Info */}
-              <div className="space-y-3 mb-6 p-4 bg-muted dark:bg-[#2b2f36] rounded-lg">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Transaction Fees</span>
-                  <span className="text-green-500 font-semibold">0 Fee</span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">{activeTab === 'limit' ? 'Receivables' : 'You get'}</span>
-                  <span className="text-foreground font-semibold">
-                    {toAmount ? `${parseFloat(toAmount).toFixed(6)}` : '--'} {toCurrency?.symbol}
-                  </span>
-                </div>
-              </div>
-
-              {/* Error/Success Messages */}
-              {error && (
-                <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-center gap-3">
-                  <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-                  <span className="text-sm text-destructive">{error}</span>
-                </div>
-              )}
-
-              {success && (
-                <div className="mb-4 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg flex items-center gap-3">
-                  <Check className="w-5 h-5 text-green-500 flex-shrink-0" />
-                  <span className="text-sm text-buy">{success}</span>
-                </div>
-              )}
-
-              {/* Convert Button */}
-              <button
-                onClick={handleConvert}
-                disabled={converting || !fromAmount || !fromCurrency || !toCurrency}
-                aria-busy={converting}
-                className={`w-full py-4 bg-primary hover:bg-primary/85 disabled:bg-accent dark:disabled:bg-gray-800 disabled:text-muted-foreground text-white font-semibold rounded-lg transition-all duration-150 active:scale-[0.98] shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 disabled:shadow-none flex items-center justify-center gap-2 ${converting ? 'opacity-90' : ''}`}
-              >
-                {converting ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    Processing...
-                  </>
-                ) : (
-                  activeTab === 'instant' ? 'Get a Quote' : 'Place order'
-                )}
-              </button>
+        <div className="rounded-xl border border-border bg-card p-4 shadow-sm sm:p-5">
+          <div className="mb-4 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Wallet className="h-4 w-4 shrink-0 text-primary" />
+              <span>Account</span>
             </div>
+            <select
+              value={accountType}
+              onChange={(e) => {
+                setAccountType(e.target.value as AccountType);
+                clearQuoteOnInputChange();
+              }}
+              className="rounded-lg border border-border bg-muted px-3 py-1.5 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="funding">Funding</option>
+              <option value="spot">Spot</option>
+              <option value="trading">Trading</option>
+            </select>
           </div>
 
-          {/* Active Orders (for Limit tab) */}
-          {activeTab === 'limit' && (
-            <div className="mt-8 bg-card rounded-lg p-6 border border-border">
-              <h2 className="text-lg font-semibold text-foreground mb-6">Active orders</h2>
-              
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="text-left text-muted-foreground border-b border-border">
-                      <th className="py-2 px-2 font-medium uppercase tracking-wide">From</th>
-                      <th className="py-2 px-2 font-medium uppercase tracking-wide">Quantity</th>
-                      <th className="py-2 px-2 font-medium uppercase tracking-wide">To</th>
-                      <th className="py-2 px-2 font-medium uppercase tracking-wide">Converted to</th>
-                      <th className="py-2 px-2 font-medium uppercase tracking-wide">Account</th>
-                      <th className="py-2 px-2 font-medium uppercase tracking-wide">Conversion Rate</th>
-                      <th className="py-2 px-2 font-medium uppercase tracking-wide">Expired in</th>
-                      <th className="py-2 px-2 font-medium uppercase tracking-wide">Time</th>
-                      <th className="py-2 px-2 font-medium uppercase tracking-wide">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {activeOrders.length > 0 ? (
-                      activeOrders.map((order) => (
-                        <tr key={order.id} className="border-b border-border transition-colors duration-100 hover:bg-muted dark:hover:bg-card/5">
-                          <td className="py-2 px-2 tabular-nums">
-                            <div className="flex items-center gap-2">
-                              {order.from_logo && (
-                                <Image src={order.from_logo} alt={order.from_symbol} width={20} height={20} className="rounded-full" unoptimized />
-                              )}
-                              {order.from_symbol}
-                            </div>
-                          </td>
-                          <td className="py-2 px-2 tabular-nums">{parseFloat(order.from_amount).toFixed(6)}</td>
-                          <td className="py-2 px-2">
-                            <div className="flex items-center gap-2">
-                              {order.to_logo && (
-                                <Image src={order.to_logo} alt={order.to_symbol} width={20} height={20} className="rounded-full" unoptimized />
-                              )}
-                              {order.to_symbol}
-                            </div>
-                          </td>
-                          <td className="py-2 px-2 tabular-nums">{parseFloat(order.to_amount).toFixed(6)}</td>
-                          <td className="py-2 px-2 capitalize">{order.account_type}</td>
-                          <td className="py-2 px-2 tabular-nums">{parseFloat(order.target_rate).toFixed(2)}</td>
-                          <td className="py-2 px-2 tabular-nums">
-                            {Math.ceil((new Date(order.expires_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24))}D
-                          </td>
-                          <td className="py-2 px-2 text-muted-foreground tabular-nums">{new Date(order.created_at).toLocaleString()}</td>
-                          <td className="py-2 px-2">
-                            <button
-                              onClick={() => handleCancelOrder(order.id)}
-                              className="text-red-500 hover:text-red-600 text-xs font-medium"
-                            >
-                              Cancel
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={9} className="py-8 text-center">
-                          <div className="flex flex-col items-center">
-                            <div className="w-16 h-16 bg-accent rounded-full flex items-center justify-center mb-4">
-                              <History className="w-8 h-8 text-muted-foreground" />
-                            </div>
-                            <p className="text-muted-foreground">No active orders yet</p>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+          {successPhase !== 'idle' && successSummary && (
+            <div
+              className={`mb-4 flex flex-col items-center justify-center gap-3 rounded-lg border border-border bg-muted py-8 transition-all duration-300 ${
+                successPhase === 'animating' ? 'scale-100 opacity-100' : 'opacity-90'
+              }`}
+            >
+              <div
+                className={`flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground transition-transform duration-500 ${
+                  successPhase === 'animating' ? 'scale-100' : 'scale-95'
+                }`}
+              >
+                <Check className="h-8 w-8" strokeWidth={2.5} />
               </div>
+              <p className="text-center text-sm font-medium text-foreground">{successSummary}</p>
+              {successPhase === 'done' && (
+                <button
+                  type="button"
+                  onClick={dismissSuccess}
+                  className="text-sm font-medium text-primary hover:text-primary/90"
+                >
+                  Swap again
+                </button>
+              )}
             </div>
           )}
 
-          {/* FAQ Section */}
-          <div className="mt-8 bg-card rounded-lg p-6 border border-border">
-            <h2 className="text-lg font-bold text-foreground mb-6">FAQ</h2>
-            
-            <div className="space-y-4">
-              {FAQ_ITEMS.map((item, index) => (
-                <div key={index} className="border-b border-border pb-4">
+          {successPhase === 'idle' && (
+            <>
+              <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+                <span>From</span>
+                <span>
+                  Available:{' '}
+                  <span className="tabular-nums text-foreground">
+                    {fromCurrency
+                      ? (() => {
+                          const n = parseFloat(getAvailableBalance());
+                          return Number.isFinite(n) ? n.toFixed(Math.min(8, fromCurrency.decimals || 8)) : '0';
+                        })()
+                      : '—'}{' '}
+                    {fromCurrency?.symbol ?? ''}
+                  </span>
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted p-3">
+                <div className="relative">
                   <button
-                    onClick={() => setExpandedFaq(expandedFaq === index ? null : index)}
-                    className="w-full flex items-center justify-between text-left"
+                    type="button"
+                    onClick={() => {
+                      setShowFromDropdown(!showFromDropdown);
+                      setShowToDropdown(false);
+                    }}
+                    className="flex items-center gap-2 rounded-md border border-border bg-card px-2.5 py-2 text-sm font-medium text-foreground hover:bg-muted"
                   >
-                    <span className="text-foreground font-medium">
-                      {index + 1}. {item.question}
-                    </span>
-                    <ChevronDown className={`w-5 h-5 text-muted-foreground transition-transform ${expandedFaq === index ? 'rotate-180' : ''}`} />
+                    {fromCurrency && <CoinIcon symbol={fromCurrency.symbol} size={22} />}
+                    {fromCurrency?.symbol ?? 'Select'}
+                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
                   </button>
-                  {expandedFaq === index && (
-                    <p className="mt-3 text-muted-foreground text-sm pl-4">
-                      {item.answer}
-                    </p>
+                  {showFromDropdown && (
+                    <div className="absolute left-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-lg border border-border bg-card shadow-lg">
+                      <div className="border-b border-border p-2">
+                        <div className="relative">
+                          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                          <input
+                            type="search"
+                            placeholder="Search"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="w-full rounded-md border border-border bg-muted py-2 pl-8 pr-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                          />
+                        </div>
+                      </div>
+                      <div className="max-h-56 overflow-y-auto">
+                        {filteredCurrencies.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => {
+                              setFromCurrency(c);
+                              setShowFromDropdown(false);
+                              setSearchQuery('');
+                              clearQuoteOnInputChange();
+                            }}
+                            className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-muted"
+                          >
+                            <CoinIcon symbol={c.symbol} size={22} />
+                            <div>
+                              <div className="font-medium text-foreground">{c.symbol}</div>
+                              <div className="text-xs text-muted-foreground">{c.name}</div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
-              ))}
-            </div>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  value={fromAmount}
+                  onChange={(e) => {
+                    clearQuoteOnInputChange();
+                    setFromAmount(e.target.value);
+                  }}
+                  placeholder="0"
+                  className="min-w-0 flex-1 bg-transparent text-right text-lg font-semibold tabular-nums text-foreground placeholder:text-muted-foreground focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={handleSetMax}
+                  className="shrink-0 text-sm font-semibold text-primary hover:text-primary/90"
+                >
+                  MAX
+                </button>
+              </div>
 
-            <button className="mt-6 text-primary hover:text-primary/85 font-medium flex items-center gap-1">
-              View more
-              <ChevronDown className="w-4 h-4" />
-            </button>
-          </div>
+              <div className="relative z-10 -my-2 flex justify-center">
+                <button
+                  type="button"
+                  onClick={handleSwapDirection}
+                  className="rounded-full border border-border bg-card p-2.5 text-primary shadow-sm hover:bg-muted"
+                  aria-label="Swap direction"
+                >
+                  <ArrowUpDown className="h-5 w-5" />
+                </button>
+              </div>
 
-      {/* Conversion History Modal */}
-      {showHistory && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowHistory(false)} />
-          <div className="relative w-full max-w-4xl mx-4 bg-card rounded-lg shadow-2xl overflow-hidden max-h-[80vh]">
-            <div className="flex items-center justify-between p-6 border-b border-border">
-              <h2 className="text-xl font-semibold text-foreground">Conversion History</h2>
-              <button onClick={() => setShowHistory(false)} className="p-2 hover:bg-accent rounded-lg">
-                <X className="w-5 h-5 text-muted-foreground" />
-              </button>
-            </div>
-            <div className="p-6 overflow-y-auto max-h-[60vh]">
-              {historyLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              <div className="mb-1 mt-1 text-xs text-muted-foreground">To (estimated)</div>
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted p-3">
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowToDropdown(!showToDropdown);
+                      setShowFromDropdown(false);
+                    }}
+                    className="flex items-center gap-2 rounded-md border border-border bg-card px-2.5 py-2 text-sm font-medium text-foreground hover:bg-muted"
+                  >
+                    {toCurrency && <CoinIcon symbol={toCurrency.symbol} size={22} />}
+                    {toCurrency?.symbol ?? 'Select'}
+                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                  </button>
+                  {showToDropdown && (
+                    <div className="absolute left-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-lg border border-border bg-card shadow-lg">
+                      <div className="border-b border-border p-2">
+                        <div className="relative">
+                          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                          <input
+                            type="search"
+                            placeholder="Search"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="w-full rounded-md border border-border bg-muted py-2 pl-8 pr-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                          />
+                        </div>
+                      </div>
+                      <div className="max-h-56 overflow-y-auto">
+                        {filteredCurrencies.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => {
+                              setToCurrency(c);
+                              setShowToDropdown(false);
+                              setSearchQuery('');
+                              clearQuoteOnInputChange();
+                            }}
+                            className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-muted"
+                          >
+                            <CoinIcon symbol={c.symbol} size={22} />
+                            <div>
+                              <div className="font-medium text-foreground">{c.symbol}</div>
+                              <div className="text-xs text-muted-foreground">{c.name}</div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              ) : history.length > 0 ? (
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="text-left text-muted-foreground border-b border-border">
-                      <th className="py-2 px-2 font-medium uppercase tracking-wide">Type</th>
-                      <th className="py-2 px-2 font-medium uppercase tracking-wide">From</th>
-                      <th className="py-2 px-2 font-medium uppercase tracking-wide">To</th>
-                      <th className="py-2 px-2 font-medium uppercase tracking-wide">Rate</th>
-                      <th className="py-2 px-2 font-medium uppercase tracking-wide">Status</th>
-                      <th className="py-2 px-2 font-medium uppercase tracking-wide">Date</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {history.map((item) => (
-                      <tr key={item.id} className="border-b border-border transition-colors duration-100 hover:bg-muted dark:hover:bg-card/5">
-                        <td className="py-2 px-2 capitalize">{item.conversion_type}</td>
-                        <td className="py-2 px-2 tabular-nums">
-                          <div className="flex items-center gap-2">
-                            {item.from_logo && (
-                              <Image src={item.from_logo} alt={item.from_symbol} width={20} height={20} className="rounded-full" unoptimized />
-                            )}
-                            {parseFloat(item.from_amount).toFixed(6)} {item.from_symbol}
-                          </div>
-                        </td>
-                        <td className="py-2 px-2 tabular-nums">
-                          <div className="flex items-center gap-2">
-                            {item.to_logo && (
-                              <Image src={item.to_logo} alt={item.to_symbol} width={20} height={20} className="rounded-full" unoptimized />
-                            )}
-                            {parseFloat(item.to_amount || '0').toFixed(6)} {item.to_symbol}
-                          </div>
-                        </td>
-                        <td className="py-2 px-2 tabular-nums">{parseFloat(item.conversion_rate).toFixed(2)}</td>
-                        <td className="py-2 px-2">
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${
-                            item.status === 'completed' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
-                            item.status === 'pending' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
-                            item.status === 'cancelled' ? 'bg-accent text-foreground/80 dark:bg-accent dark:text-muted-foreground' :
-                            'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                          }`}>
-                            {item.status}
-                          </span>
-                        </td>
-                        <td className="py-2 px-2 text-muted-foreground tabular-nums">
-                          {new Date(item.created_at).toLocaleString()}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
-                <div className="text-center py-8">
-                  <History className="w-12 h-12 mx-auto text-gray-300 mb-4" />
-                  <p className="text-muted-foreground text-xs">No conversion history yet</p>
+                <div className="min-w-0 flex-1 text-right text-lg font-semibold tabular-nums text-foreground">
+                  {quoteLoading ? (
+                    <span className="inline-flex items-center justify-end gap-2 text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      …
+                    </span>
+                  ) : (
+                    toDisplayEstimate
+                  )}
+                </div>
+              </div>
+
+              {rateDisplay && !quoteExpired && quote && (
+                <div className="mt-4 rounded-lg border border-border bg-muted/50 px-3 py-2.5 text-xs text-muted-foreground">
+                  <div className="flex items-center justify-between py-1">
+                    <span>Rate</span>
+                    <span className="text-foreground">{rateDisplay}</span>
+                  </div>
+                  <div className="flex items-center justify-between border-t border-border/50 py-1">
+                    <span>Estimated output</span>
+                    <span className="tabular-nums text-foreground">
+                      {parseFloat(quote.toAmount).toLocaleString(undefined, { maximumFractionDigits: 8 })} {toCurrency?.symbol}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between border-t border-border/50 py-1">
+                    <span>Slippage</span>
+                    <span className="text-foreground">
+                      {(() => {
+                        const from = parseFloat(fromAmount);
+                        const rate = parseFloat(quote.rate);
+                        const to = parseFloat(quote.toAmount);
+                        if (!Number.isFinite(from) || !Number.isFinite(rate) || !Number.isFinite(to) || from * rate === 0) return '< 0.5%';
+                        const expected = from * rate;
+                        const impact = Math.abs((expected - to) / expected) * 100;
+                        return impact < 0.5 ? '< 0.5%' : `~${impact.toFixed(2)}%`;
+                      })()}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-center tabular-nums">
+                    Expires in {formatCountdown(quoteRemainingMs)}
+                  </div>
                 </div>
               )}
-            </div>
-          </div>
+
+              {formError && (
+                <p className="mt-3 text-center text-sm text-sell" role="alert">
+                  {formError}
+                </p>
+              )}
+
+              <div className="mt-4 flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={handleGetQuote}
+                  disabled={quoteLoading || !fromCurrency || !toCurrency || !fromAmount}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-muted py-3 text-sm font-semibold text-foreground hover:bg-muted/80 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {quoteLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Getting quote…
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="h-4 w-4" />
+                      Get quote
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleConvert}
+                  disabled={
+                    converting || !quote || quoteExpired || !fromAmount || !authReady
+                  }
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {converting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Converting…
+                    </>
+                  ) : (
+                    'Convert'
+                  )}
+                </button>
+              </div>
+
+              <div className="mt-4 flex flex-wrap justify-center gap-x-4 gap-y-1 border-t border-border pt-4 text-center text-xs">
+                <Link href="/dashboard/deposit/crypto" className="font-medium text-primary hover:text-primary/90">
+                  Deposit
+                </Link>
+                <Link href="/dashboard/transfer" className="font-medium text-primary hover:text-primary/90">
+                  Transfer
+                </Link>
+              </div>
+            </>
+          )}
         </div>
-      )}
+      </div>
+
+      <div className="mx-auto mt-10 max-w-4xl">
+        <div className="mb-4 flex items-center gap-2">
+          <History className="h-5 w-5 text-muted-foreground" />
+          <h2 className="text-lg font-semibold text-foreground">Conversion history</h2>
+        </div>
+
+        <div className="overflow-x-auto rounded-xl border border-border bg-card">
+          {historyLoading ? (
+            <div className="flex justify-center py-16">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : history.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-16 text-muted-foreground">
+              <History className="h-10 w-10 opacity-40" />
+              <p className="text-sm">No conversions yet</p>
+            </div>
+          ) : (
+            <table className="w-full min-w-[640px] text-sm">
+              <thead>
+                <tr className="border-b border-border text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  <th className="px-4 py-3">Type</th>
+                  <th className="px-4 py-3">From</th>
+                  <th className="px-4 py-3">To</th>
+                  <th className="px-4 py-3">Rate</th>
+                  <th className="px-4 py-3">Account</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((row) => (
+                  <tr key={row.id} className="border-b border-border last:border-0 hover:bg-muted/40">
+                    <td className="px-4 py-3 capitalize text-foreground">{row.conversion_type}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2 tabular-nums text-foreground">
+                        {row.from_logo && (
+                          <Image src={row.from_logo} alt="" width={20} height={20} className="rounded-full" unoptimized />
+                        )}
+                        {parseFloat(row.from_amount).toLocaleString(undefined, { maximumFractionDigits: 8 })}{' '}
+                        {row.from_symbol}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2 tabular-nums text-foreground">
+                        {row.to_logo && (
+                          <Image src={row.to_logo} alt="" width={20} height={20} className="rounded-full" unoptimized />
+                        )}
+                        {parseFloat(row.to_amount || '0').toLocaleString(undefined, { maximumFractionDigits: 8 })}{' '}
+                        {row.to_symbol}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                      {parseFloat(row.conversion_rate).toLocaleString(undefined, { maximumSignificantDigits: 8 })}
+                    </td>
+                    <td className="px-4 py-3 capitalize text-muted-foreground">{row.account_type}</td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={
+                          row.status === 'completed'
+                            ? 'text-buy'
+                            : row.status === 'pending'
+                              ? 'text-primary'
+                              : 'text-sell'
+                        }
+                      >
+                        {row.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 tabular-nums text-muted-foreground">
+                      {new Date(row.created_at).toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

@@ -49,7 +49,7 @@ function MyAdsInner() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold text-foreground">My ads</h1>
-        <Link href="/p2p/create-ad" className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white">
+        <Link href="/p2p/create-ad" className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">
           New ad
         </Link>
       </div>
@@ -104,7 +104,7 @@ function MyAdsInner() {
                       remarks: String(r.remarks ?? ''),
                     });
                   }}
-                  className="rounded border border-border px-3 py-1.5 text-xs dark:border-gray-600"
+                  className="rounded border border-border px-3 py-1.5 text-xs"
                 >
                   Edit
                 </button>
@@ -177,7 +177,7 @@ function MyAdsInner() {
                         if (ep.remarks.trim()) body.remarks = ep.remarks.trim();
                         if (Object.keys(body).length) patchMut.mutate({ id, body });
                       }}
-                      className="rounded bg-blue-600 px-3 py-1 text-xs text-white"
+                      className="rounded bg-primary px-3 py-1 text-xs text-primary-foreground"
                     >
                       Save
                     </button>

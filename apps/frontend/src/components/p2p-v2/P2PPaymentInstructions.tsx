@@ -127,7 +127,7 @@ export function P2PPaymentInstructions({ details, displayName }: Props) {
           <button
             type="button"
             onClick={() => copy(copyKey, value)}
-            className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground dark:hover:bg-accent dark:hover:text-white"
+            className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
             title="Copy"
           >
             {copied === copyKey ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}

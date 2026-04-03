@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useAuthStore } from '@/store/auth';
 import { useBalancesFunding, type TokenBalance } from '@/lib/balances';
-import Link from 'next/link';
-import Image from 'next/image';
+import { CoinIcon } from '@/components/ui/CoinIcon';
 import { SkeletonTableBody } from '@/components/ui/Skeleton';
+import Link from 'next/link';
 import {
   Eye,
   EyeOff,
@@ -14,361 +14,433 @@ import {
   ArrowLeftRight,
   RefreshCw,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Wallet,
-  LayoutGrid,
-  TrendingUp,
   Clock,
   Search,
-  MoreHorizontal,
-  HelpCircle,
-  Sparkles,
   ArrowUpRight,
+  BarChart3,
+  Banknote,
+  ChevronsUpDown,
+  X,
 } from 'lucide-react';
+
+const COIN_NAMES: Record<string, string> = {
+  BTC: 'Bitcoin', ETH: 'Ethereum', BNB: 'BNB', SOL: 'Solana',
+  USDT: 'Tether', USDC: 'USD Coin', XRP: 'Ripple', ADA: 'Cardano',
+  AVAX: 'Avalanche', DOT: 'Polkadot', DOGE: 'Dogecoin', SHIB: 'Shiba Inu',
+  LINK: 'Chainlink', UNI: 'Uniswap', LTC: 'Litecoin', MATIC: 'Polygon',
+  ARB: 'Arbitrum', OP: 'Optimism',
+};
+
+type SortKey = 'symbol' | 'balance' | 'value';
+type SortDir = 'asc' | 'desc';
+
+function formatUsd(n: number): string {
+  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatCrypto(v: number | string, decimals = 8): string {
+  const n = typeof v === 'string' ? parseFloat(v) : v;
+  if (!Number.isFinite(n)) return '0.' + '0'.repeat(Math.min(decimals, 8));
+  return n.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+}
+
+function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
+  if (!active) return <ChevronsUpDown className="w-3 h-3 opacity-40" />;
+  return dir === 'asc'
+    ? <ChevronUp className="w-3 h-3 text-primary" />
+    : <ChevronDown className="w-3 h-3 text-primary" />;
+}
+
+function ActionDropdown({ symbol }: { symbol: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function close(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative inline-flex items-center gap-1">
+      <Link
+        href={`/dashboard/deposit/crypto?coin=${symbol}`}
+        className="px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/5 rounded-md transition-colors"
+      >
+        Deposit
+      </Link>
+      <Link
+        href={`/dashboard/withdraw/crypto?coin=${symbol}`}
+        className="px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/5 rounded-md transition-colors"
+      >
+        Withdraw
+      </Link>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="px-2 py-1.5 text-xs font-medium text-primary hover:bg-primary/5 rounded-md transition-colors flex items-center gap-0.5"
+      >
+        More <ChevronDown className="w-3 h-3" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 w-40 bg-card border border-border rounded-xl shadow-xl z-50 py-1 animate-in fade-in slide-in-from-top-1 duration-150">
+          <Link
+            href="/dashboard/transfer"
+            className="flex items-center gap-2 px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors"
+            onClick={() => setOpen(false)}
+          >
+            <ArrowLeftRight className="w-3.5 h-3.5 text-muted-foreground" /> Transfer
+          </Link>
+          <Link
+            href={`/dashboard/trade/spot?pair=${symbol}_USDT`}
+            className="flex items-center gap-2 px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors"
+            onClick={() => setOpen(false)}
+          >
+            <BarChart3 className="w-3.5 h-3.5 text-muted-foreground" /> Trade
+          </Link>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function FundingAccountPage() {
   const { accessToken, _hasHydrated } = useAuthStore();
-  
+
   const [showBalance, setShowBalance] = useState(true);
   const [activeTab, setActiveTab] = useState<'crypto' | 'fiat'>('crypto');
-  const [hideSmallBalances, setHideSmallBalances] = useState(false);
+  const [hideZero, setHideZero] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState<string>('symbol');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
-  const [ordersExpanded, setOrdersExpanded] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>('value');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [refreshing, setRefreshing] = useState(false);
 
-  const { data: fundingData, isLoading: loading } = useBalancesFunding(!!_hasHydrated && !!accessToken);
+  const { data: fundingData, isLoading, refetch } = useBalancesFunding(!!_hasHydrated && !!accessToken);
   const balances = fundingData?.balances ?? [];
   const totalEquity = fundingData?.totalEquity ?? { usd: 0, btc: 0 };
   const availableBalance = fundingData?.availableBalance ?? { usd: 0, btc: 0 };
   const inUse = fundingData?.inUse ?? { usd: 0, btc: 0 };
   const sessionError = fundingData?.sessionError ?? null;
 
-  const getTokenIcon = (symbol: string) => {
-    return `/assets/upload/currency-logo/${symbol.toLowerCase()}.svg`;
-  };
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await refetch();
+    setTimeout(() => setRefreshing(false), 600);
+  }, [refetch]);
 
-  const formatNumber = (num: number | string, decimals = 8) => {
-    const n = typeof num === 'string' ? parseFloat(num) : num;
-    if (!Number.isFinite(n)) return '0.' + '0'.repeat(Math.min(decimals, 8));
-    return n.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
-  };
-
-  const filteredBalances = balances
-    .filter(b => {
-      if (hideSmallBalances && parseFloat(b.usd_value) < 1) return false;
-      if (searchQuery) {
-        return b.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
-               b.name.toLowerCase().includes(searchQuery.toLowerCase());
-      }
-      return true;
-    })
-    .sort((a, b) => {
-      if (sortBy === 'symbol') {
-        return sortOrder === 'asc' 
-          ? a.symbol.localeCompare(b.symbol)
-          : b.symbol.localeCompare(a.symbol);
-      }
-      return 0;
-    });
-
-  const handleSort = (column: string) => {
-    if (sortBy === column) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+  const cycleSort = useCallback((key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
     } else {
-      setSortBy(column);
-      setSortOrder('asc');
+      setSortKey(key);
+      setSortDir(key === 'symbol' ? 'asc' : 'desc');
     }
-  };
+  }, [sortKey]);
+
+  const filteredBalances = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return balances
+      .filter((b: TokenBalance) => {
+        if (hideZero && parseFloat(b.usd_value || '0') < 0.01 && parseFloat(b.total_balance || '0') === 0) return false;
+        if (q) {
+          const fullName = (COIN_NAMES[b.symbol] ?? b.name ?? '').toLowerCase();
+          return b.symbol.toLowerCase().includes(q) || fullName.includes(q);
+        }
+        return true;
+      })
+      .sort((a: TokenBalance, b: TokenBalance) => {
+        const dir = sortDir === 'asc' ? 1 : -1;
+        switch (sortKey) {
+          case 'symbol':
+            return a.symbol.localeCompare(b.symbol) * dir;
+          case 'balance':
+            return (parseFloat(a.total_balance || '0') - parseFloat(b.total_balance || '0')) * dir;
+          case 'value':
+            return (parseFloat(a.usd_value || '0') - parseFloat(b.usd_value || '0')) * dir;
+          default:
+            return 0;
+        }
+      });
+  }, [balances, hideZero, searchQuery, sortKey, sortDir]);
+
+  const mask = (v: string) => (showBalance ? v : '••••••');
+  const maskNum = (v: string, dec?: number) => (showBalance ? formatCrypto(v, dec) : '••••••');
 
   return (
-    <div className="p-6">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-8">
-            <div className="flex items-center gap-4">
-              <h1 className="text-2xl font-bold text-foreground">Funding Account</h1>
-              <button
-                onClick={() => setShowBalance(!showBalance)}
-                className="p-2 text-muted-foreground hover:text-primary hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
-              >
-                {showBalance ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
-              </button>
-            </div>
+    <div className="p-6 max-w-[1400px] mx-auto">
+      {/* ── Page header ── */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <h1 className="text-xl font-semibold text-foreground tracking-tight">Funding Account</h1>
+          <button
+            onClick={() => setShowBalance(s => !s)}
+            className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg transition-colors"
+            title={showBalance ? 'Hide balances' : 'Show balances'}
+          >
+            {showBalance ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
+          </button>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg transition-colors disabled:opacity-50"
+            title="Refresh balances"
+          >
+            <RefreshCw className={`w-4.5 h-4.5 ${refreshing ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
 
-            <div className="flex items-center gap-3">
-              <Link
-                href="/wallet/deposit/crypto"
-                className="flex items-center gap-2 px-5 py-2.5 bg-primary hover:bg-primary/85 text-white font-medium text-sm rounded-xl shadow-lg shadow-blue-500/25 transition-all hover:shadow-blue-500/40"
-              >
-                <Download className="w-4 h-4" />
-                Deposit
-              </Link>
-              <Link
-                href="/wallet/withdraw/crypto"
-                className="flex items-center gap-2 px-5 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-xl border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
-              >
-                <Upload className="w-4 h-4" />
-                Withdraw
-              </Link>
-              <Link
-                href="/wallet/transfer"
-                className="flex items-center gap-2 px-5 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-xl border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
-              >
-                <ArrowLeftRight className="w-4 h-4" />
-                Transfer
-              </Link>
-              <Link
-                href="/wallet/convert"
-                className="flex items-center gap-2 px-5 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-xl border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
-              >
-                <RefreshCw className="w-4 h-4" />
-                Convert
-              </Link>
-              <Link
-                href="/wallet/history"
-                className="flex items-center gap-2 px-4 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-xl border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
-              >
-                <Clock className="w-4 h-4" />
-                History
-              </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/dashboard/deposit/crypto"
+            className="flex items-center gap-2 px-5 py-2 bg-primary hover:bg-primary/90 text-primary-foreground font-medium text-sm rounded-lg transition-colors"
+          >
+            <Download className="w-4 h-4" /> Deposit
+          </Link>
+          <Link
+            href="/dashboard/withdraw/crypto"
+            className="flex items-center gap-2 px-5 py-2 bg-card text-foreground font-medium text-sm rounded-lg border border-border hover:bg-accent transition-colors"
+          >
+            <Upload className="w-4 h-4" /> Withdraw
+          </Link>
+          <Link
+            href="/dashboard/transfer"
+            className="flex items-center gap-2 px-5 py-2 bg-card text-foreground font-medium text-sm rounded-lg border border-border hover:bg-accent transition-colors"
+          >
+            <ArrowLeftRight className="w-4 h-4" /> Transfer
+          </Link>
+        </div>
+      </div>
+
+      {/* ── Session error ── */}
+      {sessionError && (
+        <div className="mb-6 p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 flex flex-wrap items-center justify-between gap-4">
+          <p className="text-sm text-amber-800 dark:text-amber-200">{sessionError}</p>
+          <Link href="/login" className="px-4 py-2 text-sm font-medium rounded-lg bg-amber-600 text-white hover:bg-amber-700 transition-colors">
+            Log in again
+          </Link>
+        </div>
+      )}
+
+      {/* ── Equity summary cards ── */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="bg-card rounded-xl p-5 border border-border">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
+              <Wallet className="w-4.5 h-4.5 text-white" />
             </div>
+            <span className="text-sm font-medium text-muted-foreground">Total Equity</span>
+          </div>
+          <p className="text-2xl font-bold text-foreground tabular-nums">
+            {showBalance ? `$${formatUsd(totalEquity.usd)}` : '••••••'}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1 tabular-nums">
+            ≈ {showBalance ? `${formatCrypto(totalEquity.btc, 8)} BTC` : '••••••••'}
+          </p>
+        </div>
+        <div className="bg-card rounded-xl p-5 border border-border">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center">
+              <ArrowUpRight className="w-4.5 h-4.5 text-white" />
+            </div>
+            <span className="text-sm font-medium text-muted-foreground">Available Balance</span>
+          </div>
+          <p className="text-2xl font-bold text-foreground tabular-nums">
+            {showBalance ? `$${formatUsd(availableBalance.usd)}` : '••••••'}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1 tabular-nums">
+            ≈ {showBalance ? `${formatCrypto(availableBalance.btc, 8)} BTC` : '••••••••'}
+          </p>
+        </div>
+        <div className="bg-card rounded-xl p-5 border border-border">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
+              <Clock className="w-4.5 h-4.5 text-white" />
+            </div>
+            <span className="text-sm font-medium text-muted-foreground">In Use / Locked</span>
+          </div>
+          <p className="text-2xl font-bold text-foreground tabular-nums">
+            {showBalance ? `$${formatUsd(inUse.usd)}` : '••••••'}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1 tabular-nums">
+            ≈ {showBalance ? `${formatCrypto(inUse.btc, 8)} BTC` : '••••••••'}
+          </p>
+        </div>
+      </div>
+
+      {/* ── Crypto / Fiat tabs + table ── */}
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        {/* Tab bar + controls */}
+        <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
+          <div className="flex items-center gap-1 bg-muted p-1 rounded-lg">
+            <button
+              onClick={() => setActiveTab('crypto')}
+              className={`px-5 py-2 text-sm font-medium rounded-md transition-all ${
+                activeTab === 'crypto'
+                  ? 'bg-card text-primary shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Crypto
+            </button>
+            <button
+              onClick={() => setActiveTab('fiat')}
+              className={`px-5 py-2 text-sm font-medium rounded-md transition-all ${
+                activeTab === 'fiat'
+                  ? 'bg-card text-primary shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Fiat
+            </button>
           </div>
 
-          {/* Session error banner */}
-          {sessionError && (
-            <div className="mb-6 p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 flex flex-wrap items-center justify-between gap-4">
-              <p className="text-sm text-amber-800 dark:text-amber-200">{sessionError}</p>
-              <Link
-                href="/login"
-                className="px-4 py-2 text-sm font-medium rounded-lg bg-amber-600 text-white hover:bg-amber-700"
-              >
-                Log in again
-              </Link>
+          {activeTab === 'crypto' && (
+            <div className="flex items-center gap-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Search coin..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9 pr-8 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 w-56 transition-shadow"
+                />
+                {searchQuery && (
+                  <button onClick={() => setSearchQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer select-none text-sm text-muted-foreground hover:text-foreground transition-colors">
+                <input
+                  type="checkbox"
+                  checked={hideZero}
+                  onChange={(e) => setHideZero(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/40 accent-primary"
+                />
+                Hide zero balances
+              </label>
             </div>
           )}
+        </div>
 
-          {/* Balance Summary */}
-          <div className="bg-card rounded-xl p-6 mb-8 border border-border">
-            <div className="grid grid-cols-3 gap-8">
-              <div className="relative">
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
-                    <Wallet className="w-5 h-5 text-white" />
-                  </div>
-                  <p className="text-sm font-medium text-muted-foreground">Total Equity</p>
-                </div>
-                <p className="text-3xl font-bold text-foreground">
-                  {showBalance ? formatNumber(totalEquity.usd, 2) : '******'} <span className="text-sm font-normal text-muted-foreground">USD</span>
-                </p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  ≈ {showBalance ? formatNumber(totalEquity.btc, 8) : '********'} BTC
-                </p>
-              </div>
-              <div className="border-l border-border pl-8">
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center">
-                    <ArrowUpRight className="w-5 h-5 text-white" />
-                  </div>
-                  <p className="text-sm font-medium text-muted-foreground">Available Balance</p>
-                </div>
-                <p className="text-3xl font-bold text-foreground">
-                  {showBalance ? formatNumber(availableBalance.usd, 2) : '******'} <span className="text-sm font-normal text-muted-foreground">USD</span>
-                </p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  ≈ {showBalance ? formatNumber(availableBalance.btc, 8) : '********'} BTC
-                </p>
-              </div>
-              <div className="border-l border-border pl-8">
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
-                    <Clock className="w-5 h-5 text-white" />
-                  </div>
-                  <p className="text-sm font-medium text-muted-foreground">In Use</p>
-                </div>
-                <p className="text-3xl font-bold text-foreground">
-                  {showBalance ? formatNumber(inUse.usd, 2) : '******'} <span className="text-sm font-normal text-muted-foreground">USD</span>
-                </p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  ≈ {showBalance ? formatNumber(inUse.btc, 8) : '********'} BTC
-                </p>
-              </div>
+        {/* ── Fiat coming-soon ── */}
+        {activeTab === 'fiat' && (
+          <div className="flex flex-col items-center justify-center py-24 px-6">
+            <div className="w-16 h-16 rounded-2xl bg-muted flex items-center justify-center mb-5">
+              <Banknote className="w-8 h-8 text-muted-foreground" />
             </div>
+            <h3 className="text-lg font-semibold text-foreground mb-1">Fiat Balances Coming Soon</h3>
+            <p className="text-sm text-muted-foreground max-w-md text-center">
+              We&apos;re working on fiat currency support. You&apos;ll be able to deposit and withdraw USD, EUR, and other fiat currencies here.
+            </p>
           </div>
+        )}
 
-          {/* Tabs */}
-          <div className="bg-card rounded-xl border border-border overflow-hidden">
-            <div className="flex gap-1 p-1.5 bg-accent dark:bg-[#2b2f36] m-4 rounded-xl w-fit">
-              <button
-                onClick={() => setActiveTab('crypto')}
-                className={`px-6 py-2.5 text-sm font-medium rounded-lg transition-all ${
-                  activeTab === 'crypto'
-                    ? 'bg-card text-primary shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'
-                }`}
-              >
-                Crypto
-              </button>
-              <button
-                onClick={() => setActiveTab('fiat')}
-                className={`px-6 py-2.5 text-sm font-medium rounded-lg transition-all ${
-                  activeTab === 'fiat'
-                    ? 'bg-card text-primary shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'
-                }`}
-              >
-                Fiat
-              </button>
-            </div>
-
-            {/* Filters */}
-            <div className="flex items-center justify-between px-6 pb-4">
-              <div className="flex items-center gap-4">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <input
-                    type="text"
-                    placeholder="Search coin..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10 pr-4 py-2.5 bg-muted dark:bg-[#2b2f36] border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:ring-2 focus:ring-primary focus:border-transparent w-64"
-                  />
-                </div>
-                <label className="flex items-center gap-2.5 cursor-pointer px-3 py-2 bg-muted dark:bg-[#2b2f36] rounded-xl border border-border">
-                  <input
-                    type="checkbox"
-                    checked={hideSmallBalances}
-                    onChange={(e) => setHideSmallBalances(e.target.checked)}
-                    className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
-                  />
-                  <span className="text-sm text-muted-foreground">Hide assets &lt; $1</span>
-                </label>
-                <Link 
-                  href="/wallet/convert"
-                  className="text-sm text-primary hover:text-primary/85 flex items-center gap-1 font-medium"
-                >
-                  <Sparkles className="w-4 h-4" />
-                  Convert Small Balances
-                </Link>
-              </div>
-
-              {/* Promo Banner */}
-              <div className="flex items-center gap-3 px-4 py-2.5 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl border border-blue-100 dark:border-blue-800/30">
-                <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-                  <Sparkles className="w-4 h-4 text-white" />
-                </div>
-                <div className="text-sm">
-                  <span className="text-foreground/80">HODL USDe to Enjoy Up to </span>
-                  <span className="text-primary font-semibold">4.50% APR!</span>
-                </div>
-                <ChevronRight className="w-4 h-4 text-primary" />
-              </div>
-            </div>
-
-            {/* Table */}
-            <table className="w-full">
+        {/* ── Crypto table ── */}
+        {activeTab === 'crypto' && (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[800px]">
               <thead>
-                <tr className="bg-background border-y border-border">
-                  <th 
-                    className="text-left px-6 py-4 text-xs font-semibold text-muted-foreground uppercase cursor-pointer hover:text-primary transition-colors"
-                    onClick={() => handleSort('symbol')}
-                  >
-                    <div className="flex items-center gap-1">
-                      Coin {sortBy === 'symbol' && (sortOrder === 'asc' ? '↑' : '↓')}
-                    </div>
-                  </th>
-                  <th className="text-right px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">All</th>
-                  <th className="text-right px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">Available Balance</th>
-                  <th className="text-right px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">In Use</th>
-                  <th className="text-right px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">Equivalent</th>
-                  <th className="text-right px-6 py-4 text-xs font-semibold text-muted-foreground uppercase">Action</th>
+                <tr className="bg-muted/50">
+                  {([
+                    ['symbol', 'Coin', 'left'],
+                    ['balance', 'Total Balance', 'right'],
+                    [null, 'Available', 'right'],
+                    [null, 'In Use / Locked', 'right'],
+                    ['value', 'USD Value', 'right'],
+                    [null, 'Action', 'right'],
+                  ] as const).map(([key, label, align], i) => {
+                    const sortable = key !== null;
+                    return (
+                      <th
+                        key={i}
+                        className={`px-5 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground ${
+                          align === 'right' ? 'text-right' : 'text-left'
+                        } ${sortable ? 'cursor-pointer select-none hover:text-foreground transition-colors' : ''}`}
+                        onClick={sortable ? () => cycleSort(key) : undefined}
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          {label}
+                          {sortable && <SortIcon active={sortKey === key} dir={sortDir} />}
+                        </span>
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {loading ? (
-                  <SkeletonTableBody rows={6} columns={6} />
+                {isLoading ? (
+                  <SkeletonTableBody rows={8} columns={6} />
                 ) : filteredBalances.length > 0 ? (
-                  filteredBalances.map((balance) => (
-                    <tr key={balance.token_id} className="hover:bg-accent/50 transition-colors">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl overflow-hidden bg-accent flex items-center justify-center flex-shrink-0">
-                            <Image
-                              src={getTokenIcon(balance.symbol)}
-                              alt={balance.symbol}
-                              width={40}
-                              height={40}
-                              className="object-contain"
-                              unoptimized
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).style.display = 'none';
-                              }}
-                            />
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold text-foreground">{balance.symbol}</span>
-                              {balance.is_delisted && (
-                                <span className="px-2 py-0.5 text-xs bg-accent text-muted-foreground rounded-lg flex items-center gap-1">
-                                  Delisted <HelpCircle className="w-3 h-3" />
-                                </span>
-                              )}
+                  filteredBalances.map((b: TokenBalance) => {
+                    const fullName = COIN_NAMES[b.symbol] ?? b.name ?? b.symbol;
+                    const usdVal = parseFloat(b.usd_value || '0');
+                    const lockedVal = parseFloat(b.locked_balance || '0');
+
+                    return (
+                      <tr key={b.token_id} className="group hover:bg-accent/40 transition-colors">
+                        {/* Coin */}
+                        <td className="px-5 py-3.5">
+                          <div className="flex items-center gap-3">
+                            <CoinIcon symbol={b.symbol} size={32} />
+                            <div className="min-w-0">
+                              <span className="font-semibold text-sm text-foreground">{b.symbol}</span>
+                              <p className="text-xs text-muted-foreground truncate">{fullName}</p>
                             </div>
-                            <p className="text-xs text-muted-foreground mt-0.5">{balance.name}</p>
                           </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-right font-mono text-sm text-foreground">
-                        {showBalance ? formatNumber(balance.total_balance) : '********'}
-                      </td>
-                      <td className="px-6 py-4 text-right font-mono text-sm text-foreground">
-                        {showBalance ? formatNumber(balance.available_balance) : '********'}
-                      </td>
-                      <td className="px-6 py-4 text-right font-mono text-sm text-foreground">
-                        {showBalance ? formatNumber(balance.locked_balance) : '********'}
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <p className="font-mono text-sm text-foreground">
-                          {showBalance ? formatNumber(balance.btc_value) : '********'} BTC
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          ≈ {showBalance ? formatNumber(parseFloat(balance.usd_value), 2) : '****'} USD
-                        </p>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <Link
-                            href={`/wallet/deposit/crypto?coin=${balance.symbol}`}
-                            className="px-3 py-1.5 text-sm text-primary hover:text-primary/85 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors font-medium"
-                          >
-                            Deposit
-                          </Link>
-                          <Link
-                            href="/wallet/transfer"
-                            className="px-3 py-1.5 text-sm text-primary hover:text-primary/85 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors font-medium"
-                          >
-                            Transfer
-                          </Link>
-                          <button className="p-1.5 hover:bg-accent rounded-lg transition-colors">
-                            <MoreHorizontal className="w-4 h-4 text-muted-foreground" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
+                        </td>
+                        {/* Total */}
+                        <td className="px-5 py-3.5 text-right font-mono text-sm text-foreground tabular-nums">
+                          {maskNum(b.total_balance)}
+                        </td>
+                        {/* Available */}
+                        <td className="px-5 py-3.5 text-right font-mono text-sm text-foreground tabular-nums">
+                          {maskNum(b.available_balance)}
+                        </td>
+                        {/* Locked */}
+                        <td className="px-5 py-3.5 text-right font-mono text-sm tabular-nums">
+                          <span className={lockedVal > 0 ? 'text-orange-500' : 'text-muted-foreground'}>
+                            {maskNum(b.locked_balance)}
+                          </span>
+                        </td>
+                        {/* USD Value */}
+                        <td className="px-5 py-3.5 text-right">
+                          <span className="font-mono text-sm text-foreground tabular-nums">
+                            {showBalance ? `$${formatUsd(usdVal)}` : '••••••'}
+                          </span>
+                        </td>
+                        {/* Actions */}
+                        <td className="px-5 py-3.5 text-right">
+                          <ActionDropdown symbol={b.symbol} />
+                        </td>
+                      </tr>
+                    );
+                  })
                 ) : (
                   <tr>
                     <td colSpan={6} className="py-20 text-center">
                       <div className="flex flex-col items-center">
-                        <div className="w-20 h-20 bg-accent rounded-xl flex items-center justify-center mb-4">
-                          <Wallet className="w-10 h-10 text-gray-300 dark:text-muted-foreground" />
+                        <div className="w-16 h-16 bg-muted rounded-2xl flex items-center justify-center mb-4">
+                          <Wallet className="w-8 h-8 text-muted-foreground" />
                         </div>
-                        <p className="text-muted-foreground font-medium">No assets found</p>
-                        <p className="text-sm text-muted-foreground mt-1">Deposit funds to get started</p>
-                        <Link
-                          href="/wallet/deposit/crypto"
-                          className="mt-4 px-6 py-2.5 bg-primary hover:bg-primary/85 text-white font-medium text-sm rounded-xl transition-colors"
-                        >
-                          Deposit Now
-                        </Link>
+                        <p className="text-foreground font-medium">No assets found</p>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          {searchQuery ? 'Try a different search term' : 'Deposit funds to get started'}
+                        </p>
+                        {!searchQuery && (
+                          <Link
+                            href="/dashboard/deposit/crypto"
+                            className="mt-4 px-6 py-2.5 bg-primary hover:bg-primary/90 text-primary-foreground font-medium text-sm rounded-lg transition-colors"
+                          >
+                            Deposit Now
+                          </Link>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -376,6 +448,8 @@ export default function FundingAccountPage() {
               </tbody>
             </table>
           </div>
+        )}
+      </div>
     </div>
   );
 }

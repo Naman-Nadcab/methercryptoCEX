@@ -61,7 +61,7 @@ export function ExchangeHeader({
   }, [searchOpen]);
 
   return (
-    <header className="sticky top-0 z-40 flex h-14 flex-shrink-0 items-center justify-between gap-3 border-b border-border bg-card/95 px-3 backdrop-blur-md supports-[backdrop-filter]:bg-card/80">
+    <header className="sticky top-0 z-40 flex h-14 flex-shrink-0 items-center justify-between gap-3 border-b border-[#2b2f36] bg-[#181a20] px-3">
       <div className="flex min-w-0 items-center gap-3 sm:gap-4">
         <button
           type="button"
@@ -98,7 +98,7 @@ export function ExchangeHeader({
         <div className="hidden max-w-[420px] flex-1 md:block">
           <div className="relative">
             <div
-              className="flex h-9 cursor-pointer items-center gap-2 rounded-lg border border-border bg-accent/50 px-3 transition-colors hover:border-primary/40"
+              className="flex h-9 cursor-pointer items-center gap-2 rounded-lg border border-[#2b2f36] bg-[#2b2f36]/50 px-3 transition-colors hover:border-[#f0b90b]/40"
               onClick={() => setSearchOpen(true)}
               role="button"
               tabIndex={0}
@@ -149,17 +149,30 @@ export function ExchangeHeader({
         {!showPairSearch && (
           <div className="hidden sm:block"><GlobalSearch accessToken={accessToken} /></div>
         )}
-        <Link href={ORDERS_HREF} className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" aria-label="Orders" title="Orders">
-          <FileText className="h-[18px] w-[18px]" />
-        </Link>
-        <Link href={WALLET_HREF} className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" aria-label="Wallet" title="Wallet">
-          <Wallet className="h-[18px] w-[18px]" />
-        </Link>
         <ThemeToggle variant="icon" size="sm" />
-        <NotificationCenter accessToken={accessToken} />
-        <Link href={ROUTES.dashboard.account} className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" aria-label="Profile">
-          <User className="h-[18px] w-[18px]" />
-        </Link>
+        {accessToken ? (
+          <>
+            <Link href={ORDERS_HREF} className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" aria-label="Orders" title="Orders">
+              <FileText className="h-[18px] w-[18px]" />
+            </Link>
+            <Link href={WALLET_HREF} className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" aria-label="Wallet" title="Wallet">
+              <Wallet className="h-[18px] w-[18px]" />
+            </Link>
+            <NotificationCenter accessToken={accessToken} />
+            <Link href={ROUTES.dashboard.account} className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" aria-label="Profile">
+              <User className="h-[18px] w-[18px]" />
+            </Link>
+          </>
+        ) : (
+          <div className="flex items-center gap-1.5">
+            <Link href="/login" className="rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
+              Log In
+            </Link>
+            <Link href="/register" className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">
+              Register
+            </Link>
+          </div>
+        )}
       </div>
 
       {mobileMenuOpen && (

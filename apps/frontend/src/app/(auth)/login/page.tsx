@@ -229,7 +229,7 @@ export default function LoginPage() {
   return (
     <AuthSplitLayout>
       {searchParams.get('reset') === 'success' && (
-        <div className="p-3 mb-5 rounded-xl bg-emerald-500/10 dark:bg-emerald-500/20 border border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-sm">
+        <div className="p-3 mb-5 rounded-xl bg-primary/10 border border-primary/30 text-foreground text-sm">
           Password reset successful. Log in with your new password.
         </div>
       )}
@@ -243,8 +243,8 @@ export default function LoginPage() {
 
           {/* Type tabs */}
           <div className="flex p-1 rounded-xl bg-accent/80">
-            <button type="button" onClick={() => setType('email')} className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${type === 'email' ? 'bg-card dark:bg-accent text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'}`}>Email</button>
-            <button type="button" onClick={() => setType('phone')} className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${type === 'phone' ? 'bg-card dark:bg-accent text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'}`}>Mobile</button>
+            <button type="button" onClick={() => setType('email')} className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${type === 'email' ? 'bg-card dark:bg-accent text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground/80'}`}>Email</button>
+            <button type="button" onClick={() => setType('phone')} className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${type === 'phone' ? 'bg-card dark:bg-accent text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground/80'}`}>Mobile</button>
           </div>
 
           <div>
@@ -262,8 +262,8 @@ export default function LoginPage() {
 
           {identifier.length >= 5 && (
             <>
-              <div className="rounded-xl p-4 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 border border-blue-200/50 dark:border-blue-700/30">
-                <button type="button" onClick={passkeyLogin} disabled={passkeyLoading || loading} className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold flex items-center justify-center gap-2 disabled:opacity-60 transition-all shadow-lg shadow-blue-500/20">
+              <div className="rounded-xl p-4 bg-muted/50 border border-border">
+                <button type="button" onClick={passkeyLogin} disabled={passkeyLoading || loading} className="w-full py-3 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-semibold flex items-center justify-center gap-2 disabled:opacity-60 transition-all shadow-lg shadow-primary/20">
                   {passkeyLoading ? <><Loader2 className="w-5 h-5 animate-spin" aria-hidden /> Authenticating</> : <><Fingerprint className="w-5 h-5" aria-hidden /> Login with Passkey</>}
                 </button>
               </div>
@@ -275,9 +275,9 @@ export default function LoginPage() {
             </>
           )}
 
-          {error && <p className="text-destructive text-sm rounded-lg bg-red-50 dark:bg-red-950/30 px-3 py-2" role="alert">{error}</p>}
+          {error && <p className="text-destructive text-sm rounded-lg bg-destructive/10 px-3 py-2" role="alert">{error}</p>}
 
-          <button type="submit" disabled={sendingOtp || !identifier.trim()} className="w-full py-3.5 rounded-xl bg-gray-900 dark:bg-card text-white dark:text-foreground font-semibold hover:bg-gray-800 dark:hover:bg-accent disabled:opacity-50 transition-colors">
+          <button type="submit" disabled={sendingOtp || !identifier.trim()} className="w-full py-3.5 rounded-xl bg-primary text-primary-foreground font-semibold hover:bg-primary/90 dark:hover:bg-primary/90 disabled:opacity-50 transition-colors">
             {sendingOtp ? <span className="inline-flex items-center gap-2"><Loader2 className="w-5 h-5 animate-spin" aria-hidden /> Sending code…</span> : 'Continue with OTP'}
           </button>
 
@@ -312,12 +312,12 @@ export default function LoginPage() {
                 onChange={(e) => handleOtpChange(i, e.target.value)}
                 onKeyDown={(e) => e.key === 'Backspace' && !otp[i] && i > 0 && otpRefs.current[i - 1]?.focus()}
                 aria-label={`Digit ${i + 1} of 6`}
-                className="w-11 h-14 sm:w-12 sm:h-14 text-center text-xl font-bold rounded-lg border-2 border-border bg-card/50 text-foreground focus:border-blue-500 focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                className="w-11 h-14 sm:w-12 sm:h-14 text-center text-xl font-bold rounded-lg border-2 border-border bg-card/50 text-foreground focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all"
               />
             ))}
           </div>
 
-          {error && <p className="text-destructive text-sm text-center rounded-lg bg-red-50 dark:bg-red-950/30 px-3 py-2" role="alert">{error}</p>}
+          {error && <p className="text-destructive text-sm text-center rounded-lg bg-destructive/10 px-3 py-2" role="alert">{error}</p>}
 
           <div className="flex justify-between items-center text-sm">
             <button type="button" onClick={resend} disabled={countdown > 0} className={countdown > 0 ? 'text-muted-foreground cursor-not-allowed' : 'text-primary hover:underline font-medium'}>
@@ -326,7 +326,7 @@ export default function LoginPage() {
             {countdown > 0 && <span className="text-muted-foreground tabular-nums">{fmt(countdown)}</span>}
           </div>
 
-          <button type="submit" disabled={loading || otp.join('').length !== 6} className="w-full py-3.5 rounded-xl bg-primary hover:bg-primary/85 text-white font-semibold disabled:opacity-50 transition-colors">
+          <button type="submit" disabled={loading || otp.join('').length !== 6} className="w-full py-3.5 rounded-xl bg-primary hover:bg-primary/85 text-primary-foreground font-semibold disabled:opacity-50 transition-colors">
             {loading ? <span className="inline-flex items-center gap-2"><Loader2 className="w-5 h-5 animate-spin" aria-hidden /> Verifying…</span> : 'Verify & continue'}
           </button>
         </form>

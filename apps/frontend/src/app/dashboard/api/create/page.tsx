@@ -122,8 +122,8 @@ function CreateApiKeyContent() {
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
         <div className="bg-card rounded-xl w-full max-w-lg shadow-2xl">
           <div className="p-8 text-center">
-            <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
-              <Check className="w-10 h-10 text-green-500" />
+            <div className="w-20 h-20 bg-buy-light rounded-full flex items-center justify-center mx-auto mb-6">
+              <Check className="w-10 h-10 text-buy" />
             </div>
             <h2 className="text-2xl font-bold text-foreground mb-2">API Key Created!</h2>
             <p className="text-muted-foreground mb-6">Save your credentials now. The secret will not be shown again.</p>
@@ -137,24 +137,24 @@ function CreateApiKeyContent() {
                     onClick={() => copyToClipboard(createdKey.apiKey, 'apiKey')}
                     className="p-2 hover:bg-accent rounded-lg transition-colors"
                   >
-                    {copiedKey === 'apiKey' ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4 text-muted-foreground" />}
+                    {copiedKey === 'apiKey' ? <Check className="w-4 h-4 text-buy" /> : <Copy className="w-4 h-4 text-muted-foreground" />}
                   </button>
                 </div>
               </div>
               
               {createdKey.apiSecret && (
-                <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl">
+                <div className="p-4 bg-warning-light border border-warning/30 rounded-xl">
                   <div className="flex items-center gap-2 mb-2">
-                    <AlertTriangle className="w-4 h-4 text-yellow-600" />
-                    <label className="text-xs font-medium text-yellow-700 dark:text-yellow-500 uppercase tracking-wider">API Secret (Save Now!)</label>
+                    <AlertTriangle className="w-4 h-4 text-warning" />
+                    <label className="text-xs font-medium text-warning uppercase tracking-wider">API Secret (Save Now!)</label>
                   </div>
                   <div className="flex items-center gap-2">
                     <code className="flex-1 text-sm font-mono text-foreground break-all">{createdKey.apiSecret}</code>
                     <button
                       onClick={() => copyToClipboard(createdKey.apiSecret!, 'apiSecret')}
-                      className="p-2 hover:bg-yellow-200 dark:hover:bg-yellow-800 rounded-lg transition-colors"
+                      className="p-2 hover:bg-accent rounded-lg transition-colors"
                     >
-                      {copiedKey === 'apiSecret' ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4 text-yellow-600" />}
+                      {copiedKey === 'apiSecret' ? <Check className="w-4 h-4 text-buy" /> : <Copy className="w-4 h-4 text-warning" />}
                     </button>
                   </div>
                 </div>
@@ -163,7 +163,7 @@ function CreateApiKeyContent() {
 
             <button
               onClick={() => router.push('/dashboard/api')}
-              className="w-full mt-6 px-6 py-3 bg-primary hover:bg-primary/85 text-white font-semibold rounded-xl transition-colors"
+              className="w-full mt-6 px-6 py-3 bg-primary hover:bg-primary/85 text-primary-foreground font-semibold rounded-xl transition-colors"
             >
               Done
             </button>
@@ -184,21 +184,21 @@ function CreateApiKeyContent() {
       onClick={onChange}
       className={`w-full p-4 rounded-xl border-2 text-left transition-all ${
         checked 
-          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
-          : 'border-border hover:border-border dark:hover:border-gray-600'
+          ? 'border-primary bg-muted' 
+          : 'border-border hover:border-border'
       }`}
     >
       <div className="flex items-start gap-3">
         <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
-          checked ? 'border-blue-500' : 'border-border dark:border-gray-600'
+          checked ? 'border-primary' : 'border-border'
         }`}>
           {checked && <div className="w-2.5 h-2.5 rounded-full bg-primary" />}
         </div>
         <div className="flex-1">
           <div className="flex items-center gap-2">
-            <span className={`font-medium ${checked ? 'text-blue-700 dark:text-blue-400' : 'text-foreground'}`}>{label}</span>
+            <span className={`font-medium ${checked ? 'text-primary' : 'text-foreground'}`}>{label}</span>
             {recommended && (
-              <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-primary text-xs font-medium rounded">Recommended</span>
+              <span className="px-2 py-0.5 bg-muted text-primary text-xs font-medium rounded">Recommended</span>
             )}
           </div>
           {description && (
@@ -220,10 +220,10 @@ function CreateApiKeyContent() {
       <div
         onClick={() => !disabled && onChange()}
         className={`w-5 h-5 rounded-md flex items-center justify-center border-2 transition-colors flex-shrink-0 mt-0.5 ${
-          checked ? 'bg-primary border-blue-500' : 'border-border dark:border-gray-600'
+          checked ? 'bg-primary border-primary' : 'border-border'
         }`}
       >
-        {checked && <Check className="w-3 h-3 text-white" />}
+        {checked && <Check className="w-3 h-3 text-primary-foreground" />}
       </div>
       <div className="flex-1 min-w-0">
         <span className="text-sm font-medium text-foreground">{label}</span>
@@ -256,10 +256,10 @@ function CreateApiKeyContent() {
               ? 'bg-gradient-to-br from-blue-500 to-blue-600 shadow-blue-500/25' 
               : 'bg-gradient-to-br from-purple-500 to-purple-600 shadow-purple-500/25'
           }`}>
-            {keyType === 'system' ? <Key className="w-7 h-7 text-white" /> : <Shield className="w-7 h-7 text-white" />}
+            {keyType === 'system' ? <Key className="w-7 h-7 text-primary-foreground" /> : <Shield className="w-7 h-7 text-primary-foreground" />}
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-foreground">
+            <h1 className="text-xl font-semibold text-foreground">
               {keyType === 'system' ? 'System-generated API Key' : 'Self-generated API Key'}
             </h1>
             <p className="text-muted-foreground">
@@ -300,7 +300,7 @@ function CreateApiKeyContent() {
 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
 -----END PUBLIC KEY-----"
                 rows={5}
-                className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-foreground placeholder:text-muted-foreground outline-none focus:border-blue-500 focus:ring-2 focus:ring-primary/20 resize-none font-mono text-sm"
+                className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-foreground placeholder:text-muted-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 resize-none font-mono text-sm"
               />
               <button className="mt-3 text-primary hover:text-primary/85 text-sm font-medium flex items-center gap-1">
                 <Info className="w-4 h-4" />
@@ -324,7 +324,7 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
                   value={name}
                   onChange={e => setName(e.target.value)}
                   placeholder="e.g., Trading Bot, Portfolio Tracker"
-                  className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-foreground placeholder:text-muted-foreground outline-none focus:border-blue-500 focus:ring-2 focus:ring-primary/20"
+                  className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-foreground placeholder:text-muted-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                 />
               </div>
 
@@ -381,7 +381,7 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
                     onChange={e => setIpAddresses(e.target.value)}
                     placeholder="192.168.1.1, 10.0.0.1, 203.0.113.50"
                     rows={3}
-                    className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-foreground placeholder:text-muted-foreground outline-none focus:border-blue-500 focus:ring-2 focus:ring-primary/20 resize-none font-mono text-sm"
+                    className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-foreground placeholder:text-muted-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 resize-none font-mono text-sm"
                   />
                   <p className="text-xs text-muted-foreground mt-2">Up to 100 IP addresses allowed</p>
                 </div>
@@ -510,7 +510,7 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
                   />
                   <div className="py-3 px-4 rounded-lg opacity-50">
                     <div className="flex items-start gap-3">
-                      <div className="w-5 h-5 rounded-md border-2 border-border dark:border-gray-600 flex-shrink-0 mt-0.5" />
+                      <div className="w-5 h-5 rounded-md border-2 border-border flex-shrink-0 mt-0.5" />
                       <div>
                         <span className="text-sm font-medium text-muted-foreground">Withdrawal</span>
                         <p className="text-xs text-muted-foreground mt-0.5">Not available for read-only keys</p>
@@ -545,7 +545,7 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
             <button
               onClick={handleSubmit}
               disabled={submitting}
-              className="px-8 py-4 bg-primary hover:bg-primary/85 disabled:bg-blue-300 text-white font-semibold rounded-xl transition-all shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 flex items-center gap-2"
+              className="px-8 py-4 bg-primary hover:bg-primary/85 disabled:bg-muted disabled:text-muted-foreground text-primary-foreground font-semibold rounded-xl transition-all shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 flex items-center gap-2"
             >
               {submitting ? (
                 <>
@@ -561,7 +561,7 @@ MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
             </button>
             <button
               onClick={() => router.push('/dashboard/api')}
-              className="px-8 py-4 text-muted-foreground hover:text-foreground dark:hover:text-white font-medium transition-colors"
+              className="px-8 py-4 text-muted-foreground hover:text-foreground font-medium transition-colors"
             >
               Cancel
             </button>

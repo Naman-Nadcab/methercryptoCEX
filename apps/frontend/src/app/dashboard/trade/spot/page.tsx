@@ -467,7 +467,7 @@ export default function SpotTradePage() {
                         <td className="p-3 tabular-nums tracking-tight text-foreground/80">{o.price ?? '—'}</td>
                         <td className="p-3 tabular-nums tracking-tight text-foreground/80">{o.quantity}</td>
                         <td className="p-3">
-                          <span className={`px-2 py-0.5 rounded text-xs ${o.status === 'FILLED' ? 'bg-green-500/20 text-buy' : 'bg-gray-500/20 text-muted-foreground'}`}>{o.status}</span>
+                          <span className={`px-2 py-0.5 rounded text-xs ${o.status === 'FILLED' ? 'bg-green-500/20 text-buy' : 'bg-muted text-muted-foreground'}`}>{o.status}</span>
                         </td>
                       </tr>
                     ))}
@@ -479,7 +479,7 @@ export default function SpotTradePage() {
                       type="button"
                       onClick={() => fetchHistoryOrders(historyNextCursor, true)}
                       disabled={historyLoadMore}
-                      className="py-2 px-4 rounded-lg bg-accent text-foreground/80 text-sm font-medium hover:bg-accent dark:hover:bg-gray-600 disabled:opacity-50 flex items-center gap-2"
+                      className="py-2 px-4 rounded-lg bg-accent text-foreground/80 text-sm font-medium hover:bg-muted disabled:opacity-50 flex items-center gap-2"
                     >
                       {historyLoadMore ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                       Load more

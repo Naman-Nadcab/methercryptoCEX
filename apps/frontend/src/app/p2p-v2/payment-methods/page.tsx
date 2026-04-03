@@ -115,7 +115,7 @@ function PmInner() {
             setErr(null);
             addMut.mutate();
           }}
-          className="mt-2 w-full rounded-lg bg-blue-600 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="mt-2 w-full rounded-lg bg-primary py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
         >
           Add
         </button>

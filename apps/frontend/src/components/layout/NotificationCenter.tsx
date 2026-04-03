@@ -1,17 +1,19 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Bell, Download, FileText, Send, Shield, ChevronRight } from 'lucide-react';
-import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { Bell, Download, FileText, Send, Shield, ChevronRight, Loader2 } from 'lucide-react';
+import { api } from '@/lib/api';
 import { ORDERS_HREF, walletPath, ROUTES } from '@/lib/routes';
 
-interface Notification {
+/** Normalized notification for UI (API may use notification_type / is_read). */
+export interface Notification {
   id: string;
   title: string;
   message: string;
-  notification_type: string;
-  is_read: boolean;
+  type: string;
+  read: boolean;
   created_at: string;
 }
 
@@ -20,42 +22,92 @@ interface NotificationCenterProps {
   className?: string;
 }
 
-const TYPE_CONFIG: Record<string, { icon: typeof Bell; label: string; href: string }> = {
-  deposit: { icon: Download, label: 'Deposit completed', href: walletPath.depositCrypto },
-  order: { icon: FileText, label: 'Order filled', href: `${ORDERS_HREF}/spot` },
-  withdrawal: { icon: Send, label: 'Withdrawal sent', href: walletPath.withdrawCrypto },
-  security: { icon: Shield, label: 'Security alert', href: '/dashboard/security' },
+type NotificationsApiData =
+  | Notification[]
+  | {
+      notifications?: Record<string, unknown>[];
+      unreadCount?: number;
+    };
+
+function normalizeRow(row: Record<string, unknown>): Notification {
+  const id = String(row.id ?? '');
+  const title = String(row.title ?? '');
+  const message = String(row.message ?? '');
+  const type = String(row.type ?? row.notification_type ?? 'system_announcement');
+  const read = Boolean(row.read ?? row.is_read);
+  const created_at = String(row.created_at ?? '');
+  return { id, title, message, type, read, created_at };
+}
+
+function mapTypeToRoute(type: string): string {
+  const t = type.toLowerCase();
+  if (t.includes('deposit')) return walletPath.depositCrypto;
+  if (t.includes('order') || t.includes('trade')) return `${ORDERS_HREF}/spot`;
+  if (t.includes('withdraw')) return walletPath.withdrawCrypto;
+  if (t.includes('security')) return '/dashboard/security';
+  return ROUTES.dashboard.announcements;
+}
+
+const TYPE_CONFIG: Record<string, { icon: typeof Bell; label: string }> = {
+  deposit: { icon: Download, label: 'Deposit' },
+  order: { icon: FileText, label: 'Order' },
+  withdrawal: { icon: Send, label: 'Withdrawal' },
+  security: { icon: Shield, label: 'Security' },
+  security_alert: { icon: Shield, label: 'Security' },
 };
 
 function getConfig(type: string) {
-  return TYPE_CONFIG[type] ?? { icon: Bell, label: type, href: '/dashboard/announcements' };
+  const key = type.toLowerCase().replace(/\s+/g, '_');
+  return TYPE_CONFIG[key] ?? { icon: Bell, label: type.replace(/_/g, ' ') };
 }
 
 export function NotificationCenter({ accessToken, className = '' }: NotificationCenterProps) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [markingAll, setMarkingAll] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const loadNotifications = useCallback(async () => {
+    if (!accessToken) {
+      setNotifications([]);
+      setUnreadCount(0);
+      return;
+    }
+    setLoading(true);
+    const res = await api.get<NotificationsApiData>('/api/v1/user/notifications?limit=20', {
+      notifyOnError: false,
+    });
+    setLoading(false);
+    if (!res.success || res.data == null) {
+      return;
+    }
+    const d = res.data;
+    if (Array.isArray(d)) {
+      const list = d.map((row) => normalizeRow(row as unknown as Record<string, unknown>));
+      setNotifications(list);
+      setUnreadCount(list.filter((n) => !n.read).length);
+      return;
+    }
+    const raw = d.notifications ?? [];
+    const list = raw.map((row) => normalizeRow(row as unknown as Record<string, unknown>));
+    setNotifications(list);
+    setUnreadCount(
+      typeof d.unreadCount === 'number' ? d.unreadCount : list.filter((n) => !n.read).length
+    );
+  }, [accessToken]);
+
+  useEffect(() => {
+    void loadNotifications();
+  }, [loadNotifications]);
 
   useEffect(() => {
     if (open && accessToken) {
-      setLoading(true);
-      const url = getApiBaseUrl();
-      fetch(`${url}/api/v1/user/notifications?limit=20`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      })
-        .then((res) => res.json())
-        .then((data) => {
-          if (data?.success && data?.data) {
-            setNotifications(data.data.notifications ?? []);
-            setUnreadCount(data.data.unreadCount ?? 0);
-          }
-        })
-        .catch(() => {})
-        .finally(() => setLoading(false));
+      void loadNotifications();
     }
-  }, [open, accessToken]);
+  }, [open, accessToken, loadNotifications]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -67,16 +119,28 @@ export function NotificationCenter({ accessToken, className = '' }: Notification
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
-  const fallbackNotifications: Notification[] = notifications.length > 0
-    ? []
-    : [
-        { id: '1', title: 'Deposit completed', message: 'Your BTC deposit has been credited.', notification_type: 'deposit', is_read: true, created_at: new Date().toISOString() },
-        { id: '2', title: 'Order filled', message: 'Your limit order for ETH/USDT was filled.', notification_type: 'order', is_read: false, created_at: new Date().toISOString() },
-        { id: '3', title: 'Withdrawal sent', message: 'Your USDT withdrawal has been processed.', notification_type: 'withdrawal', is_read: true, created_at: new Date().toISOString() },
-        { id: '4', title: 'Security alert', message: 'New login detected. If this wasn\'t you, secure your account.', notification_type: 'security', is_read: false, created_at: new Date().toISOString() },
-      ];
+  const markOneRead = async (id: string) => {
+    const res = await api.patch(`/api/v1/user/notifications/${encodeURIComponent(id)}/read`, undefined, {
+      notifyOnError: true,
+    });
+    if (res.success) {
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+      );
+      setUnreadCount((c) => Math.max(0, c - 1));
+    }
+  };
 
-  const displayList = notifications.length > 0 ? notifications : fallbackNotifications;
+  const markAllRead = async () => {
+    if (unreadCount === 0) return;
+    setMarkingAll(true);
+    const res = await api.post('/api/v1/user/notifications/read-all', undefined, { notifyOnError: true });
+    setMarkingAll(false);
+    if (res.success) {
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+      setUnreadCount(0);
+    }
+  };
 
   const formatTime = (dateStr: string) => {
     const d = new Date(dateStr);
@@ -90,6 +154,15 @@ export function NotificationCenter({ accessToken, className = '' }: Notification
     return d.toLocaleDateString();
   };
 
+  const handleRowClick = async (n: Notification) => {
+    const href = mapTypeToRoute(n.type);
+    if (!n.read) {
+      await markOneRead(n.id);
+    }
+    setOpen(false);
+    router.push(href);
+  };
+
   return (
     <div ref={containerRef} className={`relative ${className}`}>
       <button
@@ -101,7 +174,7 @@ export function NotificationCenter({ accessToken, className = '' }: Notification
       >
         <Bell className="w-[18px] h-[18px]" />
         {unreadCount > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-semibold text-white bg-destructive rounded-full">
+          <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-semibold text-destructive-foreground bg-destructive rounded-full">
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}
@@ -109,31 +182,48 @@ export function NotificationCenter({ accessToken, className = '' }: Notification
 
       {open && (
         <div className="absolute right-0 top-full mt-1 w-80 bg-popover dark:bg-card border border-border rounded-lg shadow-xl z-50 overflow-hidden">
-          <div className="p-3 border-b border-border flex items-center justify-between">
+          <div className="p-3 border-b border-border flex items-center justify-between gap-2">
             <p className="text-sm font-semibold text-foreground">Notifications</p>
-            <Link
-              href={ROUTES.dashboard.announcements}
-              onClick={() => setOpen(false)}
-              className="text-xs text-primary hover:underline flex items-center gap-0.5"
-            >
-              View all <ChevronRight className="w-3 h-3" />
-            </Link>
+            <div className="flex items-center gap-2 shrink-0">
+              {unreadCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void markAllRead()}
+                  disabled={markingAll}
+                  className="text-xs font-medium text-primary hover:underline disabled:opacity-50"
+                >
+                  {markingAll ? '…' : 'Mark all read'}
+                </button>
+              )}
+              <Link
+                href={ROUTES.dashboard.announcements}
+                onClick={() => setOpen(false)}
+                className="text-xs text-primary hover:underline flex items-center gap-0.5"
+              >
+                View all <ChevronRight className="w-3 h-3" />
+              </Link>
+            </div>
           </div>
           <div className="max-h-80 overflow-y-auto">
             {loading ? (
-              <div className="p-6 text-center text-sm text-muted-foreground">Loading…</div>
-            ) : displayList.length === 0 ? (
+              <div className="p-6 flex flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                Loading…
+              </div>
+            ) : notifications.length === 0 ? (
               <div className="p-6 text-center text-sm text-muted-foreground">No notifications yet.</div>
             ) : (
-              displayList.slice(0, 10).map((n) => {
-                const config = getConfig(n.notification_type);
+              notifications.slice(0, 10).map((n) => {
+                const config = getConfig(n.type);
                 const Icon = config.icon;
                 return (
-                  <Link
+                  <button
                     key={n.id}
-                    href={config.href}
-                    onClick={() => setOpen(false)}
-                    className={`flex gap-3 p-4 border-b border-border last:border-0 hover:bg-muted/50 transition-colors ${!n.is_read ? 'bg-primary/5 dark:bg-primary/10' : ''}`}
+                    type="button"
+                    onClick={() => void handleRowClick(n)}
+                    className={`flex gap-3 p-4 border-b border-border last:border-0 hover:bg-muted/50 transition-colors text-left w-full ${
+                      !n.read ? 'bg-primary/5 dark:bg-primary/10' : ''
+                    }`}
                   >
                     <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
                       <Icon className="w-4 h-4 text-muted-foreground" />
@@ -143,7 +233,7 @@ export function NotificationCenter({ accessToken, className = '' }: Notification
                       <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{n.message}</p>
                       <p className="text-[10px] text-muted-foreground mt-1">{formatTime(n.created_at)}</p>
                     </div>
-                  </Link>
+                  </button>
                 );
               })
             )}

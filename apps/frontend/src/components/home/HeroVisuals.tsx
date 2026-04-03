@@ -51,7 +51,7 @@ export function HeroVisuals() {
         ].map((c, i) => (
           <div
             key={c.src}
-            className="absolute w-12 h-12 rounded-xl bg-[#181a20] border border-white/10 flex items-center justify-center shadow-xl animate-[home-float_4s_ease-in-out_infinite] hover:border-blue-500/30 hover:scale-110 transition-all"
+            className="absolute w-12 h-12 rounded-xl bg-muted border border-white/10 flex items-center justify-center shadow-xl animate-[home-float_4s_ease-in-out_infinite] hover:border-blue-500/30 hover:scale-110 transition-all"
             style={{
               top: c.top,
               left: c.left,

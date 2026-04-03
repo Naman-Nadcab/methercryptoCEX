@@ -8,6 +8,7 @@ import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { api } from '@/lib/api';
 import Link from 'next/link';
 import Image from 'next/image';
+import { CoinIcon } from '@/components/ui/CoinIcon';
 import { QRCodeSVG } from 'qrcode.react';
 import { notifyError } from '@/lib/notifyError';
 import {
@@ -123,11 +124,6 @@ export default function DepositCryptoPage() {
   const [addressError, setAddressError] = useState<string | null>(null);
 
   const API_URL = getApiBaseUrl();
-
-  // Get token image path
-  const getTokenIcon = (symbol: string) => {
-    return `/assets/upload/currency-logo/${symbol.toLowerCase()}.svg`;
-  };
 
   // Get chain image path
   const getChainIcon = (chain: Chain) => {
@@ -410,7 +406,7 @@ export default function DepositCryptoPage() {
         <main className="flex-1 p-6">
           {/* Header */}
           <div className="flex items-center justify-between mb-6">
-            <h1 className="text-2xl font-bold text-foreground">Deposit Crypto</h1>
+            <h1 className="text-xl font-semibold text-foreground">Deposit Crypto</h1>
             <Link
               href="/dashboard/help#deposit-how-to"
               className="flex items-center gap-2 px-4 py-2.5 bg-card border border-border text-foreground/80 rounded-xl hover:border-blue-300 dark:hover:border-blue-600 transition-colors text-sm font-medium"
@@ -440,16 +436,7 @@ export default function DepositCryptoPage() {
                     {selectedToken ? (
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full overflow-hidden bg-accent flex items-center justify-center">
-                          <Image
-                            src={getTokenIcon(selectedToken.symbol)}
-                            alt={selectedToken.symbol}
-                            width={32}
-                            height={32}
-                            className="object-contain"
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).style.display = 'none';
-                            }}
-                          />
+                          <CoinIcon symbol={selectedToken.symbol} size={32} />
                         </div>
                         <div>
                           <span className="font-medium text-foreground">{selectedToken.symbol}</span>
@@ -493,16 +480,7 @@ export default function DepositCryptoPage() {
                               className="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent transition-colors"
                             >
                               <div className="w-8 h-8 rounded-full overflow-hidden bg-accent flex items-center justify-center flex-shrink-0">
-                                <Image
-                                  src={getTokenIcon(token.symbol)}
-                                  alt={token.symbol}
-                                  width={32}
-                                  height={32}
-                                  className="object-contain"
-                                  onError={(e) => {
-                                    (e.target as HTMLImageElement).style.display = 'none';
-                                  }}
-                                />
+                                <CoinIcon symbol={token.symbol} size={32} />
                               </div>
                               <div className="flex-1 text-left">
                                 <p className="font-medium text-foreground">{token.symbol}</p>
@@ -534,16 +512,7 @@ export default function DepositCryptoPage() {
                         }`}
                       >
                         <div className="w-5 h-5 rounded-full overflow-hidden bg-accent">
-                          <Image
-                            src={getTokenIcon(symbol)}
-                            alt={symbol}
-                            width={20}
-                            height={20}
-                            className="object-contain"
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).style.display = 'none';
-                            }}
-                          />
+                          <CoinIcon symbol={symbol} size={20} />
                         </div>
                         <span className="text-sm font-medium">{symbol}</span>
                       </button>
@@ -697,6 +666,20 @@ export default function DepositCryptoPage() {
                       </div>
                     </div>
 
+                    {/* Deposit Info */}
+                    {selectedChain && (
+                      <div className="grid grid-cols-2 gap-3 text-xs">
+                        <div className="bg-muted rounded-lg p-3">
+                          <p className="text-muted-foreground mb-0.5">Confirmations Required</p>
+                          <p className="text-foreground font-medium">{selectedChain.confirmations_required ?? '—'} blocks</p>
+                        </div>
+                        <div className="bg-muted rounded-lg p-3">
+                          <p className="text-muted-foreground mb-0.5">Network</p>
+                          <p className="text-foreground font-medium">{selectedChain.name} ({selectedChain.type})</p>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Notice */}
                     <div className="flex items-start gap-2 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
                       <AlertTriangle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
@@ -846,9 +829,9 @@ export default function DepositCryptoPage() {
       </div>
 
       {/* Help Button */}
-      <button className="fixed bottom-6 right-6 w-12 h-12 bg-primary hover:bg-primary/85 text-white rounded-full shadow-lg flex items-center justify-center transition-colors z-40">
+      <Link href="/dashboard/help" className="fixed bottom-6 right-6 w-12 h-12 bg-primary hover:bg-primary/85 text-white rounded-full shadow-lg flex items-center justify-center transition-colors z-40">
         <HelpCircle className="w-6 h-6" />
-      </button>
+      </Link>
 
       {/* KYC Verification Modal */}
       {showKycModal && (

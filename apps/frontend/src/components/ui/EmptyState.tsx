@@ -50,7 +50,7 @@ export function EmptyState({
       {href && label && (
         <Link
           href={href}
-          className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-primary hover:bg-primary/85 text-white text-sm font-medium transition-colors"
+          className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-primary hover:bg-primary/85 text-primary-foreground text-sm font-medium transition-colors"
         >
           {label}
         </Link>

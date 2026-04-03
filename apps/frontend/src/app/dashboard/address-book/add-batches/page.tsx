@@ -264,7 +264,7 @@ export default function AddBatchesPage() {
         {/* Main Card */}
         <div className="bg-card rounded-lg p-6">
           {/* Title */}
-          <h1 className="text-2xl font-semibold text-foreground mb-6">
+          <h1 className="text-xl font-semibold text-foreground mb-6">
             Add Your Wallet Addresses
           </h1>
 
@@ -274,7 +274,7 @@ export default function AddBatchesPage() {
               onClick={() => setActiveTab('onchain')}
               className={`pb-4 text-base font-medium border-b-2 transition-colors ${
                 activeTab === 'onchain'
-                  ? 'border-blue-500 text-foreground'
+                  ? 'border-primary text-foreground'
                   : 'border-transparent text-muted-foreground hover:text-foreground/80'
               }`}
             >
@@ -284,7 +284,7 @@ export default function AddBatchesPage() {
               onClick={() => setActiveTab('internal')}
               className={`pb-4 text-base font-medium border-b-2 transition-colors ${
                 activeTab === 'internal'
-                  ? 'border-blue-500 text-foreground'
+                  ? 'border-primary text-foreground'
                   : 'border-transparent text-muted-foreground hover:text-foreground/80'
               }`}
             >
@@ -306,13 +306,13 @@ export default function AddBatchesPage() {
                   {index === 0 && (
                     <div className="grid grid-cols-12 gap-4 mb-2">
                       <div className="col-span-2 text-sm text-muted-foreground">
-                        <span className="text-red-500">*</span> Assets
+                        <span className="text-sell">*</span> Assets
                       </div>
                       <div className="col-span-2 text-sm text-muted-foreground">
-                        <span className="text-red-500">*</span> Chain Type
+                        <span className="text-sell">*</span> Chain Type
                       </div>
                       <div className="col-span-3 text-sm text-muted-foreground">
-                        <span className="text-red-500">*</span> Address
+                        <span className="text-sell">*</span> Address
                       </div>
                       <div className="col-span-2 text-sm text-muted-foreground">
                         Tag/Memo
@@ -333,7 +333,7 @@ export default function AddBatchesPage() {
                       <select
                         value={addr.asset}
                         onChange={e => updateOnchainRow(addr.id, 'asset', e.target.value)}
-                        className="w-full px-3 py-2.5 bg-card border border-border rounded-lg text-foreground text-sm appearance-none cursor-pointer outline-none focus:border-blue-500"
+                        className="w-full px-3 py-2.5 bg-card border border-border rounded-lg text-foreground text-sm appearance-none cursor-pointer outline-none focus:border-primary"
                       >
                         <option value="">Please select</option>
                         {assets.map(asset => (
@@ -348,7 +348,7 @@ export default function AddBatchesPage() {
                       <select
                         value={addr.chainType}
                         onChange={e => updateOnchainRow(addr.id, 'chainType', e.target.value)}
-                        className="w-full px-3 py-2.5 bg-card border border-border rounded-lg text-foreground text-sm appearance-none cursor-pointer outline-none focus:border-blue-500"
+                        className="w-full px-3 py-2.5 bg-card border border-border rounded-lg text-foreground text-sm appearance-none cursor-pointer outline-none focus:border-primary"
                       >
                         <option value="">Please select</option>
                         {chains.map(chain => (
@@ -365,7 +365,7 @@ export default function AddBatchesPage() {
                         value={addr.address}
                         onChange={e => updateOnchainRow(addr.id, 'address', e.target.value)}
                         placeholder="Please input your withdrawal wallet address"
-                        className="w-full px-3 py-2.5 bg-card border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground outline-none focus:border-blue-500"
+                        className="w-full px-3 py-2.5 bg-card border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground outline-none focus:border-primary"
                       />
                     </div>
 
@@ -376,7 +376,7 @@ export default function AddBatchesPage() {
                         value={addr.tagMemo}
                         onChange={e => updateOnchainRow(addr.id, 'tagMemo', e.target.value)}
                         placeholder="Optional"
-                        className="w-full px-3 py-2.5 bg-card border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground outline-none focus:border-blue-500"
+                        className="w-full px-3 py-2.5 bg-card border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground outline-none focus:border-primary"
                       />
                     </div>
 
@@ -387,7 +387,7 @@ export default function AddBatchesPage() {
                         value={addr.remark}
                         onChange={e => updateOnchainRow(addr.id, 'remark', e.target.value)}
                         placeholder="Add a remark"
-                        className="w-full px-3 py-2.5 bg-card border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground outline-none focus:border-blue-500"
+                        className="w-full px-3 py-2.5 bg-card border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground outline-none focus:border-primary"
                       />
                     </div>
 
@@ -396,7 +396,7 @@ export default function AddBatchesPage() {
                       <button
                         onClick={() => removeOnchainRow(addr.id)}
                         disabled={onchainAddresses.length === 1}
-                        className="p-2 text-muted-foreground hover:text-red-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                        className="p-2 text-muted-foreground hover:text-sell disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                       >
                         <Trash2 className="w-5 h-5" />
                       </button>
@@ -408,7 +408,7 @@ export default function AddBatchesPage() {
               {/* Add Button */}
               <button
                 onClick={addOnchainRow}
-                className="flex items-center gap-2 px-6 py-2.5 border border-border dark:border-gray-600 text-foreground/80 rounded-lg hover:bg-accent transition-colors mt-4"
+                className="flex items-center gap-2 px-6 py-2.5 border border-border text-foreground/80 rounded-lg hover:bg-accent transition-colors mt-4"
               >
                 <Plus className="w-4 h-4" />
                 Add
@@ -430,10 +430,10 @@ export default function AddBatchesPage() {
                   {index === 0 && (
                     <div className="grid grid-cols-12 gap-4 mb-2">
                       <div className="col-span-2 text-sm text-muted-foreground">
-                        <span className="text-red-500">*</span> Type
+                        <span className="text-sell">*</span> Type
                       </div>
                       <div className="col-span-5 text-sm text-muted-foreground">
-                        <span className="text-red-500">*</span> Recipient
+                        <span className="text-sell">*</span> Recipient
                       </div>
                       <div className="col-span-4 text-sm text-muted-foreground">
                         Remark
@@ -451,7 +451,7 @@ export default function AddBatchesPage() {
                       <select
                         value={addr.recipientType}
                         onChange={e => updateInternalRow(addr.id, 'recipientType', e.target.value)}
-                        className="w-full px-3 py-2.5 bg-card border border-border rounded-lg text-foreground text-sm appearance-none cursor-pointer outline-none focus:border-blue-500"
+                        className="w-full px-3 py-2.5 bg-card border border-border rounded-lg text-foreground text-sm appearance-none cursor-pointer outline-none focus:border-primary"
                       >
                         <option value="email">Email</option>
                         <option value="mobile">Mobile</option>
@@ -468,7 +468,7 @@ export default function AddBatchesPage() {
                             <select
                               value={addr.countryCode}
                               onChange={e => updateInternalRow(addr.id, 'countryCode', e.target.value)}
-                              className="w-full px-2 py-2.5 bg-card border border-border rounded-lg text-foreground text-sm appearance-none cursor-pointer outline-none focus:border-blue-500"
+                              className="w-full px-2 py-2.5 bg-card border border-border rounded-lg text-foreground text-sm appearance-none cursor-pointer outline-none focus:border-primary"
                             >
                               {countryCodes.map(c => (
                                 <option key={c.code} value={c.code}>{c.code}</option>
@@ -481,7 +481,7 @@ export default function AddBatchesPage() {
                             value={addr.recipient}
                             onChange={e => updateInternalRow(addr.id, 'recipient', e.target.value.replace(/\D/g, ''))}
                             placeholder="Please enter"
-                            className="flex-1 px-3 py-2.5 bg-card border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground outline-none focus:border-blue-500"
+                            className="flex-1 px-3 py-2.5 bg-card border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground outline-none focus:border-primary"
                           />
                         </div>
                       ) : (
@@ -490,7 +490,7 @@ export default function AddBatchesPage() {
                           value={addr.recipient}
                           onChange={e => updateInternalRow(addr.id, 'recipient', e.target.value)}
                           placeholder={addr.recipientType === 'email' ? 'Enter email address' : 'Enter UID'}
-                          className="w-full px-3 py-2.5 bg-card border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground outline-none focus:border-blue-500"
+                          className="w-full px-3 py-2.5 bg-card border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground outline-none focus:border-primary"
                         />
                       )}
                     </div>
@@ -502,7 +502,7 @@ export default function AddBatchesPage() {
                         value={addr.remark}
                         onChange={e => updateInternalRow(addr.id, 'remark', e.target.value)}
                         placeholder="Add a remark"
-                        className="w-full px-3 py-2.5 bg-card border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground outline-none focus:border-blue-500"
+                        className="w-full px-3 py-2.5 bg-card border border-border rounded-lg text-foreground text-sm placeholder:text-muted-foreground outline-none focus:border-primary"
                       />
                     </div>
 
@@ -511,7 +511,7 @@ export default function AddBatchesPage() {
                       <button
                         onClick={() => removeInternalRow(addr.id)}
                         disabled={internalAddresses.length === 1}
-                        className="p-2 text-muted-foreground hover:text-red-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                        className="p-2 text-muted-foreground hover:text-sell disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                       >
                         <Trash2 className="w-5 h-5" />
                       </button>
@@ -523,7 +523,7 @@ export default function AddBatchesPage() {
               {/* Add Button */}
               <button
                 onClick={addInternalRow}
-                className="flex items-center gap-2 px-6 py-2.5 border border-border dark:border-gray-600 text-foreground/80 rounded-lg hover:bg-accent transition-colors mt-4"
+                className="flex items-center gap-2 px-6 py-2.5 border border-border text-foreground/80 rounded-lg hover:bg-accent transition-colors mt-4"
               >
                 <Plus className="w-4 h-4" />
                 Add
@@ -540,7 +540,7 @@ export default function AddBatchesPage() {
                   type="checkbox"
                   checked={saveAsUniversal}
                   onChange={e => setSaveAsUniversal(e.target.checked)}
-                  className="mt-1 w-4 h-4 rounded border-border dark:border-gray-600 text-primary focus:ring-primary"
+                  className="mt-1 w-4 h-4 rounded border-border text-primary focus:ring-primary"
                 />
                 <span className="text-sm text-foreground/80">
                   The above wallet addresses have been saved as Universal Wallet Address, enabling withdrawals of multiple coins.
@@ -554,7 +554,7 @@ export default function AddBatchesPage() {
                 type="checkbox"
                 checked={noVerificationRequired}
                 onChange={e => setNoVerificationRequired(e.target.checked)}
-                className="mt-1 w-4 h-4 rounded border-border dark:border-gray-600 text-primary focus:ring-primary"
+                className="mt-1 w-4 h-4 rounded border-border text-primary focus:ring-primary"
               />
               <span className="text-sm text-foreground/80 flex items-center gap-1">
                 No withdrawal security verification required for above wallet addresses in future transactions.
@@ -567,7 +567,7 @@ export default function AddBatchesPage() {
           <button
             onClick={handleSubmit}
             disabled={submitting}
-            className="mt-6 px-8 py-3 bg-primary hover:bg-primary/85 disabled:bg-blue-300 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+            className="mt-6 px-8 py-3 bg-primary hover:bg-primary/85 disabled:bg-muted disabled:text-muted-foreground text-primary-foreground font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
           >
             {submitting ? (
               <>

@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { TrendingUp, TrendingDown } from 'lucide-react';
+import { CoinIcon } from '@/components/ui/CoinIcon';
 
 export interface AssetPerformanceRow {
   symbol: string;
@@ -64,7 +65,12 @@ export function AssetPerformanceTable({ rows, showBalance }: AssetPerformanceTab
                     }}
                     className="border-b border-border last:border-0 cursor-pointer hover:bg-muted dark:hover:bg-card/[0.04] transition-colors"
                   >
-                    <td className="py-3 px-4 font-medium text-foreground">{row.symbol}</td>
+                    <td className="py-3 px-4">
+                      <div className="flex items-center gap-2">
+                        <CoinIcon symbol={row.symbol} size={24} />
+                        <span className="font-medium text-foreground">{row.symbol}</span>
+                      </div>
+                    </td>
                     <td className="py-3 px-4 text-right tabular-nums text-foreground/80">
                       {showBalance ? row.balance : '****'}
                     </td>

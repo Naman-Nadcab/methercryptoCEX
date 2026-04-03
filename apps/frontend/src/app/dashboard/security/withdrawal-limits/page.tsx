@@ -20,7 +20,7 @@ interface WithdrawalLimits {
 
 export default function WithdrawalLimitsPage() {
   const router = useRouter();
-  const { user, accessToken } = useAuthStore();
+  const { accessToken } = useAuthStore();
   const apiUrl = getApiBaseUrl();
 
   const [loading, setLoading] = useState(true);
@@ -287,17 +287,16 @@ export default function WithdrawalLimitsPage() {
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Change Limit Card */}
-            <div className="bg-card rounded-lg p-6">
-              <h2 className="text-xl font-semibold text-foreground mb-4">
-                Change Limit
+            <div className="rounded-lg border border-border bg-card p-6">
+              <h2 className="mb-4 text-xl font-semibold text-foreground">
+                Change limit
               </h2>
 
-              {/* Warning Notice */}
-              <div className="flex items-start gap-3 p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg mb-6">
-                <div className="w-5 h-5 rounded-full bg-yellow-400 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <span className="text-white text-xs font-bold">!</span>
+              <div className="mb-6 flex items-start gap-3 rounded-lg border border-border bg-muted p-4">
+                <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary">
+                  <span className="text-xs font-bold text-primary-foreground">!</span>
                 </div>
-                <p className="text-sm text-foreground/80">
+                <p className="text-sm text-foreground">
                   Adjusting the withdrawal limit will not impact any withdrawal requests that are currently being processed.
                 </p>
               </div>
@@ -317,7 +316,7 @@ export default function WithdrawalLimitsPage() {
                     type="text"
                     value={dailyInput}
                     onChange={e => setDailyInput(e.target.value.replace(/[^0-9.]/g, ''))}
-                    className="w-full px-4 py-3 pr-16 bg-card border border-border rounded-lg text-foreground text-lg outline-none focus:border-blue-500"
+                    className="w-full rounded-lg border border-border bg-muted px-4 py-3 pr-16 text-lg text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/30"
                   />
                   <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground">
                     USDT
@@ -343,7 +342,7 @@ export default function WithdrawalLimitsPage() {
                     type="text"
                     value={monthlyInput}
                     onChange={e => setMonthlyInput(e.target.value.replace(/[^0-9.]/g, ''))}
-                    className="w-full px-4 py-3 pr-16 bg-card border border-border rounded-lg text-foreground text-lg outline-none focus:border-blue-500"
+                    className="w-full rounded-lg border border-border bg-muted px-4 py-3 pr-16 text-lg text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/30"
                   />
                   <span className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground">
                     USDT
@@ -358,16 +357,16 @@ export default function WithdrawalLimitsPage() {
               <button
                 onClick={handleSubmitClick}
                 disabled={submitting}
-                className="w-full py-3 bg-primary hover:bg-primary/85 disabled:bg-blue-300 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-3 font-medium text-primary-foreground transition-colors hover:bg-primary/85 disabled:bg-muted disabled:text-muted-foreground"
               >
                 Submit
               </button>
             </div>
 
             {/* Withdrawal Limit Info Card */}
-            <div className="bg-card rounded-lg p-6">
-              <h2 className="text-xl font-semibold text-foreground mb-6">
-                Withdrawal Limit Info
+            <div className="rounded-lg border border-border bg-card p-6">
+              <h2 className="mb-6 text-xl font-semibold text-foreground">
+                Withdrawal limit info
               </h2>
 
               {/* Table Header */}
@@ -415,8 +414,8 @@ export default function WithdrawalLimitsPage() {
 
       {/* Security Verification Modal */}
       {showVerifyModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-card rounded-xl w-full max-w-md shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/50 p-4">
+          <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-xl">
             {/* Header */}
             <div className="flex items-center justify-between p-6 border-b border-border">
               <h2 className="text-xl font-semibold text-foreground">
@@ -424,7 +423,7 @@ export default function WithdrawalLimitsPage() {
               </h2>
               <button
                 onClick={closeModal}
-                className="text-muted-foreground hover:text-muted-foreground dark:hover:text-gray-300"
+                className="text-muted-foreground hover:text-foreground"
               >
                 <X className="w-6 h-6" />
               </button>
@@ -452,7 +451,7 @@ export default function WithdrawalLimitsPage() {
                     value={smsOtp}
                     onChange={e => setSmsOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     placeholder="Please enter the SMS verification code"
-                    className="w-full px-4 py-3 pr-40 bg-muted dark:bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground outline-none focus:border-blue-500"
+                    className="w-full rounded-lg border border-border bg-muted px-4 py-3 pr-40 text-foreground placeholder:text-muted-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/30"
                   />
                   <button
                     onClick={sendSmsOtp}
@@ -484,7 +483,7 @@ export default function WithdrawalLimitsPage() {
                     value={google2faCode}
                     onChange={e => setGoogle2faCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     placeholder="Please enter the Google Authenticator code"
-                    className="w-full px-4 py-3 bg-muted dark:bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground outline-none focus:border-blue-500"
+                    className="w-full rounded-lg border border-border bg-muted px-4 py-3 text-foreground placeholder:text-muted-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/30"
                   />
                 </div>
               )}
@@ -493,10 +492,10 @@ export default function WithdrawalLimitsPage() {
               <button
                 onClick={verifyAndSubmit}
                 disabled={!canSubmit || verifying}
-                className={`w-full py-3 font-medium rounded-lg transition-colors flex items-center justify-center gap-2 ${
+                className={`flex w-full items-center justify-center gap-2 rounded-lg py-3 font-medium transition-colors ${
                   canSubmit && !verifying
-                    ? 'bg-primary hover:bg-primary/85 text-white'
-                    : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-500 cursor-not-allowed'
+                    ? 'bg-primary text-primary-foreground hover:bg-primary/85'
+                    : 'cursor-not-allowed bg-muted text-muted-foreground'
                 }`}
               >
                 {verifying ? (

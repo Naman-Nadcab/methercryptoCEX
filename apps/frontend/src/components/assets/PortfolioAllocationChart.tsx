@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
+import { CoinIcon } from '@/components/ui/CoinIcon';
 
 export interface AllocationItem {
   symbol: string;
@@ -94,10 +95,7 @@ export function PortfolioAllocationChart({ items, size = 180 }: PortfolioAllocat
           <div className="flex flex-wrap gap-3 min-w-0">
             {paths.map((p, i) => (
               <div key={p.symbol} className="flex items-center gap-2">
-                <div
-                  className="w-3 h-3 rounded-full flex-shrink-0"
-                  style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }}
-                />
+                <CoinIcon symbol={p.symbol} size={16} />
                 <span className="text-sm text-foreground/80 truncate">{p.symbol}</span>
                 <span className="text-sm text-muted-foreground tabular-nums">{p.percent.toFixed(1)}%</span>
               </div>

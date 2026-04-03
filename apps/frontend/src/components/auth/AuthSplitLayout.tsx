@@ -16,19 +16,19 @@ export default function AuthSplitLayout({
   return (
     <div className="min-h-screen flex bg-background">
       {/* Left - Brand panel with subtle grid pattern */}
-      <div className="hidden lg:flex lg:w-[48%] relative overflow-hidden bg-gradient-to-br from-[#181A20] via-[#1E2329] to-[#2B3139] p-12 flex-col justify-between">
+      <div className="hidden lg:flex lg:w-[48%] relative overflow-hidden bg-gradient-to-br from-muted via-card to-card p-12 flex-col justify-between">
         {/* Subtle grid overlay */}
         <div className="absolute inset-0 opacity-[0.07]" style={{
           backgroundImage: `linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
             linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)`,
           backgroundSize: '48px 48px',
         }} />
-        <Link href={ROUTES.home} className="relative text-2xl font-bold text-white flex items-center gap-1.5 transition-opacity hover:opacity-90">
+        <Link href={ROUTES.home} className="relative text-2xl font-bold text-foreground flex items-center gap-1.5 transition-opacity hover:opacity-90">
           <span className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-bold text-sm shadow-lg shadow-primary/30">M</span>
           Methereum
         </Link>
         <div className="relative flex-1 flex flex-col justify-center">
-          <h1 className="text-3xl xl:text-4xl font-semibold text-white leading-tight mb-3">
+          <h1 className="text-3xl xl:text-4xl font-semibold text-foreground leading-tight mb-3">
             Trade crypto with <span className="text-primary">confidence</span>
           </h1>
           <p className="text-muted-foreground text-lg mb-12 max-w-sm">
@@ -45,7 +45,7 @@ export default function AuthSplitLayout({
                   <Icon className="w-5 h-5 text-primary" />
                 </div>
                 <p className="text-muted-foreground text-xs font-medium uppercase tracking-wider mb-0.5">{label}</p>
-                <p className="text-2xl font-bold text-white">{value}</p>
+                <p className="text-2xl font-bold text-foreground">{value}</p>
                 <p className="text-muted-foreground text-xs mt-0.5">{sub}</p>
               </div>
             ))}
@@ -58,7 +58,7 @@ export default function AuthSplitLayout({
       <div className="flex-1 flex flex-col bg-card dark:bg-background min-w-0">
         <div className="flex items-center justify-between p-5 lg:p-6">
           <Link href={ROUTES.home} className="text-xl font-bold text-foreground lg:hidden flex items-center gap-1.5">
-            <span className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-white font-bold text-sm">M</span>
+            <span className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-bold text-sm">M</span>
             Methereum
           </Link>
           <div className="ml-auto flex items-center gap-2">

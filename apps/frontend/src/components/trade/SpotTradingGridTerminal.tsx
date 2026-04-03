@@ -1,17 +1,19 @@
 'use client';
 
-import { memo, useCallback, useMemo } from 'react';
-import { AlertCircle } from 'lucide-react';
+import { memo, useMemo, useState } from 'react';
+import { AlertCircle, Loader2, Info, TrendingUp } from 'lucide-react';
+import { CoinIcon } from '@/components/ui/CoinIcon';
+import Link from 'next/link';
+import { SPOT_TRADE_HREF, loginWithRedirect } from '@/lib/routes';
 import { ExchangeHeader } from '@/components/layout/ExchangeHeader';
 import { PairHeader } from './PairHeader';
 import { ChartPanel } from './ChartPanel';
 import { ChartErrorBoundary } from './chart/ChartErrorBoundary';
-import { SpotDepthChart } from './SpotDepthChart';
 import { SpotOrderbookPanel } from './SpotOrderbookPanel';
-import { SpotOrderEntryPanel } from './SpotOrderEntryPanel';
 import { SpotBottomPanel } from './SpotBottomPanel';
-import { SpotPositionPanel } from './SpotPositionPanel';
-import { formatFixedTrim, formatValueFixedTrim } from './terminalFormat';
+// SpotPositionPanel unused in Binance layout but preserved for future use
+import { MarketsSidebar, type MarketRow } from '@/components/trading/MarketsSidebar';
+import { formatValueFixedTrim } from './terminalFormat';
 import {
   useSpotMarketOrderbook,
   useSpotMarketTicker,
@@ -30,6 +32,12 @@ type Market = {
   min_notional?: string;
   price_precision?: number;
   qty_precision?: number;
+  last_price?: string | null;
+  volume_24h?: string | null;
+  open_24h?: string | null;
+  high_24h?: string | null;
+  low_24h?: string | null;
+  change_pct?: number | null;
 };
 
 function useDayChangePct24h(ticker: ReturnType<typeof useSpotMarketTicker>['ticker']) {
@@ -46,11 +54,6 @@ function useDayChangePct24h(ticker: ReturnType<typeof useSpotMarketTicker>['tick
     return null;
   }, [ticker?.last_price, ticker?.open_24h, ticker?.low_24h]);
 }
-
-const SpotDepthSection = memo(function SpotDepthSection() {
-  const { orderbook } = useSpotMarketOrderbook();
-  return <SpotDepthChart bids={orderbook?.bids ?? []} asks={orderbook?.asks ?? []} height={70} />;
-});
 
 function SpotChartSection({
   symbol,
@@ -202,271 +205,376 @@ const SpotOrderbookSection = memo(function SpotOrderbookSection({
   );
 });
 
-function SpotOrderEntrySection({
-  side,
-  orderType,
-  timeInForce,
-  postOnly,
-  price,
-  stopPrice,
-  trailingDelta,
-  quantity,
+const RecentTradesPanel = memo(function RecentTradesPanel({
   baseAsset,
   quoteAsset,
-  availableBalance,
   pricePrecision,
   qtyPrecision,
-  makerFee,
-  takerFee,
-  isAuth,
-  submitting,
-  handleSideChange,
-  setOrderType,
-  setPrice,
-  setStopPrice,
-  setTrailingDelta,
-  setQuantity,
-  setTimeInForce,
-  setPostOnly,
-  handleSubmit,
-  selectedMarket,
 }: {
-  side: 'buy' | 'sell';
-  orderType: 'limit' | 'market' | 'stop_loss' | 'stop_limit' | 'trailing_stop_market';
-  timeInForce: 'gtc' | 'ioc' | 'fok';
-  postOnly: boolean;
-  price: string;
-  stopPrice: string;
-  trailingDelta: string;
-  quantity: string;
   baseAsset: string;
   quoteAsset: string;
-  availableBalance: string;
   pricePrecision: number;
   qtyPrecision: number;
-  makerFee: number;
-  takerFee: number;
+}) {
+  const { recentTrades } = useSpotMarketTrades();
+
+  const trades = recentTrades ?? [];
+  const topTrades = trades.slice(0, 30);
+
+  return (
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="flex shrink-0 items-center gap-3 border-b border-[#2b2f36] px-2 py-1">
+        <span className="text-[11px] font-semibold text-[#eaecef]">Market Trades</span>
+        <span className="text-[11px] text-[#474d57] hover:text-[#848e9c] cursor-pointer">My Trades</span>
+      </div>
+      <div className="flex shrink-0 items-center border-b border-[#2b2f36] px-2 py-0.5">
+        <span className="flex-1 text-[10px] font-medium text-[#848e9c]">Price({quoteAsset})</span>
+        <span className="flex-1 text-right text-[10px] font-medium text-[#848e9c]">Amount({baseAsset})</span>
+        <span className="w-[52px] shrink-0 text-right text-[10px] font-medium text-[#848e9c]">Time</span>
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]">
+        {topTrades.length === 0 ? (
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-2 py-4 text-center text-[11px] text-[#848e9c]">
+            No trades yet
+          </div>
+        ) : (
+          topTrades.map((t, i) => {
+            const isBuy = t.side === 'buy';
+            const p = parseFloat(t.price);
+            const qty = parseFloat(t.quantity);
+            const time = t.time ? new Date(t.time).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+            return (
+              <div key={`${t.time}-${i}`} className="flex shrink-0 items-center px-2 py-px font-mono text-[11px] hover:bg-[#2b2f36]/50">
+                <span className={`min-w-0 flex-1 truncate ${isBuy ? 'text-[#0ecb81]' : 'text-[#f6465d]'}`}>{p.toFixed(pricePrecision)}</span>
+                <span className="min-w-0 flex-1 truncate text-right text-[#b7bdc6]">{qty.toFixed(qtyPrecision)}</span>
+                <span className="w-[52px] shrink-0 text-right text-[#848e9c]">{time}</span>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+});
+
+function RightMarketListSection({
+  sortedMarkets,
+  symbol,
+  onSymbolChange,
+  isFavorite,
+  onToggleFavorite,
+}: {
+  sortedMarkets: Market[];
+  symbol: string;
+  onSymbolChange: (s: string) => void;
+  isFavorite: (s: string) => boolean;
+  onToggleFavorite: (s: string) => void;
+}) {
+  const { ticker } = useSpotMarketTicker();
+
+  const enrichedMarkets: MarketRow[] = useMemo(() => {
+    return sortedMarkets.map((m) => {
+      const isSelected = m.symbol === symbol;
+      const price = isSelected && ticker?.last_price ? ticker.last_price : m.last_price ?? null;
+      const open = isSelected && ticker?.open_24h ? ticker.open_24h : m.open_24h ?? null;
+      const vol = isSelected && ticker?.base_volume_24h ? ticker.base_volume_24h : m.volume_24h ?? null;
+      const pNum = price ? parseFloat(price) : NaN;
+      const oNum = open ? parseFloat(open) : NaN;
+      const change = Number.isFinite(pNum) && Number.isFinite(oNum) && oNum > 0 ? ((pNum - oNum) / oNum) * 100 : (m.change_pct ?? null);
+      return {
+        symbol: m.symbol,
+        base_asset: m.base_asset,
+        quote_asset: m.quote_asset,
+        last_price: price,
+        change_24h: change,
+        volume_24h: vol,
+      };
+    });
+  }, [sortedMarkets, symbol, ticker]);
+
+  const favSymbols = useMemo(
+    () => sortedMarkets.filter((m) => isFavorite(m.symbol)).map((m) => m.symbol),
+    [sortedMarkets, isFavorite]
+  );
+
+  return (
+    <MarketsSidebar
+      variant="terminal"
+      markets={enrichedMarkets}
+      selectedSymbol={symbol}
+      onSelectSymbol={onSymbolChange}
+      favorites={favSymbols}
+      onToggleFavorite={onToggleFavorite}
+    />
+  );
+}
+
+function TopMoversSection({
+  sortedMarkets,
+  symbol,
+  onSymbolChange,
+}: {
+  sortedMarkets: Market[];
+  symbol: string;
+  onSymbolChange: (s: string) => void;
+}) {
+  const { ticker } = useSpotMarketTicker();
+
+  const movers = useMemo(() => {
+    return sortedMarkets.slice(0, 12).map((m) => {
+      const isSelected = m.symbol === symbol;
+      const price = isSelected && ticker?.last_price ? ticker.last_price : m.last_price ?? null;
+      const open = isSelected && ticker?.open_24h ? ticker.open_24h : m.open_24h ?? null;
+      const pNum = price ? parseFloat(price) : NaN;
+      const oNum = open ? parseFloat(open) : NaN;
+      const change = Number.isFinite(pNum) && Number.isFinite(oNum) && oNum > 0 ? ((pNum - oNum) / oNum) * 100 : (m.change_pct ?? null);
+      return {
+        symbol: m.symbol,
+        base: m.base_asset,
+        quote: m.quote_asset,
+        change,
+        price,
+      };
+    });
+  }, [sortedMarkets, symbol, ticker]);
+
+  return (
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="flex shrink-0 items-center gap-1 border-b border-[#2b2f36] px-2 py-1">
+        <TrendingUp className="h-3 w-3 shrink-0 text-[#f0b90b]" />
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-[#848e9c]">Top movers</span>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+        {movers.map((m) => {
+          const isUp = m.change != null && m.change >= 0;
+          const isActive = m.symbol === symbol;
+          return (
+            <button
+              key={m.symbol}
+              type="button"
+              onClick={() => onSymbolChange(m.symbol)}
+              className={`flex w-full items-center justify-between gap-1 px-2 py-0.5 text-left text-[10px] transition-colors hover:bg-[#2b2f36]/50 ${
+                isActive ? 'bg-[#2b2f36]/35' : ''
+              }`}
+            >
+              <div className="flex min-w-0 items-center gap-1">
+                <CoinIcon symbol={m.base} size={12} />
+                <span className="truncate font-medium text-[#eaecef]">{m.base}</span>
+                <span className="shrink-0 text-[9px] text-[#474d57]">/{m.quote}</span>
+              </div>
+              <span className={`shrink-0 font-mono tabular-nums ${
+                m.change != null ? (isUp ? 'text-[#0ecb81]' : 'text-[#f6465d]') : 'text-[#474d57]'
+              }`}>
+                {m.change != null ? `${m.change >= 0 ? '+' : ''}${m.change.toFixed(2)}%` : '—'}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const ORDER_TYPE_LABELS: Record<string, string> = {
+  limit: 'Limit',
+  market: 'Market',
+  stop_limit: 'Stop Limit',
+  stop_loss: 'Stop',
+  trailing_stop_market: 'Trailing',
+};
+
+const SLIDER_PCTS = [0, 25, 50, 75, 100];
+
+function BinanceInsetField({ label, suffix, children }: { label: string; suffix: string; children: React.ReactNode }) {
+  return (
+    <div className="flex h-8 items-center rounded border border-[#2b2f36] bg-[#2b2f36]/50 px-2 transition-colors hover:border-[#f0b90b]/40">
+      <span className="shrink-0 text-[11px] font-medium text-[#848e9c]">{label}</span>
+      <div className="flex min-w-0 flex-1 items-center justify-end">{children}</div>
+      <span className="ml-1 shrink-0 text-[10px] font-medium text-[#848e9c]">{suffix}</span>
+    </div>
+  );
+}
+
+function BinanceOrderEntrySection({
+  orderType, setOrderType, timeInForce, setTimeInForce, postOnly, setPostOnly,
+  price, setPrice, stopPrice, setStopPrice, trailingDelta, setTrailingDelta,
+  baseAsset, quoteAsset, pricePrecision, qtyPrecision,
+  isAuth, submitting, handleSubmit, handleSideChange, setQuantity, selectedMarket,
+  availableBalance, quoteBalance, baseBalance, side,
+}: {
+  orderType: 'limit' | 'market' | 'stop_loss' | 'stop_limit' | 'trailing_stop_market';
+  setOrderType: (t: 'limit' | 'market' | 'stop_loss' | 'stop_limit' | 'trailing_stop_market') => void;
+  timeInForce: 'gtc' | 'ioc' | 'fok';
+  setTimeInForce: (t: 'gtc' | 'ioc' | 'fok') => void;
+  postOnly: boolean;
+  setPostOnly: (v: boolean) => void;
+  price: string;
+  setPrice: (v: string) => void;
+  stopPrice: string;
+  setStopPrice: (v: string) => void;
+  trailingDelta: string;
+  setTrailingDelta: (v: string) => void;
+  baseAsset: string;
+  quoteAsset: string;
+  pricePrecision: number;
+  qtyPrecision: number;
   isAuth: boolean;
   submitting: boolean;
+  handleSubmit: (overrideSide?: 'buy' | 'sell', overrideQty?: string) => Promise<void>;
   handleSideChange: (s: 'buy' | 'sell') => void;
-  setOrderType: (t: 'limit' | 'market' | 'stop_loss' | 'stop_limit' | 'trailing_stop_market') => void;
-  setPrice: (v: string) => void;
-  setStopPrice: (v: string) => void;
-  setTrailingDelta: (v: string) => void;
   setQuantity: (v: string) => void;
-  setTimeInForce: (t: 'gtc' | 'ioc' | 'fok') => void;
-  setPostOnly: (v: boolean) => void;
-  handleSubmit: () => Promise<void>;
   selectedMarket: Market | undefined;
+  availableBalance: string;
+  quoteBalance: string;
+  baseBalance: string;
+  side: 'buy' | 'sell';
 }) {
   const { orderbook } = useSpotMarketOrderbook();
   const { ticker } = useSpotMarketTicker();
+  const [buyQty, setBuyQty] = useState('');
+  const [sellQty, setSellQty] = useState('');
+  const [buySlider, setBuySlider] = useState(0);
+  const [sellSlider, setSellSlider] = useState(0);
 
   const lastPrice =
     ticker?.last_price ??
     (orderbook?.bids?.[0] && orderbook?.asks?.[0]
       ? String((parseFloat(orderbook.bids[0].price) + parseFloat(orderbook.asks[0].price)) / 2)
-      : orderbook?.asks?.[0]?.price ?? orderbook?.bids?.[0]?.price ?? null);
+      : null);
 
-  const effectivePrice = useMemo(() => {
-    const last = lastPrice ?? '0';
-    if (orderType === 'limit') return price?.trim() ? price : last;
-    if (orderType === 'stop_limit') {
-      if (price?.trim()) return price;
-      if (stopPrice?.trim()) return stopPrice;
-      return last;
-    }
-    if (orderType === 'stop_loss') return stopPrice?.trim() ? stopPrice : last;
-    if (orderType === 'market' || orderType === 'trailing_stop_market') return last;
-    return last;
-  }, [orderType, price, stopPrice, lastPrice]);
+  const priceNum = parseFloat(price) || (lastPrice ? parseFloat(lastPrice) : 0);
+  const showPrice = orderType === 'limit' || orderType === 'stop_limit';
+  const showStopPrice = orderType === 'stop_loss' || orderType === 'stop_limit';
+  const showTrailing = orderType === 'trailing_stop_market';
 
-  const priceNum = parseFloat(effectivePrice) || 0;
-  const limitFieldNum = parseFloat(price?.trim() || '0') || 0;
-  const stopPriceNum = parseFloat(stopPrice) || 0;
-  const qtyNum = parseFloat(quantity) || 0;
-  const trailingDeltaNum = parseFloat(trailingDelta) || 0;
-  const minQty = selectedMarket?.min_qty != null ? parseFloat(selectedMarket.min_qty) : 0;
-  const minNotional = selectedMarket?.min_notional != null ? parseFloat(selectedMarket.min_notional) : 0;
-  const availNumForMax = parseFloat(availableBalance || '0') || 0;
+  const buyQtyNum = parseFloat(buyQty) || 0;
+  const sellQtyNum = parseFloat(sellQty) || 0;
+  const buyTotal = priceNum > 0 ? (priceNum * buyQtyNum).toFixed(pricePrecision) : '';
+  const sellTotal = priceNum > 0 ? (priceNum * sellQtyNum).toFixed(pricePrecision) : '';
 
-  const maxBuyBaseEstimate = useMemo(() => {
-    if (side !== 'buy' || priceNum <= 0 || availNumForMax <= 0) return null;
-    const raw = availNumForMax / priceNum;
-    const factor = 10 ** qtyPrecision;
-    const floored = Math.floor(raw * factor) / factor;
-    return formatFixedTrim(floored, qtyPrecision);
-  }, [side, priceNum, availNumForMax, qtyPrecision]);
+  const quoteBal = parseFloat(quoteBalance) || 0;
+  const baseBal = parseFloat(baseBalance) || 0;
 
-  const maxSellQuoteEstimate = useMemo(() => {
-    if (side !== 'sell' || priceNum <= 0 || availNumForMax <= 0) return null;
-    return formatFixedTrim(priceNum * availNumForMax, Math.min(10, Math.max(2, pricePrecision)));
-  }, [side, priceNum, availNumForMax, pricePrecision]);
+  const inputCls = 'min-w-0 flex-1 border-0 bg-transparent p-0 text-right font-mono text-[12px] font-medium tabular-nums text-[#eaecef] outline-none focus:ring-0 placeholder:text-[#474d57]';
 
-  const setMaxQty = useCallback(() => {
-    if (!baseAsset || !quoteAsset) return;
-    const factor = 10 ** qtyPrecision;
-    if (side === 'buy') {
-      const bal = parseFloat(availableBalance) || 0;
-      if (priceNum > 0) {
-        const q = Math.floor((bal / priceNum) * factor) / factor;
-        setQuantity(q.toFixed(qtyPrecision));
-      } else setQuantity('');
-    } else {
-      const bal = parseFloat(availableBalance) || 0;
-      const q = Math.floor(bal * factor) / factor;
-      setQuantity(q.toFixed(qtyPrecision));
-    }
-  }, [side, availableBalance, priceNum, baseAsset, quoteAsset, qtyPrecision, setQuantity]);
-
-  const setQtyPercent = useCallback(
-    (percent: number) => {
-      if (!baseAsset || !quoteAsset || percent <= 0 || percent > 1) return;
+  const handleBuySlider = (pct: number) => {
+    setBuySlider(pct);
+    if (priceNum > 0 && quoteBal > 0) {
       const factor = 10 ** qtyPrecision;
-      if (side === 'buy') {
-        const bal = parseFloat(availableBalance) || 0;
-        if (priceNum > 0) {
-          const raw = (bal * percent) / priceNum;
-          const q = Math.floor(raw * factor) / factor;
-          setQuantity(q.toFixed(qtyPrecision));
-        } else setQuantity('');
-      } else {
-        const bal = parseFloat(availableBalance) || 0;
-        const q = Math.floor(bal * percent * factor) / factor;
-        setQuantity(q.toFixed(qtyPrecision));
-      }
-    },
-    [side, availableBalance, priceNum, baseAsset, quoteAsset, qtyPrecision, setQuantity]
-  );
+      const raw = (quoteBal * (pct / 100)) / priceNum;
+      setBuyQty(pct > 0 ? (Math.floor(raw * factor) / factor).toFixed(qtyPrecision) : '');
+    }
+  };
 
-  const { estimatedFillPrice, estimatedSlippagePct } = useMemo(() => {
-    if (orderType !== 'market' || !orderbook || qtyNum <= 0 || !lastPrice) {
-      return { estimatedFillPrice: null as string | null, estimatedSlippagePct: null as number | null };
+  const handleSellSlider = (pct: number) => {
+    setSellSlider(pct);
+    if (baseBal > 0) {
+      const factor = 10 ** qtyPrecision;
+      setSellQty(pct > 0 ? (Math.floor(baseBal * (pct / 100) * factor) / factor).toFixed(qtyPrecision) : '');
     }
-    const last = parseFloat(lastPrice);
-    if (!Number.isFinite(last) || last <= 0) return { estimatedFillPrice: null, estimatedSlippagePct: null };
-    let remaining = qtyNum;
-    let cost = 0;
-    const levels = side === 'buy' ? orderbook.asks : orderbook.bids;
-    for (const row of levels) {
-      const p = parseFloat(row.price) || 0;
-      const q = parseFloat(row.quantity) || 0;
-      if (q <= 0 || p <= 0) continue;
-      const fill = Math.min(remaining, q);
-      cost += p * fill;
-      remaining -= fill;
-      if (remaining <= 0) break;
-    }
-    if (remaining > 0) return { estimatedFillPrice: null, estimatedSlippagePct: null };
-    const avgFill = cost / qtyNum;
-    const slippagePct =
-      side === 'buy' ? ((avgFill - last) / last) * 100 : ((last - avgFill) / last) * 100;
-    return {
-      estimatedFillPrice: avgFill.toFixed(8),
-      estimatedSlippagePct: Number.isFinite(slippagePct) ? slippagePct : null,
-    };
-  }, [orderType, orderbook, qtyNum, side, lastPrice]);
+  };
 
-  const notional = useMemo(() => {
-    if (orderType === 'market' && estimatedFillPrice && qtyNum > 0) {
-      const fill = parseFloat(estimatedFillPrice);
-      if (Number.isFinite(fill) && fill > 0) return fill * qtyNum;
-    }
-    return priceNum * qtyNum;
-  }, [orderType, estimatedFillPrice, qtyNum, priceNum]);
+  const doBuy = async () => {
+    if (!buyQty.trim()) return;
+    handleSideChange('buy');
+    setQuantity(buyQty);
+    try { await handleSubmit('buy', buyQty); setBuyQty(''); setBuySlider(0); } catch { /* toast */ }
+  };
 
-  const total = useMemo(
-    () => formatFixedTrim(notional, Math.min(10, Math.max(2, pricePrecision))),
-    [notional, pricePrecision]
-  );
+  const doSell = async () => {
+    if (!sellQty.trim()) return;
+    handleSideChange('sell');
+    setQuantity(sellQty);
+    try { await handleSubmit('sell', sellQty); setSellQty(''); setSellSlider(0); } catch { /* toast */ }
+  };
 
-  const validationMessage = useMemo(() => {
-    if (!selectedMarket) return null;
-    if (orderType === 'trailing_stop_market' && trailingDeltaNum > 0 && (trailingDeltaNum < 0.1 || trailingDeltaNum > 100)) {
-      return 'Callback rate must be between 0.1% and 100%';
-    }
-    if (qtyNum > 0 && minQty > 0 && qtyNum < minQty) {
-      return `Minimum quantity is ${formatValueFixedTrim(selectedMarket.min_qty, qtyPrecision)} ${baseAsset}`;
-    }
-    if (notional > 0 && minNotional > 0 && notional < minNotional) {
-      return `Minimum notional is ${formatValueFixedTrim(selectedMarket.min_notional, Math.min(10, Math.max(2, pricePrecision)))} ${quoteAsset}`;
-    }
-    if (orderType === 'market' && qtyNum > 0 && orderbook != null && estimatedFillPrice == null) {
-      return 'Visible order book cannot fill this size — reduce quantity or use a limit order.';
-    }
-    return null;
-  }, [
-    selectedMarket,
-    orderType,
-    trailingDeltaNum,
-    qtyNum,
-    minQty,
-    minNotional,
-    notional,
-    quoteAsset,
-    baseAsset,
-    qtyPrecision,
-    pricePrecision,
-    estimatedFillPrice,
-    orderbook,
-  ]);
-
-  const canSubmit =
-    !validationMessage &&
-    qtyNum > 0 &&
-    baseAsset &&
-    quoteAsset &&
-    (orderType === 'market' ||
-      (orderType === 'limit' && limitFieldNum > 0) ||
-      (orderType === 'stop_loss' && stopPriceNum > 0) ||
-      (orderType === 'stop_limit' && limitFieldNum > 0 && stopPriceNum > 0) ||
-      (orderType === 'trailing_stop_market' && trailingDeltaNum >= 0.1 && trailingDeltaNum <= 100));
+  const advancedTypes = ['stop_loss', 'stop_limit', 'trailing_stop_market'] as const;
+  const isPrimaryType = orderType === 'limit' || orderType === 'market';
 
   return (
-    <SpotOrderEntryPanel
-      side={side}
-      orderType={orderType}
-      price={price}
-      stopPrice={stopPrice}
-      trailingDelta={trailingDelta}
-      quantity={quantity}
-      total={total}
-      notionalQuote={notional}
-      referencePrice={priceNum}
-      maxBuyBaseEstimate={maxBuyBaseEstimate}
-      maxSellQuoteEstimate={maxSellQuoteEstimate}
-      baseAsset={baseAsset}
-      quoteAsset={quoteAsset}
-      availableBalance={availableBalance}
-      pricePrecision={pricePrecision}
-      qtyPrecision={qtyPrecision}
-      makerFeePercent={makerFee}
-      takerFeePercent={takerFee}
-      timeInForce={timeInForce}
-      canSubmit={Boolean(canSubmit && isAuth)}
-      isAuth={isAuth}
-      validationMessage={validationMessage ?? undefined}
-      loading={submitting}
-      onSideChange={handleSideChange}
-      onOrderTypeChange={setOrderType}
-      onPriceChange={setPrice}
-      onStopPriceChange={setStopPrice}
-      onTrailingDeltaChange={setTrailingDelta}
-      onQuantityChange={setQuantity}
-      onSetMaxQty={setMaxQty}
-      onSetQtyPercent={setQtyPercent}
-      onTimeInForceChange={setTimeInForce}
-      postOnly={postOnly}
-      onPostOnlyChange={setPostOnly}
-      onSubmit={handleSubmit}
-      estimatedFillPrice={estimatedFillPrice}
-      estimatedSlippagePct={estimatedSlippagePct}
-      bestBid={orderbook?.bids?.[0]?.price ?? ticker?.bid ?? null}
-      bestAsk={orderbook?.asks?.[0]?.price ?? ticker?.ask ?? null}
-      lastPrice={lastPrice}
-      instrumentMinQty={selectedMarket?.min_qty}
-      instrumentMinNotional={selectedMarket?.min_notional}
-    />
+    <div className="flex h-full min-h-0 flex-col overflow-hidden text-[#eaecef]">
+      {/* Product + Order type tabs — compact single bar */}
+      <div className="flex h-8 shrink-0 items-center border-b border-[#2b2f36] px-2">
+        <span className="mr-3 text-[11px] font-bold text-[#f0b90b]">Spot</span>
+        <span className="mr-2 text-[10px] text-[#474d57]">Cross</span>
+        <span className="mr-2 text-[10px] text-[#474d57]">Isolated</span>
+        <span className="text-[10px] text-[#474d57]">Grid</span>
+        <span className="mx-2 h-3 w-px bg-[#2b2f36]" />
+        {(['limit', 'market'] as const).map((t) => (
+          <button key={t} type="button" onClick={() => setOrderType(t)}
+            className={`px-1.5 text-[11px] font-medium transition-colors ${orderType === t ? 'text-[#eaecef]' : 'text-[#848e9c] hover:text-[#eaecef]'}`}>
+            {ORDER_TYPE_LABELS[t]}
+          </button>
+        ))}
+        <select value={isPrimaryType ? '' : orderType}
+          onChange={(e) => { if (e.target.value) setOrderType(e.target.value as typeof orderType); }}
+          className="ml-1 cursor-pointer appearance-none border-0 bg-transparent text-[11px] font-medium text-[#848e9c] outline-none hover:text-[#eaecef]">
+          <option value="" hidden={!isPrimaryType}>▾</option>
+          {advancedTypes.map((t) => (<option key={t} value={t}>{ORDER_TYPE_LABELS[t]}</option>))}
+        </select>
+      </div>
+
+      {/* Side-by-side Buy / Sell — compact layout */}
+      <div className="grid min-h-0 flex-1 grid-cols-2 gap-3 overflow-y-auto p-2.5">
+        {/* BUY */}
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-semibold text-[#eaecef]">Buy {baseAsset}</span>
+            <span className="font-mono text-[10px] text-[#848e9c]">{formatValueFixedTrim(quoteBalance, pricePrecision)} {quoteAsset}</span>
+          </div>
+          {showPrice && <BinanceInsetField label="Price" suffix={quoteAsset}><input type="text" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} className={inputCls} placeholder={lastPrice ? parseFloat(lastPrice).toFixed(pricePrecision) : '0'} /></BinanceInsetField>}
+          {showStopPrice && <BinanceInsetField label="Stop" suffix={quoteAsset}><input type="text" inputMode="decimal" value={stopPrice} onChange={(e) => setStopPrice(e.target.value)} className={inputCls} placeholder="0" /></BinanceInsetField>}
+          {showTrailing && <BinanceInsetField label="Delta" suffix="%"><input type="text" inputMode="decimal" value={trailingDelta} onChange={(e) => setTrailingDelta(e.target.value)} className={inputCls} placeholder="1.0" /></BinanceInsetField>}
+          <BinanceInsetField label="Amt" suffix={baseAsset}><input type="text" inputMode="decimal" value={buyQty} onChange={(e) => setBuyQty(e.target.value)} className={inputCls} placeholder="0" /></BinanceInsetField>
+          <div className="flex items-center gap-1 py-0.5">
+            {SLIDER_PCTS.filter(Boolean).map((p) => (
+              <button key={p} type="button" onClick={() => handleBuySlider(p)}
+                className={`flex-1 rounded-sm py-0.5 text-center text-[9px] font-medium transition-colors ${buySlider >= p ? 'bg-[#0ecb81]/20 text-[#0ecb81]' : 'bg-[#2b2f36] text-[#848e9c] hover:text-[#eaecef]'}`}>
+                {p}%
+              </button>
+            ))}
+          </div>
+          <BinanceInsetField label="Total" suffix={quoteAsset}><span className={`${inputCls} ${buyTotal ? 'text-[#eaecef]' : 'text-[#474d57]'}`}>{buyTotal || '—'}</span></BinanceInsetField>
+          {!isAuth ? (
+            <Link href={loginWithRedirect(SPOT_TRADE_HREF)} className="flex h-9 items-center justify-center rounded bg-[#0ecb81] text-[13px] font-bold text-white hover:brightness-110">Log In</Link>
+          ) : (
+            <button type="button" disabled={submitting || !buyQty.trim()} onClick={doBuy}
+              className="flex h-9 items-center justify-center gap-1 rounded bg-[#0ecb81] text-[13px] font-bold text-white transition-all hover:brightness-110 disabled:opacity-40">
+              {submitting && side === 'buy' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Buy {baseAsset}
+            </button>
+          )}
+        </div>
+
+        {/* SELL */}
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-semibold text-[#eaecef]">Sell {baseAsset}</span>
+            <span className="font-mono text-[10px] text-[#848e9c]">{formatValueFixedTrim(baseBalance, qtyPrecision)} {baseAsset}</span>
+          </div>
+          {showPrice && <BinanceInsetField label="Price" suffix={quoteAsset}><input type="text" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} className={inputCls} placeholder={lastPrice ? parseFloat(lastPrice).toFixed(pricePrecision) : '0'} /></BinanceInsetField>}
+          {showStopPrice && <BinanceInsetField label="Stop" suffix={quoteAsset}><input type="text" inputMode="decimal" value={stopPrice} onChange={(e) => setStopPrice(e.target.value)} className={inputCls} placeholder="0" /></BinanceInsetField>}
+          {showTrailing && <BinanceInsetField label="Delta" suffix="%"><input type="text" inputMode="decimal" value={trailingDelta} onChange={(e) => setTrailingDelta(e.target.value)} className={inputCls} placeholder="1.0" /></BinanceInsetField>}
+          <BinanceInsetField label="Amt" suffix={baseAsset}><input type="text" inputMode="decimal" value={sellQty} onChange={(e) => setSellQty(e.target.value)} className={inputCls} placeholder="0" /></BinanceInsetField>
+          <div className="flex items-center gap-1 py-0.5">
+            {SLIDER_PCTS.filter(Boolean).map((p) => (
+              <button key={p} type="button" onClick={() => handleSellSlider(p)}
+                className={`flex-1 rounded-sm py-0.5 text-center text-[9px] font-medium transition-colors ${sellSlider >= p ? 'bg-[#f6465d]/20 text-[#f6465d]' : 'bg-[#2b2f36] text-[#848e9c] hover:text-[#eaecef]'}`}>
+                {p}%
+              </button>
+            ))}
+          </div>
+          <BinanceInsetField label="Total" suffix={quoteAsset}><span className={`${inputCls} ${sellTotal ? 'text-[#eaecef]' : 'text-[#474d57]'}`}>{sellTotal || '—'}</span></BinanceInsetField>
+          {!isAuth ? (
+            <Link href={loginWithRedirect(SPOT_TRADE_HREF)} className="flex h-9 items-center justify-center rounded bg-[#f6465d] text-[13px] font-bold text-white hover:brightness-110">Log In</Link>
+          ) : (
+            <button type="button" disabled={submitting || !sellQty.trim()} onClick={doSell}
+              className="flex h-9 items-center justify-center gap-1 rounded bg-[#f6465d] text-[13px] font-bold text-white transition-all hover:brightness-110 disabled:opacity-40">
+              {submitting && side === 'sell' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Sell {baseAsset}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -505,9 +613,11 @@ export interface SpotTradingGridTerminalProps {
   setQuantity: (v: string) => void;
   setTimeInForce: (t: 'gtc' | 'ioc' | 'fok') => void;
   setPostOnly: (v: boolean) => void;
-  handleSubmit: () => Promise<void>;
+  handleSubmit: (overrideSide?: 'buy' | 'sell', overrideQty?: string) => Promise<void>;
   handlePriceClick: (p: string, q: string) => void;
   availableBalance: string;
+  quoteBalance: string;
+  baseBalance: string;
 }
 
 export function SpotTradingGridTerminal(props: SpotTradingGridTerminalProps) {
@@ -549,190 +659,143 @@ export function SpotTradingGridTerminal(props: SpotTradingGridTerminalProps) {
     handleSubmit,
     handlePriceClick,
     availableBalance,
+    quoteBalance,
+    baseBalance,
   } = props;
 
-  const { reconnectAttempt, streamPhase, lastRttMs, liteMode, liteHint } = useSpotMarketStream();
+  const { reconnectAttempt, streamPhase } = useSpotMarketStream();
 
   const selectedMarket = useMemo(() => markets.find((m) => m.symbol === symbol), [markets, symbol]);
   const baseAsset = selectedMarket?.base_asset ?? '';
   const quoteAsset = selectedMarket?.quote_asset ?? '';
   const pricePrecision = selectedMarket?.price_precision ?? 6;
   const qtyPrecision = selectedMarket?.qty_precision ?? 6;
-  const makerFee = selectedMarket?.maker_fee ? parseFloat(selectedMarket.maker_fee) : 0.001;
-  const takerFee = selectedMarket?.taker_fee ? parseFloat(selectedMarket.taker_fee) : 0.001;
+  /** Above-the-fold height: one viewport; mobile subtracts bottom nav padding area from layout. */
+  const aboveFoldH =
+    'h-[calc(100dvh-3.75rem-env(safe-area-inset-bottom,0px))] md:h-[100dvh]';
 
   return (
-    <div className="flex h-screen w-full flex-col overflow-hidden bg-muted text-foreground dark:bg-background dark:text-foreground">
-      {liteMode && (
+    <div className="relative w-full bg-[#181a20]">
+      {/* ── ABOVE THE FOLD: fixed viewport, no page scroll inside this block ── */}
+      <div className={`relative flex shrink-0 flex-col overflow-hidden ${aboveFoldH}`}>
         <div
-          className="flex flex-shrink-0 items-center gap-2 border-b border-amber-500/40 bg-amber-500/12 px-4 py-1.5 text-xs font-semibold text-amber-950 dark:bg-amber-950/35 dark:text-amber-50"
-          role="status"
+          className="box-border min-h-0 w-full flex-1"
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '260px 1fr 260px',
+            gridTemplateRows: '60px 60px minmax(0, 1fr)',
+          }}
         >
-          <span className="h-2 w-2 shrink-0 rounded-full bg-amber-500" aria-hidden />
-          <span>
-            Lite mode active — market data updates are throttled server-side.
-            {liteHint ? ` ${liteHint}` : ''}
-          </span>
-        </div>
-      )}
-      {streamPhase !== 'live' && (
-        <div
-          className={`flex flex-shrink-0 items-center gap-2 border-b px-4 py-2 text-sm font-semibold ${
-            streamPhase === 'disconnected'
-              ? 'border-red-500/35 bg-sell/10 text-red-950 dark:bg-red-950/30 dark:text-red-100'
-              : 'border-amber-500/30 bg-amber-500/15 text-amber-900 dark:bg-amber-950/40 dark:text-amber-100'
-          }`}
-          role="status"
-        >
-          <span
-            className={`h-2 w-2 shrink-0 rounded-full ${streamPhase === 'disconnected' ? 'bg-sell' : 'animate-pulse bg-amber-500'}`}
-            aria-hidden
-          />
-          {streamPhase === 'connecting' && 'Connecting to market data…'}
-          {streamPhase === 'reconnecting' &&
-            (reconnectAttempt > 0
-              ? `Reconnecting (attempt ${reconnectAttempt})…`
-              : 'Connection lost — reconnecting…')}
-          {streamPhase === 'disconnected' &&
-            'Market data stream unavailable — showing last known prices; refresh or try again shortly.'}
-          {streamPhase === 'reconnecting' && lastRttMs != null && lastRttMs > 0 && (
-            <span className="ml-auto font-mono text-xs font-normal opacity-80">last RTT {lastRttMs}ms</span>
-          )}
-        </div>
-      )}
-      <ExchangeHeader
-        showPairSearch
-        currentSymbol={symbol}
-        symbols={markets.map((m) => m.symbol)}
-        onSymbolSelect={setSymbolAndUrl}
-      />
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-2 sm:p-3">
-        <div
-          className={[
-            'grid min-h-0 flex-1 gap-2',
-            'grid-cols-1',
-            'md:grid-cols-2',
-            'lg:grid-cols-[minmax(0,6fr)_minmax(0,1.8fr)_minmax(0,2.2fr)]',
-            'grid-rows-[1fr_minmax(220px,auto)]',
-            'md:grid-rows-[1fr_minmax(220px,auto)]',
-            'lg:grid-rows-[1fr_minmax(220px,auto)]',
-          ].join(' ')}
-        >
-          <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-border/90 bg-card shadow-sm dark:border-border/90 dark:bg-card dark:shadow-none md:col-span-1 lg:col-start-1 lg:row-start-1">
-            <SpotPairHeaderSection
-              embedded
-              symbol={symbol}
-              baseAsset={baseAsset}
-              quoteAsset={quoteAsset}
-              pricePrecision={pricePrecision}
-              sortedMarkets={sortedMarkets}
-              onSymbolChange={setSymbolAndUrl}
-              isFavorite={isFavorite}
-              onToggleFavorite={toggleFavorite}
-              tierLevel={userTierLevel}
-            />
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-              <SpotChartSection
-                symbol={symbol}
-                baseAsset={baseAsset}
-                quoteAsset={quoteAsset}
-                pricePrecision={pricePrecision}
-                chartIntervalSeconds={chartIntervalSeconds}
-                chartTheme={chartTheme}
-                chartViewMode={chartViewMode}
-                onIntervalSecondsChange={setChartIntervalSeconds}
-                onViewModeChange={setChartViewMode}
-              />
-            </div>
-            {chartViewMode === 'chart' && <SpotDepthSection />}
+          {/* HEADER */}
+          <div
+            className="overflow-hidden border-b border-[#2b2f36] bg-[#181a20]"
+            style={{ gridColumn: '1 / -1', gridRow: '1' }}
+          >
+            <ExchangeHeader showPairSearch currentSymbol={symbol} symbols={markets.map((m) => m.symbol)} onSymbolSelect={setSymbolAndUrl} />
           </div>
 
-          <div className="flex min-h-0 flex-col md:col-start-1 md:row-start-2 lg:contents">
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border/90 bg-card shadow-sm dark:border-border/90 dark:bg-card dark:shadow-none lg:col-start-2 lg:row-start-1 lg:h-full lg:min-h-0">
-              <SpotOrderbookSection
-                quoteAsset={quoteAsset}
-                baseAsset={baseAsset}
-                pricePrecision={pricePrecision}
-                qtyPrecision={qtyPrecision}
-                onPriceClick={handlePriceClick}
+          {/* PAIR HEADER (orderbook + center only; sidebar aligns to full main height) */}
+          <div
+            className="overflow-hidden border-b border-r border-solid border-[#2b2f36] bg-[#1e2026]"
+            style={{ gridColumn: '1 / 3', gridRow: '2' }}
+          >
+            <SpotPairHeaderSection
+              symbol={symbol} baseAsset={baseAsset} quoteAsset={quoteAsset} pricePrecision={pricePrecision}
+              sortedMarkets={sortedMarkets} onSymbolChange={setSymbolAndUrl}
+              isFavorite={isFavorite} onToggleFavorite={toggleFavorite} tierLevel={userTierLevel}
+            />
+          </div>
+
+          {/* RIGHT SIDEBAR: Binance-style row split — market list / trades / movers (no outer scroll) */}
+          <div
+            className="grid min-h-0 min-w-0 overflow-hidden border-b border-l border-solid border-[#2b2f36] bg-[#1e2026]"
+            style={{
+              gridColumn: '3',
+              gridRow: '2 / 4',
+              gridTemplateRows: '2.2fr 1.5fr 0.8fr',
+            }}
+          >
+            <div className="flex min-h-0 min-w-0 flex-col overflow-hidden border-b border-solid border-[#2b2f36]">
+              <RightMarketListSection
+                sortedMarkets={sortedMarkets} symbol={symbol} onSymbolChange={setSymbolAndUrl}
+                isFavorite={isFavorite} onToggleFavorite={toggleFavorite}
+              />
+            </div>
+            <div className="flex min-h-0 min-w-0 flex-col overflow-hidden border-b border-solid border-[#2b2f36]">
+              <RecentTradesPanel baseAsset={baseAsset} quoteAsset={quoteAsset} pricePrecision={pricePrecision} qtyPrecision={qtyPrecision} />
+            </div>
+            <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+              <TopMoversSection sortedMarkets={sortedMarkets} symbol={symbol} onSymbolChange={setSymbolAndUrl} />
+            </div>
+          </div>
+
+          {/* ORDERBOOK */}
+          <div
+            className="flex min-w-0 flex-col overflow-hidden border-r border-solid border-[#2b2f36] bg-[#1e2026]"
+            style={{ gridColumn: '1', gridRow: '3' }}
+          >
+            <SpotOrderbookSection quoteAsset={quoteAsset} baseAsset={baseAsset} pricePrecision={pricePrecision} qtyPrecision={qtyPrecision} onPriceClick={handlePriceClick} />
+          </div>
+
+          {/* CENTER: chart 60% / order form 40% (percent of main row height) */}
+          <div
+            className="grid min-h-0 min-w-0 overflow-hidden border-b border-solid border-[#2b2f36] bg-[#1e2026]"
+            style={{
+              gridColumn: '2',
+              gridRow: '3',
+              gridTemplateRows: '60% 40%',
+            }}
+          >
+            <div className="relative flex min-h-0 min-w-0 flex-col overflow-hidden border-b border-[#2b2f36]">
+              <SpotChartSection
+                symbol={symbol} baseAsset={baseAsset} quoteAsset={quoteAsset} pricePrecision={pricePrecision}
+                chartIntervalSeconds={chartIntervalSeconds} chartTheme={chartTheme} chartViewMode={chartViewMode}
+                onIntervalSecondsChange={setChartIntervalSeconds} onViewModeChange={setChartViewMode}
               />
             </div>
             <div
-              id="spot-terminal-activity"
-              className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border/90 bg-card shadow-sm dark:border-border/90 dark:bg-card dark:shadow-none lg:col-span-2 lg:col-start-1 lg:row-start-2 scroll-mt-4"
+              className="flex min-h-0 flex-col overflow-hidden border-t-2 bg-[#1e2026]"
+              style={{ borderTopColor: '#363a45' }}
             >
-              <SpotBottomPanel symbol={symbol} isAuth={isAuth} ordersVersion={ordersVersion} tradesVersion={tradesVersion} />
+              <BinanceOrderEntrySection
+                orderType={orderType} setOrderType={setOrderType} timeInForce={timeInForce} setTimeInForce={setTimeInForce}
+                postOnly={postOnly} setPostOnly={setPostOnly} price={price} setPrice={setPrice}
+                stopPrice={stopPrice} setStopPrice={setStopPrice} trailingDelta={trailingDelta} setTrailingDelta={setTrailingDelta}
+                baseAsset={baseAsset} quoteAsset={quoteAsset} pricePrecision={pricePrecision} qtyPrecision={qtyPrecision}
+                isAuth={isAuth} submitting={submitting} handleSubmit={handleSubmit} handleSideChange={handleSideChange}
+                setQuantity={setQuantity} selectedMarket={selectedMarket} availableBalance={availableBalance}
+                quoteBalance={quoteBalance} baseBalance={baseBalance} side={side}
+              />
             </div>
           </div>
+        </div>
 
-          <div className="flex min-h-0 min-w-0 flex-col gap-2 rounded-lg border border-border/90 bg-card shadow-sm dark:border-border/90 dark:bg-card dark:shadow-none md:col-start-2 md:row-start-1 md:row-span-2 lg:col-start-3 lg:row-start-1 lg:row-span-2">
-            <div className="min-h-0 shrink-0 overflow-hidden px-2 pt-2">
-              <SpotPositionPanel
-                symbol={symbol}
-                baseAsset={baseAsset}
-                quoteAsset={quoteAsset}
-                isAuth={isAuth}
-                tradesVersion={tradesVersion}
-                pricePrecision={pricePrecision}
-                qtyPrecision={qtyPrecision}
-              />
-            </div>
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-              <SpotOrderEntrySection
-                side={side}
-                orderType={orderType}
-                timeInForce={timeInForce}
-                postOnly={postOnly}
-                price={price}
-                stopPrice={stopPrice}
-                trailingDelta={trailingDelta}
-                quantity={quantity}
-                baseAsset={baseAsset}
-                quoteAsset={quoteAsset}
-                availableBalance={availableBalance}
-                pricePrecision={pricePrecision}
-                qtyPrecision={qtyPrecision}
-                makerFee={makerFee}
-                takerFee={takerFee}
-                isAuth={isAuth}
-                submitting={submitting}
-                handleSideChange={handleSideChange}
-                setOrderType={setOrderType}
-                setPrice={setPrice}
-                setStopPrice={setStopPrice}
-                setTrailingDelta={setTrailingDelta}
-                setQuantity={setQuantity}
-                setTimeInForce={setTimeInForce}
-                setPostOnly={setPostOnly}
-                handleSubmit={handleSubmit}
-                selectedMarket={selectedMarket}
-              />
-            </div>
+        {/* Stream status — anchored to above-fold chart band */}
+        {streamPhase !== 'live' && (
+          <div className={`pointer-events-none absolute left-[260px] right-[260px] top-[120px] z-10 flex items-center gap-2 px-3 py-1 text-[11px] font-medium ${
+            streamPhase === 'disconnected' ? 'bg-red-950/90 text-red-200' : 'bg-amber-950/90 text-amber-200'
+          }`}>
+            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${streamPhase === 'disconnected' ? 'bg-[#f6465d]' : 'animate-pulse bg-amber-500'}`} />
+            {streamPhase === 'connecting' && 'Connecting…'}
+            {streamPhase === 'reconnecting' && `Reconnecting${reconnectAttempt > 0 ? ` (${reconnectAttempt})` : ''}…`}
+            {streamPhase === 'disconnected' && 'Stream unavailable'}
           </div>
-        </div>
+        )}
+
+        {/* Error banner — bottom of above-fold main area */}
+        {submitError && (
+          <div className="pointer-events-auto absolute inset-x-0 bottom-0 z-20 flex max-h-16 items-center gap-2 border-t border-[#f6465d]/30 bg-[#f6465d]/15 px-4 py-2 text-[11px] text-[#f6465d] md:left-[260px] md:right-[260px]">
+            <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+            <span className="flex-1 truncate">{submitError}</span>
+            <button type="button" onClick={() => setSubmitError(null)} className="shrink-0 font-semibold underline">Dismiss</button>
+          </div>
+        )}
       </div>
-      {submitError && (
-        <div
-          className="flex flex-col gap-2 border-t border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-destructive sm:flex-row sm:items-start sm:justify-between sm:gap-4"
-          role="alert"
-          aria-live="polite"
-        >
-          <div className="flex min-w-0 flex-1 items-start gap-2">
-            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" aria-hidden />
-            <div className="min-w-0">
-              <p className="font-semibold text-destructive">Could not place order</p>
-              <p className="mt-0.5 text-xs leading-snug text-destructive/90">{submitError}</p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setSubmitError(null)}
-            className="min-h-11 shrink-0 rounded-md px-4 text-sm font-semibold underline underline-offset-2 hover:bg-destructive/10 sm:min-h-10"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
+
+      {/* ── BELOW THE FOLD: order history — page scrolls here ── */}
+      <section className="w-full border-t border-[#2b2f36] bg-[#1e2026]" aria-label="Order history and trading activity">
+        <SpotBottomPanel symbol={symbol} isAuth={isAuth} ordersVersion={ordersVersion} tradesVersion={tradesVersion} />
+      </section>
     </div>
   );
 }

@@ -74,7 +74,7 @@ export default function DataExportPage() {
           e.stopPropagation();
           onToggle();
         }}
-        className="w-full max-w-xs px-4 py-3.5 bg-muted border border-border rounded-xl text-left flex items-center justify-between hover:border-blue-500 transition-colors"
+        className="w-full max-w-xs px-4 py-3.5 bg-muted border border-border rounded-xl text-left flex items-center justify-between hover:border-primary transition-colors"
       >
         <span className={value ? 'text-foreground font-medium' : 'text-muted-foreground'}>
           {value ? options.find(o => o.value === value)?.label : 'Please select'}
@@ -92,7 +92,7 @@ export default function DataExportPage() {
                 onSelect(option.value);
               }}
               className={`w-full px-4 py-3 text-left flex items-center justify-between hover:bg-accent transition-colors ${
-                value === option.value ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+                value === option.value ? 'bg-muted' : ''
               }`}
             >
               <span className="font-medium text-foreground">{option.label}</span>
@@ -114,18 +114,18 @@ export default function DataExportPage() {
       onClick={onChange}
       className={`flex-1 p-4 rounded-xl border-2 text-left transition-all ${
         checked 
-          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
-          : 'border-border hover:border-border dark:hover:border-gray-600'
+          ? 'border-primary bg-muted' 
+          : 'border-border hover:border-border'
       }`}
     >
       <div className="flex items-center gap-3">
         <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-          checked ? 'border-blue-500' : 'border-border dark:border-gray-600'
+          checked ? 'border-primary' : 'border-border'
         }`}>
           {checked && <div className="w-2.5 h-2.5 rounded-full bg-primary" />}
         </div>
         <div>
-          <span className={`font-medium ${checked ? 'text-blue-700 dark:text-blue-400' : 'text-foreground'}`}>{label}</span>
+          <span className={`font-medium ${checked ? 'text-primary' : 'text-foreground'}`}>{label}</span>
           {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
         </div>
       </div>
@@ -144,7 +144,7 @@ export default function DataExportPage() {
       <div className="max-w-5xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground">Data Export</h1>
+          <h1 className="text-xl font-semibold text-foreground">Data Export</h1>
           <p className="text-muted-foreground mt-2">Export your transaction history, orders, and account statements</p>
         </div>
 
@@ -159,7 +159,7 @@ export default function DataExportPage() {
                 className={`flex items-center gap-2 px-5 py-3 rounded-xl font-medium text-sm transition-all ${
                   activeTab === tab.id
                     ? 'bg-primary text-primary-foreground shadow-lg shadow-blue-500/25'
-                    : 'text-muted-foreground hover:text-foreground dark:hover:text-white hover:bg-accent'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-accent'
                 }`}
               >
                 <Icon className="w-4 h-4" />
@@ -172,7 +172,7 @@ export default function DataExportPage() {
         {/* Create Export Section */}
         <div className="bg-card rounded-xl border border-border overflow-hidden mb-6">
           <div className="px-6 py-4 border-b border-border flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center">
+            <div className="w-10 h-10 bg-muted rounded-xl flex items-center justify-center">
               <Download className="w-5 h-5 text-primary" />
             </div>
             <div>
@@ -183,7 +183,7 @@ export default function DataExportPage() {
 
           <div className="p-6">
             {/* Info Box */}
-            <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/50 rounded-xl mb-6">
+            <div className="p-4 bg-muted border border-border rounded-xl mb-6">
               <div className="flex items-start gap-3">
                 <Info className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
                 <div className="text-sm text-muted-foreground space-y-1">
@@ -320,7 +320,7 @@ export default function DataExportPage() {
                             type="date"
                             value={startDate}
                             onChange={(e) => setStartDate(e.target.value)}
-                            className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-foreground outline-none focus:border-blue-500"
+                            className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-foreground outline-none focus:border-primary"
                           />
                         </div>
                         <span className="text-muted-foreground">→</span>
@@ -329,7 +329,7 @@ export default function DataExportPage() {
                             type="date"
                             value={endDate}
                             onChange={(e) => setEndDate(e.target.value)}
-                            className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-foreground outline-none focus:border-blue-500"
+                            className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-foreground outline-none focus:border-primary"
                           />
                         </div>
                       </div>
@@ -343,10 +343,10 @@ export default function DataExportPage() {
                       <div
                         onClick={() => setIncludeLegalName(!includeLegalName)}
                         className={`w-5 h-5 rounded-md flex items-center justify-center border-2 transition-all ${
-                          includeLegalName ? 'bg-primary border-blue-500' : 'border-border dark:border-gray-600'
+                          includeLegalName ? 'bg-primary border-primary' : 'border-border'
                         }`}
                       >
-                        {includeLegalName && <Check className="w-3 h-3 text-white" />}
+                        {includeLegalName && <Check className="w-3 h-3 text-primary-foreground" />}
                       </div>
                       <span className="text-sm text-foreground/80">Include Legal Name in export</span>
                     </label>
@@ -359,7 +359,7 @@ export default function DataExportPage() {
                 <button
                   onClick={handleExport}
                   disabled={exporting}
-                  className="px-8 py-3.5 bg-primary hover:bg-primary/85 disabled:bg-blue-300 text-white font-semibold rounded-xl transition-all shadow-lg shadow-blue-500/25 flex items-center gap-2"
+                  className="px-8 py-3.5 bg-primary hover:bg-primary/85 disabled:bg-muted disabled:text-muted-foreground text-primary-foreground font-semibold rounded-xl transition-all shadow-lg shadow-blue-500/25 flex items-center gap-2"
                 >
                   {exporting ? (
                     <>
@@ -386,7 +386,7 @@ export default function DataExportPage() {
         <div className="bg-card rounded-xl border border-border overflow-hidden">
           <div className="px-6 py-4 border-b border-border flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-xl flex items-center justify-center">
+              <div className="w-10 h-10 bg-buy-light rounded-xl flex items-center justify-center">
                 <History className="w-5 h-5 text-buy" />
               </div>
               <div>
@@ -420,12 +420,12 @@ export default function DataExportPage() {
             <div className="flex flex-col items-center justify-center">
               <div className="w-24 h-24 bg-accent rounded-full flex items-center justify-center mb-6">
                 <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-                  <rect x="8" y="6" width="32" height="36" rx="4" className="fill-gray-200 dark:fill-gray-700"/>
-                  <rect x="14" y="14" width="20" height="3" rx="1.5" className="fill-gray-300 dark:fill-gray-600"/>
-                  <rect x="14" y="20" width="14" height="3" rx="1.5" className="fill-gray-300 dark:fill-gray-600"/>
-                  <rect x="14" y="26" width="17" height="3" rx="1.5" className="fill-gray-300 dark:fill-gray-600"/>
-                  <circle cx="36" cy="36" r="10" className="fill-blue-100 dark:fill-blue-900/50"/>
-                  <path d="M32 36l3 3 5-5" className="stroke-blue-500" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <rect x="8" y="6" width="32" height="36" rx="4" className="fill-muted"/>
+                  <rect x="14" y="14" width="20" height="3" rx="1.5" className="fill-border"/>
+                  <rect x="14" y="20" width="14" height="3" rx="1.5" className="fill-border"/>
+                  <rect x="14" y="26" width="17" height="3" rx="1.5" className="fill-border"/>
+                  <circle cx="36" cy="36" r="10" className="fill-primary/15"/>
+                  <path d="M32 36l3 3 5-5" className="stroke-primary" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
               </div>
               <h3 className="text-lg font-semibold text-foreground mb-2">No Exports Yet</h3>

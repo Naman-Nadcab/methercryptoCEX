@@ -5,19 +5,24 @@ import { PiggyBank } from 'lucide-react';
 
 export default function EarnPage() {
   return (
-    <div className="p-6 max-w-2xl mx-auto">
-      <div className="bg-card rounded-xl border border-border p-12 text-center">
-        <div className="w-20 h-20 mx-auto mb-6 rounded-xl bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center">
-          <PiggyBank className="w-10 h-10 text-yellow-600 dark:text-yellow-400" />
+    <div className="mx-auto w-full max-w-xl px-4 py-8 sm:px-6 sm:py-12">
+      <div className="rounded-xl border border-border bg-card p-8 text-center shadow-sm sm:p-10">
+        <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-xl bg-muted sm:h-20 sm:w-20">
+          <PiggyBank className="h-8 w-8 text-primary sm:h-10 sm:w-10" aria-hidden />
         </div>
-        <span className="inline-block px-3 py-1 text-xs font-medium text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/40 rounded-full mb-4">Coming Soon</span>
-        <h1 className="text-2xl font-bold text-foreground mb-2">Earn Products</h1>
-        <p className="text-muted-foreground mb-8">
-          Flexible savings, staking, and on-chain earn products are coming soon.
+        <span className="mb-4 inline-block rounded-full border border-border bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
+          Coming soon
+        </span>
+        <h1 className="mb-2 text-2xl font-bold tracking-tight text-foreground">
+          Earn
+        </h1>
+        <p className="mx-auto mb-8 max-w-md text-sm text-muted-foreground sm:text-base">
+          Flexible savings, staking, and on-chain earn products will be available
+          here soon.
         </p>
         <Link
           href="/wallet/convert"
-          className="inline-flex items-center gap-2 px-6 py-3 bg-primary hover:bg-primary/85 text-white font-medium rounded-xl transition-colors"
+          className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-6 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         >
           Explore Convert
         </Link>

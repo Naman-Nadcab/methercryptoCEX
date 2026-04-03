@@ -61,7 +61,7 @@ export default function AnnouncementDetailPage() {
     <div className="p-4 lg:p-8 max-w-3xl mx-auto">
       <Link
         href="/dashboard/announcements"
-        className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground dark:hover:text-white mb-6"
+        className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6"
       >
         <ArrowLeft className="w-4 h-4" /> Back to announcements
       </Link>
@@ -70,9 +70,9 @@ export default function AnnouncementDetailPage() {
         <div className="p-6 lg:p-8 border-b border-border">
           <div className="flex items-center gap-2 mb-2">
             <span className="px-2 py-0.5 bg-accent text-muted-foreground text-xs font-medium rounded capitalize">{item.type}</span>
-            {item.is_pinned && <span className="px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 text-xs font-medium rounded">Pinned</span>}
+            {item.is_pinned && <span className="px-2 py-0.5 bg-warning-light text-warning text-xs font-medium rounded">Pinned</span>}
           </div>
-          <h1 className="text-2xl font-bold text-foreground">{item.title}</h1>
+          <h1 className="text-xl font-semibold text-foreground">{item.title}</h1>
           <p className="text-sm text-muted-foreground mt-2">
             {item.published_at ? new Date(item.published_at).toLocaleString() : new Date(item.created_at).toLocaleString()}
           </p>

@@ -28,6 +28,12 @@ type Market = {
   min_notional?: string;
   price_precision?: number;
   qty_precision?: number;
+  last_price?: string | null;
+  volume_24h?: string | null;
+  open_24h?: string | null;
+  high_24h?: string | null;
+  low_24h?: string | null;
+  change_pct?: number | null;
 };
 
 type SpotGridOrderType = 'limit' | 'market' | 'stop_loss' | 'stop_limit' | 'trailing_stop_market';
@@ -130,6 +136,9 @@ export function SpotTradingGrid() {
     return balanceMap[baseAsset] ?? '0';
   }, [side, baseAsset, quoteAsset, balanceMap]);
 
+  const quoteBalance = useMemo(() => balanceMap[quoteAsset] ?? '0', [quoteAsset, balanceMap]);
+  const baseBalance = useMemo(() => balanceMap[baseAsset] ?? '0', [baseAsset, balanceMap]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -178,19 +187,23 @@ export function SpotTradingGrid() {
     });
   }, []);
 
-  const handleSubmit = useCallback(async (): Promise<void> => {
+  const handleSubmit = useCallback(async (overrideSide?: 'buy' | 'sell', overrideQty?: string): Promise<void> => {
+    const effectiveSide = overrideSide ?? side;
+    const effectiveQty = (overrideQty ?? quantity).trim();
     if (!isAuth || !symbol || submitting) {
       throw new Error('Cannot submit order');
     }
     setSubmitError(null);
     setSubmitting(true);
-    const qtySnap = quantity.trim();
+    if (overrideSide) setSide(overrideSide);
+    if (overrideQty) setQuantity(overrideQty);
+    const qtySnap = effectiveQty;
     try {
       const cid = generateClientOrderId();
       clientOrderIdRef.current = cid;
       const body: Record<string, string | boolean> = {
         market: symbol,
-        side,
+        side: effectiveSide,
         type: orderType,
         quantity: qtySnap,
         client_order_id: cid,
@@ -210,7 +223,7 @@ export function SpotTradingGrid() {
       }>('/api/v1/spot/order', body);
       if (res.success) {
         const base = baseAsset;
-        const sd = side;
+        const sd = effectiveSide;
         const ot = orderType;
         const d = res.data;
         const st = String(d?.status ?? '').toUpperCase();
@@ -345,8 +358,11 @@ export function SpotTradingGrid() {
         if (signal?.aborted) return;
         if (res.success && Array.isArray(res.data) && res.data.length > 0) {
           setMarkets(res.data);
+          const preferred = res.data.find((m) => m.symbol === 'BTC_USDT');
           const sym =
-            symbolParam && res.data.some((m) => m.symbol === symbolParam) ? symbolParam : res.data[0]!.symbol;
+            symbolParam && res.data.some((m) => m.symbol === symbolParam)
+              ? symbolParam
+              : (preferred?.symbol ?? res.data[0]!.symbol);
           setSymbol(sym);
         } else {
           setMarkets([]);
@@ -381,7 +397,7 @@ export function SpotTradingGrid() {
 
   if (marketsLoading && markets.length === 0 && !marketsError) {
     return (
-      <div className="flex h-screen w-full flex-col items-center justify-center gap-4 bg-muted px-4 dark:bg-background">
+      <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-muted px-4 dark:bg-background">
         <div className="h-10 w-10 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" aria-hidden />
         <p className="text-sm font-medium text-muted-foreground">Loading spot markets…</p>
       </div>
@@ -390,7 +406,7 @@ export function SpotTradingGrid() {
 
   if (markets.length === 0) {
     return (
-      <div className="flex h-screen w-full flex-col items-center justify-center gap-5 bg-muted px-4 dark:bg-background">
+      <div className="flex h-full w-full flex-col items-center justify-center gap-5 bg-muted px-4 dark:bg-background">
         <div className="max-w-md rounded-xl border border-border bg-card p-6 text-center shadow-sm dark:border-border dark:bg-card">
           <p className="text-sm font-semibold text-foreground">
             {marketsError || 'No spot markets available'}
@@ -426,7 +442,7 @@ export function SpotTradingGrid() {
   if (markets.length > 0 && !symbol) {
     return (
       <div
-        className="flex h-screen w-full flex-col bg-background"
+        className="flex h-full w-full flex-col bg-background"
         aria-busy="true"
         aria-label="Preparing trading terminal"
       >
@@ -488,6 +504,8 @@ export function SpotTradingGrid() {
         handleSubmit={handleSubmit}
         handlePriceClick={handlePriceClick}
         availableBalance={availableBalance}
+        quoteBalance={quoteBalance}
+        baseBalance={baseBalance}
       />
     </SpotMarketDataProvider>
   );

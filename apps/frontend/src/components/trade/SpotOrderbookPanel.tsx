@@ -5,7 +5,7 @@
  * Colors use app theme: price-up / price-down, buy / sell, blue accents — no fixed exchange brand hex.
  */
 
-import { useState, useEffect, useMemo, useRef, memo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useRef, memo, useCallback, type ReactNode } from 'react';
 import {
   ChevronDown,
   ChevronUp,
@@ -15,6 +15,7 @@ import {
   ArrowDownUp,
 } from 'lucide-react';
 import { formatFixedTrim, formatValueFixedTrim, formatCompactNumber } from './terminalFormat';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/Tooltip';
 
 export interface OrderbookLevel {
   price: string;
@@ -44,10 +45,26 @@ interface SpotOrderbookPanelProps {
   recentTrades?: RecentTradeRow[];
 }
 
-const DEPTH_OPTIONS = [12, 20, 30] as const;
+const DEPTH_OPTIONS = [15, 20, 30] as const;
+const MIN_ORDERBOOK_ROWS = 15;
 const TICK_PRESETS = [2, 4, 6, 8] as const;
 
-const COL_GRID = 'grid grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,1fr)] gap-x-1';
+/** Price (left); qty & total — numeric columns right-aligned, monospace */
+const COL_GRID =
+  'grid grid-cols-[minmax(0,1.1fr)_minmax(0,0.95fr)_minmax(0,0.95fr)] gap-x-1';
+
+function padAskSlots(ascRows: OrderbookLevel[], minRows: number): (OrderbookLevel | null)[] {
+  const rev = [...ascRows].reverse();
+  const out: (OrderbookLevel | null)[] = rev.map((r) => r);
+  while (out.length < minRows) out.unshift(null);
+  return out;
+}
+
+function padBidSlots(rows: OrderbookLevel[], minRows: number): (OrderbookLevel | null)[] {
+  const out: (OrderbookLevel | null)[] = rows.map((r) => r);
+  while (out.length < minRows) out.push(null);
+  return out;
+}
 
 function qtyToNum(q: string): number {
   const n = parseFloat(q);
@@ -64,6 +81,8 @@ function formatTradeTime(iso: string): string {
     return '—';
   }
 }
+
+const BOOK_ROW = 'relative flex h-5 min-h-[20px] w-full items-center overflow-hidden px-2 font-mono text-[10px] tabular-nums leading-none';
 
 const LevelRow = memo(function LevelRow({
   rawPrice,
@@ -92,17 +111,23 @@ const LevelRow = memo(function LevelRow({
     onRowSelect?.(rawPrice, quantity);
   }, [onRowSelect, rawPrice, quantity]);
   const tip = onRowSelect ? `Set price to ${rawPrice} ${quoteAsset}` : undefined;
-  const w = Math.min(100, Math.max(4, depthPct));
-  const priceCls = side === 'buy' ? 'text-price-up' : 'text-price-down';
+  const w = Math.min(100, Math.max(0, depthPct));
+  const priceCls = side === 'buy' ? 'text-[#0ecb81]' : 'text-[#f6465d]';
   const rowSize =
     variant === 'ladder'
       ? 'min-h-[36px] py-1.5 text-[13px] leading-tight'
-      : 'py-px text-[11px] leading-[1.35]';
+      : BOOK_ROW;
 
-  const barGradient =
-    side === 'buy'
-      ? 'bg-gradient-to-l from-price-up/35 via-price-up/12 to-transparent dark:from-price-up/40 dark:via-price-up/15'
-      : 'bg-gradient-to-l from-price-down/35 via-price-down/12 to-transparent dark:from-price-down/40 dark:via-price-down/15';
+  const barColor = side === 'buy' ? '#0ecb81' : '#f6465d';
+  /* Stronger cumulative depth heatmap (Binance-style) */
+  const heatStrong = Math.min(0.55, 0.12 + (w / 100) * 0.43);
+  const heatSoft = Math.min(0.22, 0.04 + (w / 100) * 0.18);
+  const aStrong = Math.round(heatStrong * 255)
+    .toString(16)
+    .padStart(2, '0');
+  const aMid = Math.round(heatSoft * 255)
+    .toString(16)
+    .padStart(2, '0');
 
   return (
     <button
@@ -110,32 +135,66 @@ const LevelRow = memo(function LevelRow({
       onClick={onRowSelect ? handleClick : undefined}
       title={tip}
       data-orderbook-row
-      className={`group/level relative w-full cursor-pointer overflow-hidden border-b border-border/90 px-2 font-mono tabular-nums transition-all duration-150 last:border-b-0 hover:bg-accent/80 hover:shadow-[inset_0_0_0_1px_rgba(59,130,246,0.22)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/35 dark:border-border/50 dark:hover:bg-accent/45 dark:hover:shadow-[inset_0_0_0_1px_rgba(96,165,250,0.28)] ${rowSize} ${
-        emphasize ? 'bg-muted/90 dark:bg-card/35' : ''
-      }`}
+      className={`group/level border-b border-[#2b2f36]/40 text-left transition-colors duration-75 hover:bg-[#2b2f36]/55 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[#f0b90b]/40 ${
+        variant === 'book'
+          ? `${BOOK_ROW} cursor-pointer`
+          : `relative ${rowSize} w-full cursor-pointer px-2`
+      } ${emphasize && variant === 'book' ? 'bg-[#2b2f36]/25' : ''} ${emphasize && variant === 'ladder' ? 'bg-[#2b2f36]/30' : ''}`}
+      style={
+        variant === 'book' && w > 0
+          ? { backgroundColor: `${barColor}${Math.round(heatSoft * 0.35 * 255).toString(16).padStart(2, '0')}` }
+          : undefined
+      }
     >
-      <span
-        aria-hidden
-        className={`pointer-events-none absolute inset-y-0 right-0 transition-[width] duration-200 ease-out ${barGradient}`}
-        style={{ width: `${w}%` }}
-      />
-      <span className={`relative z-10 ${COL_GRID} items-center`}>
+      {variant === 'book' && w > 0 && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 right-0 transition-[width] duration-150 ease-out"
+          style={{
+            width: `${w}%`,
+            background: `linear-gradient(to left, ${barColor}${aStrong}, ${barColor}${aMid}, transparent 92%)`,
+          }}
+        />
+      )}
+      {variant === 'ladder' && w > 0 && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 right-0 transition-[width] duration-200 ease-out"
+          style={{ width: `${w}%`, background: `linear-gradient(to left, ${barColor}${aStrong}, transparent)` }}
+        />
+      )}
+      <span className={`relative z-10 w-full ${COL_GRID} items-center`}>
         <span className={`min-w-0 truncate text-left font-semibold ${priceCls} ${emphasize ? 'font-bold' : ''}`}>
           {price}
         </span>
-        <span className="truncate text-right text-foreground dark:text-foreground/90">{quantity}</span>
-        <span className="truncate text-right text-muted-foreground">{total}</span>
+        <span className="truncate text-right text-[#eaecef]">{quantity}</span>
+        <span className="truncate text-right text-[#848e9c]">{total}</span>
       </span>
     </button>
   );
 });
 
+const EmptyBookRow = memo(function EmptyBookRow() {
+  return (
+    <div
+      className={`${BOOK_ROW} border-b border-[#2b2f36]/30 text-[#474d57]`}
+      aria-hidden
+    >
+      <span className={`${COL_GRID} w-full items-center`}>
+        <span className="text-left">—</span>
+        <span className="text-right">—</span>
+        <span className="text-right">—</span>
+      </span>
+    </div>
+  );
+});
+
 function SkeletonRow() {
   return (
-    <div className={`${COL_GRID} items-center gap-1 px-1.5 py-px`}>
-      <span className="h-2.5 rounded bg-accent" />
-      <span className="h-2.5 rounded bg-accent" />
-      <span className="h-2.5 rounded bg-accent" />
+    <div className={`${COL_GRID} h-5 min-h-[20px] items-center border-b border-[#2b2f36]/30 px-2`}>
+      <span className="h-2 rounded bg-[#2b2f36]/80" />
+      <span className="ml-auto h-2 w-10 rounded bg-[#2b2f36]/80" />
+      <span className="ml-auto h-2 w-10 rounded bg-[#2b2f36]/80" />
     </div>
   );
 }
@@ -159,36 +218,58 @@ function SentimentFooter({
   const wBuy = (b / sum) * 100;
   const skew = 12;
 
+  const tooltipLines = [
+    `Bids: ${b.toFixed(1)}% of visible depth`,
+    `Asks: ${s.toFixed(1)}% of visible depth`,
+    `Bid notional: ${formatCompactNumber(buyLiquidity)} ${quoteAsset}`,
+    `Ask notional: ${formatCompactNumber(sellLiquidity)} ${quoteAsset}`,
+  ].join('\n');
+
   return (
     <div className="space-y-1">
-      <div className="flex justify-between text-[10px] text-muted-foreground">
-        <span className="font-medium text-muted-foreground">Buy / Sell</span>
-        <span className="font-mono text-muted-foreground">
-          {formatCompactNumber(buyLiquidity)} / {formatCompactNumber(sellLiquidity)} {quoteAsset}
+      <div className="flex justify-between text-[10px] text-[#848e9c]">
+        <span className="font-medium">B / S ratio</span>
+        <span className="font-mono tabular-nums">
+          <span className="text-[#0ecb81]">{b.toFixed(1)}%</span>
+          <span className="text-[#474d57]"> · </span>
+          <span className="text-[#f6465d]">{s.toFixed(1)}%</span>
         </span>
       </div>
-      <div className="flex h-7 w-full min-w-0 overflow-hidden rounded-sm text-[10px] font-bold tabular-nums text-foreground">
-        <div
-          className="relative flex h-full min-w-0 items-center gap-1 bg-buy pl-2"
-          style={{
-            width: `${wBuy}%`,
-            clipPath: `polygon(0 0, 100% 0, calc(100% - ${skew}px) 100%, 0 100%)`,
-          }}
+      <Tooltip delayDuration={250}>
+        <TooltipTrigger asChild>
+          <div
+            className="flex h-6 w-full min-w-0 cursor-help overflow-hidden rounded-sm text-[10px] font-bold tabular-nums"
+            aria-label={`Bid depth ${b.toFixed(1)} percent, Ask depth ${s.toFixed(1)} percent`}
+          >
+            <div
+              className="relative flex h-full min-w-0 items-center gap-1 bg-[#0ecb81] pl-2 text-[#0b0e11]"
+              style={{
+                width: `${wBuy}%`,
+                clipPath: `polygon(0 0, 100% 0, calc(100% - ${skew}px) 100%, 0 100%)`,
+              }}
+            >
+              <span className="flex h-3 w-3 shrink-0 items-center justify-center rounded-sm bg-black/15 text-[8px]">B</span>
+              <span>{b.toFixed(0)}%</span>
+            </div>
+            <div
+              className="flex h-full min-w-0 flex-1 items-center justify-end gap-1 bg-[#f6465d] pr-2 text-white"
+              style={{
+                marginLeft: `-${skew}px`,
+                paddingLeft: `${skew + 4}px`,
+              }}
+            >
+              <span>{s.toFixed(0)}%</span>
+              <span className="flex h-3 w-3 shrink-0 items-center justify-center rounded-sm bg-black/15 text-[8px]">S</span>
+            </div>
+          </div>
+        </TooltipTrigger>
+        <TooltipContent
+          side="top"
+          className="max-w-[240px] whitespace-pre-line border-[#2b2f36] bg-[#2b2f36] px-2.5 py-2 text-[10px] leading-snug text-[#eaecef]"
         >
-          <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm bg-card/20 text-[9px]">B</span>
-          <span>{b.toFixed(0)}%</span>
-        </div>
-        <div
-          className="flex h-full min-w-0 flex-1 items-center justify-end gap-1 bg-sell pr-2"
-          style={{
-            marginLeft: `-${skew}px`,
-            paddingLeft: `${skew + 4}px`,
-          }}
-        >
-          <span>{s.toFixed(0)}%</span>
-          <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm bg-card/20 text-[9px]">S</span>
-        </div>
-      </div>
+          {tooltipLines}
+        </TooltipContent>
+      </Tooltip>
     </div>
   );
 }
@@ -235,9 +316,26 @@ export function SpotOrderbookPanel({
   const effectivePricePrecision = Math.min(10, Math.max(0, displayPricePrecision));
   const totalPrecision = Math.min(10, Math.max(2, effectivePricePrecision));
 
-  const bidRows = useMemo(() => bids.slice(0, depthLimit), [bids, depthLimit]);
-  const askRowsAsc = useMemo(() => asks.slice(0, depthLimit), [asks, depthLimit]);
-  const askRows = useMemo(() => [...askRowsAsc].reverse(), [askRowsAsc]);
+  /** Single derived snapshot avoids TDZ / hook-order issues and keeps paddings in sync. */
+  const {
+    bidRows,
+    askRowsAsc,
+    askRows,
+    askSlotsBook,
+    bidSlotsBook,
+    askPadTopCount,
+  } = useMemo(() => {
+    const br = bids.slice(0, depthLimit);
+    const ar = asks.slice(0, depthLimit);
+    return {
+      bidRows: br,
+      askRowsAsc: ar,
+      askRows: [...ar].reverse(),
+      askSlotsBook: padAskSlots(ar, MIN_ORDERBOOK_ROWS),
+      bidSlotsBook: padBidSlots(br, MIN_ORDERBOOK_ROWS),
+      askPadTopCount: Math.max(0, MIN_ORDERBOOK_ROWS - ar.length),
+    };
+  }, [bids, asks, depthLimit]);
 
   const bidTotals = useMemo(() => {
     let cum = 0;
@@ -298,15 +396,15 @@ export function SpotOrderbookPanel({
   const tabBtn = (active: boolean) =>
     `min-h-9 flex-1 px-2 py-2 text-[11px] font-bold transition-colors ${
       active
-        ? 'border-b-2 border-blue-600 text-blue-700 dark:border-blue-400 dark:text-blue-300'
-        : 'border-b-2 border-transparent text-muted-foreground hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground/90'
+        ? 'border-b-2 border-[#f0b90b] text-[#eaecef] dark:text-[#eaecef]'
+        : 'border-b-2 border-transparent text-[#848e9c] hover:text-[#eaecef] dark:text-[#848e9c] dark:hover:text-[#eaecef]'
     }`;
 
   const iconToggle = (active: boolean) =>
     `flex h-7 w-7 shrink-0 items-center justify-center rounded border transition-colors ${
       active
-        ? 'border-blue-500/70 bg-blue-50 text-blue-700 dark:border-blue-400/80 dark:bg-blue-950/50 dark:text-blue-300'
-        : 'border-border bg-card text-muted-foreground hover:border-border hover:text-foreground dark:border-border dark:bg-background dark:text-muted-foreground dark:hover:border-border'
+        ? 'border-[#f0b90b]/50 bg-[#f0b90b]/10 text-[#f0b90b] dark:border-[#f0b90b]/50 dark:bg-[#f0b90b]/10 dark:text-[#f0b90b]'
+        : 'border-[#2b2f36] bg-[#1e2026] text-[#848e9c] hover:text-[#eaecef] dark:border-[#2b2f36] dark:bg-[#181a20] dark:text-[#848e9c] dark:hover:text-[#eaecef]'
     }`;
 
   const midPriceClass =
@@ -323,7 +421,7 @@ export function SpotOrderbookPanel({
     [onPriceClick]
   );
 
-  const renderAsks = (variant: 'book' | 'ladder' = 'book') =>
+  const renderLadderAsks = (variant: 'ladder') =>
     bookView !== 'bids' && askRows.length > 0 ? (
       <div className="border-b border-dashed border-border/80 dark:border-border/60">
         {askRows.map((row, i) => {
@@ -349,19 +447,19 @@ export function SpotOrderbookPanel({
     ) : null;
 
   const midContent = (
-    <div className="flex flex-col items-center gap-0.5">
-      <div className={`flex items-center gap-0.5 font-mono text-xl font-bold tabular-nums leading-none sm:text-2xl ${midPriceClass}`}>
-        {lastMove === 'up' && <ChevronUp className="h-6 w-6 shrink-0" strokeWidth={2.5} aria-hidden />}
-        {lastMove === 'down' && <ChevronDown className="h-6 w-6 shrink-0" strokeWidth={2.5} aria-hidden />}
+    <div className="flex flex-col items-center gap-0.5 py-0.5">
+      <div
+        className={`flex items-center justify-center gap-1 font-mono text-[18px] font-semibold tabular-nums leading-tight ${midPriceClass}`}
+      >
+        {lastMove === 'up' && <ChevronUp className="h-4 w-4 shrink-0 text-[#0ecb81]" strokeWidth={2.5} aria-hidden />}
+        {lastMove === 'down' && <ChevronDown className="h-4 w-4 shrink-0 text-[#f6465d]" strokeWidth={2.5} aria-hidden />}
         <span>{formatValueFixedTrim(lastDisplay, effectivePricePrecision)}</span>
+        <span className="text-[10px] font-normal text-[#848e9c]">{quoteAsset}</span>
       </div>
-      <p className="text-center text-[11px] text-muted-foreground">
-        ≈{formatValueFixedTrim(lastDisplay, effectivePricePrecision)} {quoteAsset}
-      </p>
       {(spreadAbs > 0 || spreadBps > 0) && (
-        <p className="text-[10px] font-mono tabular-nums text-muted-foreground dark:text-muted-foreground">
+        <p className="text-center text-[10px] font-mono tabular-nums text-[#848e9c]">
           Spread {spreadAbs > 0 ? formatFixedTrim(spreadAbs, Math.min(6, effectivePricePrecision)) : '—'}
-          {spreadPctMid > 0 ? ` (${spreadPctMid >= 0.0001 ? spreadPctMid.toFixed(3) : '<0.001'}%)` : ''}
+          {spreadPctMid > 0 ? ` · ${spreadPctMid >= 0.0001 ? spreadPctMid.toFixed(3) : '<0.001'}%` : ''}
           {spreadBps >= 0.01 ? ` · ${spreadBps.toFixed(1)} bps` : ''}
         </p>
       )}
@@ -369,13 +467,13 @@ export function SpotOrderbookPanel({
   );
 
   const renderMid = () => (
-    <div className="border-y border-border/90 bg-accent/50 px-2 py-1.5 dark:border-border/90 dark:bg-card/50">
+    <div className="shrink-0 border-y border-solid border-[#2b2f36] bg-[#181a20]/90 px-2 py-1">
       {onPriceClick && lastDisplay ? (
         <button
           type="button"
           title={`Set order price to ${lastDisplay} ${quoteAsset}`}
           onClick={() => onPriceClick(String(lastDisplay), '')}
-          className="w-full cursor-pointer rounded-md border-0 bg-transparent p-0 text-left transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/35 dark:hover:bg-accent/50"
+          className="w-full cursor-pointer rounded border-0 bg-transparent p-0 text-center transition-colors hover:bg-[#2b2f36]/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[#f0b90b]/30"
         >
           {midContent}
         </button>
@@ -385,7 +483,7 @@ export function SpotOrderbookPanel({
     </div>
   );
 
-  const renderBids = (variant: 'book' | 'ladder' = 'book') =>
+  const renderLadderBids = (variant: 'ladder') =>
     bookView !== 'asks' && bidRows.length > 0 ? (
       <div>
         {bidRows.map((row, i) => (
@@ -406,37 +504,138 @@ export function SpotOrderbookPanel({
       </div>
     ) : null;
 
-  const bookBody = flipVertical ? (
+  const renderBookAskRows = () => (
     <>
-      {renderBids('book')}
-      {renderMid()}
-      {renderAsks('book')}
-    </>
-  ) : (
-    <>
-      {renderAsks('book')}
-      {renderMid()}
-      {renderBids('book')}
+      {askSlotsBook.map((row, i) => {
+        if (!row) return <EmptyBookRow key={`ask-pad-${i}`} />;
+        const ascIndex = askRowsAsc.length - 1 - (i - askPadTopCount);
+        const tot = ascIndex >= 0 ? (askTotalsAsc[ascIndex] ?? 0) : 0;
+        const bestAskRowIndex = askPadTopCount + askRowsAsc.length - 1;
+        return (
+          <LevelRow
+            key={`sell-book-${row.price}-${i}`}
+            rawPrice={row.price}
+            price={formatValueFixedTrim(row.price, effectivePricePrecision)}
+            quantity={formatValueFixedTrim(row.quantity, qtyPrecision)}
+            side="sell"
+            total={tot > 0 ? formatFixedTrim(tot, totalPrecision) : '—'}
+            emphasize={askRowsAsc.length > 0 && i === bestAskRowIndex}
+            depthPct={ascIndex >= 0 ? depthPctAsk(ascIndex) : 0}
+            quoteAsset={quoteAsset}
+            variant="book"
+            onRowSelect={onPriceClick ? handleBookLevelSelect : undefined}
+          />
+        );
+      })}
     </>
   );
 
+  const renderBookBidRows = () => (
+    <>
+      {bidSlotsBook.map((row, i) => {
+        if (!row) return <EmptyBookRow key={`bid-pad-${i}`} />;
+        const tot = bidTotals[i] ?? 0;
+        return (
+          <LevelRow
+            key={`buy-book-${row.price}-${i}`}
+            rawPrice={row.price}
+            price={formatValueFixedTrim(row.price, effectivePricePrecision)}
+            quantity={formatValueFixedTrim(row.quantity, qtyPrecision)}
+            side="buy"
+            total={tot > 0 ? formatFixedTrim(tot, totalPrecision) : '—'}
+            emphasize={bidRows.length > 0 && i === 0}
+            depthPct={depthPctBid(i)}
+            quoteAsset={quoteAsset}
+            variant="book"
+            onRowSelect={onPriceClick ? handleBookLevelSelect : undefined}
+          />
+        );
+      })}
+    </>
+  );
+
+  const asksScrollPane = (
+    <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
+        {loading ? (
+          <div className="flex flex-col">
+            {Array.from({ length: MIN_ORDERBOOK_ROWS }).map((_, i) => (
+              <SkeletonRow key={`ask-sk-${i}`} />
+            ))}
+          </div>
+        ) : (
+          renderBookAskRows()
+        )}
+      </div>
+    </div>
+  );
+
+  const bidsScrollPane = (
+    <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
+        {loading ? (
+          <div className="flex flex-col">
+            {Array.from({ length: MIN_ORDERBOOK_ROWS }).map((_, i) => (
+              <SkeletonRow key={`bid-sk-${i}`} />
+            ))}
+          </div>
+        ) : (
+          renderBookBidRows()
+        )}
+      </div>
+    </div>
+  );
+
+  let orderBookGrid: ReactNode;
+  if (bookView === 'asks') {
+    orderBookGrid = (
+      <div className="grid min-h-0 min-w-0 flex-1 grid-rows-[minmax(0,1fr)_auto] overflow-hidden">
+        {asksScrollPane}
+        {renderMid()}
+      </div>
+    );
+  } else if (bookView === 'bids') {
+    orderBookGrid = (
+      <div className="grid min-h-0 min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
+        {renderMid()}
+        {bidsScrollPane}
+      </div>
+    );
+  } else if (flipVertical) {
+    orderBookGrid = (
+      <div className="grid min-h-0 min-w-0 flex-1 grid-rows-[minmax(0,1fr)_auto_minmax(0,1fr)] overflow-hidden">
+        {bidsScrollPane}
+        {renderMid()}
+        {asksScrollPane}
+      </div>
+    );
+  } else {
+    orderBookGrid = (
+      <div className="grid min-h-0 min-w-0 flex-1 grid-rows-[minmax(0,1fr)_auto_minmax(0,1fr)] overflow-hidden">
+        {asksScrollPane}
+        {renderMid()}
+        {bidsScrollPane}
+      </div>
+    );
+  }
+
   const ladderBody = flipVertical ? (
     <>
-      {renderBids('ladder')}
+      {renderLadderBids('ladder')}
       {renderMid()}
-      {renderAsks('ladder')}
+      {renderLadderAsks('ladder')}
     </>
   ) : (
     <>
-      {renderAsks('ladder')}
+      {renderLadderAsks('ladder')}
       {renderMid()}
-      {renderBids('ladder')}
+      {renderLadderBids('ladder')}
     </>
   );
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-card text-[11px] dark:bg-card">
-      <div className="flex flex-shrink-0 border-b border-border/90 dark:border-border/90">
+    <div className="flex h-full min-h-0 flex-col bg-[#1e2026] text-[11px]">
+      <div className="flex flex-shrink-0 border-b border-[#2b2f36]">
         <button type="button" onClick={() => setTab('orderbook')} className={tabBtn(tab === 'orderbook')}>
           Order Book
         </button>
@@ -449,7 +648,7 @@ export function SpotOrderbookPanel({
       </div>
 
       {tab === 'ladder' && (
-        <div className="flex flex-shrink-0 items-center justify-between gap-2 border-b border-border/90 px-2 py-1.5 dark:border-border/90">
+        <div className="flex flex-shrink-0 items-center justify-between gap-2 border-b border-[#2b2f36] px-2 py-1.5">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             DOM · click row to set price
           </p>
@@ -457,7 +656,7 @@ export function SpotOrderbookPanel({
             value={depthLimit}
             onChange={(e) => setDepthLimit(Number(e.target.value) as (typeof DEPTH_OPTIONS)[number])}
             title="Rows per side"
-            className="h-7 min-w-[3rem] cursor-pointer rounded border border-border bg-card px-1.5 text-[10px] font-bold text-foreground dark:border-border dark:bg-background dark:text-foreground"
+            className="h-7 min-w-[3rem] cursor-pointer rounded border border-[#2b2f36] bg-[#181a20] px-1.5 text-[10px] font-bold text-[#eaecef]"
           >
             {DEPTH_OPTIONS.map((d) => (
               <option key={d} value={d}>
@@ -469,7 +668,7 @@ export function SpotOrderbookPanel({
       )}
 
       {tab === 'orderbook' && (
-        <div className="flex flex-shrink-0 items-center gap-2 border-b border-border/90 px-2 py-1.5 dark:border-border/90">
+        <div className="flex flex-shrink-0 items-center gap-2 border-b border-[#2b2f36] px-2 py-1.5">
           <div className="flex items-center gap-1" role="group" aria-label="Order book view">
             <button
               type="button"
@@ -509,7 +708,7 @@ export function SpotOrderbookPanel({
               value={effectivePricePrecision}
               onChange={(e) => setDisplayPricePrecision(Number(e.target.value))}
               title="Price grouping"
-              className="h-7 min-w-[5rem] cursor-pointer rounded border border-border bg-card px-1.5 text-[10px] font-mono font-semibold text-foreground dark:border-border dark:bg-background dark:text-foreground"
+              className="h-7 min-w-[5rem] cursor-pointer rounded border border-[#2b2f36] bg-[#181a20] px-1.5 text-[10px] font-mono font-semibold text-[#eaecef]"
             >
               {tickOptions.map((p) => (
                 <option key={p} value={p}>
@@ -521,7 +720,7 @@ export function SpotOrderbookPanel({
               value={depthLimit}
               onChange={(e) => setDepthLimit(Number(e.target.value) as (typeof DEPTH_OPTIONS)[number])}
               title="Rows per side"
-              className="h-7 min-w-[3rem] cursor-pointer rounded border border-border bg-card px-1.5 text-[10px] font-bold text-foreground dark:border-border dark:bg-background dark:text-foreground"
+              className="h-7 min-w-[3rem] cursor-pointer rounded border border-[#2b2f36] bg-[#181a20] px-1.5 text-[10px] font-bold text-[#eaecef]"
             >
               {DEPTH_OPTIONS.map((d) => (
                 <option key={d} value={d}>
@@ -535,14 +734,14 @@ export function SpotOrderbookPanel({
 
       {tab === 'ladder' ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="border-b border-border/90 bg-background/80 px-2 py-1 dark:border-border/90 dark:bg-card/40">
-            <div className={`${COL_GRID} font-mono text-[10px] font-bold uppercase tracking-wide text-muted-foreground`}>
+          <div className="border-b border-[#2b2f36] bg-[#181a20] px-2 py-1">
+            <div className={`${COL_GRID} font-mono text-[10px] font-bold uppercase tracking-wide text-[#848e9c]`}>
               <span className="text-left">Asks ↑ · Price({quoteAsset})</span>
               <span className="text-right">Qty({baseAsset})</span>
               <span className="text-right">Σ {quoteAsset}</span>
             </div>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
             {loading ? (
               <div className="space-y-px p-1">
                 {Array.from({ length: 10 }).map((_, i) => (
@@ -561,14 +760,14 @@ export function SpotOrderbookPanel({
         </div>
       ) : tab === 'trades' ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="border-b border-border/90 bg-background/80 px-2 py-1 dark:border-border/90 dark:bg-card/40">
+          <div className="border-b border-[#2b2f36] bg-[#181a20] px-2 py-1">
             <div className={`${COL_GRID} font-mono text-[10px] font-bold uppercase tracking-wide text-muted-foreground`}>
               <span className="text-left">Price({quoteAsset})</span>
               <span className="text-right">Qty({baseAsset})</span>
               <span className="text-right">Time</span>
             </div>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
             {recentTrades.length === 0 ? (
               <p className="px-3 py-8 text-center text-[11px] text-muted-foreground">No recent trades</p>
             ) : (
@@ -599,7 +798,7 @@ export function SpotOrderbookPanel({
                     key={t.id}
                     type="button"
                     title="Use this price in the order form"
-                    className="block w-full border-0 bg-transparent p-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/30"
+                    className="block w-full border-0 bg-transparent p-0 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[#f0b90b]/30"
                     onClick={() => onTradePriceClick(t.price, t.quantity)}
                   >
                     {row}
@@ -611,8 +810,8 @@ export function SpotOrderbookPanel({
         </div>
       ) : (
         <>
-          <div className="border-b border-border/90 bg-background/80 px-2 py-1 dark:border-border/90 dark:bg-card/40">
-            <div className={`${COL_GRID} items-center font-mono text-[10px] font-bold uppercase tracking-wide text-muted-foreground`}>
+          <div className="border-b border-[#2b2f36] bg-[#181a20] px-2 py-1">
+            <div className={`${COL_GRID} items-center font-mono text-[10px] font-bold uppercase tracking-wide text-[#848e9c]`}>
               <span className="text-left">Price({quoteAsset})</span>
               <span className="text-right">Qty({baseAsset})</span>
               <span className="inline-flex items-center justify-end gap-0.5 text-right">
@@ -622,24 +821,8 @@ export function SpotOrderbookPanel({
             </div>
           </div>
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-              {loading ? (
-                <div className="space-y-px p-1">
-                  {Array.from({ length: 10 }).map((_, i) => (
-                    <SkeletonRow key={i} />
-                  ))}
-                </div>
-              ) : (
-                <>
-                  {bookBody}
-                  {bidRows.length === 0 && askRows.length === 0 && !loading && (
-                    <p className="px-4 py-10 text-center text-[11px] text-muted-foreground">No order book data</p>
-                  )}
-                </>
-              )}
-            </div>
-
-            <div className="flex-shrink-0 border-t border-border/90 px-2 py-1.5 dark:border-border/90">
+            {orderBookGrid}
+            <div className="shrink-0 border-t border-solid border-[#2b2f36] px-2 py-1.5">
               <SentimentFooter
                 buyPct={buyPct}
                 sellPct={sellPct}

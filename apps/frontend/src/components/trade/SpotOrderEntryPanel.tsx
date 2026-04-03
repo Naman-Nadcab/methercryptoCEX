@@ -4,6 +4,7 @@ import { useMemo, useState, useEffect, type ReactNode } from 'react';
 import Link from 'next/link';
 import { Loader2, Plus, Info, ArrowRight, ClipboardList, ChevronDown } from 'lucide-react';
 import { formatValueFixedTrim } from './terminalFormat';
+import { CoinIcon } from '@/components/ui/CoinIcon';
 import {
   Dialog,
   DialogContent,
@@ -396,6 +397,7 @@ export function SpotOrderEntryPanel({
           <div className="flex items-center justify-between gap-2 text-[11px]">
             <span className="font-semibold text-muted-foreground">Available</span>
             <div className="flex min-w-0 items-center gap-1.5">
+              <CoinIcon symbol={balanceUnit} size={16} />
               <span className="truncate font-mono text-xs font-bold tabular-nums text-foreground">
                 {displayBalance} {balanceUnit}
               </span>

@@ -128,7 +128,7 @@ export default async function tradingRoutes(app: FastifyInstance) {
       return reply.send({ success: true, data: rows });
     } catch (error) {
       logger.error('Failed to fetch candles', { error });
-      return reply.send({ success: true, data: [] });
+      return reply.status(500).send({ success: false, error: 'Failed to fetch candle data' });
     }
   });
 

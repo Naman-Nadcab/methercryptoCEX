@@ -146,16 +146,16 @@ export default function ChangePasswordPage() {
       </div>
 
       {/* Change Password Card */}
-      <div className="bg-card rounded-xl shadow-sm">
+      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         <div className="p-6">
           <h1 className="text-xl font-semibold text-foreground mb-4">
             Change Password
           </h1>
 
           {/* Security Warning */}
-          <div className="flex gap-3 p-4 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg mb-6">
-            <AlertCircle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
-            <p className="text-sm text-amber-700 dark:text-amber-300">
+          <div className="flex gap-3 p-4 mb-6 rounded-lg border border-border bg-muted">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+            <p className="text-sm text-foreground">
               For account security, please be aware that after changing your password, on-chain withdrawals, internal transfers, fiat withdrawals, Methereum Card transactions, P2P Trading, and advertising will be suspended for 24 hours.
             </p>
           </div>
@@ -213,28 +213,28 @@ export default function ChangePasswordPage() {
               {/* Password Requirements */}
               {newPassword && (
                 <div className="mt-3 space-y-1">
-                  <div className={`flex items-center gap-2 text-xs ${validations.minLength ? 'text-green-500' : 'text-muted-foreground'}`}>
+                  <div className={`flex items-center gap-2 text-xs ${validations.minLength ? 'text-buy' : 'text-muted-foreground'}`}>
                     {validations.minLength ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
                     At least 8 characters
                   </div>
-                  <div className={`flex items-center gap-2 text-xs ${validations.maxLength ? 'text-green-500' : 'text-red-500'}`}>
+                  <div className={`flex items-center gap-2 text-xs ${validations.maxLength ? 'text-buy' : 'text-sell'}`}>
                     {validations.maxLength ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
                     Maximum 30 characters
                   </div>
-                  <div className={`flex items-center gap-2 text-xs ${validations.hasUppercase ? 'text-green-500' : 'text-muted-foreground'}`}>
+                  <div className={`flex items-center gap-2 text-xs ${validations.hasUppercase ? 'text-buy' : 'text-muted-foreground'}`}>
                     {validations.hasUppercase ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
                     At least one uppercase letter
                   </div>
-                  <div className={`flex items-center gap-2 text-xs ${validations.hasLowercase ? 'text-green-500' : 'text-muted-foreground'}`}>
+                  <div className={`flex items-center gap-2 text-xs ${validations.hasLowercase ? 'text-buy' : 'text-muted-foreground'}`}>
                     {validations.hasLowercase ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
                     At least one lowercase letter
                   </div>
-                  <div className={`flex items-center gap-2 text-xs ${validations.hasNumber ? 'text-green-500' : 'text-muted-foreground'}`}>
+                  <div className={`flex items-center gap-2 text-xs ${validations.hasNumber ? 'text-buy' : 'text-muted-foreground'}`}>
                     {validations.hasNumber ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
                     At least one number
                   </div>
                   {hasPassword && oldPassword && (
-                    <div className={`flex items-center gap-2 text-xs ${validations.notSameAsOld ? 'text-green-500' : 'text-red-500'}`}>
+                    <div className={`flex items-center gap-2 text-xs ${validations.notSameAsOld ? 'text-buy' : 'text-sell'}`}>
                       {validations.notSameAsOld ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
                       Must be different from old password
                     </div>
@@ -266,27 +266,27 @@ export default function ChangePasswordPage() {
                 </button>
               </div>
               {confirmPassword && !validations.passwordsMatch && (
-                <p className="mt-2 text-xs text-red-500">Passwords do not match</p>
+                <p className="mt-2 text-xs text-sell">Passwords do not match</p>
               )}
             </div>
 
             {/* Error Message */}
             {error && (
-              <div className="p-3 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 rounded-lg">
-                <p className="text-sm text-destructive">{error}</p>
+              <div className="rounded-lg border border-border bg-muted p-3">
+                <p className="text-sm text-sell">{error}</p>
               </div>
             )}
 
             {/* Password History Warning */}
             {passwordHistory && (
-              <div className="p-3 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg">
-                <p className="text-sm text-amber-600 dark:text-amber-400">{passwordHistory}</p>
+              <div className="rounded-lg border border-border bg-muted p-3">
+                <p className="text-sm text-primary">{passwordHistory}</p>
               </div>
             )}
 
             {/* Success Message */}
             {success && (
-              <div className="p-3 bg-green-50 dark:bg-green-500/10 border border-green-200 dark:border-green-500/30 rounded-lg">
+              <div className="rounded-lg border border-border bg-muted p-3">
                 <p className="text-sm text-buy">{success}</p>
               </div>
             )}
@@ -295,7 +295,7 @@ export default function ChangePasswordPage() {
             <button
               type="submit"
               disabled={Boolean(submitting || !isValidPassword || !(validations.passwordsMatch ?? false) || (hasPassword === true && !oldPassword))}
-              className="w-full py-3 bg-primary hover:bg-primary/85 disabled:bg-gray-300 dark:disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-3 font-medium text-primary-foreground transition-colors hover:bg-primary/85 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
             >
               {submitting ? (
                 <>

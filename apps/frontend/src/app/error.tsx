@@ -29,11 +29,11 @@ export default function AppError({
         <button
           type="button"
           onClick={() => reset()}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
         >
           Try again
         </button>
-        <Link href={ROUTES.home} className="text-sm font-medium text-primary hover:underline dark:text-blue-400">
+        <Link href={ROUTES.home} className="text-sm font-medium text-primary hover:underline">
           Home
         </Link>
       </div>

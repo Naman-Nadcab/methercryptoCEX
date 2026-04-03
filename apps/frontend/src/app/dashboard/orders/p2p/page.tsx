@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { fetchMyOrders, type P2POrderRow } from '@/lib/p2pApi';
 import { Loader2, ShoppingCart } from 'lucide-react';
+import { CoinIcon } from '@/components/ui/CoinIcon';
 import { EmptyState } from '@/components/ui/EmptyState';
 
 export default function P2POrdersViewPage() {
@@ -60,7 +61,12 @@ export default function P2POrdersViewPage() {
               {orders.map((o) => (
                 <tr key={o.id} className="border-b border-border">
                   <td className="p-3 font-mono text-foreground/80">{o.id.slice(0, 8)}…</td>
-                  <td className="p-3 text-foreground">{o.crypto_symbol || '—'} / {o.fiat_currency || '—'}</td>
+                  <td className="p-3">
+                    <div className="flex items-center gap-1.5">
+                      {o.crypto_symbol && <CoinIcon symbol={o.crypto_symbol} size={20} />}
+                      <span className="text-foreground">{o.crypto_symbol || '—'} / {o.fiat_currency || '—'}</span>
+                    </div>
+                  </td>
                   <td className="p-3 font-mono text-foreground/80">{o.quantity}</td>
                   <td className="p-3">
                     <span className="px-2 py-0.5 rounded text-xs bg-blue-500/20 text-primary">{o.status}</span>

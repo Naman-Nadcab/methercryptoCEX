@@ -16,6 +16,7 @@ import {
 } from '@/lib/marketDataUxCopy';
 import type { SpotWsStreamPhase } from '@/hooks/useSpotWs';
 import { formatCompactNumber, formatValueFixedTrim } from './terminalFormat';
+import { CoinIcon } from '@/components/ui/CoinIcon';
 
 type Market = { symbol: string; base_asset: string; quote_asset: string };
 
@@ -61,10 +62,10 @@ function MiniStat({
       className={`flex min-w-0 max-w-full flex-col items-center justify-center gap-px px-1.5 py-0 sm:px-2 ${className}`}
       title={titleAttr}
     >
-      <span className="w-full truncate text-center text-[8px] font-semibold uppercase leading-none tracking-wide text-muted-foreground">
+      <span className="w-full truncate text-center text-[8px] font-semibold uppercase leading-none tracking-wide text-[#848e9c]">
         {label}
       </span>
-      <div className="w-full min-w-0 truncate text-center font-mono text-[10px] font-semibold tabular-nums leading-none text-foreground sm:text-[11px]">
+      <div className="w-full min-w-0 truncate text-center font-mono text-[10px] font-semibold tabular-nums leading-none text-[#eaecef] sm:text-[11px]">
         {children}
       </div>
     </div>
@@ -195,16 +196,17 @@ export function PairHeader({
 
   return (
     <header
-      className={`flex h-11 min-h-11 shrink-0 border-b border-border/90 bg-card dark:border-border/90 dark:bg-card ${
+      className={`flex h-11 min-h-11 shrink-0 border-b border-[#2b2f36] bg-[#1e2026] ${
         embedded ? 'rounded-t-lg' : ''
       }`}
     >
-      <div className="flex h-full shrink-0 items-center gap-1 border-r border-border/80 bg-muted/40 px-1.5 dark:border-border/80 dark:bg-card/[0.03] sm:gap-1.5 sm:px-2">
+      <div className="flex h-full shrink-0 items-center gap-1 border-r border-[#2b2f36] bg-[#181a20]/50 px-1.5 sm:gap-1.5 sm:px-2">
+        <CoinIcon symbol={base} size={22} />
         {mkt.length > 1 ? (
           <select
             value={sym}
             onChange={(e) => onChange(e.target.value)}
-            className="h-7 max-w-[7.5rem] min-w-0 shrink cursor-pointer truncate rounded border border-border/90 bg-card py-0 pl-1.5 pr-6 text-[11px] font-bold leading-7 text-foreground shadow-sm outline-none focus:ring-1 focus:ring-primary/30 dark:border-border dark:bg-card/80 dark:text-foreground sm:max-w-[9.5rem] sm:text-xs"
+            className="h-7 max-w-[7.5rem] min-w-0 shrink cursor-pointer truncate rounded border border-[#2b2f36] bg-[#181a20] py-0 pl-1.5 pr-6 text-[11px] font-bold leading-7 text-[#eaecef] shadow-sm outline-none focus:ring-1 focus:ring-[#f0b90b]/30 sm:max-w-[9.5rem] sm:text-xs"
           >
             {mkt.map((m) => (
               <option key={m.symbol} value={m.symbol}>
@@ -213,18 +215,18 @@ export function PairHeader({
             ))}
           </select>
         ) : (
-          <span className="max-w-[7.5rem] truncate text-[11px] font-bold leading-none tracking-tight text-foreground sm:max-w-[9.5rem] sm:text-xs">
+          <span className="max-w-[7.5rem] truncate text-[11px] font-bold leading-none tracking-tight text-[#eaecef] sm:max-w-[9.5rem] sm:text-xs">
             {pairLabel}
           </span>
         )}
-        <span className="inline-flex h-5 shrink-0 items-center rounded border border-border/80 bg-card px-1 text-[8px] font-bold uppercase text-muted-foreground dark:border-border dark:bg-card/60 dark:text-muted-foreground">
+        <span className="inline-flex h-5 shrink-0 items-center rounded border border-[#2b2f36] bg-[#2b2f36]/50 px-1 text-[8px] font-bold uppercase text-[#848e9c]">
           Spot
         </span>
         {onToggleFavorite && sym && (
           <button
             type="button"
             onClick={() => onToggleFavorite(sym)}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-amber-500 dark:hover:bg-accent dark:hover:text-amber-400"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-[#848e9c] hover:bg-[#2b2f36]/60 hover:text-[#f0b90b]"
             title={isFavorite?.(sym) ? 'Remove from favorites' : 'Add to favorites'}
             aria-label="Toggle favorite"
           >
@@ -233,7 +235,7 @@ export function PairHeader({
         )}
         {tierLevel != null && tierLevel > 0 && (
           <span
-            className="hidden h-5 shrink-0 items-center rounded border border-blue-200/60 bg-blue-50/90 px-1 text-[8px] font-bold text-blue-700 sm:inline-flex dark:border-blue-900/50 dark:bg-blue-950/50 dark:text-blue-300"
+            className="hidden h-5 shrink-0 items-center rounded border border-[#f0b90b]/30 bg-[#f0b90b]/10 px-1 text-[8px] font-bold text-[#f0b90b] sm:inline-flex"
             title="Withdrawal tier"
           >
             T{tierLevel}
@@ -241,7 +243,7 @@ export function PairHeader({
         )}
         {showStreamBadge && (
           <span
-            className="inline-flex h-5 shrink-0 items-center gap-1 rounded border border-border/70 bg-card/80 px-1 text-[8px] font-bold uppercase text-muted-foreground dark:border-border dark:bg-card/40 dark:text-muted-foreground"
+            className="inline-flex h-5 shrink-0 items-center gap-1 rounded border border-[#2b2f36] bg-[#2b2f36]/50 px-1 text-[8px] font-bold uppercase text-[#848e9c]"
             title={streamTitle}
           >
             <span className={`h-1 w-1 shrink-0 rounded-full ${streamDotClass}`} aria-hidden />
@@ -256,7 +258,7 @@ export function PairHeader({
       </div>
 
       {/* Content-sized columns, centered; dividers only between stats */}
-      <div className="flex min-w-0 flex-1 items-stretch justify-evenly divide-x divide-gray-200/70 px-0.5 dark:divide-border/60 sm:px-1">
+      <div className="flex min-w-0 flex-1 items-stretch justify-evenly divide-x divide-[#2b2f36] px-0.5 sm:px-1">
         <MiniStat label="Last" title={lastSub ?? TOOLTIP_LAST_PRICE}>
           <span className={`font-bold ${hasLastTrade ? lastColor : 'text-muted-foreground'}`}>{lastDisplay}</span>
         </MiniStat>

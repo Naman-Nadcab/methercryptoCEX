@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useAuthStore } from '@/store/auth';
 import Link from 'next/link';
-import Image from 'next/image';
+import { CoinIcon } from '@/components/ui/CoinIcon';
 import {
   Eye,
   EyeOff,
@@ -37,10 +37,6 @@ export default function UnifiedTradingPage() {
   const [showGuide, setShowGuide] = useState(true);
   const [ordersExpanded, setOrdersExpanded] = useState(false);
 
-  const getTokenIcon = (symbol: string) => {
-    return `/assets/upload/currency-logo/${symbol.toLowerCase()}.svg`;
-  };
-
   const formatNumber = (num: number | string, decimals = 2) => {
     const n = typeof num === 'string' ? parseFloat(num) : num;
     if (!Number.isFinite(n)) return '0.' + '0'.repeat(decimals);
@@ -71,7 +67,7 @@ export default function UnifiedTradingPage() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-indigo-500 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25">
-                    <BookOpen className="w-7 h-7 text-white" />
+                    <BookOpen className="w-7 h-7 text-primary-foreground" />
                   </div>
                   <div>
                     <h3 className="font-semibold text-foreground text-lg">Spot Trading Account Guide</h3>
@@ -88,7 +84,7 @@ export default function UnifiedTradingPage() {
                           <span className={`text-sm ${step.active ? 'text-primary font-medium' : 'text-muted-foreground'}`}>
                             {step.title}
                           </span>
-                          {i < guideSteps.length - 1 && <ChevronRight className="w-4 h-4 text-gray-300" />}
+                          {i < guideSteps.length - 1 && <ChevronRight className="w-4 h-4 text-muted-foreground" />}
                         </div>
                       ))}
                     </div>
@@ -96,7 +92,7 @@ export default function UnifiedTradingPage() {
                 </div>
                 <button 
                   onClick={() => setShowGuide(false)}
-                  className="px-5 py-2.5 bg-primary hover:bg-primary/85 text-white text-sm font-medium rounded-xl transition-colors shadow-lg shadow-blue-500/25"
+                  className="px-5 py-2.5 bg-primary hover:bg-primary/85 text-primary-foreground text-sm font-medium rounded-xl transition-colors shadow-lg shadow-blue-500/25"
                 >
                   Got it
                 </button>
@@ -108,7 +104,7 @@ export default function UnifiedTradingPage() {
           <div className="flex items-center justify-between mb-8">
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-3">
-                <h1 className="text-2xl font-bold text-foreground">Unified Trading</h1>
+                <h1 className="text-xl font-semibold text-foreground">Unified Trading</h1>
                 <button
                   onClick={() => setShowBalance(!showBalance)}
                   className="p-2 text-muted-foreground hover:text-primary hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
@@ -125,7 +121,7 @@ export default function UnifiedTradingPage() {
             <div className="flex items-center gap-3">
               <Link
                 href="/wallet/deposit/crypto"
-                className="flex items-center gap-2 px-5 py-2.5 bg-primary hover:bg-primary/85 text-white font-medium text-sm rounded-xl shadow-lg shadow-blue-500/25 transition-all hover:shadow-blue-500/40"
+                className="flex items-center gap-2 px-5 py-2.5 bg-primary hover:bg-primary/85 text-primary-foreground font-medium text-sm rounded-xl shadow-lg shadow-blue-500/25 transition-all hover:shadow-blue-500/40"
               >
                 <Download className="w-4 h-4" />
                 Deposit
@@ -160,7 +156,7 @@ export default function UnifiedTradingPage() {
               <div>
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
-                    <Wallet className="w-5 h-5 text-white" />
+                    <Wallet className="w-5 h-5 text-primary-foreground" />
                   </div>
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-medium text-muted-foreground">Total Equity</p>
@@ -176,7 +172,7 @@ export default function UnifiedTradingPage() {
               <div className="border-l border-border pl-8">
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center">
-                    <Activity className="w-5 h-5 text-white" />
+                    <Activity className="w-5 h-5 text-primary-foreground" />
                   </div>
                   <p className="text-sm font-medium text-muted-foreground">Available Balance</p>
                 </div>
@@ -187,7 +183,7 @@ export default function UnifiedTradingPage() {
               <div className="border-l border-border pl-8">
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
-                    <TrendingUp className="w-5 h-5 text-white" />
+                    <TrendingUp className="w-5 h-5 text-primary-foreground" />
                   </div>
                   <p className="text-sm font-medium text-muted-foreground">Unrealized P&L</p>
                 </div>
@@ -210,10 +206,10 @@ export default function UnifiedTradingPage() {
                     placeholder="Search coin..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10 pr-4 py-2.5 bg-muted dark:bg-[#2b2f36] border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:ring-2 focus:ring-primary focus:border-transparent w-64"
+                    className="pl-10 pr-4 py-2.5 bg-muted border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:ring-2 focus:ring-primary focus:border-transparent w-64"
                   />
                 </div>
-                <label className="flex items-center gap-2.5 cursor-pointer px-3 py-2 bg-muted dark:bg-[#2b2f36] rounded-xl border border-border">
+                <label className="flex items-center gap-2.5 cursor-pointer px-3 py-2 bg-muted rounded-xl border border-border">
                   <input
                     type="checkbox"
                     checked={hideSmallBalances}
@@ -234,7 +230,7 @@ export default function UnifiedTradingPage() {
               {/* Savings Promo */}
               <div className="flex items-center gap-3 px-4 py-2.5 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl border border-blue-100 dark:border-blue-800/30">
                 <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-                  <Sparkles className="w-4 h-4 text-white" />
+                  <Sparkles className="w-4 h-4 text-primary-foreground" />
                 </div>
                 <div className="text-sm">
                   <span className="text-foreground/80">Savings USDT </span>
@@ -272,17 +268,7 @@ export default function UnifiedTradingPage() {
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 rounded-xl overflow-hidden bg-accent flex items-center justify-center flex-shrink-0">
-                            <Image
-                              src={getTokenIcon(balance.symbol)}
-                              alt={balance.symbol}
-                              width={40}
-                              height={40}
-                              className="object-contain"
-                              unoptimized
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).style.display = 'none';
-                              }}
-                            />
+                            <CoinIcon symbol={balance.symbol} size={40} />
                           </div>
                           <div>
                             <span className="font-semibold text-foreground">{balance.symbol}</span>
@@ -317,13 +303,13 @@ export default function UnifiedTradingPage() {
                     <td colSpan={6} className="py-20 text-center">
                       <div className="flex flex-col items-center">
                         <div className="w-20 h-20 bg-accent rounded-xl flex items-center justify-center mb-4">
-                          <Wallet className="w-10 h-10 text-gray-300 dark:text-muted-foreground" />
+                          <Wallet className="w-10 h-10 text-muted-foreground" />
                         </div>
                         <p className="text-muted-foreground font-medium">No assets found</p>
                         <p className="text-sm text-muted-foreground mt-1">Transfer funds to start trading</p>
                         <Link
                           href="/wallet/transfer"
-                          className="mt-4 px-6 py-2.5 bg-primary hover:bg-primary/85 text-white font-medium text-sm rounded-xl transition-colors inline-block"
+                          className="mt-4 px-6 py-2.5 bg-primary hover:bg-primary/85 text-primary-foreground font-medium text-sm rounded-xl transition-colors inline-block"
                         >
                           Transfer Now
                         </Link>

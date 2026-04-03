@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth';
 import Link from 'next/link';
 import { Loader2, BarChart3 } from 'lucide-react';
+import { CoinIcon } from '@/components/ui/CoinIcon';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { getMessageFromApiError } from '@/lib/errorMessages';
@@ -183,7 +184,12 @@ export default function SpotOrdersViewPage() {
                       const displayStatus = o.status === 'PENDING_TRIGGER' ? 'Pending Trigger' : o.status;
                       return (
                     <tr key={o.id} className={`border-b border-border transition-colors duration-100 hover:bg-muted dark:hover:bg-card/5 ${cancellingOrderId === o.id ? 'opacity-75 bg-muted dark:bg-card/5' : ''}`}>
-                      <td className="py-2 px-2 font-medium text-foreground tabular-nums">{o.market}</td>
+                      <td className="py-2 px-2">
+                        <div className="flex items-center gap-1.5">
+                          <CoinIcon symbol={o.market?.split('_')[0] || ''} size={18} />
+                          <span className="font-medium text-foreground tabular-nums">{o.market}</span>
+                        </div>
+                      </td>
                       <td className="py-2 px-2 tabular-nums">
                         <span className={o.side === 'buy' ? 'text-buy' : 'text-destructive'}>{o.side}</span>
                       </td>
@@ -252,14 +258,19 @@ export default function SpotOrdersViewPage() {
                 ) : (
                   historyOrders.map((o) => (
                       <tr key={o.id} className="border-b border-border transition-colors duration-100 hover:bg-muted dark:hover:bg-card/5">
-                        <td className="py-2 px-2 font-medium text-foreground tabular-nums">{o.market}</td>
+                        <td className="py-2 px-2">
+                          <div className="flex items-center gap-1.5">
+                            <CoinIcon symbol={o.market?.split('_')[0] || ''} size={18} />
+                            <span className="font-medium text-foreground tabular-nums">{o.market}</span>
+                          </div>
+                        </td>
                         <td className="py-2 px-2 tabular-nums">
                           <span className={o.side === 'buy' ? 'text-buy' : 'text-destructive'}>{o.side}</span>
                         </td>
                         <td className="py-2 px-2 font-mono text-foreground/80 tabular-nums">{o.price ?? '—'}</td>
                         <td className="py-2 px-2 font-mono text-foreground/80 tabular-nums">{o.quantity}</td>
                         <td className="py-2 px-2">
-                          <span className={`px-2 py-0.5 rounded text-xs ${o.status === 'FILLED' ? 'bg-green-500/20 text-buy' : 'bg-gray-500/20 text-muted-foreground'}`}>{o.status}</span>
+                          <span className={`px-2 py-0.5 rounded text-xs ${o.status === 'FILLED' ? 'bg-green-500/20 text-buy' : 'bg-muted text-muted-foreground'}`}>{o.status}</span>
                         </td>
                       </tr>
                   ))
@@ -272,7 +283,7 @@ export default function SpotOrdersViewPage() {
                       type="button"
                       onClick={() => fetchHistoryOrders(historyNextCursor, true)}
                       disabled={historyLoadMore}
-                      className="py-2 px-4 rounded-lg bg-accent text-foreground/80 text-sm font-medium hover:bg-accent dark:hover:bg-gray-600 disabled:opacity-50 flex items-center gap-2"
+                      className="py-2 px-4 rounded-lg bg-accent text-foreground/80 text-sm font-medium hover:bg-muted disabled:opacity-50 flex items-center gap-2"
                     >
                       {historyLoadMore ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                       Load more

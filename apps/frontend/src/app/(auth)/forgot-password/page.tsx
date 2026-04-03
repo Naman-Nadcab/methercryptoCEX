@@ -178,8 +178,8 @@ export default function ForgotPasswordPage() {
                   onClick={() => setIdentifierType('email')}
                   className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${
                     identifierType === 'email'
-                      ? 'text-foreground border-gray-900 dark:border-white'
-                      : 'text-muted-foreground border-transparent hover:text-foreground/80 dark:hover:text-gray-300'
+                      ? 'text-foreground border-foreground'
+                      : 'text-muted-foreground border-transparent hover:text-foreground/80'
                   }`}
                 >
                   Email
@@ -189,8 +189,8 @@ export default function ForgotPasswordPage() {
                   onClick={() => setIdentifierType('phone')}
                   className={`flex-1 py-3 text-sm font-medium border-b-2 transition-colors ${
                     identifierType === 'phone'
-                      ? 'text-foreground border-gray-900 dark:border-white'
-                      : 'text-muted-foreground border-transparent hover:text-foreground/80 dark:hover:text-gray-300'
+                      ? 'text-foreground border-foreground'
+                      : 'text-muted-foreground border-transparent hover:text-foreground/80'
                   }`}
                 >
                   Mobile
@@ -209,15 +209,15 @@ export default function ForgotPasswordPage() {
                     }
                   }}
                   placeholder={identifierType === 'email' ? 'Email address' : 'Mobile number'}
-                  className="w-full px-4 py-3 border border-border dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent outline-none text-foreground dark:bg-accent"
+                  className="w-full px-4 py-3 border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent outline-none text-foreground dark:bg-accent"
                   required
                 />
               </div>
-              {error && <p className="text-red-500 text-sm">{error}</p>}
+              {error && <p className="text-destructive text-sm">{error}</p>}
               <button
                 type="submit"
                 disabled={loading || !identifier.trim()}
-                className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white font-semibold rounded-lg transition-colors disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                className="w-full py-3 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Mail className="w-5 h-5" />}
                 {loading ? 'Sending code...' : 'Send reset code'}
@@ -242,7 +242,7 @@ export default function ForgotPasswordPage() {
                     value={digit}
                     onChange={(e) => handleOtpChange(i, e.target.value)}
                     onKeyDown={(e) => handleOtpKeyDown(i, e)}
-                    className="w-12 h-14 text-center text-xl font-bold border border-border dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary text-foreground dark:bg-accent"
+                    className="w-12 h-14 text-center text-xl font-bold border border-border rounded-lg focus:ring-2 focus:ring-primary text-foreground dark:bg-accent"
                   />
                 ))}
               </div>
@@ -254,7 +254,7 @@ export default function ForgotPasswordPage() {
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="Min 8 chars, uppercase, lowercase, number"
-                    className="w-full px-4 py-3 pr-10 border border-border dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary text-foreground dark:bg-accent"
+                    className="w-full px-4 py-3 pr-10 border border-border rounded-lg focus:ring-2 focus:ring-primary text-foreground dark:bg-accent"
                     required
                   />
                   <button
@@ -273,11 +273,11 @@ export default function ForgotPasswordPage() {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="Re-enter password"
-                  className="w-full px-4 py-3 border border-border dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary text-foreground dark:bg-accent"
+                  className="w-full px-4 py-3 border border-border rounded-lg focus:ring-2 focus:ring-primary text-foreground dark:bg-accent"
                   required
                 />
               </div>
-              {error && <p className="text-red-500 text-sm">{error}</p>}
+              {error && <p className="text-destructive text-sm">{error}</p>}
               <div className="flex items-center justify-between text-sm">
                 <button
                   type="button"
@@ -298,7 +298,7 @@ export default function ForgotPasswordPage() {
               <button
                 type="submit"
                 disabled={submitting}
-                className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
+                className="w-full py-3 bg-primary hover:bg-primary/90 disabled:opacity-50 text-primary-foreground font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
               >
                 {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
                 {submitting ? 'Resetting...' : 'Reset password'}

@@ -4,6 +4,7 @@ import type { P2PAdRow } from '@/lib/p2pApi';
 import { p2pAdDisplayPrice, p2pAdSide, formatFiatSymbol } from '@/lib/p2p-v2-utils';
 import { P2PMerchantCard } from './P2PMerchantCard';
 import { ShoppingCart } from 'lucide-react';
+import { CoinIcon } from '@/components/ui/CoinIcon';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorState } from '@/components/ui/ErrorState';
@@ -28,56 +29,56 @@ function P2PAdsLoadingSkeleton() {
         {Array.from({ length: 4 }).map((_, i) => (
           <div
             key={i}
-            className="rounded-xl border border-border bg-card p-4 dark:border-border dark:bg-card"
+            className="rounded-xl border border-border bg-card p-4 ring-1 ring-border/60"
           >
             <div className="flex justify-between gap-2">
               <Skeleton className="h-4 w-32" />
               <Skeleton className="h-6 w-16 rounded-full" />
             </div>
-            <Skeleton className="mt-3 h-6 w-28" />
-            <Skeleton className="mt-2 h-3 w-full" />
-            <Skeleton className="mt-2 h-3 w-2/3" />
-            <Skeleton className="mt-4 h-11 w-full rounded-lg" />
+            <Skeleton className="mt-4 h-24 w-full rounded-lg" />
+            <Skeleton className="mt-4 h-11 w-full rounded-xl" />
           </div>
         ))}
       </div>
-      <div className="hidden overflow-hidden rounded-xl border border-border bg-card dark:border-border dark:bg-card md:block">
-        <table className="w-full min-w-[720px] text-left text-sm">
-          <thead className="border-b border-border bg-muted text-xs font-medium text-muted-foreground dark:border-border dark:bg-card/50 dark:text-muted-foreground">
-            <tr>
-              <th className="px-4 py-3">Advertiser</th>
-              <th className="px-4 py-3">Side</th>
-              <th className="px-4 py-3">Price</th>
-              <th className="px-4 py-3">Limits</th>
-              <th className="px-4 py-3">Available</th>
-              <th className="w-28 px-4 py-3" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <tr key={i}>
-                <td className="px-4 py-3">
-                  <Skeleton className="h-4 w-40" />
-                </td>
-                <td className="px-4 py-3">
-                  <Skeleton className="h-4 w-12" />
-                </td>
-                <td className="px-4 py-3">
-                  <Skeleton className="h-4 w-24" />
-                </td>
-                <td className="px-4 py-3">
-                  <Skeleton className="h-4 w-28" />
-                </td>
-                <td className="px-4 py-3">
-                  <Skeleton className="h-4 w-16" />
-                </td>
-                <td className="px-4 py-3">
-                  <Skeleton className="h-8 w-20 rounded-lg" />
-                </td>
+      <div className="hidden overflow-hidden rounded-xl border border-border bg-card shadow-sm md:block">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px] text-left text-sm">
+            <thead className="border-b border-border bg-muted text-xs font-medium text-muted-foreground">
+              <tr>
+                <th className="px-4 py-3">Advertiser</th>
+                <th className="px-4 py-3">Side</th>
+                <th className="px-4 py-3">Price</th>
+                <th className="px-4 py-3">Limits</th>
+                <th className="px-4 py-3">Available</th>
+                <th className="w-28 px-4 py-3" />
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <tr key={i}>
+                  <td className="px-4 py-3">
+                    <Skeleton className="h-4 w-40" />
+                  </td>
+                  <td className="px-4 py-3">
+                    <Skeleton className="h-4 w-12" />
+                  </td>
+                  <td className="px-4 py-3">
+                    <Skeleton className="h-4 w-24" />
+                  </td>
+                  <td className="px-4 py-3">
+                    <Skeleton className="h-4 w-28" />
+                  </td>
+                  <td className="px-4 py-3">
+                    <Skeleton className="h-4 w-16" />
+                  </td>
+                  <td className="px-4 py-3">
+                    <Skeleton className="h-8 w-20 rounded-lg" />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </>
   );
@@ -131,7 +132,7 @@ export function P2PAdsTable({
 
   if (filtered.length === 0) {
     return (
-      <div className="rounded-xl border border-border bg-card dark:border-border dark:bg-card">
+      <div className="rounded-xl border border-border bg-card">
         <EmptyState
           icon={Store}
           title="No ads match your filters"
@@ -161,20 +162,29 @@ export function P2PAdsTable({
               ? `${ad.merchant_completion_rate}%`
               : '—';
           const payments = formatPaymentMethods(ad);
+          const sideBadgeClass =
+            side === 'sell'
+              ? 'bg-buy-light text-buy ring-1 ring-buy/20'
+              : 'bg-sell-light text-sell ring-1 ring-sell/20';
           return (
-            <div
+            <article
               key={ad.id}
-              className="rounded-xl border border-border bg-card p-4 shadow-sm dark:border-border dark:bg-card"
+              className="rounded-xl border border-border bg-card p-4 shadow-sm ring-1 ring-border/60"
             >
               <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <P2PMerchantCard ad={ad} fiat={ad.fiat_currency || fiat} />
+                <div className="min-w-0 flex-1 flex items-center gap-2">
+                  <CoinIcon symbol={ad.crypto_symbol || ''} size={28} />
+                  <div className="min-w-0 flex-1">
+                    <P2PMerchantCard ad={ad} fiat={ad.fiat_currency || fiat} />
+                  </div>
                 </div>
-                <span className="shrink-0 rounded-full bg-accent px-2.5 py-1 text-xs font-medium capitalize text-foreground dark:bg-accent dark:text-gray-200">
+                <span
+                  className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${sideBadgeClass}`}
+                >
                   {side}
                 </span>
               </div>
-              <div className="mt-3 grid gap-2 text-sm">
+              <div className="mt-4 grid gap-3 rounded-lg border border-border bg-muted/30 p-3 text-sm">
                 <div className="flex justify-between gap-2">
                   <span className="text-muted-foreground">Price</span>
                   <span className="font-mono font-medium text-foreground">
@@ -193,13 +203,13 @@ export function P2PAdsTable({
                 </div>
                 <div className="flex flex-col gap-1">
                   <span className="text-muted-foreground">Limits ({fiat})</span>
-                  <span className="font-mono text-xs text-foreground/80">
+                  <span className="font-mono text-xs text-foreground">
                     {minA} — {maxA}
                   </span>
                 </div>
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1 border-t border-border pt-3">
                   <span className="text-muted-foreground">Payment methods</span>
-                  <span className="break-words text-xs leading-relaxed text-foreground dark:text-gray-200">{payments}</span>
+                  <span className="break-words text-xs leading-relaxed text-foreground">{payments}</span>
                 </div>
               </div>
               <button
@@ -207,21 +217,21 @@ export function P2PAdsTable({
                 disabled={!authed}
                 onClick={() => onTakeAd(ad)}
                 title={!authed ? 'Log in to trade' : undefined}
-                className="mt-4 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                className="mt-4 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <ShoppingCart className="h-4 w-4 shrink-0" aria-hidden />
                 {side === 'sell' ? 'Buy' : 'Sell'}
               </button>
-            </div>
+            </article>
           );
         })}
       </div>
 
       {/* Desktop: table */}
-      <div className="hidden overflow-hidden rounded-xl border border-border bg-card dark:border-border dark:bg-card md:block">
+      <div className="hidden overflow-hidden rounded-xl border border-border bg-card shadow-sm md:block">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] text-left text-sm">
-            <thead className="border-b border-border bg-muted text-xs font-medium text-muted-foreground dark:border-border dark:bg-card/50 dark:text-muted-foreground">
+            <thead className="border-b border-border bg-muted text-xs font-medium text-muted-foreground">
               <tr>
                 <th className="px-4 py-3">Advertiser</th>
                 <th className="px-4 py-3">Side</th>
@@ -237,29 +247,36 @@ export function P2PAdsTable({
                 const price = p2pAdDisplayPrice(ad);
                 const minA = ad.min_amount ?? '0';
                 const maxA = ad.max_amount ?? '0';
+                const sideCellClass =
+                  side === 'sell' ? 'font-medium capitalize text-buy' : 'font-medium capitalize text-sell';
                 return (
-                  <tr key={ad.id} className="hover:bg-background/80 dark:hover:bg-gray-900/30">
-                    <td className="px-4 py-3">
-                      <P2PMerchantCard ad={ad} fiat={ad.fiat_currency || fiat} />
+                  <tr key={ad.id} className="transition-colors hover:bg-muted/50">
+                    <td className="px-4 py-3 align-top">
+                      <div className="flex items-center gap-2">
+                        <CoinIcon symbol={ad.crypto_symbol || ''} size={24} />
+                        <P2PMerchantCard ad={ad} fiat={ad.fiat_currency || fiat} />
+                      </div>
                     </td>
-                    <td className="px-4 py-3 capitalize text-foreground">{side}</td>
-                    <td className="px-4 py-3 font-mono text-foreground">
+                    <td className={`px-4 py-3 align-middle ${sideCellClass}`}>{side}</td>
+                    <td className="px-4 py-3 align-middle font-mono text-foreground">
                       {sym}
                       {price}
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
+                    <td className="px-4 py-3 align-middle font-mono text-xs text-muted-foreground">
                       {minA} — {maxA}
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs">{ad.available_amount}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 align-middle font-mono text-xs text-foreground">
+                      {ad.available_amount}
+                    </td>
+                    <td className="px-4 py-3 align-middle">
                       <button
                         type="button"
                         disabled={!authed}
                         onClick={() => onTakeAd(ad)}
                         title={!authed ? 'Log in to trade' : undefined}
-                        className="inline-flex min-h-[36px] min-w-[72px] items-center justify-center gap-1 rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="inline-flex min-h-[36px] min-w-[72px] items-center justify-center gap-1 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        <ShoppingCart className="h-3.5 w-3.5" />
+                        <ShoppingCart className="h-3.5 w-3.5" aria-hidden />
                         {side === 'sell' ? 'Buy' : 'Sell'}
                       </button>
                     </td>

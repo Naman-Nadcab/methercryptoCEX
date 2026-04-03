@@ -5,16 +5,19 @@ import { useEffect } from 'react';
 
 export default function ConvertRedirect() {
   const router = useRouter();
-  
+
   useEffect(() => {
     router.replace('/wallet/convert');
   }, [router]);
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center">
-      <div className="text-center">
-        <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4" />
-        <p className="text-muted-foreground">Redirecting to Convert...</p>
+    <div className="flex min-h-[50vh] items-center justify-center bg-background px-4 py-12">
+      <div className="w-full max-w-sm rounded-xl border border-border bg-card p-8 text-center shadow-sm">
+        <div
+          className="mx-auto mb-5 h-9 w-9 animate-spin rounded-full border-2 border-muted border-t-primary"
+          aria-hidden
+        />
+        <p className="text-sm text-muted-foreground">Redirecting to Convert…</p>
       </div>
     </div>
   );

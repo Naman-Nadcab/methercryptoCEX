@@ -60,20 +60,20 @@ export default function GoogleCallbackPage() {
   }, [searchParams, router, login, setAuthenticated]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-950">
+    <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="text-center">
         {error ? (
           <div className="space-y-4">
-            <div className="w-16 h-16 mx-auto rounded-full bg-red-500/20 flex items-center justify-center">
-              <span className="text-red-500 text-2xl">!</span>
+            <div className="w-16 h-16 mx-auto rounded-full bg-destructive/20 flex items-center justify-center">
+              <span className="text-destructive text-2xl">!</span>
             </div>
-            <p className="text-white text-lg">{error}</p>
+            <p className="text-foreground text-lg">{error}</p>
             <p className="text-muted-foreground text-sm">Redirecting to login...</p>
           </div>
         ) : (
           <div className="space-y-4">
-            <Loader2 className="w-12 h-12 mx-auto text-purple-500 animate-spin" />
-            <p className="text-white text-lg">Completing Google sign in...</p>
+            <Loader2 className="w-12 h-12 mx-auto text-primary animate-spin" />
+            <p className="text-foreground text-lg">Completing Google sign in...</p>
           </div>
         )}
       </div>

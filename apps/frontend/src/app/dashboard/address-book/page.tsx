@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { toast } from '@/components/ui/toaster';
-import Image from 'next/image';
+import { CoinIcon } from '@/components/ui/CoinIcon';
 import { 
   ChevronRight, 
   Plus, 
@@ -491,12 +491,6 @@ export default function AddressBookPage() {
     }
   };
 
-  // Get asset icon by symbol - uses the currency-logo folder
-  const getAssetIcon = (symbol: string) => {
-    // Logos are stored in /assets/upload/currency-logo/{symbol}.svg
-    return `/assets/upload/currency-logo/${symbol.toLowerCase()}.svg`;
-  };
-
   // Filter addresses based on search and filters
   const filteredAddresses = addresses.filter(addr => {
     if (typeFilter !== 'All') {
@@ -538,7 +532,7 @@ export default function AddressBookPage() {
         {/* Title and Buttons Row */}
         <div className="flex items-start justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-semibold text-foreground mb-4">
+            <h1 className="text-xl font-semibold text-foreground mb-4">
               Withdrawal Address
             </h1>
 
@@ -548,8 +542,8 @@ export default function AddressBookPage() {
               <div className="flex items-center gap-3">
                 <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
                   withdrawViaAddressBook 
-                    ? 'border-blue-500 bg-primary' 
-                    : 'border-border dark:border-gray-500'
+                    ? 'border-primary bg-primary' 
+                    : 'border-border'
                 }`}>
                   {withdrawViaAddressBook && (
                     <div className="w-2 h-2 rounded-full bg-card" />
@@ -562,8 +556,8 @@ export default function AddressBookPage() {
               <div className="flex items-center gap-3">
                 <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
                   newAddressLock 
-                    ? 'border-blue-500 bg-primary' 
-                    : 'border-border dark:border-gray-500'
+                    ? 'border-primary bg-primary' 
+                    : 'border-border'
                 }`}>
                   {newAddressLock && (
                     <div className="w-2 h-2 rounded-full bg-card" />
@@ -587,14 +581,14 @@ export default function AddressBookPage() {
           <div className="flex items-center gap-3">
             <button
               onClick={() => setShowAddModal(true)}
-              className="flex items-center gap-2 px-6 py-3 bg-primary hover:bg-primary/85 text-white rounded-lg transition-colors font-medium"
+              className="flex items-center gap-2 px-6 py-3 bg-primary hover:bg-primary/85 text-primary-foreground rounded-lg transition-colors font-medium"
             >
               <Plus className="w-5 h-5" />
               Add
             </button>
             <button 
               onClick={() => router.push('/dashboard/address-book/add-batches')}
-              className="px-6 py-3 border border-border dark:border-gray-600 text-foreground/80 rounded-lg hover:bg-accent transition-colors font-medium"
+              className="px-6 py-3 border border-border text-foreground/80 rounded-lg hover:bg-accent transition-colors font-medium"
             >
               Add in Batches
             </button>
@@ -611,7 +605,7 @@ export default function AddressBookPage() {
                 setShowTypeDropdown(!showTypeDropdown);
                 setShowAssetDropdown(false);
               }}
-              className="flex items-center justify-between gap-4 px-4 py-3 bg-card border border-border rounded-lg text-foreground min-w-[180px] hover:border-border dark:hover:border-gray-600"
+              className="flex items-center justify-between gap-4 px-4 py-3 bg-card border border-border rounded-lg text-foreground min-w-[180px] hover:border-muted-foreground/30"
             >
               <span>{typeOptions.find(t => t.value === typeFilter)?.label || 'All'}</span>
               {showTypeDropdown ? (
@@ -632,7 +626,7 @@ export default function AddressBookPage() {
                     }}
                     className={`w-full text-left px-4 py-3 hover:bg-accent text-sm transition-colors ${
                       typeFilter === option.value 
-                        ? 'text-primary bg-blue-50 dark:bg-blue-900/20' 
+                        ? 'text-primary bg-muted' 
                         : 'text-foreground'
                     }`}
                   >
@@ -651,22 +645,11 @@ export default function AddressBookPage() {
                 setShowAssetDropdown(!showAssetDropdown);
                 setShowTypeDropdown(false);
               }}
-              className="flex items-center justify-between gap-4 px-4 py-3 bg-card border border-border rounded-lg text-foreground min-w-[140px] hover:border-border dark:hover:border-gray-600"
+              className="flex items-center justify-between gap-4 px-4 py-3 bg-card border border-border rounded-lg text-foreground min-w-[140px] hover:border-muted-foreground/30"
             >
               <div className="flex items-center gap-2">
                 {assetFilter !== 'All' && (
-                  <div className="w-5 h-5 relative flex-shrink-0 bg-accent rounded-full overflow-hidden">
-                    <Image
-                      src={getAssetIcon(assetFilter)}
-                      alt={assetFilter}
-                      fill
-                      className="object-contain"
-                      unoptimized
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = 'none';
-                      }}
-                    />
-                  </div>
+                  <CoinIcon symbol={assetFilter} size={20} />
                 )}
                 <span>{assetFilter}</span>
               </div>
@@ -689,7 +672,7 @@ export default function AddressBookPage() {
                       onChange={e => setAssetSearchQuery(e.target.value)}
                       placeholder="Search..."
                       autoFocus
-                      className="w-full pl-9 pr-3 py-2 bg-muted dark:bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground text-sm outline-none focus:border-blue-500"
+                      className="w-full pl-9 pr-3 py-2 bg-muted border border-border rounded-lg text-foreground placeholder:text-muted-foreground text-sm outline-none focus:border-primary"
                     />
                   </div>
                 </div>
@@ -705,7 +688,7 @@ export default function AddressBookPage() {
                     }}
                     className={`w-full text-left px-4 py-3 hover:bg-accent text-sm transition-colors flex items-center gap-2 ${
                       assetFilter === 'All' 
-                        ? 'text-primary bg-blue-50 dark:bg-blue-900/20' 
+                        ? 'text-primary bg-muted' 
                         : 'text-foreground'
                     }`}
                   >
@@ -732,22 +715,11 @@ export default function AddressBookPage() {
                         }}
                         className={`w-full text-left px-4 py-3 hover:bg-accent text-sm transition-colors flex items-center gap-3 ${
                           assetFilter === asset.symbol 
-                            ? 'text-primary bg-blue-50 dark:bg-blue-900/20' 
+                            ? 'text-primary bg-muted' 
                             : 'text-foreground'
                         }`}
                       >
-                        <div className="w-6 h-6 relative flex-shrink-0 bg-accent rounded-full overflow-hidden">
-                          <Image
-                            src={getAssetIcon(asset.symbol)}
-                            alt={asset.symbol}
-                            fill
-                            className="object-contain"
-                            unoptimized
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).style.display = 'none';
-                            }}
-                          />
-                        </div>
+                        <CoinIcon symbol={asset.symbol} size={24} />
                         <span>{asset.symbol}</span>
                       </button>
                     ))
@@ -767,12 +739,12 @@ export default function AddressBookPage() {
                 onChange={e => setSearchQuery(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleSearch()}
                 placeholder="Enter the address or add a note..."
-                className="px-4 py-3 bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground w-[300px] outline-none focus:border-blue-500 hover:border-border dark:hover:border-gray-600"
+                className="px-4 py-3 bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground w-[300px] outline-none focus:border-primary hover:border-muted-foreground/30"
               />
               <button 
                 onClick={handleSearch}
                 disabled={searching}
-                className="px-6 py-3 border border-border dark:border-gray-600 text-foreground/80 rounded-lg hover:bg-accent transition-colors font-medium"
+                className="px-6 py-3 border border-border text-foreground/80 rounded-lg hover:bg-accent transition-colors font-medium"
               >
                 {searching ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Search'}
               </button>
@@ -786,7 +758,7 @@ export default function AddressBookPage() {
             onClick={handleWhitelistToggle}
             disabled={togglingWhitelist}
             className={`relative w-12 h-7 rounded-full transition-colors ${
-              withdrawalWhitelist ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-600'
+              withdrawalWhitelist ? 'bg-primary' : 'bg-muted'
             }`}
           >
             <span
@@ -826,17 +798,17 @@ export default function AddressBookPage() {
                       {/* Empty State Illustration */}
                       <div className="w-24 h-24 relative">
                         <svg viewBox="0 0 100 100" className="w-full h-full">
-                          <rect x="20" y="10" width="55" height="70" rx="3" fill="#f3f4f6" className="dark:fill-[#2a2d35]" />
-                          <rect x="25" y="15" width="45" height="60" rx="2" fill="#fff" className="dark:fill-[#1e2329]" stroke="#e5e7eb" strokeWidth="1" />
-                          <rect x="32" y="28" width="30" height="2" rx="1" fill="#e5e7eb" className="dark:fill-gray-600" />
-                          <rect x="32" y="36" width="25" height="2" rx="1" fill="#e5e7eb" className="dark:fill-gray-600" />
-                          <rect x="32" y="44" width="32" height="2" rx="1" fill="#e5e7eb" className="dark:fill-gray-600" />
-                          <rect x="32" y="52" width="20" height="2" rx="1" fill="#e5e7eb" className="dark:fill-gray-600" />
+                          <rect x="20" y="10" width="55" height="70" rx="3" className="fill-muted" />
+                          <rect x="25" y="15" width="45" height="60" rx="2" className="fill-card stroke-border" strokeWidth="1" />
+                          <rect x="32" y="28" width="30" height="2" rx="1" className="fill-border" />
+                          <rect x="32" y="36" width="25" height="2" rx="1" className="fill-border" />
+                          <rect x="32" y="44" width="32" height="2" rx="1" className="fill-border" />
+                          <rect x="32" y="52" width="20" height="2" rx="1" className="fill-border" />
                           <g transform="translate(55, 50) rotate(30)">
-                            <rect x="0" y="0" width="8" height="35" rx="1" fill="#fbbf24" />
-                            <rect x="0" y="0" width="8" height="6" fill="#f59e0b" />
-                            <polygon points="0,35 4,45 8,35" fill="#fde68a" />
-                            <polygon points="2,40 4,45 6,40" fill="#374151" />
+                            <rect x="0" y="0" width="8" height="35" rx="1" className="fill-warning" />
+                            <rect x="0" y="0" width="8" height="6" className="fill-warning" />
+                            <polygon points="0,35 4,45 8,35" className="fill-warning-light" />
+                            <polygon points="2,40 4,45 6,40" className="fill-muted-foreground" />
                           </g>
                         </svg>
                       </div>
@@ -846,21 +818,10 @@ export default function AddressBookPage() {
                 </tr>
               ) : (
                 filteredAddresses.map(addr => (
-                  <tr key={addr.id} className="border-b border-gray-50 dark:border-border hover:bg-muted dark:hover:bg-[#1e2329]/50 bg-card">
+                  <tr key={addr.id} className="border-b border-border hover:bg-muted/80 bg-card">
                     <td className="py-4 px-6">
                       <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 relative flex-shrink-0 bg-accent rounded-full overflow-hidden">
-                          <Image
-                            src={getAssetIcon(addr.asset)}
-                            alt={addr.asset}
-                            fill
-                            className="object-contain"
-                            unoptimized
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).style.display = 'none';
-                            }}
-                          />
-                        </div>
+                        <CoinIcon symbol={addr.asset} size={24} />
                         <span className="text-foreground font-medium">{addr.asset}</span>
                       </div>
                     </td>
@@ -879,7 +840,7 @@ export default function AddressBookPage() {
                         <button className="text-primary hover:text-primary/85 text-sm font-medium">Edit</button>
                         <button 
                           onClick={() => handleDeleteAddress(addr.id)}
-                          className="text-red-500 hover:text-red-600 text-sm font-medium"
+                          className="text-sell hover:text-sell/90 text-sm font-medium"
                         >
                           Delete
                         </button>
@@ -925,7 +886,7 @@ export default function AddressBookPage() {
                     value={whitelistEmailOtp}
                     onChange={e => setWhitelistEmailOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     placeholder="Please enter the email verification code"
-                    className="flex-1 px-4 py-3 bg-muted dark:bg-card border border-border rounded-lg text-foreground focus:border-blue-500 focus:ring-2 focus:ring-primary/20 outline-none text-sm"
+                    className="flex-1 px-4 py-3 bg-muted border border-border rounded-lg text-foreground focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none text-sm"
                   />
                   <button
                     onClick={sendWhitelistEmailOtp}
@@ -948,7 +909,7 @@ export default function AddressBookPage() {
                   value={whitelistGoogle2faCode}
                   onChange={e => setWhitelistGoogle2faCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                   placeholder="Please enter the Google Authenticator code"
-                  className="w-full px-4 py-3 bg-muted dark:bg-card border border-border rounded-lg text-foreground focus:border-blue-500 focus:ring-2 focus:ring-primary/20 outline-none"
+                    className="w-full px-4 py-3 bg-muted border border-border rounded-lg text-foreground focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none"
                   disabled={!user2faEnabled}
                 />
                 {!user2faEnabled && (
@@ -960,7 +921,7 @@ export default function AddressBookPage() {
               <button
                 onClick={verifyAndUpdateWhitelist}
                 disabled={verifyingWhitelist || !whitelistEmailOtp || (user2faEnabled && !whitelistGoogle2faCode)}
-                className="w-full py-3 bg-primary hover:bg-primary/85 disabled:bg-gray-300 dark:disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+                className="w-full py-3 bg-primary hover:bg-primary/85 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed text-primary-foreground font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
               >
                 {verifyingWhitelist ? (
                   <>
@@ -1001,9 +962,9 @@ export default function AddressBookPage() {
               </div>
 
               {/* Warning Note */}
-              <div className="flex items-start gap-2 p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg mb-4">
-                <div className="w-4 h-4 rounded-full bg-orange-400 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <span className="text-white text-xs">!</span>
+              <div className="flex items-start gap-2 p-3 bg-warning-light rounded-lg mb-4">
+                <div className="w-4 h-4 rounded-full bg-warning flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <span className="text-primary-foreground text-xs">!</span>
                 </div>
                 <p className="text-sm text-foreground/80">
                   Note: Once successfully added, your withdrawal address cannot be modified.
@@ -1016,7 +977,7 @@ export default function AddressBookPage() {
                   onClick={() => setAddModalTab('onchain')}
                   className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
                     addModalTab === 'onchain'
-                      ? 'border-blue-500 text-foreground'
+                      ? 'border-primary text-foreground'
                       : 'border-transparent text-muted-foreground hover:text-foreground/80'
                   }`}
                 >
@@ -1026,7 +987,7 @@ export default function AddressBookPage() {
                   onClick={() => setAddModalTab('internal')}
                   className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
                     addModalTab === 'internal'
-                      ? 'border-blue-500 text-foreground'
+                      ? 'border-primary text-foreground'
                       : 'border-transparent text-muted-foreground hover:text-foreground/80'
                   }`}
                 >
@@ -1050,7 +1011,7 @@ export default function AddressBookPage() {
                     <select
                       value={walletAddressType}
                       onChange={e => setWalletAddressType(e.target.value)}
-                      className="w-full px-4 py-3 bg-card border border-border rounded-lg text-foreground outline-none focus:border-blue-500 appearance-none cursor-pointer"
+                      className="w-full px-4 py-3 bg-card border border-border rounded-lg text-foreground outline-none focus:border-primary appearance-none cursor-pointer"
                     >
                       <option value="regular">Regular Wallet Address</option>
                       <option value="universal">Universal Wallet Address</option>
@@ -1065,7 +1026,7 @@ export default function AddressBookPage() {
                       <select
                         value={newAddress.asset}
                         onChange={e => setNewAddress({...newAddress, asset: e.target.value})}
-                        className="w-full px-4 py-3 bg-card border border-border rounded-lg text-foreground outline-none focus:border-blue-500 appearance-none cursor-pointer"
+                        className="w-full px-4 py-3 bg-card border border-border rounded-lg text-foreground outline-none focus:border-primary appearance-none cursor-pointer"
                       >
                         <option value="">Please select</option>
                         {dbAssets.map(asset => (
@@ -1084,7 +1045,7 @@ export default function AddressBookPage() {
                       value={newAddress.address}
                       onChange={e => setNewAddress({...newAddress, address: e.target.value})}
                       placeholder="Please input your withdrawal wallet address"
-                      className="w-full px-4 py-3 bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground outline-none focus:border-blue-500"
+                      className="w-full px-4 py-3 bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground outline-none focus:border-primary"
                     />
                   </div>
 
@@ -1095,7 +1056,7 @@ export default function AddressBookPage() {
                       <select
                         value={newAddress.network}
                         onChange={e => setNewAddress({...newAddress, network: e.target.value})}
-                        className="w-full px-4 py-3 bg-card border border-border rounded-lg text-foreground outline-none focus:border-blue-500 appearance-none cursor-pointer"
+                        className="w-full px-4 py-3 bg-card border border-border rounded-lg text-foreground outline-none focus:border-primary appearance-none cursor-pointer"
                       >
                         <option value="">Select chain type</option>
                         {networks.map(network => (
@@ -1114,7 +1075,7 @@ export default function AddressBookPage() {
                       value={newAddress.note}
                       onChange={e => setNewAddress({...newAddress, note: e.target.value})}
                       placeholder="Add a remark"
-                      className="w-full px-4 py-3 bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground outline-none focus:border-blue-500"
+                      className="w-full px-4 py-3 bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground outline-none focus:border-primary"
                     />
                   </div>
                 </div>
@@ -1133,7 +1094,7 @@ export default function AddressBookPage() {
                         onClick={() => setRecipientType('email')}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                           recipientType === 'email'
-                            ? 'bg-blue-100 dark:bg-blue-900/30 text-primary'
+                            ? 'bg-muted text-primary'
                             : 'bg-accent text-muted-foreground hover:bg-accent'
                         }`}
                       >
@@ -1143,7 +1104,7 @@ export default function AddressBookPage() {
                         onClick={() => setRecipientType('mobile')}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                           recipientType === 'mobile'
-                            ? 'bg-blue-100 dark:bg-blue-900/30 text-primary'
+                            ? 'bg-muted text-primary'
                             : 'bg-accent text-muted-foreground hover:bg-accent'
                         }`}
                       >
@@ -1153,7 +1114,7 @@ export default function AddressBookPage() {
                         onClick={() => setRecipientType('uid')}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                           recipientType === 'uid'
-                            ? 'bg-blue-100 dark:bg-blue-900/30 text-primary'
+                            ? 'bg-muted text-primary'
                             : 'bg-accent text-muted-foreground hover:bg-accent'
                         }`}
                       >
@@ -1185,7 +1146,7 @@ export default function AddressBookPage() {
                                   }}
                                   className={`w-full text-left px-4 py-2.5 hover:bg-accent text-sm flex items-center gap-2 ${
                                     selectedCountryCode === country.code 
-                                      ? 'text-primary bg-blue-50 dark:bg-blue-900/20' 
+                                      ? 'text-primary bg-muted' 
                                       : 'text-foreground'
                                   }`}
                                 >
@@ -1204,7 +1165,7 @@ export default function AddressBookPage() {
                           value={newAddress.recipientAccount}
                           onChange={e => setNewAddress({...newAddress, recipientAccount: e.target.value.replace(/\D/g, '')})}
                           placeholder="Please enter"
-                          className="flex-1 px-4 py-3 bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground outline-none focus:border-blue-500"
+                          className="flex-1 px-4 py-3 bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground outline-none focus:border-primary"
                         />
                       </div>
                     ) : (
@@ -1213,7 +1174,7 @@ export default function AddressBookPage() {
                         value={newAddress.recipientAccount}
                         onChange={e => setNewAddress({...newAddress, recipientAccount: e.target.value})}
                         placeholder="Please enter"
-                        className="w-full px-4 py-3 bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground outline-none focus:border-blue-500"
+                        className="w-full px-4 py-3 bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground outline-none focus:border-primary"
                       />
                     )}
                   </div>
@@ -1226,7 +1187,7 @@ export default function AddressBookPage() {
                       value={newAddress.note}
                       onChange={e => setNewAddress({...newAddress, note: e.target.value})}
                       placeholder="Add a remark"
-                      className="w-full px-4 py-3 bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground outline-none focus:border-blue-500"
+                      className="w-full px-4 py-3 bg-card border border-border rounded-lg text-foreground placeholder:text-muted-foreground outline-none focus:border-primary"
                     />
                   </div>
                 </div>
@@ -1244,7 +1205,7 @@ export default function AddressBookPage() {
                   <button
                     onClick={() => setNoVerificationNeeded(!noVerificationNeeded)}
                     className={`relative w-11 h-6 rounded-full transition-colors ${
-                      noVerificationNeeded ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-600'
+                      noVerificationNeeded ? 'bg-primary' : 'bg-muted'
                     }`}
                   >
                     <span
@@ -1275,7 +1236,7 @@ export default function AddressBookPage() {
               <button
                 onClick={handleAddAddress}
                 disabled={addingAddress}
-                className="w-full mt-6 py-3 bg-primary hover:bg-primary/85 disabled:bg-blue-300 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+                className="w-full mt-6 py-3 bg-primary hover:bg-primary/85 disabled:bg-muted disabled:text-muted-foreground text-primary-foreground font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
               >
                 {addingAddress ? (
                   <>

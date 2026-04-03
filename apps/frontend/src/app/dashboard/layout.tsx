@@ -174,13 +174,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [activeDropdown]);
 
   const isExchangeFullScreen = pathname === '/dashboard/spot' || pathname?.startsWith('/dashboard/p2p');
+  const isDashboardSpot = pathname === '/dashboard/spot';
 
   if (isExchangeFullScreen) {
     return (
       <RequireAuth>
         <SessionManager redirectPath="/login" />
         <div className="min-h-screen bg-background">
-          <main id="main-content" tabIndex={-1} className={`flex h-screen w-full flex-col overflow-hidden ${MOBILE_NAV_PAD}`}>
+          <main
+            id="main-content"
+            tabIndex={-1}
+            className={
+              isDashboardSpot
+                ? `flex min-h-screen w-full flex-col overflow-y-auto overflow-x-hidden ${MOBILE_NAV_PAD}`
+                : `flex h-screen w-full flex-col overflow-hidden ${MOBILE_NAV_PAD}`
+            }
+          >
             {children}
           </main>
           <MobileBottomNav />

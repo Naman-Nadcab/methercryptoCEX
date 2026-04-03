@@ -52,8 +52,6 @@ const INTERVALS: { label: string; seconds: number }[] = [
   { label: '1H', seconds: 3600 },
   { label: '4H', seconds: 14400 },
   { label: '1D', seconds: 86400 },
-  { label: '1W', seconds: 604800 },
-  { label: '1M', seconds: 2592000 },
 ];
 
 interface ChartPanelProps {
@@ -325,6 +323,7 @@ function ChartPanelInner({
 
   const livePriceRafRef = useRef<number | null>(null);
   const pendingLivePriceRef = useRef<string | null>(null);
+  const lastTradeAppliedTsRef = useRef<number>(0);
   useEffect(() => {
     if (!livePrice) return;
     pendingLivePriceRef.current = livePrice;
@@ -336,7 +335,9 @@ function ChartPanelInner({
       if (!ad || !lp) return;
       const p = Number(lp);
       if (!Number.isFinite(p) || p <= 0) return;
-      ad.updatePrice(Math.floor(Date.now() / 1000), p);
+      const now = Math.floor(Date.now() / 1000);
+      if (now === lastTradeAppliedTsRef.current) return;
+      ad.updatePrice(now, p);
     });
     return () => {
       if (livePriceRafRef.current != null) {
@@ -367,6 +368,7 @@ function ChartPanelInner({
     const p = Number(latest.price);
     const q = Number(latest.quantity ?? 0);
     if (Number.isFinite(tt) && Number.isFinite(p)) {
+      lastTradeAppliedTsRef.current = tt;
       adapterRef.current.updateTrade?.(tt, p, Number.isFinite(q) ? q : 0);
     }
   }, [liveTrades, adapterRef]);
@@ -428,11 +430,11 @@ function ChartPanelInner({
       {(!hideDuplicatePairSummary || viewMode === 'chart') && (
       <div className="flex-shrink-0 border-b border-border/90 bg-muted/95 dark:border-border/90 dark:bg-card/95">
         {!hideDuplicatePairSummary && (
-          <div className="flex flex-wrap items-start justify-between gap-2 px-2.5 py-2">
+          <div className="flex flex-wrap items-start justify-between gap-2 px-2 py-1">
             <div className="flex min-w-0 flex-wrap items-end gap-x-4 gap-y-1">
               <div className="min-w-0">
                 <div className="text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Last</div>
-                <div className={`font-mono text-[22px] font-bold leading-tight tabular-nums sm:text-2xl ${lastColor}`}>
+                <div className={`font-mono text-lg font-bold leading-tight tabular-nums sm:text-xl ${lastColor}`}>
                   {quoteAsset === 'USDT' && lastPrice != null && lastPrice !== ''
                     ? `$${formatValueFixedTrim(lastPrice, pricePrecision)}`
                     : formatValueFixedTrim(lastPrice, pricePrecision)}
@@ -530,8 +532,8 @@ function ChartPanelInner({
       )}
 
       {/* Toolbar: row 1 = modes + overlay/indicators + intervals; row 2 = optional compact stack (collapsed by default) */}
-      <div className="flex flex-shrink-0 flex-col gap-1 border-b border-border/90 bg-background/80 px-2 py-1 dark:border-border/90 dark:bg-card/40">
-        <div className="flex w-full min-w-0 flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+      <div className="flex flex-shrink-0 flex-col gap-0.5 border-b border-border/90 bg-background/80 px-2 py-0.5 dark:border-border/90 dark:bg-card/40">
+        <div className="flex w-full min-w-0 flex-col gap-1 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           {onViewModeChange && (
             <div className="flex shrink-0 overflow-hidden rounded-md border border-border">
@@ -793,7 +795,7 @@ function ChartPanelInner({
       </div>
 
       {viewMode === 'depth' ? (
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background p-1">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background p-px">
           <SpotDepthChart bids={depthBids} asks={depthAsks} className="min-h-[200px] flex-1" />
         </div>
       ) : (

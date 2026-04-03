@@ -11,7 +11,7 @@ export default function TermsOfServicePage() {
         <div className="max-w-4xl mx-auto px-6 py-4">
           <Link
             href="/signup"
-            className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground dark:hover:text-white transition-colors"
+            className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
             <span>Back</span>
@@ -201,10 +201,10 @@ export default function TermsOfServicePage() {
               </p>
               <div className="mt-4 p-4 bg-muted rounded-xl">
                 <p className="text-muted-foreground">
-                  Email: <a href="mailto:legal@exchange.com" className="text-purple-600 dark:text-purple-400 hover:underline">legal@exchange.com</a>
+                  Email: <a href="mailto:legal@exchange.com" className="text-primary hover:underline">legal@exchange.com</a>
                 </p>
                 <p className="text-muted-foreground mt-2">
-                  Support: <a href="mailto:support@exchange.com" className="text-purple-600 dark:text-purple-400 hover:underline">support@exchange.com</a>
+                  Support: <a href="mailto:support@exchange.com" className="text-primary hover:underline">support@exchange.com</a>
                 </p>
               </div>
             </section>

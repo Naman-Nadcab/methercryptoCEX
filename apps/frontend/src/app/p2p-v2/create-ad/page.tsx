@@ -103,7 +103,7 @@ function CreateAdForm() {
               type="button"
               onClick={() => setSide(s)}
               className={`rounded-lg px-4 py-2 text-sm font-medium capitalize ${
-                side === s ? 'bg-blue-600 text-white' : 'bg-accent'
+                side === s ? 'bg-primary text-primary-foreground' : 'bg-accent text-foreground'
               }`}
             >
               {s}
@@ -151,7 +151,7 @@ function CreateAdForm() {
                 type="button"
                 onClick={() => setPricing(p)}
                 className={`rounded-lg px-3 py-1.5 text-xs font-medium capitalize ${
-                  pricing === p ? 'bg-blue-600 text-white' : 'bg-accent'
+                  pricing === p ? 'bg-primary text-primary-foreground' : 'bg-accent text-foreground'
                 }`}
               >
                 {p}
@@ -262,7 +262,7 @@ function CreateAdForm() {
             setErr(null);
             mut.mutate();
           }}
-          className="w-full rounded-lg bg-blue-600 py-2.5 text-sm font-medium text-white disabled:opacity-50"
+          className="w-full rounded-lg bg-primary py-2.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
         >
           {mut.isPending ? 'Publishing…' : 'Publish ad'}
         </button>

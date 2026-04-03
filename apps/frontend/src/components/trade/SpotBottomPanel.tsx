@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { Loader2, X, RefreshCw, Trash2, Download } from 'lucide-react';
+import { CoinIcon } from '@/components/ui/CoinIcon';
 import { ordersToCsv, tradesToCsv, downloadCsv } from '@/lib/exportCsv';
 import { useSpotBottomPanel, type Order } from './useSpotBottomPanel';
 import { useBalancesByAccount } from '@/lib/balances';
@@ -93,11 +94,16 @@ function OpenOrderRow({
   const filledQtyStr = filled > 0 && qty > 0 ? `${filled.toFixed(4)}/${qty.toFixed(4)}` : (o.quantity ?? '—');
   return (
     <tr
-      className={`min-h-[36px] border-b border-border/80 transition-[background-color,box-shadow] duration-500 ease-out hover:bg-background/80 dark:border-border/80 dark:hover:bg-card/40 sm:min-h-[30px] ${
-        pulse ? 'bg-primary/12 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.35)] dark:bg-primary/10 dark:shadow-[inset_0_0_0_1px_rgba(96,165,250,0.3)]' : ''
+      className={`min-h-[36px] border-b border-[#2b2f36]/60 transition-[background-color,box-shadow] duration-500 ease-out hover:bg-[#2b2f36]/40 sm:min-h-[30px] ${
+        pulse ? 'bg-[#f0b90b]/8 shadow-[inset_0_0_0_1px_rgba(240,185,11,0.25)]' : ''
       }`}
     >
-      <td className="py-1.5 px-2 align-middle font-mono text-[11px] tabular-nums text-foreground">{o.market}</td>
+      <td className="py-1.5 px-2 align-middle">
+        <div className="flex items-center gap-1">
+          <CoinIcon symbol={o.market?.split('_')[0] || ''} size={14} />
+          <span className="font-mono text-[11px] tabular-nums text-foreground">{o.market}</span>
+        </div>
+      </td>
       <td className="py-1.5 px-2 align-middle">
         <span className="text-[10px] text-muted-foreground">{displayOrderType(o.type)}</span>
       </td>
@@ -220,7 +226,7 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
 
   if (!isAuth) {
     return (
-      <div className="h-full min-h-0 flex flex-col items-center justify-center bg-card text-muted-foreground text-sm">
+      <div className="flex min-h-[240px] flex-col items-center justify-center bg-[#1e2026] px-4 py-8 text-[#848e9c] text-sm">
         Sign in to view your trading activity.
       </div>
     );
@@ -232,13 +238,13 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
   const tabBtn = (active: boolean) =>
     `min-h-[40px] flex items-center px-3 py-2 text-[11px] font-semibold border-b-2 -mb-px transition-colors duration-150 touch-manipulation sm:px-4 ${
       active
-        ? 'border-blue-600 text-blue-700 dark:border-blue-400 dark:text-blue-300'
-        : 'border-transparent text-muted-foreground hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground'
+        ? 'border-[#f0b90b] text-[#eaecef]'
+        : 'border-transparent text-[#848e9c] hover:text-[#eaecef]'
     }`;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-card">
-      <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 border-b border-border/90 bg-muted/90 px-1 dark:border-border/90 dark:bg-card/30">
+    <div className="flex h-[min(50vh,560px)] min-h-[320px] w-full flex-col bg-[#1e2026]">
+      <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 border-b border-[#2b2f36] bg-[#181a20] px-1">
         <div className="flex flex-wrap items-center gap-0.5 sm:gap-1">
           <button type="button" onClick={() => data.setTab('open')} className={tabBtn(data.tab === 'open')}>Open ({data.openOrders.length})</button>
           <button type="button" onClick={() => data.setTab('orders')} className={tabBtn(data.tab === 'orders')}>History</button>
@@ -248,7 +254,7 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
         <div className="flex items-center gap-2 pr-2">
           {data.tab === 'open' && (
             <>
-              <button type="button" onClick={() => setShowAllMarkets((v) => !v)} className="min-h-[36px] px-3 py-1.5 text-[10px] text-muted-foreground hover:text-foreground border border-border rounded touch-manipulation" title={showAllMarkets ? 'Show current pair only' : 'Show all markets'}>
+              <button type="button" onClick={() => setShowAllMarkets((v) => !v)} className="min-h-[36px] px-3 py-1.5 text-[10px] text-[#848e9c] hover:text-[#eaecef] border border-[#2b2f36] rounded touch-manipulation" title={showAllMarkets ? 'Show current pair only' : 'Show all markets'}>
                 {showAllMarkets ? 'All' : 'Pair'}
               </button>
               {canCancelAll && (
@@ -260,16 +266,16 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
             </>
           )}
           {data.tab === 'orders' && data.orderHistory.length > 0 && (
-            <button type="button" onClick={() => { const csv = ordersToCsv(data.orderHistory); downloadCsv(`spot-orders-${new Date().toISOString().slice(0,10)}.csv`, csv); }} className="min-h-[36px] px-3 py-1.5 text-[10px] text-muted-foreground hover:text-foreground border border-border rounded flex items-center gap-1 touch-manipulation" title="Export Order History as CSV">
+            <button type="button" onClick={() => { const csv = ordersToCsv(data.orderHistory); downloadCsv(`spot-orders-${new Date().toISOString().slice(0,10)}.csv`, csv); }} className="min-h-[36px] px-3 py-1.5 text-[10px] text-[#848e9c] hover:text-[#eaecef] border border-[#2b2f36] rounded flex items-center gap-1 touch-manipulation" title="Export Order History as CSV">
               <Download className="w-3 h-3" /> Export
             </button>
           )}
           {data.tab === 'trades' && data.trades.length > 0 && (
-            <button type="button" onClick={() => { const csv = tradesToCsv(data.trades); downloadCsv(`spot-trades-${new Date().toISOString().slice(0,10)}.csv`, csv); }} className="min-h-[36px] px-3 py-1.5 text-[10px] text-muted-foreground hover:text-foreground border border-border rounded flex items-center gap-1 touch-manipulation" title="Export Trade History as CSV">
+            <button type="button" onClick={() => { const csv = tradesToCsv(data.trades); downloadCsv(`spot-trades-${new Date().toISOString().slice(0,10)}.csv`, csv); }} className="min-h-[36px] px-3 py-1.5 text-[10px] text-[#848e9c] hover:text-[#eaecef] border border-[#2b2f36] rounded flex items-center gap-1 touch-manipulation" title="Export Trade History as CSV">
               <Download className="w-3 h-3" /> Export
             </button>
           )}
-          <button type="button" onClick={() => { data.tab === 'open' && data.fetchOpen?.(); data.tab === 'orders' && data.fetchOrderHistory?.(null, false); data.tab === 'trades' && data.fetchTrades?.(1, false); }} className="min-h-[36px] min-w-[36px] flex items-center justify-center text-muted-foreground hover:text-foreground rounded touch-manipulation" title="Refresh">
+          <button type="button" onClick={() => { data.tab === 'open' && data.fetchOpen?.(); data.tab === 'orders' && data.fetchOrderHistory?.(null, false); data.tab === 'trades' && data.fetchTrades?.(1, false); }} className="min-h-[36px] min-w-[36px] flex items-center justify-center text-[#848e9c] hover:text-[#eaecef] rounded touch-manipulation" title="Refresh">
             <RefreshCw className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -288,8 +294,8 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
             <div className="p-4 text-center text-muted-foreground text-xs">No open orders</div>
           ) : (
             <table className="w-full text-[11px] table-fixed">
-              <thead className="sticky top-0 z-10 bg-muted/95 backdrop-blur-sm dark:bg-card/95">
-                <tr className="border-b border-border/90 text-left text-[11px] font-medium text-muted-foreground dark:border-border/90 dark:text-muted-foreground">
+              <thead className="sticky top-0 z-10 bg-[#181a20]">
+                <tr className="border-b border-[#2b2f36] text-left text-[11px] font-medium text-[#848e9c]">
                   <th className="py-2 px-2 font-medium cursor-pointer w-24" onClick={() => toggleSort('market')}>Market{sortGlyph('market')}</th>
                   <th className="py-2 px-2 font-medium cursor-pointer w-16" onClick={() => toggleSort('type')}>Type{sortGlyph('type')}</th>
                   <th className="py-2 px-2 font-medium cursor-pointer w-12" onClick={() => toggleSort('side')}>Side{sortGlyph('side')}</th>
@@ -320,8 +326,8 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
             <div className="p-4 text-center text-muted-foreground text-xs">No order history</div>
           ) : (
             <table className="w-full text-[11px] table-fixed">
-              <thead className="sticky top-0 z-10 bg-card">
-                <tr className="text-left text-muted-foreground border-b border-border">
+              <thead className="sticky top-0 z-10 bg-[#181a20]">
+                <tr className="text-left text-[#848e9c] border-b border-[#2b2f36]">
                   <th className="py-2 px-2 font-medium cursor-pointer w-24" onClick={() => toggleSort('market')}>Market{sortGlyph('market')}</th>
                   <th className="py-2 px-2 font-medium cursor-pointer w-16" onClick={() => toggleSort('type')}>Type{sortGlyph('type')}</th>
                   <th className="py-2 px-2 font-medium cursor-pointer w-12" onClick={() => toggleSort('side')}>Side{sortGlyph('side')}</th>
@@ -337,8 +343,13 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
                   const qty = parseFloat(o.quantity ?? '0') || 0;
                   const filledQtyStr = filled > 0 || o.status === 'FILLED' ? `${filled.toFixed(4)}/${qty.toFixed(4)}` : (o.quantity ?? '—');
                   return (
-                    <tr key={o.id} className="border-b border-border hover:bg-muted/50 min-h-[36px] sm:min-h-[30px] transition-colors duration-150">
-                      <td className="py-1.5 px-2 align-middle text-foreground font-mono tabular-nums">{o.market}</td>
+                    <tr key={o.id} className="border-b border-[#2b2f36]/60 hover:bg-[#2b2f36]/40 min-h-[36px] sm:min-h-[30px] transition-colors duration-150">
+                      <td className="py-1.5 px-2 align-middle">
+                        <div className="flex items-center gap-1">
+                          <CoinIcon symbol={o.market?.split('_')[0] || ''} size={14} />
+                          <span className="text-foreground font-mono tabular-nums">{o.market}</span>
+                        </div>
+                      </td>
                       <td className="py-1.5 px-2 align-middle text-muted-foreground text-[10px]">{displayOrderType(o.type)}</td>
                       <td className="py-1.5 px-2 align-middle"><span className={o.side === 'buy' ? 'text-price-up' : 'text-price-down'}>{o.side}</span></td>
                       <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums">{o.price ?? '—'}</td>
@@ -369,7 +380,10 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
                 {tradingBalances.map((b) => (
                   <Link key={b.symbol} href={`/wallet/${b.symbol}`} className="flex justify-between items-center px-2 py-1.5 rounded hover:bg-muted text-[11px]">
-                    <span className="text-foreground">{b.symbol}</span>
+                    <div className="flex items-center gap-1.5">
+                      <CoinIcon symbol={b.symbol} size={16} />
+                      <span className="text-foreground">{b.symbol}</span>
+                    </div>
                     <span className="tabular-nums text-muted-foreground">{parseFloat(b.trading ?? '0').toFixed(4)}</span>
                   </Link>
                 ))}
@@ -397,8 +411,8 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
           ) : (
             <>
               <table className="w-full text-[11px] table-fixed">
-                <thead className="sticky top-0 z-10 bg-card">
-                  <tr className="text-left text-muted-foreground border-b border-border">
+                <thead className="sticky top-0 z-10 bg-[#181a20]">
+                  <tr className="text-left text-[#848e9c] border-b border-[#2b2f36]">
                     <th className="py-2 px-2 font-medium cursor-pointer w-24" onClick={() => toggleSort('market')}>Market{sortGlyph('market')}</th>
                     <th className="py-2 px-2 font-medium cursor-pointer w-12" onClick={() => toggleSort('side')}>Side{sortGlyph('side')}</th>
                     <th className="py-2 px-2 font-medium cursor-pointer w-20" onClick={() => toggleSort('price')}>Price{sortGlyph('price')}</th>
@@ -409,8 +423,13 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
                 </thead>
                 <tbody>
                   {sortedTrades.map((t) => (
-                    <tr key={t.id} className="border-b border-border hover:bg-muted/50 min-h-[36px] sm:min-h-[30px] transition-colors duration-150">
-                      <td className="py-1.5 px-2 align-middle text-foreground font-mono tabular-nums">{t.market}</td>
+                    <tr key={t.id} className="border-b border-[#2b2f36]/60 hover:bg-[#2b2f36]/40 min-h-[36px] sm:min-h-[30px] transition-colors duration-150">
+                      <td className="py-1.5 px-2 align-middle">
+                        <div className="flex items-center gap-1">
+                          <CoinIcon symbol={t.market?.split('_')[0] || ''} size={14} />
+                          <span className="text-foreground font-mono tabular-nums">{t.market}</span>
+                        </div>
+                      </td>
                       <td className="py-1.5 px-2 align-middle"><span className={t.side === 'buy' ? 'text-price-up' : 'text-price-down'}>{t.side}</span></td>
                       <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums">{t.price}</td>
                       <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums">{t.quantity}</td>

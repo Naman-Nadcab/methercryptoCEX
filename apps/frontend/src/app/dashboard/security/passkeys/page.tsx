@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '@/store/auth';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import {
   ChevronRight,
   Lock,
@@ -11,10 +10,12 @@ import {
   ShieldCheck,
   X,
   Loader2,
+  AlertTriangle,
   Shield,
   Mail,
   KeyRound,
   Edit3,
+  Fingerprint,
 } from 'lucide-react';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { toast } from '@/components/ui/toaster';
@@ -27,7 +28,6 @@ interface Passkey {
 }
 
 export default function PasskeysPage() {
-  const router = useRouter();
   const { user, accessToken } = useAuthStore();
   const [passkeys, setPasskeys] = useState<Passkey[]>([]);
   const [loading, setLoading] = useState(true);
@@ -467,7 +467,7 @@ export default function PasskeysPage() {
       </div>
 
       {/* Main Card */}
-      <div className="bg-card rounded-xl p-6">
+      <div className="rounded-xl border border-border bg-card p-6">
         {/* Header */}
         <div className="mb-4">
           <h1 className="text-xl font-semibold text-foreground mb-2">Passkeys</h1>
@@ -479,11 +479,11 @@ export default function PasskeysPage() {
 
         {/* Passkey Count Banner */}
         {passkeys.length > 0 && (
-          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 mb-4 flex items-center gap-2">
-            <div className="w-5 h-5 bg-primary rounded-full flex items-center justify-center">
-              <span className="text-white text-xs font-bold">!</span>
+          <div className="mb-4 flex items-center gap-2 rounded-lg border border-border bg-muted p-3">
+            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary">
+              <span className="text-xs font-bold text-primary-foreground">!</span>
             </div>
-            <span className="text-sm text-foreground/80">
+            <span className="text-sm text-foreground">
               You have created {passkeys.length} passkey(s) (up to 10 can be set).
             </span>
           </div>
@@ -512,22 +512,14 @@ export default function PasskeysPage() {
                   <td colSpan={4} className="px-4 py-12 text-center">
                     <div className="flex flex-col items-center">
                       {/* Phone icon illustration */}
-                      <div className="w-20 h-20 mb-4 flex items-center justify-center">
-                        <svg viewBox="0 0 80 80" fill="none" className="w-full h-full">
-                          <rect x="20" y="10" width="40" height="60" rx="4" stroke="#D1D5DB" strokeWidth="2" fill="none" />
-                          <rect x="24" y="18" width="32" height="40" rx="2" fill="#F3F4F6" className="dark:fill-gray-700" />
-                          <circle cx="40" cy="64" r="3" fill="#D1D5DB" />
-                          <path d="M35 30 L45 30 M35 35 L45 35 M35 40 L42 40" stroke="#9CA3AF" strokeWidth="1.5" strokeLinecap="round" />
-                          {/* Key indicator */}
-                          <circle cx="58" cy="22" r="8" fill="#FCD34D" />
-                          <path d="M56 22 L60 22 M58 20 L58 24" stroke="#F59E0B" strokeWidth="1.5" strokeLinecap="round" />
-                        </svg>
+                      <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
+                        <KeyRound className="h-10 w-10" />
                       </div>
                       <p className="text-muted-foreground mb-4">No Passkeys Available</p>
                       <button
                         onClick={handleAddPasskeyClick}
                         disabled={creating}
-                        className="px-6 py-2.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-medium rounded-lg transition-colors flex items-center gap-2"
+                        className="flex items-center gap-2 rounded-lg bg-primary px-6 py-2.5 font-medium text-primary-foreground transition-colors hover:bg-primary/85 disabled:bg-muted disabled:text-muted-foreground"
                       >
                         {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : '+'}
                         Add Passkey
@@ -556,7 +548,7 @@ export default function PasskeysPage() {
                         </button>
                         <button
                           onClick={() => handleDeleteClick(passkey)}
-                          className="text-red-500 hover:text-red-600 text-sm font-medium"
+                          className="text-sm font-medium text-sell hover:text-sell/90"
                         >
                           Delete
                         </button>
@@ -575,7 +567,7 @@ export default function PasskeysPage() {
             <button
               onClick={handleAddPasskeyClick}
               disabled={creating}
-              className="px-6 py-2.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-medium rounded-lg transition-colors flex items-center gap-2"
+              className="flex items-center gap-2 rounded-lg bg-primary px-6 py-2.5 font-medium text-primary-foreground transition-colors hover:bg-primary/85 disabled:bg-muted disabled:text-muted-foreground"
             >
               {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : '+'}
               Add Passkey
@@ -586,27 +578,18 @@ export default function PasskeysPage() {
 
       {/* Add Passkey Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-card rounded-xl w-full max-w-md shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/50 p-4">
+          <div className="w-full max-w-md rounded-xl bg-card shadow-xl">
             <div className="p-6">
-              <div className="flex justify-end mb-2">
-                <button onClick={closeAllModals} className="text-muted-foreground hover:text-muted-foreground">
-                  <X className="w-5 h-5" />
+              <div className="mb-2 flex justify-end">
+                <button type="button" onClick={closeAllModals} className="text-muted-foreground hover:text-foreground">
+                  <X className="h-5 w-5" />
                 </button>
               </div>
 
-              {/* Illustration */}
-              <div className="flex justify-center mb-4">
-                <div className="w-24 h-24 relative">
-                  <svg viewBox="0 0 100 100" fill="none" className="w-full h-full">
-                    <circle cx="50" cy="30" r="12" fill="#FCD34D" />
-                    <path d="M35 50 C35 42 45 38 50 38 C55 38 65 42 65 50 L65 70 L35 70 Z" fill="#FCD34D" />
-                    <rect x="30" y="55" width="40" height="25" rx="2" fill="#F59E0B" />
-                    <rect x="33" y="58" width="34" height="16" fill="#FEF3C7" />
-                    <circle cx="75" cy="25" r="6" fill="#10B981" />
-                    <circle cx="80" cy="40" r="4" fill="#3B82F6" />
-                    <circle cx="20" cy="35" r="5" fill="#8B5CF6" />
-                  </svg>
+              <div className="mb-4 flex justify-center">
+                <div className="flex h-24 w-24 items-center justify-center rounded-2xl bg-muted text-primary">
+                  <Fingerprint className="h-12 w-12" />
                 </div>
               </div>
 
@@ -647,8 +630,9 @@ export default function PasskeysPage() {
               </div>
 
               <button
+                type="button"
                 onClick={handleContinue}
-                className="w-full py-3 bg-primary hover:bg-primary/85 text-white font-medium rounded-lg transition-colors"
+                className="w-full rounded-lg bg-primary py-3 font-medium text-primary-foreground transition-colors hover:bg-primary/85"
               >
                 Continue
               </button>
@@ -659,7 +643,7 @@ export default function PasskeysPage() {
 
       {/* 2FA Verification Modal (for Add) */}
       {showVerifyModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-foreground/50 flex items-center justify-center z-50 p-4">
           <div className="bg-card rounded-xl w-full max-w-md shadow-xl">
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
@@ -686,7 +670,7 @@ export default function PasskeysPage() {
                       onChange={e => handleOtpInput(index, e.target.value)}
                       onKeyDown={e => handleOtpKeyDown(index, e)}
                       onPaste={handleOtpPaste}
-                      className="w-12 h-14 text-center text-xl font-semibold border border-border rounded-lg bg-accent text-foreground focus:border-blue-500 focus:ring-2 focus:ring-primary/20 outline-none"
+                      className="h-14 w-12 rounded-lg border border-border bg-muted text-center text-xl font-semibold text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/30"
                     />
                   ))}
                 </div>
@@ -699,7 +683,7 @@ export default function PasskeysPage() {
               <button
                 onClick={verify2faAndCreatePasskey}
                 disabled={verifying || verifyCode.join('').length !== 6}
-                className="w-full py-3 bg-primary hover:bg-primary/85 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-3 font-medium text-primary-foreground transition-colors hover:bg-primary/85 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
               >
                 {verifying ? (
                   <>
@@ -717,7 +701,7 @@ export default function PasskeysPage() {
 
       {/* Rename Modal */}
       {showRenameModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-foreground/50 flex items-center justify-center z-50 p-4">
           <div className="bg-card rounded-xl w-full max-w-md shadow-xl">
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
@@ -733,9 +717,9 @@ export default function PasskeysPage() {
                   value={renameName}
                   onChange={e => setRenameName(e.target.value.slice(0, 50))}
                   placeholder="Enter passkey name"
-                  className="w-full px-4 py-3 bg-accent border border-border rounded-lg text-foreground focus:border-blue-500 focus:ring-2 focus:ring-primary/20 outline-none"
+                  className="w-full rounded-lg border border-border bg-muted px-4 py-3 text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/30"
                 />
-                <div className="text-right mt-1 text-sm text-muted-foreground">
+                <div className="mt-1 text-right text-sm text-muted-foreground">
                   {renameName.length}/50
                 </div>
               </div>
@@ -743,7 +727,7 @@ export default function PasskeysPage() {
               <button
                 onClick={submitRename}
                 disabled={renaming || !renameName.trim()}
-                className="w-full py-3 bg-primary hover:bg-primary/85 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-3 font-medium text-primary-foreground transition-colors hover:bg-primary/85 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
               >
                 {renaming ? (
                   <>
@@ -761,7 +745,7 @@ export default function PasskeysPage() {
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirmModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-foreground/50 flex items-center justify-center z-50 p-4">
           <div className="bg-card rounded-xl w-full max-w-md shadow-xl">
             <div className="p-6">
               <div className="flex justify-end mb-4">
@@ -772,10 +756,8 @@ export default function PasskeysPage() {
 
               {/* Warning Icon */}
               <div className="flex justify-center mb-4">
-                <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
-                  <svg className="w-8 h-8 text-primary" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
-                  </svg>
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+                  <AlertTriangle className="h-8 w-8 text-primary" />
                 </div>
               </div>
 
@@ -783,7 +765,7 @@ export default function PasskeysPage() {
                 Are you sure you want to delete the passkey?
               </h2>
 
-              <div className="bg-accent/50 rounded-lg p-4 mb-6">
+              <div className="mb-6 rounded-lg border border-border bg-muted p-4">
                 <p className="text-sm font-medium text-foreground/80 mb-2">Please note:</p>
                 <p className="text-sm text-muted-foreground">
                   For account security, please be aware that after deleting your passkey, on-chain withdrawals, internal transfers, fiat withdrawals, Card transactions, P2P Trading, and advertising will be suspended for 24 hours.
@@ -792,14 +774,16 @@ export default function PasskeysPage() {
 
               <div className="flex gap-3">
                 <button
+                  type="button"
                   onClick={handleDeleteConfirm}
-                  className="flex-1 py-3 bg-primary hover:bg-primary/85 text-white font-medium rounded-lg transition-colors"
+                  className="flex-1 rounded-lg bg-sell py-3 font-medium text-primary-foreground transition-colors hover:bg-sell/90"
                 >
                   Delete Passkey
                 </button>
                 <button
+                  type="button"
                   onClick={closeAllModals}
-                  className="flex-1 py-3 bg-accent hover:bg-accent dark:hover:bg-gray-600 text-foreground/80 dark:text-foreground font-medium rounded-lg transition-colors border border-border"
+                  className="flex-1 rounded-lg border border-border bg-muted py-3 font-medium text-foreground transition-colors hover:bg-muted/80"
                 >
                   Cancel
                 </button>
@@ -811,7 +795,7 @@ export default function PasskeysPage() {
 
       {/* Delete Verification Modal */}
       {showDeleteVerifyModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-foreground/50 flex items-center justify-center z-50 p-4">
           <div className="bg-card rounded-xl w-full max-w-md shadow-xl">
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
@@ -833,7 +817,7 @@ export default function PasskeysPage() {
                     value={deleteEmailOtp}
                     onChange={e => setDeleteEmailOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     placeholder="Please enter the email verification code"
-                    className="w-full px-4 py-3 bg-accent border border-border rounded-lg text-foreground focus:border-blue-500 focus:ring-2 focus:ring-primary/20 outline-none pr-24"
+                    className="w-full rounded-lg border border-border bg-muted px-4 py-3 pr-24 text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/30"
                   />
                   <div className="absolute right-3 top-1/2 -translate-y-1/2">
                     {deleteEmailOtpTimer > 0 ? (
@@ -863,7 +847,7 @@ export default function PasskeysPage() {
                     value={delete2faCode}
                     onChange={e => setDelete2faCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     placeholder="Please enter the Google Authenticator code"
-                    className="w-full px-4 py-3 bg-accent border border-border rounded-lg text-foreground focus:border-blue-500 focus:ring-2 focus:ring-primary/20 outline-none"
+                    className="w-full rounded-lg border border-border bg-muted px-4 py-3 text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring/30"
                   />
                 </div>
               )}
@@ -871,7 +855,7 @@ export default function PasskeysPage() {
               <button
                 onClick={submitDelete}
                 disabled={deleting || !deleteEmailOtp || (user2faEnabled && delete2faCode.length !== 6)}
-                className="w-full py-3 bg-primary hover:bg-primary/85 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-3 font-medium text-primary-foreground transition-colors hover:bg-primary/85 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
               >
                 {deleting ? (
                   <>

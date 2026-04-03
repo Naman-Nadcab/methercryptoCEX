@@ -210,18 +210,47 @@ function displayStatus(status: string): string {
 }
 
 export default async function spotRoutes(app: FastifyInstance) {
-  // GET /spot/markets (includes maker_fee, taker_fee for transparency)
+  // GET /spot/markets (includes maker_fee, taker_fee, last_price, volume_24h, change_pct)
   app.get('/markets', async (_request, reply) => {
     try {
       const result = await db.query(`
-        SELECT id, symbol, base_asset, quote_asset, status, min_qty, min_notional, price_precision, qty_precision,
-               COALESCE(maker_fee, 0.001)::text as maker_fee, COALESCE(taker_fee, 0.001)::text as taker_fee
-        FROM spot_markets
-        WHERE status IN ('active', 'maintenance')
-        ORDER BY symbol
+        SELECT m.id, m.symbol, m.base_asset, m.quote_asset, m.status, m.min_qty, m.min_notional, m.price_precision, m.qty_precision,
+               COALESCE(m.maker_fee, 0.001)::text as maker_fee, COALESCE(m.taker_fee, 0.001)::text as taker_fee,
+               COALESCE(mp.price, candle_lp.close_price)::text as last_price,
+               COALESCE(candle_24.volume, '0')::text as volume_24h,
+               candle_24.open_price::text as open_24h,
+               candle_24.high_price::text as high_24h,
+               candle_24.low_price::text as low_24h
+        FROM spot_markets m
+        LEFT JOIN LATERAL (
+          SELECT mp2.price FROM market_prices mp2
+          WHERE mp2.base_currency_id = m.base_currency_id AND mp2.quote_currency_id = m.quote_currency_id
+          LIMIT 1
+        ) mp ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT oc.close_price FROM ohlcv_candles oc
+          JOIN trading_pairs tp2 ON tp2.id = oc.trading_pair_id
+          WHERE tp2.symbol = m.symbol AND oc.interval_type = '1d'
+          ORDER BY oc.open_time DESC LIMIT 1
+        ) candle_lp ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT oc.open_price, oc.high_price, oc.low_price, oc.volume
+          FROM ohlcv_candles oc
+          JOIN trading_pairs tp2 ON tp2.id = oc.trading_pair_id
+          WHERE tp2.symbol = m.symbol AND oc.interval_type = '1d'
+          ORDER BY oc.open_time DESC LIMIT 1
+        ) candle_24 ON TRUE
+        WHERE m.status IN ('active', 'maintenance')
+        ORDER BY m.symbol
       `);
-      reply.header('Cache-Control', 'public, max-age=30');
-      return reply.send({ success: true, data: result.rows });
+      const markets = result.rows.map((r: any) => {
+        const open = r.open_24h ? parseFloat(r.open_24h) : NaN;
+        const last = r.last_price ? parseFloat(r.last_price) : NaN;
+        const changePct = Number.isFinite(open) && open > 0 && Number.isFinite(last) ? Math.round(((last - open) / open) * 10000) / 100 : null;
+        return { ...r, change_pct: changePct };
+      });
+      reply.header('Cache-Control', 'public, max-age=10');
+      return reply.send({ success: true, data: markets });
     } catch (error) {
       if (error instanceof AsyncTimeoutError) {
         logger.error('Spot markets timed out', { error: error.message });
@@ -256,15 +285,16 @@ export default async function spotRoutes(app: FastifyInstance) {
         return reply.send(cached);
       }
       const useMarket = await getSpotTradesUseMarket();
+      // Ticker query: trade-based last_price with fallback to market_prices oracle and ohlcv_candles
       const tickersQuery = useMarket
         ? `
           SELECT m.symbol, m.base_asset, m.quote_asset,
-            lp.price::text as last_price,
-            COALESCE(s.high, '0')::text as high_24h,
-            COALESCE(s.low, '0')::text as low_24h,
-            COALESCE(s.volume, '0')::text as volume_24h,
-            COALESCE(s.base_volume, '0')::text as base_volume,
-            s.open_24h::text as open_24h
+            COALESCE(lp.price::text, mp.price::text, candle_lp.close_price::text) as last_price,
+            COALESCE(s.high, candle_24.high_price::text, '0') as high_24h,
+            COALESCE(s.low, candle_24.low_price::text, '0') as low_24h,
+            COALESCE(s.volume, candle_24.volume::text, '0') as volume_24h,
+            COALESCE(s.base_volume, '0') as base_volume,
+            COALESCE(s.open_24h, candle_24.open_price::text) as open_24h
           FROM spot_markets m
           LEFT JOIN (
             SELECT DISTINCT ON (market) market, price
@@ -284,17 +314,35 @@ export default async function spotRoutes(app: FastifyInstance) {
               AND created_at >= NOW() - INTERVAL '24 hours'
             GROUP BY market
           ) s ON s.market = m.symbol
+          LEFT JOIN LATERAL (
+            SELECT mp2.price::text as price FROM market_prices mp2
+            WHERE mp2.base_currency_id = m.base_currency_id AND mp2.quote_currency_id = m.quote_currency_id
+            LIMIT 1
+          ) mp ON TRUE
+          LEFT JOIN LATERAL (
+            SELECT oc.close_price::text as close_price FROM ohlcv_candles oc
+            JOIN trading_pairs tp2 ON tp2.id = oc.trading_pair_id
+            WHERE tp2.symbol = m.symbol AND oc.interval_type = '1d'
+            ORDER BY oc.open_time DESC LIMIT 1
+          ) candle_lp ON TRUE
+          LEFT JOIN LATERAL (
+            SELECT oc.open_price::text as open_price, oc.high_price::text as high_price, oc.low_price::text as low_price, oc.volume::text as volume
+            FROM ohlcv_candles oc
+            JOIN trading_pairs tp2 ON tp2.id = oc.trading_pair_id
+            WHERE tp2.symbol = m.symbol AND oc.interval_type = '1d'
+            ORDER BY oc.open_time DESC LIMIT 1
+          ) candle_24 ON TRUE
           WHERE m.status IN ('active', 'maintenance')
           ORDER BY m.symbol
         `
         : `
           SELECT m.symbol, m.base_asset, m.quote_asset,
-            lp.price::text as last_price,
-            COALESCE(s.high, '0')::text as high_24h,
-            COALESCE(s.low, '0')::text as low_24h,
-            COALESCE(s.volume, '0')::text as volume_24h,
-            COALESCE(s.base_volume, '0')::text as base_volume,
-            s.open_24h::text as open_24h
+            COALESCE(lp.price::text, mp.price::text, candle_lp.close_price::text) as last_price,
+            COALESCE(s.high, candle_24.high_price::text, '0') as high_24h,
+            COALESCE(s.low, candle_24.low_price::text, '0') as low_24h,
+            COALESCE(s.volume, candle_24.volume::text, '0') as volume_24h,
+            COALESCE(s.base_volume, '0') as base_volume,
+            COALESCE(s.open_24h, candle_24.open_price::text) as open_24h
           FROM spot_markets m
           LEFT JOIN (
             SELECT DISTINCT ON (tp.symbol) tp.symbol, t.price
@@ -316,6 +364,24 @@ export default async function spotRoutes(app: FastifyInstance) {
               AND t.created_at >= NOW() - INTERVAL '24 hours'
             GROUP BY tp.symbol
           ) s ON s.symbol = m.symbol
+          LEFT JOIN LATERAL (
+            SELECT mp2.price::text as price FROM market_prices mp2
+            WHERE mp2.base_currency_id = m.base_currency_id AND mp2.quote_currency_id = m.quote_currency_id
+            LIMIT 1
+          ) mp ON TRUE
+          LEFT JOIN LATERAL (
+            SELECT oc.close_price::text as close_price FROM ohlcv_candles oc
+            JOIN trading_pairs tp2 ON tp2.id = oc.trading_pair_id
+            WHERE tp2.symbol = m.symbol AND oc.interval_type = '1d'
+            ORDER BY oc.open_time DESC LIMIT 1
+          ) candle_lp ON TRUE
+          LEFT JOIN LATERAL (
+            SELECT oc.open_price::text as open_price, oc.high_price::text as high_price, oc.low_price::text as low_price, oc.volume::text as volume
+            FROM ohlcv_candles oc
+            JOIN trading_pairs tp2 ON tp2.id = oc.trading_pair_id
+            WHERE tp2.symbol = m.symbol AND oc.interval_type = '1d'
+            ORDER BY oc.open_time DESC LIMIT 1
+          ) candle_24 ON TRUE
           WHERE m.status IN ('active', 'maintenance')
           ORDER BY m.symbol
         `;

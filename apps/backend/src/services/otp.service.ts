@@ -120,10 +120,12 @@ class OTPService {
    * Send OTP via Email
    */
   async sendEmailOTP(email: string, otp: string): Promise<boolean> {
-    // If no SMTP configured, log OTP for development
-    if (!this.emailTransporter) {
+    if (process.env.NODE_ENV !== 'production') {
       console.log(`\n📧 [DEV] Email OTP for ${email}: ${otp}\n`);
       logger.info(`[DEV] Email OTP for ${email}: ${otp}`);
+    }
+
+    if (!this.emailTransporter) {
       return true;
     }
 

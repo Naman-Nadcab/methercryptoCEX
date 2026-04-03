@@ -228,7 +228,7 @@ export default function FeeRatesPage() {
       <div className="max-w-5xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground">My Fee Rates</h1>
+          <h1 className="text-xl font-semibold text-foreground">My Fee Rates</h1>
         </div>
 
         {/* Volume-based spot tier (from fee_tiers table) */}
@@ -390,43 +390,40 @@ export default function FeeRatesPage() {
             </div>
           ) : (
             <div className="px-6 lg:px-8 pb-8">
-              {/* Interest Rates Tab */}
               <div className="bg-card rounded-xl p-6">
-                <h3 className="text-lg font-bold text-foreground mb-4">Spot Interest Rates</h3>
+                <h3 className="text-lg font-bold text-foreground mb-4">Deposit & Withdrawal Fees</h3>
                 <p className="text-muted-foreground text-sm mb-6">
-                  This exchange supports Spot and P2P only. Rates shown are for reference.
+                  Deposits are free. Withdrawal fees cover network (gas) costs and vary by chain. All fees are deducted from the withdrawal amount.
                 </p>
-
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead>
                       <tr className="border-b border-border">
                         <th className="text-left py-3 text-sm font-medium text-muted-foreground">Asset</th>
-                        <th className="text-right py-3 text-sm font-medium text-muted-foreground">Hourly Rate</th>
-                        <th className="text-right py-3 text-sm font-medium text-muted-foreground">Daily Rate</th>
-                        <th className="text-right py-3 text-sm font-medium text-muted-foreground">Annual Rate (APR)</th>
+                        <th className="text-right py-3 text-sm font-medium text-muted-foreground">Deposit Fee</th>
+                        <th className="text-right py-3 text-sm font-medium text-muted-foreground">Withdrawal Fee</th>
+                        <th className="text-right py-3 text-sm font-medium text-muted-foreground">Min. Withdrawal</th>
                       </tr>
                     </thead>
                     <tbody>
                       {[
-                        { asset: 'USDT', hourly: 0.000417, daily: 0.01, annual: 3.65 },
-                        { asset: 'BTC', hourly: 0.000208, daily: 0.005, annual: 1.825 },
-                        { asset: 'ETH', hourly: 0.000208, daily: 0.005, annual: 1.825 },
-                        { asset: 'USDC', hourly: 0.000417, daily: 0.01, annual: 3.65 },
+                        { asset: 'BTC', deposit: 'Free', withdrawal: 'Network fee', min: 'Varies by network' },
+                        { asset: 'ETH', deposit: 'Free', withdrawal: 'Network fee', min: 'Varies by network' },
+                        { asset: 'USDT', deposit: 'Free', withdrawal: 'Network fee', min: 'Varies by network' },
+                        { asset: 'USDC', deposit: 'Free', withdrawal: 'Network fee', min: 'Varies by network' },
                       ].map((row) => (
-                        <tr key={row.asset} className="border-b border-gray-50 dark:border-border/50">
+                        <tr key={row.asset} className="border-b border-border/50">
                           <td className="py-4 font-medium text-foreground">{row.asset}</td>
-                          <td className="py-4 text-right text-muted-foreground">{row.hourly.toFixed(6)}%</td>
-                          <td className="py-4 text-right text-muted-foreground">{row.daily.toFixed(4)}%</td>
-                          <td className="py-4 text-right text-muted-foreground">{row.annual.toFixed(2)}%</td>
+                          <td className="py-4 text-right text-buy">{row.deposit}</td>
+                          <td className="py-4 text-right text-muted-foreground">{row.withdrawal}</td>
+                          <td className="py-4 text-right text-muted-foreground">{row.min}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-
                 <p className="text-xs text-muted-foreground mt-4">
-                  * Interest rates are subject to change based on market conditions. Higher VIP levels receive preferential rates.
+                  Exact fees are shown on the withdrawal page after selecting a network. Fees are set dynamically based on blockchain conditions.
                 </p>
               </div>
             </div>
@@ -503,7 +500,7 @@ export default function FeeRatesPage() {
             <Link href="/dashboard/help" className="hover:text-foreground dark:hover:text-white">
               Help Center
             </Link>
-            <span>© 2024 Methereum</span>
+            <span>© 2026 Methereum</span>
           </div>
         </div>
       </div>

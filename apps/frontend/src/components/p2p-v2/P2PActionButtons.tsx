@@ -192,7 +192,7 @@ export function P2PActionButtons({ order, isBuyer, isSeller }: Props) {
             type="button"
             disabled={payMut.isPending || !payFile || txRef.trim().length < 1}
             onClick={() => payMut.mutate()}
-            className="w-full rounded-lg bg-blue-600 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="w-full rounded-lg bg-primary py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             {payMut.isPending ? 'Submitting…' : 'Mark as paid'}
           </button>
@@ -210,7 +210,7 @@ export function P2PActionButtons({ order, isBuyer, isSeller }: Props) {
           type="button"
           disabled={verifyMut.isPending}
           onClick={() => verifyMut.mutate()}
-          className="w-full rounded-lg bg-indigo-600 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+          className="w-full rounded-lg bg-indigo-600 py-2 text-sm font-medium text-foreground hover:bg-indigo-700 disabled:opacity-50"
         >
           {verifyMut.isPending ? 'Verifying…' : 'Verify payment received'}
         </button>
@@ -221,7 +221,7 @@ export function P2PActionButtons({ order, isBuyer, isSeller }: Props) {
           type="button"
           disabled={releaseMut.isPending}
           onClick={() => releaseMut.mutate()}
-          className="w-full rounded-lg bg-emerald-600 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+          className="w-full rounded-lg bg-emerald-600 py-2 text-sm font-medium text-foreground hover:bg-emerald-700 disabled:opacity-50"
         >
           {releaseMut.isPending ? 'Releasing…' : 'Release crypto'}
         </button>
@@ -260,7 +260,7 @@ export function P2PActionButtons({ order, isBuyer, isSeller }: Props) {
             type="button"
             disabled={disputeMut.isPending || disputeReason.trim().length < 10}
             onClick={() => disputeMut.mutate(disputeReason.trim())}
-            className="w-full rounded-lg bg-amber-600 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+            className="w-full rounded-lg bg-amber-600 py-2 text-sm font-medium text-foreground hover:bg-amber-700 disabled:opacity-50"
           >
             Raise dispute
           </button>

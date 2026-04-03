@@ -1,20 +1,18 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuthStore } from '@/store/auth';
 import { api } from '@/lib/api';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import Image from 'next/image';
 import type { LucideIcon } from 'lucide-react';
 import { notifyError } from '@/lib/notifyError';
 import { SkeletonTableBody } from '@/components/ui/Skeleton';
+import { CoinIcon } from '@/components/ui/CoinIcon';
+import { useBalancesByAccount } from '@/lib/balances';
 import {
   ChevronRight,
   ChevronDown,
-  Wallet,
-  LayoutGrid,
-  TrendingUp,
   Clock,
   RefreshCw,
   Download,
@@ -22,8 +20,6 @@ import {
   ArrowLeftRight,
   FileText,
   Calendar,
-  Search,
-  Filter,
   ExternalLink,
   Copy,
   Check,
@@ -78,7 +74,14 @@ export default function AssetHistoryPage() {
   const [showExportDropdown, setShowExportDropdown] = useState(false);
   const [copiedTxid, setCopiedTxid] = useState<string | null>(null);
 
-  const coins = ['All', 'BTC', 'ETH', 'USDT', 'USDC', 'SOL', 'XRP'];
+  const { data: balanceRows } = useBalancesByAccount(!!(_hasHydrated && accessToken));
+  const coins = useMemo(() => {
+    if (!balanceRows || balanceRows.length === 0) return ['All'];
+    const symbols = balanceRows
+      .filter((r) => parseFloat(r.total) > 0)
+      .map((r) => r.symbol.toUpperCase());
+    return ['All', ...symbols.sort()];
+  }, [balanceRows]);
   const methods = ['All', 'On-chain', 'Internal'];
   const statuses = ['All', 'Completed', 'Pending', 'Processing', 'Failed'];
 
@@ -275,14 +278,11 @@ export default function AssetHistoryPage() {
   };
 
   const getStatusBadge = (status: string) => {
-    const styles: Record<string, string> = {
-      completed: 'bg-green-100 dark:bg-green-900/30 text-buy',
-      pending: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400',
-      processing: 'bg-blue-100 dark:bg-blue-900/30 text-primary',
-      confirming: 'bg-blue-100 dark:bg-blue-900/30 text-primary',
-      failed: 'bg-red-100 dark:bg-red-900/30 text-destructive',
-    };
-    return styles[status] || styles.pending;
+    const s = status.toLowerCase();
+    if (s === 'completed' || s === 'confirmed') return 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
+    if (s === 'pending' || s === 'processing' || s === 'confirming') return 'bg-amber-500/10 text-amber-600 dark:text-amber-400';
+    if (s === 'failed' || s === 'rejected') return 'bg-red-500/10 text-red-600 dark:text-red-400';
+    return 'bg-muted text-muted-foreground';
   };
 
   const renderConfirmationStatus = (tx: Transaction) => {
@@ -305,9 +305,9 @@ export default function AssetHistoryPage() {
             <RefreshCw className="w-3 h-3 animate-spin" />
             {confirmations}/{required} Confirmations
           </span>
-          <div className="w-24 h-1.5 bg-accent rounded-full overflow-hidden">
-            <div 
-              className="h-full bg-yellow-500 dark:bg-yellow-400 rounded-full transition-all duration-500"
+          <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-primary transition-all duration-500"
               style={{ width: `${progress}%` }}
             />
           </div>
@@ -332,50 +332,60 @@ export default function AssetHistoryPage() {
   }, []);
 
   return (
-    <div className="p-6">
-          {/* Breadcrumb */}
-          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
-            <Link href="/wallet/funding" className="hover:text-primary transition-colors">Funding</Link>
-            <ChevronRight className="w-4 h-4" />
-            <span className="text-foreground font-medium">Funding Account History</span>
+    <div className="mx-auto max-w-7xl p-4 sm:p-6">
+          <div className="mb-4 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+            <Link href="/wallet/funding" className="transition-colors hover:text-primary">
+              Funding
+            </Link>
+            <ChevronRight className="h-4 w-4 shrink-0" />
+            <span className="font-medium text-foreground">Funding Account History</span>
           </div>
 
-          {/* Header */}
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-foreground">Funding Account History</h1>
+          <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-xl font-semibold tracking-tight text-foreground">Funding Account History</h1>
               {(historyTab === 'deposit' || historyTab === 'all') && (
-                <span className="px-2.5 py-1 text-xs font-medium rounded-full bg-green-500/10 text-buy border border-green-500/20">
+                <span className="rounded-full border border-border bg-buy-light px-2.5 py-1 text-xs font-medium text-buy">
                   Live
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={() => fetchTransactions(false)}
                 disabled={loading}
-                className="flex items-center gap-2 px-4 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-xl border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors disabled:opacity-50"
+                className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:border-primary/40 disabled:opacity-50"
                 title="Refresh now"
+                type="button"
               >
-                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                 Refresh
               </button>
               <div className="relative">
                 <button
+                  type="button"
                   onClick={() => setShowExportDropdown(!showExportDropdown)}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-xl border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
+                  className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:border-primary/40"
                 >
-                  <Download className="w-4 h-4" />
-                  Export <ChevronDown className={`w-4 h-4 ${showExportDropdown ? 'rotate-180' : ''}`} />
+                  <Download className="h-4 w-4" />
+                  Export <ChevronDown className={`h-4 w-4 ${showExportDropdown ? 'rotate-180' : ''}`} />
                 </button>
                 {showExportDropdown && (
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setShowExportDropdown(false)} aria-hidden />
-                    <div className="absolute right-0 top-full mt-2 py-1 bg-card border border-border rounded-xl shadow-xl z-20 min-w-[140px]">
-                      <button onClick={exportCSV} className="w-full px-4 py-2.5 text-left text-sm text-foreground/80 hover:bg-accent transition-colors">
+                    <div className="absolute right-0 top-full z-20 mt-2 min-w-[140px] rounded-xl border border-border bg-card py-1 shadow-lg">
+                      <button
+                        type="button"
+                        onClick={exportCSV}
+                        className="w-full px-4 py-2.5 text-left text-sm text-foreground transition-colors hover:bg-muted"
+                      >
                         CSV
                       </button>
-                      <button onClick={exportExcel} className="w-full px-4 py-2.5 text-left text-sm text-foreground/80 hover:bg-accent transition-colors">
+                      <button
+                        type="button"
+                        onClick={exportExcel}
+                        className="w-full px-4 py-2.5 text-left text-sm text-foreground transition-colors hover:bg-muted"
+                      >
                         Excel
                       </button>
                     </div>
@@ -385,80 +395,81 @@ export default function AssetHistoryPage() {
             </div>
           </div>
 
-          {/* Main Tabs Card */}
-          <div className="bg-card rounded-xl border border-border overflow-hidden">
-            {/* Main Tab Selector */}
+          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
             <div className="flex border-b border-border">
               <button
+                type="button"
                 onClick={() => setMainTab('transactions')}
-                className={`flex items-center gap-2 px-6 py-4 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                className={`-mb-px flex items-center gap-2 border-b-2 px-4 py-3.5 text-sm font-medium transition-colors sm:px-6 sm:py-4 ${
                   mainTab === 'transactions'
-                    ? 'border-blue-500 text-primary'
-                    : 'border-transparent text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'
+                    ? 'border-primary text-primary'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
                 }`}
               >
                 All Transactions
-                <HelpCircle className="w-4 h-4 text-muted-foreground" />
+                <HelpCircle className="h-4 w-4 text-muted-foreground" />
               </button>
               <button
+                type="button"
                 onClick={() => setMainTab('history')}
-                className={`flex items-center gap-2 px-6 py-4 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                className={`-mb-px flex items-center gap-2 border-b-2 px-4 py-3.5 text-sm font-medium transition-colors sm:px-6 sm:py-4 ${
                   mainTab === 'history'
-                    ? 'border-blue-500 text-primary'
-                    : 'border-transparent text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'
+                    ? 'border-primary text-primary'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
                 }`}
               >
                 History
-                <HelpCircle className="w-4 h-4 text-muted-foreground" />
+                <HelpCircle className="h-4 w-4 text-muted-foreground" />
               </button>
             </div>
 
             {mainTab === 'transactions' ? (
-              /* All Transactions View */
-              <div className="p-6">
-                {/* Advanced Filters */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-                  {/* Date Range */}
+              <div className="p-4 sm:p-6">
+                <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                   <div>
-                    <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Date Range</p>
-                    <div className="flex items-center gap-2 px-4 py-2.5 bg-muted dark:bg-[#2b2f36] rounded-xl border border-border">
+                    <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Date Range</p>
+                    <div className="flex items-center gap-2 rounded-xl border border-border bg-muted px-4 py-2.5">
                       <input
                         type="date"
                         value={startDate}
                         onChange={(e) => setStartDate(e.target.value)}
-                        className="bg-transparent text-sm text-foreground focus:outline-none flex-1 min-w-0"
+                        className="min-w-0 flex-1 bg-transparent text-sm text-foreground focus:outline-none"
                       />
                       <span className="text-muted-foreground">→</span>
                       <input
                         type="date"
                         value={endDate}
                         onChange={(e) => setEndDate(e.target.value)}
-                        className="bg-transparent text-sm text-foreground focus:outline-none flex-1 min-w-0"
+                        className="min-w-0 flex-1 bg-transparent text-sm text-foreground focus:outline-none"
                       />
-                      <Calendar className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                      <Calendar className="h-4 w-4 shrink-0 text-muted-foreground" />
                     </div>
                   </div>
-                  {/* Asset */}
                   <div>
-                    <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Asset</p>
+                    <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Asset</p>
                     <div className="relative">
                       <button
+                        type="button"
                         onClick={() => setShowCoinDropdown(!showCoinDropdown)}
-                        className="w-full flex items-center justify-between px-4 py-2.5 bg-muted dark:bg-[#2b2f36] rounded-xl text-sm text-foreground border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
+                        className="flex w-full items-center justify-between rounded-xl border border-border bg-muted px-4 py-2.5 text-sm text-foreground transition-colors hover:border-primary/40"
                       >
                         <span>{coinFilter === 'all' ? 'All' : coinFilter}</span>
-                        <ChevronDown className={`w-4 h-4 transition-transform ${showCoinDropdown ? 'rotate-180' : ''}`} />
+                        <ChevronDown className={`h-4 w-4 transition-transform ${showCoinDropdown ? 'rotate-180' : ''}`} />
                       </button>
                       {showCoinDropdown && (
-                        <div className="absolute top-full left-0 right-0 mt-2 bg-card border border-border rounded-xl shadow-2xl z-10 overflow-hidden">
+                        <div className="absolute left-0 right-0 top-full z-10 mt-2 max-h-60 overflow-auto rounded-xl border border-border bg-card shadow-lg">
                           {coins.map((coin) => (
                             <button
+                              type="button"
                               key={coin}
-                              onClick={() => { setCoinFilter(coin === 'All' ? 'all' : coin); setShowCoinDropdown(false); }}
+                              onClick={() => {
+                                setCoinFilter(coin === 'All' ? 'all' : coin);
+                                setShowCoinDropdown(false);
+                              }}
                               className={`w-full px-4 py-3 text-left text-sm transition-colors ${
                                 (coin === 'All' && coinFilter === 'all') || coin === coinFilter
-                                  ? 'bg-blue-50 dark:bg-blue-900/20 text-primary'
-                                  : 'text-foreground/80 hover:bg-accent'
+                                  ? 'bg-primary/10 text-primary'
+                                  : 'text-foreground hover:bg-muted'
                               }`}
                             >
                               {coin}
@@ -469,27 +480,31 @@ export default function AssetHistoryPage() {
                     </div>
                   </div>
 
-                  {/* Transaction Type */}
                   <div>
-                    <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Transaction Type</p>
+                    <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Transaction Type</p>
                     <div className="relative">
                       <button
+                        type="button"
                         onClick={() => setShowMethodDropdown(!showMethodDropdown)}
-                        className="w-full flex items-center justify-between px-4 py-2.5 bg-muted dark:bg-[#2b2f36] rounded-xl text-sm text-foreground border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
+                        className="flex w-full items-center justify-between rounded-xl border border-border bg-muted px-4 py-2.5 text-sm text-foreground transition-colors hover:border-primary/40"
                       >
                         <span>{methodFilter === 'all' ? 'All' : methodFilter}</span>
-                        <ChevronDown className={`w-4 h-4 transition-transform ${showMethodDropdown ? 'rotate-180' : ''}`} />
+                        <ChevronDown className={`h-4 w-4 transition-transform ${showMethodDropdown ? 'rotate-180' : ''}`} />
                       </button>
                       {showMethodDropdown && (
-                        <div className="absolute top-full left-0 right-0 mt-2 bg-card border border-border rounded-xl shadow-2xl z-10 overflow-hidden">
+                        <div className="absolute left-0 right-0 top-full z-10 mt-2 overflow-hidden rounded-xl border border-border bg-card shadow-lg">
                           {['All', 'Deposit', 'Withdraw', 'Transfer'].map((type) => (
                             <button
+                              type="button"
                               key={type}
-                              onClick={() => { setMethodFilter(type === 'All' ? 'all' : type.toLowerCase()); setShowMethodDropdown(false); }}
+                              onClick={() => {
+                                setMethodFilter(type === 'All' ? 'all' : type.toLowerCase());
+                                setShowMethodDropdown(false);
+                              }}
                               className={`w-full px-4 py-3 text-left text-sm transition-colors ${
                                 (type === 'All' && methodFilter === 'all') || type.toLowerCase() === methodFilter
-                                  ? 'bg-blue-50 dark:bg-blue-900/20 text-primary'
-                                  : 'text-foreground/80 hover:bg-accent'
+                                  ? 'bg-primary/10 text-primary'
+                                  : 'text-foreground hover:bg-muted'
                               }`}
                             >
                               {type}
@@ -500,27 +515,31 @@ export default function AssetHistoryPage() {
                     </div>
                   </div>
 
-                  {/* Status Filter */}
                   <div>
-                    <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Status</p>
+                    <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Status</p>
                     <div className="relative">
                       <button
+                        type="button"
                         onClick={() => setShowStatusDropdown(!showStatusDropdown)}
-                        className="w-full flex items-center justify-between px-4 py-2.5 bg-muted dark:bg-[#2b2f36] rounded-xl text-sm text-foreground border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
+                        className="flex w-full items-center justify-between rounded-xl border border-border bg-muted px-4 py-2.5 text-sm text-foreground transition-colors hover:border-primary/40"
                       >
                         <span>{statusFilter === 'all' ? 'All' : statusFilter}</span>
-                        <ChevronDown className={`w-4 h-4 transition-transform ${showStatusDropdown ? 'rotate-180' : ''}`} />
+                        <ChevronDown className={`h-4 w-4 transition-transform ${showStatusDropdown ? 'rotate-180' : ''}`} />
                       </button>
                       {showStatusDropdown && (
-                        <div className="absolute top-full left-0 right-0 mt-2 bg-card border border-border rounded-xl shadow-2xl z-10 overflow-hidden">
+                        <div className="absolute left-0 right-0 top-full z-10 mt-2 max-h-60 overflow-auto rounded-xl border border-border bg-card shadow-lg">
                           {statuses.map((status) => (
                             <button
+                              type="button"
                               key={status}
-                              onClick={() => { setStatusFilter(status === 'All' ? 'all' : status.toLowerCase()); setShowStatusDropdown(false); }}
+                              onClick={() => {
+                                setStatusFilter(status === 'All' ? 'all' : status.toLowerCase());
+                                setShowStatusDropdown(false);
+                              }}
                               className={`w-full px-4 py-3 text-left text-sm transition-colors ${
                                 (status === 'All' && statusFilter === 'all') || status.toLowerCase() === statusFilter
-                                  ? 'bg-blue-50 dark:bg-blue-900/20 text-primary'
-                                  : 'text-foreground/80 hover:bg-accent'
+                                  ? 'bg-primary/10 text-primary'
+                                  : 'text-foreground hover:bg-muted'
                               }`}
                             >
                               {status}
@@ -532,11 +551,11 @@ export default function AssetHistoryPage() {
                   </div>
                 </div>
 
-                {/* Table */}
-                <table className="w-full">
+                <div className="overflow-x-auto rounded-lg border border-border">
+                <table className="w-full min-w-[720px]">
                   <thead>
-                    <tr className="border-b border-border">
-                      <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Date & Time</th>
+                    <tr className="border-b border-border bg-muted/30">
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-muted-foreground">Date & Time</th>
                       <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Coin</th>
                       <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Qty</th>
                       <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Type</th>
@@ -549,13 +568,11 @@ export default function AssetHistoryPage() {
                       <SkeletonTableBody rows={8} columns={6} />
                     ) : filteredTransactions.length > 0 ? (
                       filteredTransactions.map((tx) => (
-                        <tr key={tx.id} className="border-b border-gray-50 dark:border-border/50 hover:bg-accent/30 transition-colors">
+                        <tr key={tx.id} className="border-b border-border transition-colors hover:bg-muted/40">
                           <td className="px-4 py-4 text-sm text-muted-foreground">{formatDate(tx.date_time)}</td>
                           <td className="px-4 py-4">
                             <div className="flex items-center gap-2">
-                              {tx.coin_logo && (
-                                <Image src={tx.coin_logo} alt={tx.coin} width={24} height={24} className="rounded-full" unoptimized />
-                              )}
+                              <CoinIcon symbol={tx.coin} size={24} />
                               <span className="font-medium text-foreground">{tx.coin}</span>
                             </div>
                           </td>
@@ -569,83 +586,85 @@ export default function AssetHistoryPage() {
                       <tr>
                         <td colSpan={6} className="py-20 text-center">
                           <div className="flex flex-col items-center">
-                            <div className="w-24 h-24 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl flex items-center justify-center mb-4">
-                              <FileText className="w-12 h-12 text-blue-300 dark:text-primary" />
+                            <div className="mb-4 flex h-24 w-24 items-center justify-center rounded-xl bg-muted">
+                              <FileText className="h-12 w-12 text-primary" />
                             </div>
-                            <p className="text-muted-foreground font-medium">No Data</p>
-                            <p className="text-sm text-muted-foreground mt-1">No transactions found for the selected filters</p>
+                            <p className="font-medium text-muted-foreground">No Data</p>
+                            <p className="mt-1 text-sm text-muted-foreground">No transactions found for the selected filters</p>
                           </div>
                         </td>
                       </tr>
                     )}
                   </tbody>
                 </table>
+                </div>
               </div>
             ) : (
-              /* History View */
               <div>
-                {/* History Sub-tabs */}
-                <div className="flex items-center gap-1 px-4 pt-4 pb-2 border-b border-border overflow-x-auto">
+                <div className="flex items-center gap-1 overflow-x-auto border-b border-border px-3 pb-2 pt-4 sm:px-4">
                   {HISTORY_TABS.map((tab) => (
                     <button
+                      type="button"
                       key={tab.id}
                       onClick={() => setHistoryTab(tab.id)}
-                      className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium whitespace-nowrap rounded-lg transition-all ${
+                      className={`flex items-center gap-1.5 whitespace-nowrap rounded-lg px-4 py-2.5 text-sm font-medium transition-all ${
                         historyTab === tab.id
-                          ? 'bg-blue-50 dark:bg-blue-900/20 text-primary border border-blue-100 dark:border-blue-800/30'
-                          : 'text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300 hover:bg-accent/50'
+                          ? 'border border-border bg-primary/10 text-primary'
+                          : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
                       }`}
                     >
                       {tab.label}
-                      {tab.external && <ExternalLink className="w-3 h-3" />}
+                      {tab.external && <ExternalLink className="h-3 w-3" />}
                     </button>
                   ))}
                 </div>
 
-                <div className="p-6">
-                  {/* Advanced Filters */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-                    {/* Date Range */}
+                <div className="p-4 sm:p-6">
+                  <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                     <div>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Date Range</p>
-                      <div className="flex items-center gap-2 px-4 py-2.5 bg-muted dark:bg-[#2b2f36] rounded-xl border border-border">
+                      <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Date Range</p>
+                      <div className="flex items-center gap-2 rounded-xl border border-border bg-muted px-4 py-2.5">
                         <input
                           type="date"
                           value={startDate}
                           onChange={(e) => setStartDate(e.target.value)}
-                          className="bg-transparent text-sm text-foreground focus:outline-none flex-1 min-w-0"
+                          className="min-w-0 flex-1 bg-transparent text-sm text-foreground focus:outline-none"
                         />
                         <span className="text-muted-foreground">→</span>
                         <input
                           type="date"
                           value={endDate}
                           onChange={(e) => setEndDate(e.target.value)}
-                          className="bg-transparent text-sm text-foreground focus:outline-none flex-1 min-w-0"
+                          className="min-w-0 flex-1 bg-transparent text-sm text-foreground focus:outline-none"
                         />
-                        <Calendar className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                        <Calendar className="h-4 w-4 shrink-0 text-muted-foreground" />
                       </div>
                     </div>
-                    {/* Asset */}
                     <div>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Asset</p>
+                      <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Asset</p>
                       <div className="relative">
                         <button
+                          type="button"
                           onClick={() => setShowCoinDropdown(!showCoinDropdown)}
-                          className="w-full flex items-center justify-between px-4 py-2.5 bg-muted dark:bg-[#2b2f36] rounded-xl text-sm text-foreground border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
+                          className="flex w-full items-center justify-between rounded-xl border border-border bg-muted px-4 py-2.5 text-sm text-foreground transition-colors hover:border-primary/40"
                         >
                           <span>{coinFilter === 'all' ? 'All' : coinFilter}</span>
-                          <ChevronDown className={`w-4 h-4 transition-transform ${showCoinDropdown ? 'rotate-180' : ''}`} />
+                          <ChevronDown className={`h-4 w-4 transition-transform ${showCoinDropdown ? 'rotate-180' : ''}`} />
                         </button>
                         {showCoinDropdown && (
-                          <div className="absolute top-full left-0 right-0 mt-2 bg-card border border-border rounded-xl shadow-2xl z-10 overflow-hidden">
+                          <div className="absolute left-0 right-0 top-full z-10 mt-2 max-h-60 overflow-auto rounded-xl border border-border bg-card shadow-lg">
                             {coins.map((coin) => (
                               <button
+                                type="button"
                                 key={coin}
-                                onClick={() => { setCoinFilter(coin === 'All' ? 'all' : coin); setShowCoinDropdown(false); }}
+                                onClick={() => {
+                                  setCoinFilter(coin === 'All' ? 'all' : coin);
+                                  setShowCoinDropdown(false);
+                                }}
                                 className={`w-full px-4 py-3 text-left text-sm transition-colors ${
                                   (coin === 'All' && coinFilter === 'all') || coin === coinFilter
-                                    ? 'bg-blue-50 dark:bg-blue-900/20 text-primary'
-                                    : 'text-foreground/80 hover:bg-accent'
+                                    ? 'bg-primary/10 text-primary'
+                                    : 'text-foreground hover:bg-muted'
                                 }`}
                               >
                                 {coin}
@@ -656,29 +675,37 @@ export default function AssetHistoryPage() {
                       </div>
                     </div>
 
-                    {/* Method Filter */}
                     <div>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">
-                        {historyTab === 'deposit' ? 'Deposit Method' : historyTab === 'withdraw' ? 'Withdraw Method' : 'Method'}
+                      <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+                        {historyTab === 'deposit'
+                          ? 'Deposit Method'
+                          : historyTab === 'withdraw'
+                            ? 'Withdraw Method'
+                            : 'Method'}
                       </p>
                       <div className="relative">
                         <button
+                          type="button"
                           onClick={() => setShowMethodDropdown(!showMethodDropdown)}
-                          className="w-full flex items-center justify-between px-4 py-2.5 bg-muted dark:bg-[#2b2f36] rounded-xl text-sm text-foreground border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
+                          className="flex w-full items-center justify-between rounded-xl border border-border bg-muted px-4 py-2.5 text-sm text-foreground transition-colors hover:border-primary/40"
                         >
                           <span>{methodFilter === 'all' ? 'All' : methodFilter}</span>
-                          <ChevronDown className={`w-4 h-4 transition-transform ${showMethodDropdown ? 'rotate-180' : ''}`} />
+                          <ChevronDown className={`h-4 w-4 transition-transform ${showMethodDropdown ? 'rotate-180' : ''}`} />
                         </button>
-                      {showMethodDropdown && (
-                        <div className="absolute top-full left-0 right-0 mt-2 bg-card border border-border rounded-xl shadow-2xl z-10 overflow-hidden">
-                          {methods.map((method) => (
+                        {showMethodDropdown && (
+                          <div className="absolute left-0 right-0 top-full z-10 mt-2 overflow-hidden rounded-xl border border-border bg-card shadow-lg">
+                            {methods.map((method) => (
                               <button
+                                type="button"
                                 key={method}
-                                onClick={() => { setMethodFilter(method === 'All' ? 'all' : method.toLowerCase()); setShowMethodDropdown(false); }}
+                                onClick={() => {
+                                  setMethodFilter(method === 'All' ? 'all' : method.toLowerCase());
+                                  setShowMethodDropdown(false);
+                                }}
                                 className={`w-full px-4 py-3 text-left text-sm transition-colors ${
                                   (method === 'All' && methodFilter === 'all') || method.toLowerCase() === methodFilter
-                                    ? 'bg-blue-50 dark:bg-blue-900/20 text-primary'
-                                    : 'text-foreground/80 hover:bg-accent'
+                                    ? 'bg-primary/10 text-primary'
+                                    : 'text-foreground hover:bg-muted'
                                 }`}
                               >
                                 {method}
@@ -689,27 +716,31 @@ export default function AssetHistoryPage() {
                       </div>
                     </div>
 
-                    {/* Status Filter */}
                     <div>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Status</p>
+                      <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Status</p>
                       <div className="relative">
                         <button
+                          type="button"
                           onClick={() => setShowStatusDropdown(!showStatusDropdown)}
-                          className="w-full flex items-center justify-between px-4 py-2.5 bg-muted dark:bg-[#2b2f36] rounded-xl text-sm text-foreground border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
+                          className="flex w-full items-center justify-between rounded-xl border border-border bg-muted px-4 py-2.5 text-sm text-foreground transition-colors hover:border-primary/40"
                         >
                           <span>{statusFilter === 'all' ? 'All' : statusFilter}</span>
-                          <ChevronDown className={`w-4 h-4 transition-transform ${showStatusDropdown ? 'rotate-180' : ''}`} />
+                          <ChevronDown className={`h-4 w-4 transition-transform ${showStatusDropdown ? 'rotate-180' : ''}`} />
                         </button>
                         {showStatusDropdown && (
-                          <div className="absolute top-full left-0 right-0 mt-2 bg-card border border-border rounded-xl shadow-2xl z-10 overflow-hidden">
+                          <div className="absolute left-0 right-0 top-full z-10 mt-2 max-h-60 overflow-auto rounded-xl border border-border bg-card shadow-lg">
                             {statuses.map((status) => (
                               <button
+                                type="button"
                                 key={status}
-                                onClick={() => { setStatusFilter(status === 'All' ? 'all' : status.toLowerCase()); setShowStatusDropdown(false); }}
+                                onClick={() => {
+                                  setStatusFilter(status === 'All' ? 'all' : status.toLowerCase());
+                                  setShowStatusDropdown(false);
+                                }}
                                 className={`w-full px-4 py-3 text-left text-sm transition-colors ${
                                   (status === 'All' && statusFilter === 'all') || status.toLowerCase() === statusFilter
-                                    ? 'bg-blue-50 dark:bg-blue-900/20 text-primary'
-                                    : 'text-foreground/80 hover:bg-accent'
+                                    ? 'bg-primary/10 text-primary'
+                                    : 'text-foreground hover:bg-muted'
                                 }`}
                               >
                                 {status}
@@ -721,124 +752,141 @@ export default function AssetHistoryPage() {
                     </div>
                   </div>
 
-                  {/* Self-Service Link */}
                   {historyTab === 'deposit' && (
-                    <div className="flex items-center gap-2 mb-6">
+                    <div className="mb-6 flex flex-wrap items-center gap-2">
                       <span className="text-sm text-muted-foreground">Deposits yet to be credited?</span>
-                      <Link href="/dashboard/help#self-service" className="text-sm text-primary hover:text-primary/85 font-medium flex items-center gap-1">
-                        Self-Service <ChevronRight className="w-4 h-4" />
+                      <Link
+                        href="/dashboard/help#self-service"
+                        className="flex items-center gap-1 text-sm font-medium text-primary hover:text-primary/85"
+                      >
+                        Self-Service <ChevronRight className="h-4 w-4" />
                       </Link>
                     </div>
                   )}
 
-                  {/* Table */}
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-border">
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Coin</th>
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Chain Type</th>
-                        <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Qty</th>
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Address</th>
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Txid</th>
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">
-                          <div className="flex items-center gap-1">
-                            Status
-                            <HelpCircle className="w-3 h-3 text-muted-foreground" />
-                          </div>
-                        </th>
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Date & Time</th>
-                        <th className="text-right px-4 py-3 text-xs font-semibold text-muted-foreground uppercase">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {loading ? (
-                        <tr>
-                          <td colSpan={8} className="py-20 text-center">
-                            <RefreshCw className="w-8 h-8 text-primary animate-spin mx-auto mb-3" />
-                            <p className="text-sm text-muted-foreground">Loading history...</p>
-                          </td>
+                  <div className="overflow-x-auto rounded-lg border border-border">
+                    <table className="w-full min-w-[900px]">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/30">
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-muted-foreground">Coin</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-muted-foreground">Chain Type</th>
+                          <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-muted-foreground">Qty</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-muted-foreground">Address</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-muted-foreground">Txid</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-muted-foreground">
+                            <div className="flex items-center gap-1">
+                              Status
+                              <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                            </div>
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-muted-foreground">Date & Time</th>
+                          <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-muted-foreground">Action</th>
                         </tr>
-                      ) : filteredTransactions.length > 0 ? (
-                        filteredTransactions.map((tx) => (
-                          <tr key={tx.id} className="border-b border-gray-50 dark:border-border/50 hover:bg-accent/30 transition-colors">
-                            <td className="px-4 py-4">
-                              <div className="flex items-center gap-2">
-                                {tx.coin_logo && (
-                                  <Image src={tx.coin_logo} alt={tx.coin} width={24} height={24} className="rounded-full" unoptimized />
-                                )}
-                                <span className="font-medium text-foreground">{tx.coin}</span>
-                              </div>
-                            </td>
-                            <td className="px-4 py-4 text-sm text-muted-foreground">{tx.chain_type || '-'}</td>
-                            <td className="px-4 py-4 text-right font-mono text-sm text-foreground">{tx.quantity}</td>
-                            <td className="px-4 py-4">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm text-muted-foreground font-mono">{truncateAddress(tx.address)}</span>
-                                {tx.address && (
-                                  <button 
-                                    onClick={() => copyToClipboard(tx.address, `addr-${tx.id}`)}
-                                    className="p-1 hover:bg-accent rounded"
-                                  >
-                                    {copiedTxid === `addr-${tx.id}` ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3 text-muted-foreground" />}
-                                  </button>
-                                )}
-                              </div>
-                            </td>
-                            <td className="px-4 py-4">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm text-muted-foreground font-mono">{truncateAddress(tx.txid)}</span>
-                                {tx.txid && (
-                                  <>
-                                    <button 
-                                      onClick={() => copyToClipboard(tx.txid, `txid-${tx.id}`)}
-                                      className="p-1 hover:bg-accent rounded"
-                                    >
-                                      {copiedTxid === `txid-${tx.id}` ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3 text-muted-foreground" />}
-                                    </button>
-                                    <a href={`https://etherscan.io/tx/${tx.txid}`} target="_blank" rel="noopener noreferrer" className="p-1 hover:bg-accent rounded">
-                                      <ExternalLink className="w-3 h-3 text-muted-foreground" />
-                                    </a>
-                                  </>
-                                )}
-                              </div>
-                            </td>
-                            <td className="px-4 py-4">
-                              {renderConfirmationStatus(tx)}
-                            </td>
-                            <td className="px-4 py-4 text-sm text-muted-foreground">{formatDate(tx.date_time)}</td>
-                            <td className="px-4 py-4 text-right">
-                              {tx.explorerUrl ? (
-                                <a 
-                                  href={tx.explorerUrl} 
-                                  target="_blank" 
-                                  rel="noopener noreferrer"
-                                  className="text-sm text-primary hover:text-primary/85 font-medium inline-flex items-center gap-1"
-                                >
-                                  View <ExternalLink className="w-3 h-3" />
-                                </a>
-                              ) : (
-                                <button className="text-sm text-primary hover:text-primary/85 font-medium">
-                                  Details
-                                </button>
-                              )}
+                      </thead>
+                      <tbody>
+                        {loading ? (
+                          <tr>
+                            <td colSpan={8} className="py-20 text-center">
+                              <RefreshCw className="mx-auto mb-3 h-8 w-8 animate-spin text-primary" />
+                              <p className="text-sm text-muted-foreground">Loading history...</p>
                             </td>
                           </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={8} className="py-20 text-center">
-                            <div className="flex flex-col items-center">
-                              <div className="w-24 h-24 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl flex items-center justify-center mb-4">
-                                <FileText className="w-12 h-12 text-blue-300 dark:text-primary" />
+                        ) : filteredTransactions.length > 0 ? (
+                          filteredTransactions.map((tx) => (
+                            <tr key={tx.id} className="border-b border-border transition-colors hover:bg-muted/40">
+                              <td className="px-4 py-4">
+                                <div className="flex items-center gap-2">
+                                  <CoinIcon symbol={tx.coin} size={24} />
+                                  <span className="font-medium text-foreground">{tx.coin}</span>
+                                </div>
+                              </td>
+                              <td className="px-4 py-4 text-sm text-muted-foreground">{tx.chain_type || '-'}</td>
+                              <td className="px-4 py-4 text-right font-mono text-sm text-foreground">{tx.quantity}</td>
+                              <td className="px-4 py-4">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-sm text-muted-foreground">{truncateAddress(tx.address)}</span>
+                                  {tx.address && (
+                                    <button
+                                      type="button"
+                                      onClick={() => copyToClipboard(tx.address, `addr-${tx.id}`)}
+                                      className="rounded p-1 transition-colors hover:bg-muted"
+                                    >
+                                      {copiedTxid === `addr-${tx.id}` ? (
+                                        <Check className="h-3 w-3 text-buy" />
+                                      ) : (
+                                        <Copy className="h-3 w-3 text-muted-foreground" />
+                                      )}
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-4 py-4">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-sm text-muted-foreground">{truncateAddress(tx.txid)}</span>
+                                  {tx.txid && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => copyToClipboard(tx.txid, `txid-${tx.id}`)}
+                                        className="rounded p-1 transition-colors hover:bg-muted"
+                                      >
+                                        {copiedTxid === `txid-${tx.id}` ? (
+                                          <Check className="h-3 w-3 text-buy" />
+                                        ) : (
+                                          <Copy className="h-3 w-3 text-muted-foreground" />
+                                        )}
+                                      </button>
+                                      <a
+                                        href={`https://etherscan.io/tx/${tx.txid}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="rounded p-1 transition-colors hover:bg-muted"
+                                      >
+                                        <ExternalLink className="h-3 w-3 text-muted-foreground" />
+                                      </a>
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-4 py-4">{renderConfirmationStatus(tx)}</td>
+                              <td className="px-4 py-4 text-sm text-muted-foreground">{formatDate(tx.date_time)}</td>
+                              <td className="px-4 py-4 text-right">
+                                {tx.explorerUrl ? (
+                                  <a
+                                    href={tx.explorerUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:text-primary/85"
+                                  >
+                                    View <ExternalLink className="h-3 w-3" />
+                                  </a>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="text-sm font-medium text-primary hover:text-primary/85"
+                                  >
+                                    Details
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={8} className="py-20 text-center">
+                              <div className="flex flex-col items-center">
+                                <div className="mb-4 flex h-24 w-24 items-center justify-center rounded-xl bg-muted">
+                                  <FileText className="h-12 w-12 text-primary" />
+                                </div>
+                                <p className="font-medium text-muted-foreground">No Data</p>
+                                <p className="mt-1 text-sm text-muted-foreground">No {historyTab} records found</p>
                               </div>
-                              <p className="text-muted-foreground font-medium">No Data</p>
-                              <p className="text-sm text-muted-foreground mt-1">No {historyTab} records found</p>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
             )}

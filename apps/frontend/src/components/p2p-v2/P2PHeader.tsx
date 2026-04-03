@@ -40,7 +40,7 @@ export function P2PHeader() {
                 href={href}
                 className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors sm:text-sm ${
                   isActive
-                    ? 'bg-blue-600 text-white dark:bg-blue-600'
+                    ? 'bg-primary text-primary-foreground'
                     : 'text-muted-foreground hover:bg-accent dark:text-foreground/80 dark:hover:bg-accent'
                 }`}
               >
@@ -62,7 +62,7 @@ export function P2PHeader() {
           ) : (
             <Link
               href={loginWithRedirect(P2P_HREF)}
-              className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+              className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
             >
               Log in
             </Link>

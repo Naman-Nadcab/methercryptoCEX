@@ -41,7 +41,7 @@ import {
   logMatchingEngineShardRoutingCompliance,
 } from './services/settlement/matching-engine-shard-router.js';
 import { p2pService } from './services/p2p.service.js';
-import { runCandleAggregation } from './services/candle-aggregation.service.js';
+import { runCandleAggregation, seedSyntheticCandles } from './services/candle-aggregation.service.js';
 import { processTriggeredStopOrders } from './services/spot-trigger.service.js';
 import { detectWashTrading, detectSpoofing, detectPump, createManipulationAlerts } from './services/market-manipulation.service.js';
 import { startSpotWsPubSub } from './services/spot-ws.service.js';
@@ -58,6 +58,7 @@ import adminSecurityRoutes from './routes/admin-security.fastify.js';
 import uploadRoutes from './routes/upload.fastify.js';
 import walletRoutes from './routes/wallet.fastify.js';
 import convertRoutes from './routes/convert.fastify.js';
+import { startPortfolioSnapshotCron } from './services/portfolio-snapshot.service.js';
 import kycRoutes from './routes/kyc.js';
 import debugRoutes from './routes/debug.fastify.js';
 import spotRoutes from './routes/spot.fastify.js';
@@ -845,6 +846,7 @@ async function start() {
       logger.info(`🚀 API running on port ${port}`);
       logger.info(`   Base URL: http://localhost:${port}`);
       void import('./lib/liquidity-bot-rate-limit.js').then((m) => m.warmLiquidityBotUserCache());
+      startPortfolioSnapshotCron();
       void import('./services/settlement-pipeline-health.service.js').then(async (m) => {
         const backlog = await m.refreshSettlementBacklogSnapshot().catch(() => ({ pendingCount: 0, oldestPendingAgeSeconds: 0 }));
         const { settlementPendingGauge, settlementOldestPendingAgeSeconds, settlementLagSeconds } = await import('./lib/prometheus-metrics.js');
@@ -965,6 +967,22 @@ async function start() {
       logger.info(`Candle aggregation job scheduled (every ${candleAggregationIntervalMs / 1000}s)`);
       void runCandleAggregation().catch((e) => {
         logger.warn('Startup candle aggregation failed', { error: e instanceof Error ? e.message : String(e) });
+      });
+
+      const syntheticIntervalMs = 300_000;
+      setInterval(async () => {
+        try {
+          const r = await seedSyntheticCandles();
+          if (r.seeded > 0) {
+            logger.info('Synthetic candle seeding completed', { seeded: r.seeded, errors: r.errors.length });
+          }
+        } catch (e) {
+          logger.warn('Synthetic candle seeding failed', { error: e instanceof Error ? e.message : 'Unknown' });
+        }
+      }, syntheticIntervalMs);
+      logger.info(`Synthetic candle seeder scheduled (every ${syntheticIntervalMs / 1000}s)`);
+      void seedSyntheticCandles().catch((e) => {
+        logger.warn('Startup synthetic candle seeding failed', { error: e instanceof Error ? e.message : String(e) });
       });
     } else {
       logger.info('Candle aggregation disabled (DISABLE_CANDLE_AGGREGATION=true)');

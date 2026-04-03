@@ -38,6 +38,7 @@ export class LightweightChartsAdapter implements ChartAdapter {
   private legendCallback: ((text: string) => void) | null = null;
   private overlayStudy: OverlayStudyId = 'none';
   private rsiEnabled = false;
+  private throttledLightRefresh = throttleLeading<void>(100, () => this.refreshStudies('light'));
 
   /** Phase 2–4 — modular toggles (defaults off except volume on). */
   private extensions: ChartExtensionsConfig = { volumeHistogram: true };
@@ -667,7 +668,7 @@ export class LightweightChartsAdapter implements ChartAdapter {
       }
       this.updatePriceLineColor();
       this.emitLegend(this.lastBar);
-      this.refreshStudies('light');
+      this.throttledLightRefresh();
       return;
     }
 

@@ -38,7 +38,7 @@ export function DashboardPageShell({
           <nav aria-label="Breadcrumb" className="mb-3 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
             <Link
               href={ROUTES.home}
-              className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-accent hover:text-foreground dark:hover:text-white transition-colors"
+              className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-accent hover:text-foreground transition-colors"
             >
               <Home className="w-3.5 h-3.5 opacity-80" aria-hidden />
               <span>Home</span>
@@ -62,7 +62,7 @@ export function DashboardPageShell({
                   ) : (
                     <Link
                       href={c.href}
-                      className="rounded-md px-1.5 py-0.5 hover:bg-accent hover:text-foreground dark:hover:text-white transition-colors"
+                      className="rounded-md px-1.5 py-0.5 hover:bg-accent hover:text-foreground transition-colors"
                     >
                       {c.label}
                     </Link>

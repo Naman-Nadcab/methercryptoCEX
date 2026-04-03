@@ -33,11 +33,11 @@ export default function AnnouncementsListPage() {
   return (
     <div className="p-4 lg:p-8 max-w-4xl mx-auto">
       <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 bg-orange-100 dark:bg-orange-900/30 rounded-xl flex items-center justify-center">
-          <Bell className="w-5 h-5 text-orange-600 dark:text-orange-400" />
+        <div className="w-10 h-10 bg-warning-light rounded-xl flex items-center justify-center">
+          <Bell className="w-5 h-5 text-warning" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Announcements</h1>
+          <h1 className="text-xl font-semibold text-foreground">Announcements</h1>
           <p className="text-sm text-muted-foreground">Latest updates and news from the platform</p>
         </div>
       </div>
@@ -66,7 +66,7 @@ export default function AnnouncementsListPage() {
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex items-center gap-3 min-w-0">
                     {isNew && (
-                      <span className="px-2 py-0.5 bg-red-500 text-white text-xs font-medium rounded flex-shrink-0">NEW</span>
+                      <span className="px-2 py-0.5 bg-sell text-destructive-foreground text-xs font-medium rounded flex-shrink-0">NEW</span>
                     )}
                     <div className="min-w-0">
                       <p className="font-medium text-foreground truncate">{a.title}</p>

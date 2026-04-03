@@ -7,6 +7,7 @@ import { useAuthStore } from '@/store/auth';
 import { useBalancesByAccount } from '@/lib/balances';
 import { api } from '@/lib/api';
 import { ArrowLeft, Download, Upload, FileText } from 'lucide-react';
+import { CoinIcon } from '@/components/ui/CoinIcon';
 
 interface Transaction {
   id: string;
@@ -77,10 +78,10 @@ export default function WalletSymbolPage() {
 
   if (!symbol) {
     return (
-      <div className="p-6">
+      <div className="mx-auto max-w-3xl p-4 sm:p-6">
         <p className="text-muted-foreground">Invalid asset.</p>
         <Link href="/wallet" className="mt-2 inline-flex items-center gap-1 text-sm text-primary hover:underline">
-          <ArrowLeft className="w-4 h-4" /> Back to Assets
+          <ArrowLeft className="h-4 w-4" /> Back to Assets
         </Link>
       </div>
     );
@@ -88,21 +89,21 @@ export default function WalletSymbolPage() {
 
   if (!row) {
     return (
-      <div className="p-6 max-w-2xl">
+      <div className="mx-auto max-w-3xl p-4 sm:p-6">
         <Link
           href="/wallet"
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground dark:hover:text-white mb-4"
+          className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
         >
-          <ArrowLeft className="w-4 h-4" /> Back to Assets
+          <ArrowLeft className="h-4 w-4" /> Back to Assets
         </Link>
-        <div className="bg-card rounded-lg border border-border p-6 text-center">
-          <p className="text-foreground font-medium">No balance for this asset</p>
-          <p className="text-sm text-muted-foreground mt-1">{symbol} — Deposit to create a balance.</p>
+        <div className="rounded-xl border border-border bg-card p-6 text-center shadow-sm">
+          <p className="font-medium text-foreground">No balance for this asset</p>
+          <p className="mt-1 text-sm text-muted-foreground">{symbol} — Deposit to create a balance.</p>
           <Link
             href={`/wallet/deposit/crypto${symbol ? `?coin=${encodeURIComponent(symbol)}` : ''}`}
-            className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary hover:bg-primary/85 text-white text-sm font-medium"
+            className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            <Download className="w-4 h-4" /> Deposit
+            <Download className="h-4 w-4" /> Deposit
           </Link>
         </div>
       </div>
@@ -113,83 +114,94 @@ export default function WalletSymbolPage() {
   const funding = row.funding || '0';
 
   return (
-    <div className="p-6 max-w-3xl">
-      {/* Top bar */}
-      <div className="flex items-center gap-4 mb-6">
+    <div className="mx-auto max-w-3xl space-y-6 p-4 sm:p-6">
+      <div className="flex flex-wrap items-center gap-3 sm:gap-4">
         <Link
           href="/wallet"
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground dark:hover:text-white"
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
         >
-          <ArrowLeft className="w-4 h-4" /> Back
+          <ArrowLeft className="h-4 w-4" /> Back
         </Link>
-        <h1 className="text-xl font-semibold text-foreground">{symbol} Wallet</h1>
+        <div className="flex items-center gap-2">
+          <CoinIcon symbol={typeof symbol === 'string' ? symbol : ''} size={32} />
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">{symbol} Wallet</h1>
+        </div>
       </div>
 
-      {/* Balance summary card */}
-      <div className="bg-card rounded-lg border border-border p-5 mb-6">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div>
-            <p className="text-xs text-muted-foreground uppercase tracking-wide">Total balance</p>
-            <p className="mt-1 text-lg font-semibold text-foreground tabular-nums">{total}</p>
+      <div className="rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-3 sm:gap-4">
+          <div className="space-y-1">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Total balance</p>
+            <p className="text-lg font-semibold tabular-nums text-foreground">{total}</p>
             <p className="text-xs text-muted-foreground">{symbol}</p>
           </div>
-          <div>
-            <p className="text-xs text-muted-foreground uppercase tracking-wide">Available balance</p>
-            <p className="mt-1 text-lg font-semibold text-foreground tabular-nums">{funding}</p>
+          <div className="space-y-1">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Available balance</p>
+            <p className="text-lg font-semibold tabular-nums text-foreground">{funding}</p>
             <p className="text-xs text-muted-foreground">{symbol}</p>
           </div>
-          <div>
-            <p className="text-xs text-muted-foreground uppercase tracking-wide">Locked</p>
-            <p className="mt-1 text-lg font-semibold text-foreground tabular-nums">0</p>
+          <div className="space-y-1">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Locked</p>
+            <p className="text-lg font-semibold tabular-nums text-foreground">0</p>
             <p className="text-xs text-muted-foreground">{symbol}</p>
           </div>
         </div>
       </div>
 
-      {/* Actions */}
-      <div className="flex flex-wrap gap-3 mb-6">
+      <div className="flex flex-wrap gap-3">
         <Link
           href={`/wallet/deposit/crypto?coin=${encodeURIComponent(symbol)}`}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary hover:bg-primary/85 text-white text-sm font-medium transition-colors"
+          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
         >
-          <Download className="w-4 h-4" /> Deposit
+          <Download className="h-4 w-4" /> Deposit
         </Link>
         <Link
           href={`/wallet/withdraw/crypto?coin=${encodeURIComponent(symbol)}`}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-card border border-border text-foreground/80 hover:bg-accent text-sm font-medium transition-colors"
+          className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
         >
-          <Upload className="w-4 h-4" /> Withdraw
+          <Upload className="h-4 w-4" /> Withdraw
         </Link>
       </div>
 
-      {/* History */}
-      <div className="bg-card rounded-lg border border-border overflow-hidden">
-        <div className="px-4 py-3 border-b border-border flex items-center gap-2">
-          <FileText className="w-4 h-4 text-muted-foreground" />
-          <h2 className="text-sm font-medium text-foreground">History</h2>
+      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+          <FileText className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-sm font-semibold text-foreground">History</h2>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-muted-foreground border-b border-border">
-                <th className="py-3 px-4 font-medium uppercase tracking-wide">Type</th>
-                <th className="py-3 px-4 font-medium uppercase tracking-wide">Amount</th>
-                <th className="py-3 px-4 font-medium uppercase tracking-wide">Status</th>
-                <th className="py-3 px-4 font-medium uppercase tracking-wide">Date</th>
+              <tr className="border-b border-border text-left text-muted-foreground">
+                <th className="px-4 py-3 text-xs font-medium uppercase tracking-wide">Type</th>
+                <th className="px-4 py-3 text-xs font-medium uppercase tracking-wide">Amount</th>
+                <th className="px-4 py-3 text-xs font-medium uppercase tracking-wide">Status</th>
+                <th className="px-4 py-3 text-xs font-medium uppercase tracking-wide">Date</th>
               </tr>
             </thead>
             <tbody>
               {filteredHistory.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="py-8 text-center text-muted-foreground text-sm">No history for this asset.</td>
+                  <td colSpan={4} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                    No history for this asset.
+                  </td>
                 </tr>
               ) : (
                 filteredHistory.map((t) => (
-                  <tr key={t.id} className="border-b border-border last:border-0 hover:bg-gray-50/50 dark:hover:bg-card/5">
-                    <td className="py-3 px-4 font-medium text-foreground capitalize">{t.type}</td>
-                    <td className="py-3 px-4 tabular-nums text-foreground/80">{t.type === 'deposit' ? '+' : '-'}{t.amount}</td>
-                    <td className="py-3 px-4 text-muted-foreground">{t.status}</td>
-                    <td className="py-3 px-4 text-muted-foreground">{t.created_at ? new Date(t.created_at).toLocaleString() : '—'}</td>
+                  <tr
+                    key={t.id}
+                    className="border-b border-border transition-colors last:border-0 hover:bg-muted/50"
+                  >
+                    <td className="px-4 py-3 font-medium capitalize text-foreground">{t.type}</td>
+                    <td
+                      className={`px-4 py-3 font-mono tabular-nums ${t.type === 'deposit' ? 'text-buy' : 'text-sell'}`}
+                    >
+                      {t.type === 'deposit' ? '+' : '-'}
+                      {t.amount}
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">{t.status}</td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {t.created_at ? new Date(t.created_at).toLocaleString() : '—'}
+                    </td>
                   </tr>
                 ))
               )}

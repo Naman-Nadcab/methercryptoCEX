@@ -1,403 +1,689 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAuthStore } from '@/store/auth';
-import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { api } from '@/lib/api';
+import { notifyError, notifySuccess } from '@/lib/notifyError';
 import Link from 'next/link';
-import { notifyError } from '@/lib/notifyError';
 import {
-  ChevronRight,
-  ChevronDown,
-  Wallet,
-  LayoutGrid,
   TrendingUp,
   TrendingDown,
-  Clock,
   RefreshCw,
   BarChart3,
-  Calendar,
+  ChevronDown,
   Filter,
+  Download,
+  Trophy,
+  AlertTriangle,
   ArrowUpRight,
   ArrowDownRight,
+  Search,
 } from 'lucide-react';
+import { CoinIcon } from '@/components/ui/CoinIcon';
 
-interface PnlData {
+interface PnlAsset {
   symbol: string;
   pnl: number;
-  pnlPercentage: number;
+  pnlPercent: number;
+  buyVolume: number;
+  sellVolume: number;
+  avgBuyPrice: number;
+  avgSellPrice: number;
 }
 
-interface PnlSummary {
+interface PnlPayload {
   totalPnl: number;
-  totalFilledValue: number;
+  totalPnlPercent: number;
+  assets: PnlAsset[];
 }
 
-export default function PnlAnalysisPage() {
-  const { accessToken } = useAuthStore();
-  
-  const [activeTab, setActiveTab] = useState<'assets' | 'spot'>('spot');
-  const [selectedSymbol, setSelectedSymbol] = useState('all');
-  const [timePeriod, setTimePeriod] = useState('7D');
-  const [pnlData, setPnlData] = useState<PnlData[]>([]);
-  const [summary, setSummary] = useState<PnlSummary>({ totalPnl: 0, totalFilledValue: 0 });
-  const [loading, setLoading] = useState(true);
-  const [showSymbolDropdown, setShowSymbolDropdown] = useState(false);
-  const [chartData, setChartData] = useState<{ date: string; value: number }[]>([]);
-  const [ordersExpanded, setOrdersExpanded] = useState(false);
+type Period = 'today' | '7d' | '30d' | '90d';
 
-  const API_URL = getApiBaseUrl();
+const PERIODS: { id: Period; label: string }[] = [
+  { id: 'today', label: 'Today' },
+  { id: '7d', label: '7D' },
+  { id: '30d', label: '30D' },
+  { id: '90d', label: '90D' },
+];
 
-  const timePeriods = [
-    { id: '7D', label: 'Last 7 D' },
-    { id: '30D', label: 'Last 30 D' },
-    { id: '60D', label: 'Last 60 D' },
-    { id: '90D', label: 'Last 90 D' },
-    { id: '180D', label: 'Last 180 D' },
-    { id: 'custom', label: 'Custom' },
-  ];
+function fmt(n: number, decimals = 2): string {
+  return n.toLocaleString(undefined, {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+}
 
-  const symbols = ['All Symbols', 'BTC', 'ETH', 'USDT', 'SOL', 'XRP'];
+function fmtCompact(n: number): string {
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (abs >= 1_000) return `${(n / 1_000).toFixed(2)}K`;
+  return fmt(n);
+}
 
-  useEffect(() => {
-    if (accessToken) {
-      fetchPnlData();
-    }
-  }, [accessToken, activeTab, timePeriod, selectedSymbol]);
+function pnlColor(v: number): string {
+  if (v > 0) return 'text-buy';
+  if (v < 0) return 'text-sell';
+  return 'text-muted-foreground';
+}
 
-  const fetchPnlData = async () => {
-    try {
-      setLoading(true);
-      const res = await fetch(`${API_URL}/api/v1/wallet/pnl?period=${timePeriod}&type=${activeTab}&symbol=${selectedSymbol}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) {
-          setPnlData(data.data.rankings || []);
-          setSummary(data.data.summary || { totalPnl: 0, totalFilledValue: 0 });
-          setChartData(data.data.chartData || generateMockChartData());
-        }
-      } else {
-        setChartData(generateMockChartData());
-      }
-    } catch (error) {
-      notifyError('Failed to load P&L data. Please try again.');
-      setChartData(generateMockChartData());
-    } finally {
-      setLoading(false);
-    }
-  };
+function pnlSign(v: number): string {
+  return v > 0 ? '+' : '';
+}
 
-  const generateMockChartData = () => {
-    const days = timePeriod === '7D' ? 7 : timePeriod === '30D' ? 30 : timePeriod === '60D' ? 60 : timePeriod === '90D' ? 90 : 180;
-    const data = [];
-    const now = new Date();
-    for (let i = days - 1; i >= 0; i--) {
-      const date = new Date(now);
-      date.setDate(date.getDate() - i);
-      data.push({
-        date: date.toISOString().split('T')[0],
-        value: 0,
-      });
-    }
-    return data;
-  };
+// ── Equity-curve SVG chart ────────────────────────────────────────────
+function EquityCurve({ assets, totalPnl }: { assets: PnlAsset[]; totalPnl: number }) {
+  const W = 720;
+  const H = 200;
+  const PX = 40;
+  const PY = 24;
 
-  const formatNumber = (num: number, decimals = 2) => {
-    return num.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
-  };
+  const points = useMemo(() => {
+    if (assets.length === 0) return [];
+    let cumulative = 0;
+    return assets.map((a) => {
+      cumulative += a.pnl;
+      return cumulative;
+    });
+  }, [assets]);
 
-  const chartPoints = chartData.map((d, i) => ({
-    x: (i / (chartData.length - 1 || 1)) * 100,
-    y: 50,
-    date: d.date,
-    value: d.value,
-  }));
+  if (points.length < 2) {
+    return (
+      <div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">
+        Not enough data to render chart
+      </div>
+    );
+  }
+
+  const min = Math.min(0, ...points);
+  const max = Math.max(0, ...points);
+  const range = max - min || 1;
+
+  const toX = (i: number) => PX + ((W - PX * 2) / (points.length - 1)) * i;
+  const toY = (v: number) => PY + (H - PY * 2) * (1 - (v - min) / range);
+
+  const linePath = points.map((v, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(' ');
+  const areaPath = `${linePath} L${toX(points.length - 1).toFixed(1)},${toY(0).toFixed(1)} L${toX(0).toFixed(1)},${toY(0).toFixed(1)} Z`;
+
+  const isPositive = totalPnl >= 0;
+  const gradientId = isPositive ? 'pnl-grad-pos' : 'pnl-grad-neg';
+  const strokeColor = isPositive ? 'var(--color-buy, #22c55e)' : 'var(--color-sell, #ef4444)';
+
+  const zeroY = toY(0);
+  const gridValues = [max, max * 0.5, 0, min * 0.5, min].filter(
+    (v, _, arr) => arr.indexOf(v) === arr.lastIndexOf(v) || v !== 0
+  );
+  const uniqueGrid = Array.from(new Set(gridValues.map((v) => toY(v).toFixed(0)))).map((yStr) => {
+    const y = Number(yStr);
+    const value = min + (1 - (y - PY) / (H - PY * 2)) * range;
+    return { y, value };
+  });
 
   return (
-    <div className="p-6">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-8">
-            <div className="flex items-center gap-4">
-              <h1 className="text-2xl font-bold text-foreground">P&L Analysis</h1>
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-100 dark:border-blue-800/30">
-                <BarChart3 className="w-4 h-4 text-primary" />
-                <span className="text-sm text-primary font-medium">Performance Tracking</span>
-              </div>
-            </div>
+    <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={strokeColor} stopOpacity={0.25} />
+          <stop offset="100%" stopColor={strokeColor} stopOpacity={0.02} />
+        </linearGradient>
+      </defs>
+
+      {uniqueGrid.map((g, i) => (
+        <g key={i}>
+          <line x1={PX} y1={g.y} x2={W - PX} y2={g.y} stroke="currentColor" strokeOpacity={0.07} strokeDasharray="4 4" />
+          <text x={PX - 4} y={g.y + 3} textAnchor="end" className="fill-muted-foreground" fontSize={9}>
+            {fmtCompact(g.value)}
+          </text>
+        </g>
+      ))}
+
+      <line x1={PX} y1={zeroY} x2={W - PX} y2={zeroY} stroke="currentColor" strokeOpacity={0.15} />
+
+      <path d={areaPath} fill={`url(#${gradientId})`} />
+      <path d={linePath} fill="none" stroke={strokeColor} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+
+      <circle cx={toX(points.length - 1)} cy={toY(points[points.length - 1])} r={4} fill={strokeColor} />
+    </svg>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────
+export default function PnlAnalysisPage() {
+  const { accessToken, _hasHydrated } = useAuthStore();
+
+  const [period, setPeriod] = useState<Period>('7d');
+  const [selectedSymbol, setSelectedSymbol] = useState('all');
+  const [symbolSearch, setSymbolSearch] = useState('');
+  const [showSymbolDropdown, setShowSymbolDropdown] = useState(false);
+
+  const [assets, setAssets] = useState<PnlAsset[]>([]);
+  const [totalPnl, setTotalPnl] = useState(0);
+  const [totalPnlPercent, setTotalPnlPercent] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  const [sortKey, setSortKey] = useState<'pnl' | 'pnlPercent' | 'volume'>('pnl');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowSymbolDropdown(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  const fetchPnl = useCallback(
+    async (p: Period, sym: string) => {
+      try {
+        setLoading(true);
+        const qs = new URLSearchParams({ period: p, type: 'all', symbol: sym });
+        const res = await api.get<PnlPayload>(`/api/v1/wallet/pnl?${qs}`, { notifyOnError: false });
+        if (!res.success || !res.data) {
+          notifyError(res.error?.message ?? 'Failed to load P&L data');
+          setAssets([]);
+          setTotalPnl(0);
+          setTotalPnlPercent(0);
+          return;
+        }
+        const d = res.data;
+        setAssets(Array.isArray(d.assets) ? d.assets : []);
+        setTotalPnl(Number(d.totalPnl) || 0);
+        setTotalPnlPercent(Number(d.totalPnlPercent) || 0);
+      } catch {
+        notifyError('Failed to load P&L data');
+        setAssets([]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!_hasHydrated || !accessToken) return;
+    void fetchPnl(period, selectedSymbol);
+  }, [accessToken, _hasHydrated, period, selectedSymbol, fetchPnl]);
+
+  // Derived data
+  const symbolOptions = useMemo(() => {
+    return Array.from(new Set(assets.map((a) => a.symbol))).sort();
+  }, [assets]);
+
+  const filteredSymbols = useMemo(() => {
+    if (!symbolSearch.trim()) return symbolOptions;
+    const q = symbolSearch.trim().toUpperCase();
+    return symbolOptions.filter((s) => s.toUpperCase().includes(q));
+  }, [symbolOptions, symbolSearch]);
+
+  const bestPerformer = useMemo(() => {
+    if (assets.length === 0) return null;
+    return [...assets].sort((a, b) => b.pnl - a.pnl)[0];
+  }, [assets]);
+
+  const worstPerformer = useMemo(() => {
+    if (assets.length === 0) return null;
+    return [...assets].sort((a, b) => a.pnl - b.pnl)[0];
+  }, [assets]);
+
+  const sortedAssets = useMemo(() => {
+    const copy = [...assets];
+    copy.sort((a, b) => {
+      let diff = 0;
+      if (sortKey === 'pnl') diff = a.pnl - b.pnl;
+      else if (sortKey === 'pnlPercent') diff = a.pnlPercent - b.pnlPercent;
+      else diff = a.buyVolume + a.sellVolume - (b.buyVolume + b.sellVolume);
+      return sortDir === 'desc' ? -diff : diff;
+    });
+    return copy;
+  }, [assets, sortKey, sortDir]);
+
+  const maxAbsPnl = useMemo(() => {
+    return Math.max(1, ...assets.map((a) => Math.abs(a.pnl)));
+  }, [assets]);
+
+  const handleSort = (key: typeof sortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
+    } else {
+      setSortKey(key);
+      setSortDir('desc');
+    }
+  };
+
+  const handleExport = () => {
+    if (assets.length === 0) {
+      notifyError('No data to export');
+      return;
+    }
+    const header = 'Symbol,PnL (USD),PnL %,Buy Volume,Sell Volume,Avg Buy Price,Avg Sell Price';
+    const rows = assets.map(
+      (a) =>
+        `${a.symbol},${a.pnl},${a.pnlPercent},${a.buyVolume},${a.sellVolume},${a.avgBuyPrice},${a.avgSellPrice}`,
+    );
+    const csv = [header, ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `pnl_${period}_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    notifySuccess('Exported', 'CSV file downloaded');
+  };
+
+  const handlePeriodChange = (p: Period) => {
+    setPeriod(p);
+  };
+
+  const handleSymbolSelect = (sym: string) => {
+    setSelectedSymbol(sym);
+    setShowSymbolDropdown(false);
+    setSymbolSearch('');
+  };
+
+  const hasNoData = !loading && assets.length === 0 && totalPnl === 0;
+
+  return (
+    <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6">
+      {/* Header */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">P&L Analysis</h1>
+          <div className="flex items-center gap-2 rounded-xl border border-border bg-primary/10 px-3 py-1.5">
+            <BarChart3 className="h-4 w-4 text-primary" />
+            <span className="text-sm font-medium text-primary">Performance</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleExport}
+            className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:border-primary/40"
+          >
+            <Download className="h-4 w-4" />
+            Export CSV
+          </button>
+          <button
+            type="button"
+            onClick={() => void fetchPnl(period, selectedSymbol)}
+            className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:border-primary/40"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Period chips + Symbol filter */}
+      <div className="flex flex-col gap-4 rounded-xl border border-border bg-card p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-5">
+        <div className="flex flex-wrap gap-2">
+          {PERIODS.map((p) => (
             <button
-              onClick={fetchPnlData}
-              className="flex items-center gap-2 px-4 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-xl border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
+              key={p.id}
+              type="button"
+              onClick={() => handlePeriodChange(p.id)}
+              className={`rounded-xl px-4 py-2 text-sm font-medium transition-all ${
+                period === p.id
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'border border-border bg-muted text-muted-foreground hover:border-primary/40 hover:text-foreground'
+              }`}
             >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-              Refresh
+              {p.label}
             </button>
+          ))}
+        </div>
+
+        <div ref={dropdownRef} className="relative min-w-[200px]">
+          <button
+            type="button"
+            onClick={() => setShowSymbolDropdown(!showSymbolDropdown)}
+            className="flex w-full items-center justify-between gap-4 rounded-xl border border-border bg-muted px-4 py-2.5 text-sm text-foreground transition-colors hover:border-primary/40"
+          >
+            <div className="flex items-center gap-2">
+              <Filter className="h-4 w-4 text-muted-foreground" />
+              {selectedSymbol === 'all' ? (
+                <span>All Symbols</span>
+              ) : (
+                <span className="flex items-center gap-2">
+                  <CoinIcon symbol={selectedSymbol} size={16} />
+                  {selectedSymbol}
+                </span>
+              )}
+            </div>
+            <ChevronDown className={`h-4 w-4 transition-transform ${showSymbolDropdown ? 'rotate-180' : ''}`} />
+          </button>
+
+          {showSymbolDropdown && (
+            <div className="absolute right-0 top-full z-20 mt-2 w-full min-w-[220px] overflow-hidden rounded-xl border border-border bg-card shadow-xl">
+              <div className="border-b border-border p-2">
+                <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2">
+                  <Search className="h-4 w-4 text-muted-foreground" />
+                  <input
+                    type="text"
+                    value={symbolSearch}
+                    onChange={(e) => setSymbolSearch(e.target.value)}
+                    placeholder="Search symbol…"
+                    className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+                    autoFocus
+                  />
+                </div>
+              </div>
+              <div className="max-h-56 overflow-y-auto">
+                <button
+                  type="button"
+                  onClick={() => handleSymbolSelect('all')}
+                  className={`w-full px-4 py-3 text-left text-sm transition-colors ${
+                    selectedSymbol === 'all' ? 'bg-primary/10 text-primary' : 'text-foreground hover:bg-muted'
+                  }`}
+                >
+                  All Symbols
+                </button>
+                {filteredSymbols.map((sym) => (
+                  <button
+                    type="button"
+                    key={sym}
+                    onClick={() => handleSymbolSelect(sym)}
+                    className={`flex w-full items-center gap-2.5 px-4 py-3 text-left text-sm transition-colors ${
+                      sym === selectedSymbol ? 'bg-primary/10 text-primary' : 'text-foreground hover:bg-muted'
+                    }`}
+                  >
+                    <CoinIcon symbol={sym} size={18} />
+                    {sym}
+                  </button>
+                ))}
+                {filteredSymbols.length === 0 && (
+                  <p className="px-4 py-3 text-center text-sm text-muted-foreground">No matches</p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {hasNoData ? (
+        <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card py-16 shadow-sm">
+          <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-xl bg-muted">
+            <BarChart3 className="h-10 w-10 text-muted-foreground" />
           </div>
-
-          {/* Tabs */}
-          <div className="bg-card rounded-xl border border-border mb-6">
-            <div className="flex gap-1 p-1.5 bg-accent dark:bg-[#2b2f36] m-4 rounded-xl w-fit">
-              <button
-                onClick={() => setActiveTab('assets')}
-                className={`px-6 py-2.5 text-sm font-medium rounded-lg transition-all ${
-                  activeTab === 'assets'
-                    ? 'bg-card text-primary shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'
-                }`}
-              >
-                Assets
-              </button>
-              <button
-                onClick={() => setActiveTab('spot')}
-                className={`px-6 py-2.5 text-sm font-medium rounded-lg transition-all ${
-                  activeTab === 'spot'
-                    ? 'bg-card text-primary shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground/80 dark:hover:text-gray-300'
-                }`}
-              >
-                Spot
-              </button>
+          <p className="font-medium text-foreground">No P&L data available</p>
+          <p className="mt-1 max-w-md text-center text-sm text-muted-foreground">
+            Start trading to see your profit & loss analysis. Your performance summary and per-asset breakdown will appear here.
+          </p>
+          <Link
+            href="/dashboard/trade/spot"
+            className="mt-6 rounded-xl bg-primary px-6 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            Go to Spot Trading
+          </Link>
+        </div>
+      ) : (
+        <>
+          {/* Equity curve */}
+          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+            <div className="flex items-center justify-between border-b border-border px-5 py-4">
+              <h3 className="text-sm font-semibold text-foreground">Cumulative P&L</h3>
+              <span className={`text-sm font-semibold tabular-nums ${pnlColor(totalPnl)}`}>
+                {pnlSign(totalPnl)}${fmt(Math.abs(totalPnl))}
+              </span>
             </div>
-
-            {/* Filters */}
-            <div className="px-6 pb-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  {/* Symbol Dropdown */}
-                  <div className="relative">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Symbol</p>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShowSymbolDropdown(!showSymbolDropdown);
-                      }}
-                      className="flex items-center justify-between gap-8 px-4 py-2.5 bg-muted dark:bg-[#2b2f36] rounded-xl text-sm text-foreground min-w-[180px] border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
-                    >
-                      <div className="flex items-center gap-2">
-                        <Filter className="w-4 h-4 text-muted-foreground" />
-                        <span>{selectedSymbol === 'all' ? 'All Symbols' : selectedSymbol}</span>
-                      </div>
-                      <ChevronDown className={`w-4 h-4 transition-transform ${showSymbolDropdown ? 'rotate-180' : ''}`} />
-                    </button>
-                    {showSymbolDropdown && (
-                      <div className="absolute top-full left-0 mt-2 w-full bg-card border border-border rounded-xl shadow-2xl z-10 overflow-hidden">
-                        {symbols.map((symbol) => (
-                          <button
-                            key={symbol}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedSymbol(symbol === 'All Symbols' ? 'all' : symbol);
-                              setShowSymbolDropdown(false);
-                            }}
-                            className={`w-full px-4 py-3 text-left text-sm transition-colors ${
-                              (symbol === 'All Symbols' && selectedSymbol === 'all') || symbol === selectedSymbol
-                                ? 'bg-blue-50 dark:bg-blue-900/20 text-primary'
-                                : 'text-foreground/80 hover:bg-accent'
-                            }`}
-                          >
-                            {symbol}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Time Period */}
-                  <div>
-                    <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">Time Period</p>
-                    <div className="flex gap-2">
-                      {timePeriods.map((period) => (
-                        <button
-                          key={period.id}
-                          onClick={() => setTimePeriod(period.id)}
-                          className={`px-4 py-2.5 text-sm font-medium rounded-xl transition-all ${
-                            timePeriod === period.id
-                              ? 'bg-primary text-primary-foreground shadow-lg shadow-blue-500/25'
-                              : 'bg-muted dark:bg-[#2b2f36] text-muted-foreground border border-border hover:border-blue-300 dark:hover:border-blue-600'
-                          }`}
-                        >
-                          {period.id === 'custom' && <Calendar className="w-4 h-4 inline mr-1" />}
-                          {period.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Summary Cards */}
-          <div className="grid grid-cols-2 gap-6 mb-6">
-            <div className="bg-card rounded-xl p-6 border border-border">
-              <div className="flex items-center gap-3 mb-4">
-                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-                  summary.totalPnl >= 0 
-                    ? 'bg-gradient-to-br from-green-500 to-emerald-500' 
-                    : 'bg-gradient-to-br from-red-500 to-rose-500'
-                }`}>
-                  {summary.totalPnl >= 0 
-                    ? <ArrowUpRight className="w-6 h-6 text-white" />
-                    : <ArrowDownRight className="w-6 h-6 text-white" />
-                  }
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Total P&L</p>
-                  <p className={`text-3xl font-bold ${summary.totalPnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                    {summary.totalPnl >= 0 ? '+' : ''}{formatNumber(summary.totalPnl)} <span className="text-base font-normal text-muted-foreground">USD</span>
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="bg-card rounded-xl p-6 border border-border">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
-                  <BarChart3 className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Total Filled Value</p>
-                  <p className="text-3xl font-bold text-primary">
-                    {formatNumber(summary.totalFilledValue)} <span className="text-base font-normal text-muted-foreground">USD</span>
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Charts Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Filled Value Trend Chart */}
-            <div className="bg-card rounded-xl p-6 border border-border">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="font-semibold text-foreground text-lg">Filled Value Trend</h3>
-                <div className="flex items-center gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <div className="w-3 h-3 rounded bg-primary" />
-                    <span className="text-xs text-muted-foreground">Total</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <div className="w-3 h-3 rounded bg-green-500" />
-                    <span className="text-xs text-muted-foreground">Buy</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <div className="w-3 h-3 rounded bg-red-500" />
-                    <span className="text-xs text-muted-foreground">Sell</span>
-                  </label>
-                </div>
-              </div>
-
-              {/* Chart */}
-              <div className="relative h-64">
-                {/* Y-axis labels */}
-                <div className="absolute left-0 top-0 bottom-8 w-10 flex flex-col justify-between text-xs text-muted-foreground">
-                  <span>1.0</span>
-                  <span>0.8</span>
-                  <span>0.6</span>
-                  <span>0.4</span>
-                  <span>0.2</span>
-                  <span>0</span>
-                </div>
-
-                {/* Chart area */}
-                <div className="ml-12 h-full relative">
-                  {/* Grid lines */}
-                  <div className="absolute inset-x-0 top-0 bottom-8 flex flex-col justify-between pointer-events-none">
-                    {[0, 1, 2, 3, 4, 5].map((i) => (
-                      <div key={i} className="border-t border-border" />
-                    ))}
-                  </div>
-
-                  {/* SVG Chart */}
-                  <svg className="w-full h-[calc(100%-2rem)]" viewBox="0 0 100 100" preserveAspectRatio="none">
-                    {/* Zero line */}
-                    <line x1="0" y1="50" x2="100" y2="50" stroke="#3b82f6" strokeWidth="0.5" strokeDasharray="2,2" />
-                    
-                    {/* Data line */}
-                    <path
-                      d={`M 0,50 ${chartPoints.map(p => `L ${p.x},${p.y}`).join(' ')}`}
-                      fill="none"
-                      stroke="#3b82f6"
-                      strokeWidth="2"
-                    />
-                    
-                    {/* Data points */}
-                    {chartPoints.map((point, i) => (
-                      <circle
-                        key={i}
-                        cx={point.x}
-                        cy={point.y}
-                        r="2"
-                        fill="#3b82f6"
-                        className="hover:r-4 cursor-pointer"
-                      />
-                    ))}
-                  </svg>
-
-                  {/* X-axis labels */}
-                  <div className="absolute bottom-0 left-0 right-0 flex justify-between text-xs text-muted-foreground pt-2">
-                    {chartData.filter((_, i) => i % Math.ceil(chartData.length / 6) === 0).map((d, i) => (
-                      <span key={i}>{d.date.slice(5)}</span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* PnL Ranking */}
-            <div className="bg-card rounded-xl p-6 border border-border">
-              <h3 className="font-semibold text-foreground text-lg mb-6">P&L Ranking</h3>
-              
-              {/* Table Header */}
-              <div className="flex justify-between text-xs font-semibold text-muted-foreground uppercase mb-4 pb-3 border-b border-border">
-                <span>Symbol</span>
-                <span>P&L</span>
-              </div>
-
-              {/* Table Body */}
+            <div className="px-2 py-3 sm:px-4">
               {loading ? (
-                <div className="flex flex-col items-center justify-center py-12">
-                  <RefreshCw className="w-8 h-8 text-primary animate-spin mb-3" />
-                  <p className="text-sm text-muted-foreground">Loading rankings...</p>
-                </div>
-              ) : pnlData.length > 0 ? (
-                <div className="space-y-3">
-                  {pnlData.map((item, i) => (
-                    <div key={i} className="flex items-center justify-between py-3 px-4 bg-muted dark:bg-[#2b2f36] rounded-xl hover:bg-accent/50 transition-colors">
-                      <div className="flex items-center gap-3">
-                        <span className="w-6 h-6 rounded-lg bg-accent flex items-center justify-center text-xs font-semibold text-muted-foreground">
-                          {i + 1}
-                        </span>
-                        <span className="font-medium text-foreground">{item.symbol}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {item.pnl >= 0 
-                          ? <TrendingUp className="w-4 h-4 text-green-500" />
-                          : <TrendingDown className="w-4 h-4 text-red-500" />
-                        }
-                        <span className={`font-semibold ${item.pnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                          {item.pnl >= 0 ? '+' : ''}{formatNumber(item.pnl)} USD
-                        </span>
-                      </div>
-                    </div>
-                  ))}
+                <div className="flex h-[200px] items-center justify-center">
+                  <RefreshCw className="h-6 w-6 animate-spin text-primary" />
                 </div>
               ) : (
-                <div className="flex flex-col items-center justify-center py-12">
-                  <div className="w-20 h-20 bg-accent rounded-xl flex items-center justify-center mb-4">
-                    <BarChart3 className="w-10 h-10 text-gray-300 dark:text-muted-foreground" />
-                  </div>
-                  <p className="text-muted-foreground font-medium">No trading data yet</p>
-                  <p className="text-sm text-muted-foreground mt-1">Start trading to see your P&L</p>
-                  <Link
-                    href="/trade/spot"
-                    className="mt-4 px-6 py-2.5 bg-primary hover:bg-primary/85 text-white font-medium text-sm rounded-xl transition-colors"
-                  >
-                    Start Trading
-                  </Link>
-                </div>
+                <EquityCurve assets={sortedAssets} totalPnl={totalPnl} />
               )}
             </div>
           </div>
+
+          {/* Summary cards */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {/* Total PnL */}
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div
+                  className={`flex h-11 w-11 items-center justify-center rounded-xl ${
+                    totalPnl >= 0 ? 'bg-buy-light' : 'bg-sell-light'
+                  }`}
+                >
+                  {totalPnl >= 0 ? (
+                    <ArrowUpRight className="h-5 w-5 text-buy" />
+                  ) : (
+                    <ArrowDownRight className="h-5 w-5 text-sell" />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-muted-foreground">Total P&L</p>
+                  <p className={`truncate text-xl font-bold tabular-nums ${pnlColor(totalPnl)}`}>
+                    {pnlSign(totalPnl)}${fmt(Math.abs(totalPnl))}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* ROI */}
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/15">
+                  <BarChart3 className="h-5 w-5 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-muted-foreground">ROI</p>
+                  <p className={`truncate text-xl font-bold tabular-nums ${pnlColor(totalPnlPercent)}`}>
+                    {pnlSign(totalPnlPercent)}{fmt(totalPnlPercent)}%
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Best Performer */}
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-buy-light">
+                  <Trophy className="h-5 w-5 text-buy" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-muted-foreground">Best Performer</p>
+                  {bestPerformer ? (
+                    <div className="flex items-center gap-2">
+                      <CoinIcon symbol={bestPerformer.symbol} size={18} />
+                      <span className="text-sm font-semibold text-foreground">{bestPerformer.symbol}</span>
+                      <span className="text-sm font-semibold tabular-nums text-buy">
+                        +{fmt(bestPerformer.pnlPercent)}%
+                      </span>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">—</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Worst Performer */}
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-sell-light">
+                  <AlertTriangle className="h-5 w-5 text-sell" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-muted-foreground">Worst Performer</p>
+                  {worstPerformer ? (
+                    <div className="flex items-center gap-2">
+                      <CoinIcon symbol={worstPerformer.symbol} size={18} />
+                      <span className="text-sm font-semibold text-foreground">{worstPerformer.symbol}</span>
+                      <span className="text-sm font-semibold tabular-nums text-sell">
+                        {fmt(worstPerformer.pnlPercent)}%
+                      </span>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">—</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Per-asset table */}
+          <div className="rounded-xl border border-border bg-card shadow-sm">
+            <div className="flex items-center justify-between border-b border-border px-5 py-4">
+              <h3 className="text-sm font-semibold text-foreground">P&L by Asset</h3>
+              <span className="text-xs text-muted-foreground">{assets.length} asset{assets.length !== 1 ? 's' : ''}</span>
+            </div>
+
+            {/* Table header */}
+            <div className="hidden border-b border-border px-5 py-3 sm:grid sm:grid-cols-[1.5fr_1fr_0.8fr_1.5fr_0.8fr_0.8fr] sm:gap-4">
+              <span className="text-xs font-semibold uppercase text-muted-foreground">Asset</span>
+              <button
+                type="button"
+                onClick={() => handleSort('pnl')}
+                className={`text-right text-xs font-semibold uppercase transition-colors ${
+                  sortKey === 'pnl' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                P&L {sortKey === 'pnl' && (sortDir === 'desc' ? '↓' : '↑')}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSort('pnlPercent')}
+                className={`text-right text-xs font-semibold uppercase transition-colors ${
+                  sortKey === 'pnlPercent' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                P&L % {sortKey === 'pnlPercent' && (sortDir === 'desc' ? '↓' : '↑')}
+              </button>
+              <span className="text-center text-xs font-semibold uppercase text-muted-foreground">Relative</span>
+              <button
+                type="button"
+                onClick={() => handleSort('volume')}
+                className={`text-right text-xs font-semibold uppercase transition-colors ${
+                  sortKey === 'volume' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Volume {sortKey === 'volume' && (sortDir === 'desc' ? '↓' : '↑')}
+              </button>
+              <span className="text-right text-xs font-semibold uppercase text-muted-foreground">Avg Price</span>
+            </div>
+
+            {loading ? (
+              <div className="flex flex-col items-center justify-center py-16">
+                <RefreshCw className="mb-3 h-7 w-7 animate-spin text-primary" />
+                <p className="text-sm text-muted-foreground">Loading P&L…</p>
+              </div>
+            ) : sortedAssets.length > 0 ? (
+              <div className="divide-y divide-border">
+                {sortedAssets.map((asset) => {
+                  const barWidth = Math.abs(asset.pnl) / maxAbsPnl;
+                  const isPositive = asset.pnl >= 0;
+                  const totalVol = asset.buyVolume + asset.sellVolume;
+
+                  return (
+                    <div
+                      key={asset.symbol}
+                      className="flex flex-col gap-3 px-5 py-4 transition-colors hover:bg-muted/50 sm:grid sm:grid-cols-[1.5fr_1fr_0.8fr_1.5fr_0.8fr_0.8fr] sm:items-center sm:gap-4"
+                    >
+                      {/* Asset */}
+                      <div className="flex items-center gap-3">
+                        <CoinIcon symbol={asset.symbol} size={28} />
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">{asset.symbol}</p>
+                          <p className="text-xs text-muted-foreground sm:hidden">
+                            Vol ${fmtCompact(totalVol)}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* PnL USD */}
+                      <div className="flex items-center justify-between sm:justify-end">
+                        <span className="text-xs text-muted-foreground sm:hidden">P&L</span>
+                        <span className={`flex items-center gap-1 text-sm font-semibold tabular-nums ${pnlColor(asset.pnl)}`}>
+                          {isPositive ? (
+                            <TrendingUp className="h-3.5 w-3.5 shrink-0" />
+                          ) : asset.pnl < 0 ? (
+                            <TrendingDown className="h-3.5 w-3.5 shrink-0" />
+                          ) : null}
+                          {pnlSign(asset.pnl)}${fmt(Math.abs(asset.pnl))}
+                        </span>
+                      </div>
+
+                      {/* PnL % */}
+                      <div className="flex items-center justify-between sm:justify-end">
+                        <span className="text-xs text-muted-foreground sm:hidden">P&L %</span>
+                        <span
+                          className={`rounded-md px-2 py-0.5 text-xs font-semibold tabular-nums ${
+                            isPositive
+                              ? 'bg-buy/10 text-buy'
+                              : asset.pnl < 0
+                                ? 'bg-sell/10 text-sell'
+                                : 'bg-muted text-muted-foreground'
+                          }`}
+                        >
+                          {pnlSign(asset.pnlPercent)}{fmt(asset.pnlPercent)}%
+                        </span>
+                      </div>
+
+                      {/* Relative bar */}
+                      <div className="hidden sm:block">
+                        <div className="relative h-5 w-full overflow-hidden rounded-full bg-muted">
+                          <div
+                            className={`absolute inset-y-0 left-0 rounded-full transition-all ${
+                              isPositive ? 'bg-buy/25' : 'bg-sell/25'
+                            }`}
+                            style={{ width: `${(barWidth * 100).toFixed(1)}%` }}
+                          />
+                          <div
+                            className={`absolute inset-y-0 left-0 rounded-full transition-all ${
+                              isPositive ? 'bg-buy' : 'bg-sell'
+                            }`}
+                            style={{ width: `${(barWidth * 100).toFixed(1)}%`, opacity: 0.6 }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Volume */}
+                      <div className="flex items-center justify-between sm:justify-end">
+                        <span className="text-xs text-muted-foreground sm:hidden">Volume</span>
+                        <span className="text-sm tabular-nums text-foreground">
+                          ${fmtCompact(totalVol)}
+                        </span>
+                      </div>
+
+                      {/* Avg Prices */}
+                      <div className="flex items-center justify-between sm:justify-end">
+                        <span className="text-xs text-muted-foreground sm:hidden">Avg Buy / Sell</span>
+                        <div className="text-right text-xs tabular-nums">
+                          <span className="text-buy">${fmt(asset.avgBuyPrice)}</span>
+                          <span className="mx-1 text-muted-foreground">/</span>
+                          <span className="text-sell">
+                            {asset.avgSellPrice > 0 ? `$${fmt(asset.avgSellPrice)}` : '—'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-16">
+                <p className="font-medium text-muted-foreground">No assets found for this filter</p>
+                {selectedSymbol !== 'all' && (
+                  <button
+                    type="button"
+                    onClick={() => handleSymbolSelect('all')}
+                    className="mt-3 text-sm font-medium text-primary hover:underline"
+                  >
+                    Show all symbols
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

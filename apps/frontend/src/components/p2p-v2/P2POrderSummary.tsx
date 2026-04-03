@@ -6,6 +6,7 @@ import { formatFiatSymbol } from '@/lib/p2p-v2-utils';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { useAuthStore } from '@/store/auth';
 import { Loader2 } from 'lucide-react';
+import { CoinIcon } from '@/components/ui/CoinIcon';
 
 function statusLabel(s: string): string {
   switch (s) {
@@ -175,7 +176,8 @@ export function P2POrderSummary({ order, isBuyer }: Props) {
         </div>
         <div>
           <dt className="text-xs text-muted-foreground">Crypto</dt>
-          <dd className="font-mono font-medium text-foreground">
+          <dd className="font-mono font-medium text-foreground flex items-center gap-1.5">
+            {order.crypto_symbol && <CoinIcon symbol={order.crypto_symbol} size={18} />}
             {order.quantity} {order.crypto_symbol ?? ''}
           </dd>
         </div>

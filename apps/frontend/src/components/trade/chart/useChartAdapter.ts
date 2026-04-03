@@ -158,10 +158,10 @@ export function useChartAdapter(
           setChartLoading(false);
         }
 
-        // Older history: same cursor/prepend contract as before; isolated so failures do not clear the chart.
         try {
           let oldest = recent[0]?.time;
           let total = recent.length;
+          const backfillPages: CandleData[][] = [];
           while (oldest && oldest > from && total < HARD_CAP) {
             if (cancelled || inflightRef.current !== reqId) return;
             await yieldToMain();
@@ -174,17 +174,18 @@ export function useChartAdapter(
             });
             if (cancelled || inflightRef.current !== reqId) return;
             if (!older.length) break;
-            if (adapterRef.current) {
-              try {
-                adapterRef.current.prependCandles?.(older);
-              } catch (err) {
-                console.error('[useChartAdapter] prependCandles failed', err);
-                break;
-              }
-            }
+            backfillPages.push(older);
             oldest = older[0]?.time;
             total += older.length;
             if (older.length < BACKFILL_PAGE_LIMIT) break;
+          }
+          if (backfillPages.length && adapterRef.current) {
+            try {
+              const allOlder = backfillPages.flat();
+              adapterRef.current.prependCandles?.(allOlder);
+            } catch (err) {
+              console.error('[useChartAdapter] prependCandles failed', err);
+            }
           }
         } catch (backfillErr) {
           console.warn('[useChartAdapter] history backfill stopped', backfillErr);

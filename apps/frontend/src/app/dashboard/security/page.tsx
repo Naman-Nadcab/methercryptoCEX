@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { api } from '@/lib/api';
 import { toast } from '@/components/ui/toaster';
 import Link from 'next/link';
 import {
@@ -11,11 +12,8 @@ import {
   Mail,
   Smartphone,
   Shield,
-  Key,
-  Phone,
   KeyRound,
   ShieldCheck,
-  Wallet,
   BookOpen,
   MapPin,
   Coins,
@@ -24,15 +22,12 @@ import {
   Loader2,
   Check,
   AlertTriangle,
-  ChevronRight,
   Eye,
   EyeOff,
   Copy,
-  ShieldAlert,
-  Settings,
   Fingerprint,
   BadgeCheck,
-  Trash2,
+  Monitor,
 } from 'lucide-react';
 import { 
   createPasskey,
@@ -65,7 +60,7 @@ const Modal = ({ show, onClose, title, children }: {
   if (!show) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="fixed inset-0 bg-foreground/50 backdrop-blur-sm" onClick={onClose} />
       <div 
         className="relative bg-card rounded-xl w-full max-w-md shadow-2xl z-10"
         onClick={(e) => e.stopPropagation()}
@@ -82,172 +77,148 @@ const Modal = ({ show, onClose, title, children }: {
   );
 };
 
-// Reusable SecurityRow Component
-const SecurityRow = ({
+type SecurityStatusTone = 'enabled' | 'recommended' | 'neutral';
+
+const statusDotClass: Record<SecurityStatusTone, string> = {
+  enabled: 'bg-buy',
+  recommended: 'bg-primary',
+  neutral: 'bg-muted-foreground',
+};
+
+const statusTextClass: Record<SecurityStatusTone, string> = {
+  enabled: 'text-buy',
+  recommended: 'text-primary',
+  neutral: 'text-muted-foreground',
+};
+
+/** Feature card: icon, title, description, status dot + label, actions */
+const SecurityFeatureCard = ({
   icon: Icon,
-  iconBg,
   title,
   description,
   status,
-  statusColor,
+  statusTone = 'neutral',
   statusValue,
   loading,
   actionLabel,
   actionVariant = 'default',
   onAction,
+  actionDisabled,
   secondaryAction,
   secondaryLabel,
   toggleEnabled,
   onToggle,
   toggleLoading,
 }: {
-  icon: any;
-  iconBg: string;
+  icon: React.ComponentType<{ className?: string }>;
   title: string;
   description?: string | React.ReactNode;
   status?: string;
-  statusColor?: string;
+  statusTone?: SecurityStatusTone;
   statusValue?: string;
   loading?: boolean;
-  actionLabel: string;
+  actionLabel?: string;
   actionVariant?: 'default' | 'primary' | 'danger';
   onAction?: () => void;
+  actionDisabled?: boolean;
   secondaryAction?: () => void;
   secondaryLabel?: string;
   toggleEnabled?: boolean;
   onToggle?: (enabled: boolean) => void;
   toggleLoading?: boolean;
 }) => (
-  <div className="flex flex-col lg:flex-row lg:items-center justify-between p-5 hover:bg-accent/30 transition-colors gap-4">
-    <div className="flex items-start lg:items-center gap-4">
-      <div className={`w-12 h-12 ${iconBg} rounded-xl flex items-center justify-center flex-shrink-0`}>
-        <Icon className="w-6 h-6" />
+  <div className="flex h-full flex-col rounded-xl border border-border bg-card p-5 shadow-sm">
+    <div className="flex flex-1 flex-col gap-4 sm:flex-row sm:items-start">
+      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-muted text-primary">
+        <Icon className="h-6 w-6" />
       </div>
-      <div>
+      <div className="min-w-0 flex-1 space-y-2">
         <h3 className="font-semibold text-foreground">{title}</h3>
-        {description && (
-          <p className="text-sm text-muted-foreground mt-1">{description}</p>
+        {description && <div className="text-sm text-muted-foreground">{description}</div>}
+        {status && (
+          <p className={`inline-flex items-center gap-2 text-sm font-medium ${statusTextClass[statusTone]}`}>
+            <span className={`h-2 w-2 shrink-0 rounded-full ${statusDotClass[statusTone]}`} />
+            {statusValue || status}
+          </p>
         )}
       </div>
     </div>
-    <div className="flex items-center gap-4 ml-16 lg:ml-0">
+    <div className="mt-4 flex flex-wrap items-center justify-end gap-3 border-t border-border pt-4">
       {loading ? (
-        <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
       ) : (
         <>
-          {status && (
-            <span className={`flex items-center gap-2 text-sm font-medium ${statusColor}`}>
-              <span className={`w-2 h-2 rounded-full ${
-                statusColor?.includes('green') ? 'bg-green-500' : 
-                statusColor?.includes('orange') ? 'bg-orange-500' : 'bg-gray-400'
-              }`}></span>
-              {statusValue || status}
-            </span>
-          )}
           {onToggle && (
             <button
               type="button"
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                if (!toggleLoading) {
-                  onToggle(!toggleEnabled);
-                }
+                if (!toggleLoading) onToggle(!toggleEnabled);
               }}
               disabled={toggleLoading}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
-                toggleEnabled ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'
-              } ${toggleLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background ${
+                toggleEnabled ? 'bg-buy' : 'bg-muted'
+              } ${toggleLoading ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
             >
               {toggleLoading ? (
                 <span className="absolute inset-0 flex items-center justify-center">
-                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                  <Loader2 className="h-4 w-4 animate-spin text-primary-foreground" />
                 </span>
               ) : (
                 <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-card shadow-lg transition-transform ${
+                  className={`inline-block h-4 w-4 transform rounded-full bg-card shadow transition-transform ${
                     toggleEnabled ? 'translate-x-6' : 'translate-x-1'
                   }`}
                 />
               )}
             </button>
           )}
-          {secondaryAction && (
+          {secondaryAction && secondaryLabel && (
             <button
+              type="button"
               onClick={secondaryAction}
-              className="px-4 py-2.5 text-sm font-medium text-foreground/80 bg-accent hover:bg-accent rounded-xl transition-colors"
+              className="rounded-xl bg-muted px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/80"
             >
               {secondaryLabel}
             </button>
           )}
-          <button
-            onClick={onAction}
-            className={`px-5 py-2.5 text-sm font-semibold rounded-xl transition-all ${
-              actionVariant === 'primary'
-                ? 'bg-primary hover:bg-primary/85 text-white shadow-lg shadow-blue-500/25'
-                : actionVariant === 'danger'
-                ? 'bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-500/25'
-                : 'bg-accent hover:bg-accent text-foreground/80'
-            }`}
-          >
-            {actionLabel}
-          </button>
+          {actionLabel && (
+            <button
+              type="button"
+              onClick={onAction}
+              disabled={Boolean(actionDisabled || !onAction)}
+              className={`rounded-xl px-5 py-2.5 text-sm font-semibold transition-all ${
+                actionVariant === 'primary'
+                  ? 'bg-primary text-primary-foreground shadow-sm hover:bg-primary/85 disabled:bg-muted disabled:text-muted-foreground'
+                  : actionVariant === 'danger'
+                    ? 'bg-sell text-primary-foreground shadow-sm hover:bg-sell/90 disabled:bg-muted disabled:text-muted-foreground'
+                    : 'bg-muted text-foreground hover:bg-muted/80 disabled:bg-muted disabled:text-muted-foreground'
+              }`}
+            >
+              {actionLabel}
+            </button>
+          )}
         </>
       )}
     </div>
   </div>
 );
 
-// Toggle Switch Component
 const ToggleSwitch = ({ enabled, onChange, loading }: { enabled: boolean; onChange: () => void; loading?: boolean }) => {
-  if (loading) return <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />;
+  if (loading) return <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />;
   return (
     <button
+      type="button"
       onClick={onChange}
-      className={`relative w-14 h-8 rounded-full transition-colors ${
-        enabled ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-600'
-      }`}
+      className={`relative h-8 w-14 rounded-full transition-colors ${enabled ? 'bg-buy' : 'bg-muted'}`}
     >
       <span
-        className={`absolute top-1 w-6 h-6 bg-card rounded-full transition-all shadow-lg ${
-          enabled ? 'right-1' : 'left-1'
-        }`}
+        className={`absolute top-1 h-6 w-6 rounded-full bg-card shadow transition-all ${enabled ? 'right-1' : 'left-1'}`}
       />
     </button>
   );
 };
-
-// Section Card Component
-const SectionCard = ({
-  icon: Icon,
-  iconBg,
-  iconColor,
-  title,
-  subtitle,
-  children,
-}: {
-  icon: any;
-  iconBg: string;
-  iconColor: string;
-  title: string;
-  subtitle: string;
-  children: React.ReactNode;
-}) => (
-  <div className="bg-card rounded-xl border border-border overflow-hidden mb-6">
-    <div className="px-6 py-4 border-b border-border flex items-center gap-4">
-      <div className={`w-12 h-12 ${iconBg} rounded-xl flex items-center justify-center`}>
-        <Icon className={`w-6 h-6 ${iconColor}`} />
-      </div>
-      <div>
-        <h2 className="text-lg font-bold text-foreground">{title}</h2>
-        <p className="text-sm text-muted-foreground">{subtitle}</p>
-      </div>
-    </div>
-    <div className="divide-y divide-border">
-      {children}
-    </div>
-  </div>
-);
 
 export default function SecurityPage() {
   const router = useRouter();
@@ -256,46 +227,25 @@ export default function SecurityPage() {
   const [withdrawViaAddressBook, setWithdrawViaAddressBook] = useState(false);
   const [newAddressLock, setNewAddressLock] = useState(false);
   const [loadingWhitelist, setLoadingWhitelist] = useState(true);
-  
-  // Withdrawal Whitelist Verification Modal States
-  const [showWhitelistVerifyModal, setShowWhitelistVerifyModal] = useState(false);
-  const [whitelistEmailOtp, setWhitelistEmailOtp] = useState('');
-  const [whitelistEmailOtpTimer, setWhitelistEmailOtpTimer] = useState(0);
-  const [sendingWhitelistOtp, setSendingWhitelistOtp] = useState(false);
-  const [whitelistGoogle2faCode, setWhitelistGoogle2faCode] = useState('');
-  const [verifyingWhitelist, setVerifyingWhitelist] = useState(false);
-  
+  const [togglingWhitelist, setTogglingWhitelist] = useState(false);
+
   // Withdraw via Address Book Modal States
   const [showAddressBookModal, setShowAddressBookModal] = useState(false);
   const [loadingAddressBook, setLoadingAddressBook] = useState(true);
   const [enablingAddressBook, setEnablingAddressBook] = useState(false);
   
-  // SMS Setup Flow States
-  const [showEmailOtpModal, setShowEmailOtpModal] = useState(false);
+  // SMS / phone verification flow
   const [showPhoneInputModal, setShowPhoneInputModal] = useState(false);
-  const [showCaptchaModal, setShowCaptchaModal] = useState(false);
   const [showPhoneOtpModal, setShowPhoneOtpModal] = useState(false);
-  
-  // Form States
-  const [emailOtp, setEmailOtp] = useState(['', '', '', '', '', '']);
+
   const [phoneOtp, setPhoneOtp] = useState(['', '', '', '', '', '']);
   const [selectedCountry, setSelectedCountry] = useState(countries[0]);
   const [phoneNumber, setPhoneNumber] = useState('');
   const [showCountryDropdown, setShowCountryDropdown] = useState(false);
-  
-  // Loading/Timer States
-  const [sendingEmailOtp, setSendingEmailOtp] = useState(false);
-  const [verifyingEmailOtp, setVerifyingEmailOtp] = useState(false);
+
   const [sendingPhoneOtp, setSendingPhoneOtp] = useState(false);
   const [verifyingPhoneOtp, setVerifyingPhoneOtp] = useState(false);
-  const [emailOtpTimer, setEmailOtpTimer] = useState(0);
   const [phoneOtpTimer, setPhoneOtpTimer] = useState(0);
-  
-  // Captcha State
-  const [captchaPosition, setCaptchaPosition] = useState(0);
-  const [captchaTarget, setCaptchaTarget] = useState(70);
-  const [captchaVerified, setCaptchaVerified] = useState(false);
-  const [dragging, setDragging] = useState(false);
   
   // User phone status
   const [userPhone, setUserPhone] = useState<string | null>(null);
@@ -367,32 +317,19 @@ export default function SecurityPage() {
   const [deletingPasskeyId, setDeletingPasskeyId] = useState<string | null>(null);
 
   // Fund Password States
-  const [showFundPasswordModal, setShowFundPasswordModal] = useState(false);
-  const [showFundPassword2faModal, setShowFundPassword2faModal] = useState(false);
-  const [fundPassword, setFundPassword] = useState('');
-  const [confirmFundPassword, setConfirmFundPassword] = useState('');
-  const [showFundPasswordInput, setShowFundPasswordInput] = useState(false);
-  const [showConfirmFundPasswordInput, setShowConfirmFundPasswordInput] = useState(false);
-  const [fundPassword2faCode, setFundPassword2faCode] = useState(['', '', '', '', '', '']);
-  const [settingFundPassword, setSettingFundPassword] = useState(false);
-  const [verifyingFundPassword2fa, setVerifyingFundPassword2fa] = useState(false);
   const [hasFundPassword, setHasFundPassword] = useState(false);
   const [loadingFundPassword, setLoadingFundPassword] = useState(true);
-  const fundPassword2faRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  // Anti-Phishing Code States
-  const [showAntiPhishingModal, setShowAntiPhishingModal] = useState(false);
+  // Anti-Phishing Code States (summary on hub; edit on /dashboard/security/anti-phishing)
   const [antiPhishingCode, setAntiPhishingCode] = useState('');
-  const [antiPhishingCodeInput, setAntiPhishingCodeInput] = useState('');
-  const [oldAntiPhishingCodeInput, setOldAntiPhishingCodeInput] = useState('');
-  const [savingAntiPhishing, setSavingAntiPhishing] = useState(false);
   const [loadingAntiPhishing, setLoadingAntiPhishing] = useState(true);
-  const [isChangingAntiPhishing, setIsChangingAntiPhishing] = useState(false);
+
+  const [securityTab, setSecurityTab] = useState<
+    'all' | 'login' | 'twoFactor' | 'advanced' | 'withdrawal'
+  >('all');
 
   const apiUrl = getApiBaseUrl();
   
-  // Refs for OTP inputs
-  const emailOtpRefs = useRef<(HTMLInputElement | null)[]>([]);
   const phoneOtpRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   // Calculate security level
@@ -408,8 +345,14 @@ export default function SecurityPage() {
 
   const securityLevel = calculateSecurityLevel();
   const securityStatus = securityLevel >= 80 ? 'High' : securityLevel >= 50 ? 'Medium' : 'Low';
-  const securityColor = securityLevel >= 80 ? 'text-green-500' : securityLevel >= 50 ? 'text-yellow-500' : 'text-orange-500';
-  const securityBgColor = securityLevel >= 80 ? 'from-green-500 to-green-400' : securityLevel >= 50 ? 'from-yellow-500 to-yellow-400' : 'from-orange-500 to-orange-400';
+  const securityColor =
+    securityLevel >= 80 ? 'text-buy' : securityLevel >= 50 ? 'text-primary' : 'text-sell';
+  const securityIconBg =
+    securityLevel >= 80 ? 'bg-buy' : securityLevel >= 50 ? 'bg-primary' : 'bg-muted';
+  const securityIconColor =
+    securityLevel >= 80 || securityLevel >= 50 ? 'text-primary-foreground' : 'text-sell';
+  const securityProgressClass =
+    securityLevel >= 80 ? 'bg-buy' : securityLevel >= 50 ? 'bg-primary' : 'bg-sell';
 
   // Fetch user phone, 2FA status, and passkeys
   useEffect(() => {
@@ -429,11 +372,10 @@ export default function SecurityPage() {
         }
 
         // Fetch SMS auth status
-        const smsAuthRes = await fetch(`${apiUrl}/api/v1/auth/sms-auth/status`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
+        const smsAuthResult = await api.get<{ enabled: boolean }>('/api/v1/auth/sms-auth/status', {
+          notifyOnError: false,
         });
-        const smsAuthResult = await smsAuthRes.json();
-        if (smsAuthResult.success) {
+        if (smsAuthResult.success && smsAuthResult.data) {
           setSmsAuthEnabled(smsAuthResult.data.enabled || false);
         }
 
@@ -465,11 +407,10 @@ export default function SecurityPage() {
         }
 
         // Fetch withdrawal whitelist status
-        const whitelistRes = await fetch(`${apiUrl}/api/v1/auth/withdrawal-whitelist/status`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
+        const whitelistResult = await api.get<{ enabled: boolean }>('/api/v1/auth/withdrawal-whitelist/status', {
+          notifyOnError: false,
         });
-        const whitelistResult = await whitelistRes.json();
-        if (whitelistResult.success) {
+        if (whitelistResult.success && whitelistResult.data) {
           setWithdrawalWhitelist(whitelistResult.data.enabled || false);
         }
 
@@ -496,14 +437,6 @@ export default function SecurityPage() {
     fetchUserData();
   }, [accessToken, _hasHydrated]);
 
-  // Timer effects
-  useEffect(() => {
-    if (emailOtpTimer > 0) {
-      const timer = setTimeout(() => setEmailOtpTimer(emailOtpTimer - 1), 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [emailOtpTimer]);
-
   useEffect(() => {
     if (phoneOtpTimer > 0) {
       const timer = setTimeout(() => setPhoneOtpTimer(phoneOtpTimer - 1), 1000);
@@ -517,13 +450,6 @@ export default function SecurityPage() {
       return () => clearTimeout(timer);
     }
   }, [google2faEmailOtpTimer]);
-
-  useEffect(() => {
-    if (whitelistEmailOtpTimer > 0) {
-      const timer = setTimeout(() => setWhitelistEmailOtpTimer(whitelistEmailOtpTimer - 1), 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [whitelistEmailOtpTimer]);
 
   useEffect(() => {
     if (emailChangeOtpTimer > 0) {
@@ -560,19 +486,15 @@ export default function SecurityPage() {
     }
     setTogglingSmsAuth(true);
     try {
-      const response = await fetch(`${apiUrl}/api/v1/auth/sms-auth/toggle`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ enabled }),
-      });
-      const result = await response.json();
+      const result = await api.post<{ enabled?: boolean }>('/api/v1/auth/sms-auth/toggle', { enabled }, { notifyOnError: false });
       if (result.success) {
-        setSmsAuthEnabled(enabled);
+        setSmsAuthEnabled(typeof result.data?.enabled === 'boolean' ? result.data.enabled : enabled);
       } else {
-        toast({ title: 'Error', description: result.error?.message || 'Failed to update SMS authentication', variant: 'destructive' });
+        toast({
+          title: 'Error',
+          description: result.error?.message || 'Failed to update SMS authentication',
+          variant: 'destructive',
+        });
       }
     } catch (error) {
       console.error('Failed to toggle SMS auth:', error);
@@ -582,66 +504,10 @@ export default function SecurityPage() {
     }
   };
 
-  // SMS Setup Flow
+  /** Add phone: enter number → SMS OTP via send-security-otp → verify-phone-setup → enable SMS auth */
   const handleSmsSettingsClick = () => {
-    setShowEmailOtpModal(true);
-    sendEmailOtp();
-  };
-
-  const sendEmailOtp = async () => {
-    if (sendingEmailOtp || emailOtpTimer > 0) return;
-    setSendingEmailOtp(true);
-    try {
-      const response = await fetch(`${apiUrl}/api/v1/auth/send-security-otp`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ type: 'email', purpose: 'sms_setup' }),
-      });
-      const result = await response.json();
-      if (result.success) {
-        setEmailOtpTimer(60);
-      } else {
-        toast({ title: 'Error', description: result.error?.message || 'Failed to send OTP', variant: 'destructive' });
-      }
-    } catch (error) {
-      console.error('Failed to send email OTP:', error);
-      toast({ title: 'Error', description: 'Failed to send OTP', variant: 'destructive' });
-    } finally {
-      setSendingEmailOtp(false);
-    }
-  };
-
-  const verifyEmailOtp = async () => {
-    const otp = emailOtp.join('');
-    if (otp.length !== 6) return;
-    
-    setVerifyingEmailOtp(true);
-    try {
-      const response = await fetch(`${apiUrl}/api/v1/auth/verify-security-otp`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ type: 'email', otp, purpose: 'sms_setup' }),
-      });
-      const result = await response.json();
-      if (result.success) {
-        setShowEmailOtpModal(false);
-        setShowPhoneInputModal(true);
-        setEmailOtp(['', '', '', '', '', '']);
-      } else {
-        toast({ title: 'Error', description: result.error?.message || 'Invalid OTP', variant: 'destructive' });
-      }
-    } catch (error) {
-      console.error('Failed to verify email OTP:', error);
-      toast({ title: 'Error', description: 'Failed to verify OTP', variant: 'destructive' });
-    } finally {
-      setVerifyingEmailOtp(false);
-    }
+    setPhoneOtp(['', '', '', '', '', '']);
+    setShowPhoneInputModal(true);
   };
 
   const handlePhoneSubmit = () => {
@@ -650,35 +516,9 @@ export default function SecurityPage() {
       return;
     }
     setShowPhoneInputModal(false);
-    setShowCaptchaModal(true);
-    setCaptchaPosition(0);
-    setCaptchaVerified(false);
-    setCaptchaTarget(Math.floor(Math.random() * 40) + 50);
-  };
-
-  const handleCaptchaDrag = (e: React.MouseEvent | React.TouchEvent) => {
-    if (!dragging) return;
-    const slider = (e.target as HTMLElement).closest('.captcha-slider');
-    if (!slider) return;
-    
-    const rect = slider.getBoundingClientRect();
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const position = ((clientX - rect.left) / rect.width) * 100;
-    setCaptchaPosition(Math.max(0, Math.min(100, position)));
-  };
-
-  const verifyCaptcha = () => {
-    if (Math.abs(captchaPosition - captchaTarget) < 5) {
-      setCaptchaVerified(true);
-      setTimeout(() => {
-        setShowCaptchaModal(false);
-        setShowPhoneOtpModal(true);
-        sendPhoneOtp();
-      }, 500);
-    } else {
-      setCaptchaPosition(0);
-      toast({ title: 'Validation', description: 'Please complete the puzzle correctly', variant: 'destructive' });
-    }
+    setShowPhoneOtpModal(true);
+    setPhoneOtp(['', '', '', '', '', '']);
+    void sendPhoneOtp();
   };
 
   const sendPhoneOtp = async () => {
@@ -686,15 +526,11 @@ export default function SecurityPage() {
     setSendingPhoneOtp(true);
     try {
       const fullPhone = selectedCountry.code + phoneNumber;
-      const response = await fetch(`${apiUrl}/api/v1/auth/send-security-otp`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ type: 'phone', phone: fullPhone, purpose: 'sms_setup' }),
-      });
-      const result = await response.json();
+      const result = await api.post('/api/v1/auth/send-security-otp', {
+        channel: 'sms',
+        phone: fullPhone,
+        purpose: 'sms_setup',
+      }, { notifyOnError: false });
       if (result.success) {
         setPhoneOtpTimer(60);
       } else {
@@ -709,29 +545,42 @@ export default function SecurityPage() {
   };
 
   const verifyPhoneOtp = async () => {
-    const otp = phoneOtp.join('');
-    if (otp.length !== 6) return;
-    
+    const code = phoneOtp.join('');
+    if (code.length !== 6) return;
+
     setVerifyingPhoneOtp(true);
     try {
       const fullPhone = selectedCountry.code + phoneNumber;
-      const response = await fetch(`${apiUrl}/api/v1/auth/verify-phone-setup`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ phone: fullPhone, otp }),
-      });
-      const result = await response.json();
+      const result = await api.post('/api/v1/auth/verify-phone-setup', { phone: fullPhone, code }, { notifyOnError: false });
       if (result.success) {
         setUserPhone(fullPhone);
         setShowPhoneOtpModal(false);
         setPhoneOtp(['', '', '', '', '', '']);
         setPhoneNumber('');
-        toast({ title: 'Success', description: 'Phone number verified successfully', variant: 'success' });
+
+        const toggleRes = await api.post<{ enabled?: boolean }>(
+          '/api/v1/auth/sms-auth/toggle',
+          { enabled: true },
+          { notifyOnError: false }
+        );
+        if (toggleRes.success) {
+          setSmsAuthEnabled(true);
+          toast({
+            title: 'Success',
+            description: 'Phone verified and SMS authentication enabled.',
+            variant: 'success',
+          });
+        } else {
+          toast({
+            title: 'Phone verified',
+            description:
+              toggleRes.error?.message ||
+              'Your phone is saved. Turn on SMS authentication using the toggle if it did not enable automatically.',
+            variant: 'success',
+          });
+        }
       } else {
-        toast({ title: 'Error', description: result.error?.message || 'Invalid OTP', variant: 'destructive' });
+        toast({ title: 'Error', description: result.error?.message || 'Invalid code', variant: 'destructive' });
       }
     } catch (error) {
       console.error('Failed to verify phone OTP:', error);
@@ -1037,132 +886,12 @@ export default function SecurityPage() {
     }
   };
 
-  // Fund Password Functions
   const handleFundPasswordClick = () => {
-    setShowFundPasswordModal(true);
-    setFundPassword('');
-    setConfirmFundPassword('');
+    router.push('/dashboard/security/fund-password');
   };
 
-  const validateFundPassword = () => {
-    if (fundPassword.length < 6) {
-      toast({ title: 'Validation', description: 'Fund password must be at least 6 characters', variant: 'destructive' });
-      return false;
-    }
-    if (fundPassword !== confirmFundPassword) {
-      toast({ title: 'Validation', description: 'Passwords do not match', variant: 'destructive' });
-      return false;
-    }
-    return true;
-  };
-
-  const submitFundPassword = () => {
-    if (!validateFundPassword()) return;
-    
-    if (user2faEnabled) {
-      setShowFundPasswordModal(false);
-      setShowFundPassword2faModal(true);
-    } else {
-      saveFundPassword();
-    }
-  };
-
-  const saveFundPassword = async () => {
-    setSettingFundPassword(true);
-    try {
-      const code = fundPassword2faCode.join('');
-      const response = await fetch(`${apiUrl}/api/v1/auth/fund-password/set`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ 
-          fundPassword,
-          twoFactorCode: user2faEnabled ? code : undefined 
-        }),
-      });
-      const result = await response.json();
-      
-      if (result.success) {
-        setHasFundPassword(true);
-        setShowFundPasswordModal(false);
-        setShowFundPassword2faModal(false);
-        setFundPassword('');
-        setConfirmFundPassword('');
-        setFundPassword2faCode(['', '', '', '', '', '']);
-        toast({ title: 'Success', description: 'Fund password set successfully', variant: 'success' });
-      } else {
-        toast({ title: 'Error', description: result.error?.message || 'Failed to set fund password', variant: 'destructive' });
-      }
-    } catch (error) {
-      console.error('Failed to set fund password:', error);
-      toast({ title: 'Error', description: 'Failed to set fund password', variant: 'destructive' });
-    } finally {
-      setSettingFundPassword(false);
-      setVerifyingFundPassword2fa(false);
-    }
-  };
-
-  const verifyFundPassword2fa = () => {
-    const code = fundPassword2faCode.join('');
-    if (code.length !== 6) {
-      toast({ title: 'Validation', description: 'Please enter a valid 6-digit code', variant: 'destructive' });
-      return;
-    }
-    setVerifyingFundPassword2fa(true);
-    saveFundPassword();
-  };
-
-  // Anti-Phishing Functions
   const handleAntiPhishingClick = () => {
-    if (antiPhishingCode) {
-      setIsChangingAntiPhishing(true);
-      setOldAntiPhishingCodeInput('');
-    } else {
-      setIsChangingAntiPhishing(false);
-    }
-    setAntiPhishingCodeInput('');
-    setShowAntiPhishingModal(true);
-  };
-
-  const saveAntiPhishing = async () => {
-    if (antiPhishingCodeInput.length < 4 || antiPhishingCodeInput.length > 20) {
-      toast({ title: 'Validation', description: 'Anti-phishing code must be 4-20 characters', variant: 'destructive' });
-      return;
-    }
-    if (isChangingAntiPhishing && oldAntiPhishingCodeInput !== antiPhishingCode) {
-      toast({ title: 'Validation', description: 'Old anti-phishing code is incorrect', variant: 'destructive' });
-      return;
-    }
-
-    setSavingAntiPhishing(true);
-    try {
-      const response = await fetch(`${apiUrl}/api/v1/auth/anti-phishing/set`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ code: antiPhishingCodeInput }),
-      });
-      const result = await response.json();
-      
-      if (result.success) {
-        setAntiPhishingCode(antiPhishingCodeInput);
-        setShowAntiPhishingModal(false);
-        setAntiPhishingCodeInput('');
-        setOldAntiPhishingCodeInput('');
-        toast({ title: 'Success', description: 'Anti-phishing code saved successfully', variant: 'success' });
-      } else {
-        toast({ title: 'Error', description: result.error?.message || 'Failed to save anti-phishing code', variant: 'destructive' });
-      }
-    } catch (error) {
-      console.error('Failed to save anti-phishing code:', error);
-      toast({ title: 'Error', description: 'Failed to save anti-phishing code', variant: 'destructive' });
-    } finally {
-      setSavingAntiPhishing(false);
-    }
+    router.push('/dashboard/security/anti-phishing');
   };
 
   // Email Change Functions
@@ -1248,15 +977,11 @@ export default function SecurityPage() {
   const sendCurrentPhoneOtp = async () => {
     setSendingSmsChangeOtp(true);
     try {
-      const response = await fetch(`${apiUrl}/api/v1/auth/send-security-otp`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ type: 'phone', purpose: 'phone_change' }),
-      });
-      const result = await response.json();
+      const result = await api.post(
+        '/api/v1/auth/send-security-otp',
+        { channel: 'sms', purpose: 'phone_change' },
+        { notifyOnError: false }
+      );
       if (result.success) {
         setSmsChangeOtpTimer(60);
       } else {
@@ -1271,22 +996,18 @@ export default function SecurityPage() {
   };
 
   const verifyCurrentPhoneAndContinue = async () => {
-    const otp = currentPhoneOtp.join('');
-    if (otp.length !== 6) {
+    const code = currentPhoneOtp.join('');
+    if (code.length !== 6) {
       toast({ title: 'Validation', description: 'Please enter a valid 6-digit code', variant: 'destructive' });
       return;
     }
     setVerifyingSmsChange(true);
     try {
-      const response = await fetch(`${apiUrl}/api/v1/auth/verify-security-otp`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ type: 'phone', otp, purpose: 'phone_change' }),
-      });
-      const result = await response.json();
+      const result = await api.post(
+        '/api/v1/auth/verify-security-otp',
+        { channel: 'sms', code, purpose: 'phone_change' },
+        { notifyOnError: false }
+      );
       if (result.success) {
         setSmsChangeStep('input_new');
       } else {
@@ -1410,112 +1131,16 @@ export default function SecurityPage() {
     }
   };
 
-  // Withdrawal Whitelist Functions
-  const handleWhitelistToggle = () => {
-    if (!withdrawalWhitelist) {
-      setShowWhitelistVerifyModal(true);
-      sendWhitelistOtp();
-    } else {
-      toggleWhitelist(false);
+  const handleWhitelistToggle = async () => {
+    const next = !withdrawalWhitelist;
+    setTogglingWhitelist(true);
+    const result = await api.post<{ enabled?: boolean }>('/api/v1/auth/withdrawal-whitelist/toggle', {
+      enabled: next,
+    });
+    if (result.success) {
+      setWithdrawalWhitelist(typeof result.data?.enabled === 'boolean' ? result.data.enabled : next);
     }
-  };
-
-  const sendWhitelistOtp = async () => {
-    if (sendingWhitelistOtp || whitelistEmailOtpTimer > 0) return;
-    setSendingWhitelistOtp(true);
-    try {
-      const response = await fetch(`${apiUrl}/api/v1/auth/send-security-otp`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ type: 'email', purpose: 'whitelist_enable' }),
-      });
-      const result = await response.json();
-      if (result.success) {
-        setWhitelistEmailOtpTimer(60);
-      }
-    } catch (error) {
-      console.error('Failed to send OTP:', error);
-    } finally {
-      setSendingWhitelistOtp(false);
-    }
-  };
-
-  const verifyWhitelistAndEnable = async () => {
-    if (!whitelistEmailOtp || whitelistEmailOtp.length !== 6) {
-      toast({ title: 'Validation', description: 'Please enter a valid OTP', variant: 'destructive' });
-      return;
-    }
-    if (user2faEnabled && (!whitelistGoogle2faCode || whitelistGoogle2faCode.length !== 6)) {
-      toast({ title: 'Validation', description: 'Please enter a valid 2FA code', variant: 'destructive' });
-      return;
-    }
-
-    setVerifyingWhitelist(true);
-    try {
-      const verifyResponse = await fetch(`${apiUrl}/api/v1/auth/verify-security-otp`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ type: 'email', otp: whitelistEmailOtp, purpose: 'whitelist_enable' }),
-      });
-      const verifyResult = await verifyResponse.json();
-      
-      if (!verifyResult.success) {
-        toast({ title: 'Error', description: 'Invalid OTP', variant: 'destructive' });
-        return;
-      }
-
-      if (user2faEnabled) {
-        const twoFaResponse = await fetch(`${apiUrl}/api/v1/auth/2fa/verify`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({ code: whitelistGoogle2faCode }),
-        });
-        const twoFaResult = await twoFaResponse.json();
-        
-        if (!twoFaResult.success) {
-          toast({ title: 'Error', description: 'Invalid 2FA code', variant: 'destructive' });
-          return;
-        }
-      }
-
-      await toggleWhitelist(true);
-      setShowWhitelistVerifyModal(false);
-      setWhitelistEmailOtp('');
-      setWhitelistGoogle2faCode('');
-    } catch (error) {
-      console.error('Failed to verify:', error);
-      toast({ title: 'Error', description: 'Verification failed', variant: 'destructive' });
-    } finally {
-      setVerifyingWhitelist(false);
-    }
-  };
-
-  const toggleWhitelist = async (enable: boolean) => {
-    try {
-      const response = await fetch(`${apiUrl}/api/v1/auth/withdrawal-whitelist/toggle`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ enabled: enable }),
-      });
-      const result = await response.json();
-      if (result.success) {
-        setWithdrawalWhitelist(enable);
-      }
-    } catch (error) {
-      console.error('Failed to toggle whitelist:', error);
-    }
+    setTogglingWhitelist(false);
   };
 
   // Address Book Functions
@@ -1561,35 +1186,36 @@ export default function SecurityPage() {
     <div className="p-4 lg:p-8 bg-background min-h-full">
       <div className="max-w-5xl mx-auto">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground">Security Center</h1>
-          <p className="text-muted-foreground mt-2">Protect your account with multiple layers of security</p>
+        <div className="mb-6">
+          <h1 className="text-xl font-semibold text-foreground">Security Center</h1>
+          <p className="mt-2 text-muted-foreground">Protect your account with multiple layers of security</p>
         </div>
 
-        {/* Security Overview Card */}
-        <div className="bg-card rounded-xl border border-border overflow-hidden mb-6">
+        {/* Security overview */}
+        <div className="mb-8 overflow-hidden rounded-xl border border-border bg-card">
           <div className="p-6 lg:p-8">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-              {/* Left: Security Level */}
+            <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-center">
               <div className="flex items-center gap-6">
-                <div className={`w-20 h-20 rounded-xl bg-gradient-to-br ${securityBgColor} flex items-center justify-center shadow-lg`}>
-                  <Shield className="w-10 h-10 text-white" />
+                <div
+                  className={`flex h-20 w-20 items-center justify-center rounded-xl shadow-sm ${securityIconBg}`}
+                >
+                  <Shield className={`h-10 w-10 ${securityIconColor}`} />
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold text-foreground mb-2">Security Level: <span className={securityColor}>{securityStatus}</span></h2>
+                  <h2 className="mb-2 text-xl font-bold text-foreground">
+                    Security Level: <span className={securityColor}>{securityStatus}</span>
+                  </h2>
                   <p className="text-muted-foreground">Complete more security settings to increase protection</p>
                 </div>
               </div>
-
-              {/* Right: Progress */}
               <div className="w-full lg:w-64">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-foreground/80">Protection Score</span>
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-sm font-medium text-foreground">Protection score</span>
                   <span className={`text-sm font-bold ${securityColor}`}>{securityLevel}%</span>
                 </div>
-                <div className="w-full bg-accent rounded-full h-3">
-                  <div 
-                    className={`h-3 rounded-full bg-gradient-to-r ${securityBgColor} transition-all duration-500`} 
+                <div className="h-3 w-full rounded-full bg-muted">
+                  <div
+                    className={`h-3 rounded-full transition-all duration-500 ${securityProgressClass}`}
                     style={{ width: `${securityLevel}%` }}
                   />
                 </div>
@@ -1598,254 +1224,255 @@ export default function SecurityPage() {
           </div>
         </div>
 
-        {/* Password Section */}
-        <SectionCard
-          icon={Lock}
-          iconBg="bg-blue-100 dark:bg-blue-900/30"
-          iconColor="text-primary"
-          title="Password"
-          subtitle="Manage your login credentials"
-        >
-          <SecurityRow
-            icon={Lock}
-            iconBg="bg-accent text-muted-foreground"
-            title="Login Password"
-            description="Used for account login"
-            status="Set up"
-            statusColor="text-green-500"
-            actionLabel="Change"
-            onAction={handlePasswordChangeClick}
-          />
-        </SectionCard>
+        {/* Tabs */}
+        <div className="mb-6 flex gap-1 overflow-x-auto border-b border-border pb-px [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {(
+            [
+              ['all', 'All'],
+              ['login', 'Login & password'],
+              ['twoFactor', 'Two-factor'],
+              ['advanced', 'Advanced'],
+              ['withdrawal', 'Withdrawals'],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setSecurityTab(id)}
+              className={`shrink-0 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+                securityTab === id
+                  ? 'border-primary text-foreground'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
 
-        {/* Two-Factor Authentication */}
-        <SectionCard
-          icon={ShieldCheck}
-          iconBg="bg-green-100 dark:bg-green-900/30"
-          iconColor="text-buy"
-          title="Two-Factor Authentication"
-          subtitle="Add extra layers of security to your account"
-        >
-          <SecurityRow
-            icon={Mail}
-            iconBg="bg-accent text-muted-foreground"
-            title="Email Authentication"
-            description={<>For login, withdrawal, and security verification. <span className="text-primary cursor-pointer hover:underline">Unlink</span></>}
-            status="Verified"
-            statusColor="text-green-500"
-            statusValue={maskEmail(user?.email || '')}
-            actionLabel="Change Email"
-            onAction={handleEmailChangeClick}
-          />
-          <SecurityRow
-            icon={Smartphone}
-            iconBg={userPhone && smsAuthEnabled ? "bg-green-100 dark:bg-green-900/30 text-green-600" : "bg-accent text-muted-foreground"}
-            title="SMS Authentication"
-            description="For login, password reset, and security settings"
-            status={userPhone ? (smsAuthEnabled ? 'ON' : 'OFF') : 'Not Configured'}
-            statusColor={userPhone ? (smsAuthEnabled ? 'text-green-500' : 'text-orange-500') : 'text-muted-foreground'}
-            statusValue={userPhone ? maskPhone(userPhone) : undefined}
-            loading={loadingPhone}
-            actionLabel={userPhone ? 'Change' : 'Settings'}
-            actionVariant={userPhone ? 'default' : 'primary'}
-            onAction={userPhone ? handleSmsChangeClick : handleSmsSettingsClick}
-            toggleEnabled={!!userPhone && smsAuthEnabled}
-            onToggle={userPhone ? toggleSmsAuth : undefined}
-            toggleLoading={togglingSmsAuth}
-          />
-          <SecurityRow
-            icon={Shield}
-            iconBg="bg-accent text-muted-foreground"
-            title="Google 2FA"
-            description="Most secure verification for sensitive operations"
-            status={user2faEnabled ? 'Enabled' : 'Not Configured'}
-            statusColor={user2faEnabled ? 'text-green-500' : 'text-muted-foreground'}
-            loading={loadingGoogle2fa}
-            actionLabel={user2faEnabled ? 'Disable' : 'Settings'}
-            actionVariant={user2faEnabled ? 'danger' : 'primary'}
-            onAction={user2faEnabled ? handleDisable2faClick : handleGoogle2faSettingsClick}
-          />
-        </SectionCard>
-
-        {/* Advanced Protection */}
-        <SectionCard
-          icon={Fingerprint}
-          iconBg="bg-purple-100 dark:bg-purple-900/30"
-          iconColor="text-purple-600 dark:text-purple-400"
-          title="Advanced Protection"
-          subtitle="Additional security features for enhanced protection"
-        >
-          <SecurityRow
-            icon={Fingerprint}
-            iconBg="bg-accent text-muted-foreground"
-            title="Passkeys (Touch ID / Face ID)"
-            description="Use biometrics for fast and secure login"
-            status={passkeysCount > 0 ? `${passkeysCount} Registered` : 'Not Configured'}
-            statusColor={passkeysCount > 0 ? 'text-green-500' : 'text-muted-foreground'}
-            loading={loadingPasskeys}
-            actionLabel="Settings"
-            actionVariant={passkeysCount > 0 ? 'default' : 'primary'}
-            onAction={handlePasskeySettingsClick}
-          />
-          <SecurityRow
-            icon={KeyRound}
-            iconBg="bg-accent text-muted-foreground"
-            title="Fund Password"
-            description="Required for withdrawal, P2P trading, and other sensitive operations"
-            status={hasFundPassword ? 'Set up' : 'Not Configured'}
-            statusColor={hasFundPassword ? 'text-green-500' : 'text-muted-foreground'}
-            loading={loadingFundPassword}
-            actionLabel={hasFundPassword ? 'Change' : 'Settings'}
-            actionVariant={hasFundPassword ? 'default' : 'primary'}
-            onAction={handleFundPasswordClick}
-          />
-          <SecurityRow
-            icon={BadgeCheck}
-            iconBg="bg-accent text-muted-foreground"
-            title="Anti-Phishing Code"
-            description="This code appears in all official emails to prevent phishing"
-            status={antiPhishingCode ? 'Set up' : 'Not Configured'}
-            statusColor={antiPhishingCode ? 'text-green-500' : 'text-muted-foreground'}
-            statusValue={antiPhishingCode || undefined}
-            loading={loadingAntiPhishing}
-            actionLabel={antiPhishingCode ? 'Change' : 'Settings'}
-            actionVariant={antiPhishingCode ? 'default' : 'primary'}
-            onAction={handleAntiPhishingClick}
-          />
-        </SectionCard>
-
-        {/* Withdrawal Security */}
-        <SectionCard
-          icon={Wallet}
-          iconBg="bg-orange-100 dark:bg-orange-900/30"
-          iconColor="text-orange-600 dark:text-orange-400"
-          title="Withdrawal Security"
-          subtitle="Control how and where you can withdraw funds"
-        >
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between p-5 hover:bg-accent/30 transition-colors gap-4">
-            <div className="flex items-start lg:items-center gap-4">
-              <div className="w-12 h-12 bg-accent rounded-xl flex items-center justify-center flex-shrink-0">
-                <ShieldCheck className="w-6 h-6 text-muted-foreground" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-foreground">Withdrawal Address Whitelist</h3>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Skip verification for trusted addresses when enabled
-                </p>
-              </div>
+        {/** Section helper */}
+        {(securityTab === 'all' || securityTab === 'login') && (
+          <section className="mb-8">
+            <h2 className="mb-4 text-lg font-semibold text-foreground">Login & password</h2>
+            <div className="grid gap-4 md:grid-cols-2">
+              <SecurityFeatureCard
+                icon={Lock}
+                title="Login password"
+                description="Used for account login"
+                status="Enabled"
+                statusTone="enabled"
+                actionLabel="Change"
+                actionVariant="primary"
+                onAction={handlePasswordChangeClick}
+              />
+              <SecurityFeatureCard
+                icon={Monitor}
+                title="Active sessions"
+                description="See where you are signed in and sign out other devices"
+                status="Review"
+                statusTone="recommended"
+                actionLabel="Manage"
+                actionVariant="primary"
+                onAction={() => router.push('/dashboard/security/sessions')}
+              />
             </div>
-            <div className="flex items-center gap-4 ml-16 lg:ml-0">
-              <span className={`flex items-center gap-2 text-sm font-medium ${withdrawalWhitelist ? 'text-green-500' : 'text-muted-foreground'}`}>
-                <span className={`w-2 h-2 rounded-full ${withdrawalWhitelist ? 'bg-green-500' : 'bg-gray-400'}`}></span>
-                {withdrawalWhitelist ? 'Enabled' : 'Disabled'}
-              </span>
-              <ToggleSwitch enabled={withdrawalWhitelist} onChange={handleWhitelistToggle} loading={loadingWhitelist} />
-            </div>
-          </div>
+          </section>
+        )}
 
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between p-5 hover:bg-accent/30 transition-colors gap-4">
-            <div className="flex items-start lg:items-center gap-4">
-              <div className="w-12 h-12 bg-accent rounded-xl flex items-center justify-center flex-shrink-0">
-                <BookOpen className="w-6 h-6 text-muted-foreground" />
+        {(securityTab === 'all' || securityTab === 'twoFactor') && (
+          <section className="mb-8">
+            <h2 className="mb-4 text-lg font-semibold text-foreground">Two-factor authentication</h2>
+            <div className="grid gap-4 md:grid-cols-2">
+              <SecurityFeatureCard
+                icon={Mail}
+                title="Email authentication"
+                description={
+                  <>
+                    For login, withdrawal, and security verification.{' '}
+                    <span className="cursor-pointer text-primary hover:underline">Unlink</span>
+                  </>
+                }
+                status="Verified"
+                statusTone="enabled"
+                statusValue={maskEmail(user?.email || '')}
+                actionLabel="Change email"
+                actionVariant="default"
+                onAction={handleEmailChangeClick}
+              />
+              <SecurityFeatureCard
+                icon={Smartphone}
+                title="Phone verification"
+                description="Verify your mobile number and use SMS for login, password reset, and security actions"
+                status={userPhone ? (smsAuthEnabled ? 'ON' : 'OFF') : 'Not configured'}
+                statusTone={
+                  userPhone ? (smsAuthEnabled ? 'enabled' : 'recommended') : 'neutral'
+                }
+                statusValue={userPhone ? maskPhone(userPhone) : undefined}
+                loading={loadingPhone}
+                actionLabel={userPhone ? 'Change' : 'Settings'}
+                actionVariant={userPhone ? 'default' : 'primary'}
+                onAction={userPhone ? handleSmsChangeClick : handleSmsSettingsClick}
+                toggleEnabled={!!userPhone && smsAuthEnabled}
+                onToggle={userPhone ? toggleSmsAuth : undefined}
+                toggleLoading={togglingSmsAuth}
+              />
+              <SecurityFeatureCard
+                icon={Shield}
+                title="Google 2FA"
+                description="Most secure verification for sensitive operations"
+                status={user2faEnabled ? 'Enabled' : 'Not configured'}
+                statusTone={user2faEnabled ? 'enabled' : 'recommended'}
+                loading={loadingGoogle2fa}
+                actionLabel="Manage"
+                actionVariant="primary"
+                onAction={() => router.push('/dashboard/security/2fa')}
+              />
+            </div>
+          </section>
+        )}
+
+        {(securityTab === 'all' || securityTab === 'advanced') && (
+          <section className="mb-8">
+            <h2 className="mb-4 text-lg font-semibold text-foreground">Advanced protection</h2>
+            <div className="grid gap-4 md:grid-cols-2">
+              <SecurityFeatureCard
+                icon={Fingerprint}
+                title="Passkeys (Touch ID / Face ID)"
+                description="Use biometrics for fast and secure login"
+                status={passkeysCount > 0 ? `${passkeysCount} registered` : 'Not configured'}
+                statusTone={passkeysCount > 0 ? 'enabled' : 'neutral'}
+                loading={loadingPasskeys}
+                actionLabel="Settings"
+                actionVariant={passkeysCount > 0 ? 'default' : 'primary'}
+                onAction={handlePasskeySettingsClick}
+              />
+              <SecurityFeatureCard
+                icon={KeyRound}
+                title="Fund password"
+                description="Required for withdrawal, P2P trading, and other sensitive operations"
+                status={hasFundPassword ? 'Enabled' : 'Not configured'}
+                statusTone={hasFundPassword ? 'enabled' : 'neutral'}
+                loading={loadingFundPassword}
+                actionLabel={hasFundPassword ? 'Change' : 'Settings'}
+                actionVariant={hasFundPassword ? 'default' : 'primary'}
+                onAction={handleFundPasswordClick}
+              />
+              <SecurityFeatureCard
+                icon={BadgeCheck}
+                title="Anti-phishing code"
+                description="This code appears in all official emails to prevent phishing"
+                status={antiPhishingCode ? 'Enabled' : 'Not configured'}
+                statusTone={antiPhishingCode ? 'enabled' : 'neutral'}
+                statusValue={antiPhishingCode || undefined}
+                loading={loadingAntiPhishing}
+                actionLabel={antiPhishingCode ? 'Change' : 'Settings'}
+                actionVariant={antiPhishingCode ? 'default' : 'primary'}
+                onAction={handleAntiPhishingClick}
+              />
+            </div>
+          </section>
+        )}
+
+        {(securityTab === 'all' || securityTab === 'withdrawal') && (
+          <section className="mb-8">
+            <h2 className="mb-4 text-lg font-semibold text-foreground">Withdrawal security</h2>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="flex h-full flex-col rounded-xl border border-border bg-card p-5 shadow-sm">
+                <div className="flex flex-1 flex-col gap-4 sm:flex-row sm:items-start">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-muted text-primary">
+                    <ShieldCheck className="h-6 w-6" />
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <h3 className="font-semibold text-foreground">Withdrawal address whitelist</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Skip verification for trusted addresses when enabled
+                    </p>
+                    <p
+                      className={`inline-flex items-center gap-2 text-sm font-medium ${
+                        withdrawalWhitelist ? 'text-buy' : 'text-muted-foreground'
+                      }`}
+                    >
+                      <span
+                        className={`h-2 w-2 shrink-0 rounded-full ${
+                          withdrawalWhitelist ? 'bg-buy' : 'bg-muted-foreground'
+                        }`}
+                      />
+                      {withdrawalWhitelist ? 'Enabled' : 'Disabled'}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 flex justify-end border-t border-border pt-4">
+                  <ToggleSwitch
+                    enabled={withdrawalWhitelist}
+                    onChange={() => void handleWhitelistToggle()}
+                    loading={loadingWhitelist || togglingWhitelist}
+                  />
+                </div>
               </div>
-              <div>
-                <h3 className="font-semibold text-foreground">Withdraw via Address Book</h3>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Only withdraw to saved addresses.{' '}
-                  <Link href="/dashboard/address-book" className="text-primary hover:underline">Manage Addresses</Link>
-                </p>
+
+              <div className="flex h-full flex-col rounded-xl border border-border bg-card p-5 shadow-sm">
+                <div className="flex flex-1 flex-col gap-4 sm:flex-row sm:items-start">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-muted text-primary">
+                    <BookOpen className="h-6 w-6" />
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <h3 className="font-semibold text-foreground">Withdraw via address book</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Only withdraw to saved addresses.{' '}
+                      <Link href="/dashboard/address-book" className="text-primary hover:underline">
+                        Manage addresses
+                      </Link>
+                    </p>
+                    <p
+                      className={`inline-flex items-center gap-2 text-sm font-medium ${
+                        withdrawViaAddressBook ? 'text-buy' : 'text-muted-foreground'
+                      }`}
+                    >
+                      <span
+                        className={`h-2 w-2 shrink-0 rounded-full ${
+                          withdrawViaAddressBook ? 'bg-buy' : 'bg-muted-foreground'
+                        }`}
+                      />
+                      {withdrawViaAddressBook ? 'Enabled' : 'Disabled'}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 flex justify-end border-t border-border pt-4">
+                  <ToggleSwitch
+                    enabled={withdrawViaAddressBook}
+                    onChange={handleAddressBookToggle}
+                    loading={loadingAddressBook}
+                  />
+                </div>
               </div>
-            </div>
-            <div className="flex items-center gap-4 ml-16 lg:ml-0">
-              <span className={`flex items-center gap-2 text-sm font-medium ${withdrawViaAddressBook ? 'text-green-500' : 'text-muted-foreground'}`}>
-                <span className={`w-2 h-2 rounded-full ${withdrawViaAddressBook ? 'bg-green-500' : 'bg-gray-400'}`}></span>
-                {withdrawViaAddressBook ? 'Enabled' : 'Disabled'}
-              </span>
-              <ToggleSwitch enabled={withdrawViaAddressBook} onChange={handleAddressBookToggle} loading={loadingAddressBook} />
-            </div>
-          </div>
 
-          <SecurityRow
-            icon={MapPin}
-            iconBg="bg-accent text-muted-foreground"
-            title="New Address Withdrawal Lock"
-            description="Disable withdrawals to newly saved addresses for 24 hours"
-            status="Coming Soon"
-            statusColor="text-muted-foreground"
-            actionLabel="Settings"
-          />
-
-          <SecurityRow
-            icon={Coins}
-            iconBg="bg-accent text-muted-foreground"
-            title="Manage Withdrawal Limits"
-            description="Configure daily and monthly withdrawal limits"
-            actionLabel="Manage"
-            onAction={() => router.push('/dashboard/security/withdrawal-limits')}
-          />
-        </SectionCard>
+              <SecurityFeatureCard
+                icon={MapPin}
+                title="New address withdrawal lock"
+                description="Disable withdrawals to newly saved addresses for 24 hours"
+                status="Coming soon"
+                statusTone="neutral"
+                actionLabel="Settings"
+                actionDisabled
+              />
+              <SecurityFeatureCard
+                icon={Coins}
+                title="Manage withdrawal limits"
+                description="Configure daily and monthly withdrawal limits"
+                actionLabel="Manage"
+                actionVariant="primary"
+                onAction={() => router.push('/dashboard/security/withdrawal-limits')}
+              />
+            </div>
+          </section>
+        )}
       </div>
 
       {/* ===== MODALS ===== */}
 
-      {/* Email OTP Modal (SMS Setup) */}
-      <Modal show={showEmailOtpModal} onClose={() => setShowEmailOtpModal(false)} title="Email Verification">
+      <Modal show={showPhoneInputModal} onClose={() => setShowPhoneInputModal(false)} title="Phone verification">
         <div className="text-center mb-6">
-          <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
-            <Mail className="w-8 h-8 text-primary" />
-          </div>
-          <p className="text-muted-foreground">
-            Enter the 6-digit code sent to <span className="font-medium text-foreground">{maskEmail(user?.email || '')}</span>
-          </p>
-        </div>
-        <div className="flex gap-3 justify-center">
-          {emailOtp.map((digit, i) => (
-            <input
-              key={`email-otp-${i}`}
-              type="text"
-              inputMode="numeric"
-              maxLength={1}
-              value={digit}
-              autoComplete="off"
-              onChange={(e) => {
-                const val = e.target.value;
-                if (!/^\d*$/.test(val)) return;
-                const arr = [...emailOtp];
-                arr[i] = val.slice(-1);
-                setEmailOtp(arr);
-                if (val && i < 5) emailOtpRefs.current[i + 1]?.focus();
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Backspace' && !emailOtp[i] && i > 0) emailOtpRefs.current[i - 1]?.focus();
-              }}
-              ref={(el) => { emailOtpRefs.current[i] = el; }}
-              className="w-12 h-14 text-center text-xl font-bold text-foreground bg-muted border-2 border-border rounded-xl focus:border-blue-500 focus:outline-none"
-            />
-          ))}
-        </div>
-        <div className="flex justify-center mt-4">
-          {emailOtpTimer > 0 ? (
-            <span className="text-sm text-muted-foreground">Resend in {emailOtpTimer}s</span>
-          ) : (
-            <button onClick={sendEmailOtp} disabled={sendingEmailOtp} className="text-sm text-primary hover:underline">
-              {sendingEmailOtp ? 'Sending...' : 'Resend Code'}
-            </button>
-          )}
-        </div>
-        <button
-          onClick={verifyEmailOtp}
-          disabled={verifyingEmailOtp || emailOtp.join('').length !== 6}
-          className="w-full mt-6 py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
-        >
-          {verifyingEmailOtp ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
-          Verify
-        </button>
-      </Modal>
-
-      {/* Phone Input Modal */}
-      <Modal show={showPhoneInputModal} onClose={() => setShowPhoneInputModal(false)} title="Add Phone Number">
-        <div className="text-center mb-6">
-          <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
+          <div className="w-16 h-16 bg-muted rounded-full mx-auto flex items-center justify-center mb-4">
             <Smartphone className="w-8 h-8 text-primary" />
           </div>
           <p className="text-muted-foreground">Enter your phone number for SMS authentication</p>
@@ -1888,62 +1515,22 @@ export default function SecurityPage() {
             value={phoneNumber}
             onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
             placeholder="Phone number"
-            className="flex-1 px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-blue-500"
+            className="flex-1 px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-primary focus:ring-2 focus:ring-ring/30"
           />
         </div>
         <button
           onClick={handlePhoneSubmit}
           disabled={phoneNumber.length < 10}
-          className="w-full mt-6 py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors"
+          className="w-full mt-6 py-3.5 bg-primary text-primary-foreground hover:bg-primary/85 disabled:bg-muted disabled:text-muted-foreground font-semibold rounded-xl transition-colors"
         >
           Continue
         </button>
       </Modal>
 
-      {/* Captcha Modal */}
-      <Modal show={showCaptchaModal} onClose={() => setShowCaptchaModal(false)} title="Security Verification">
-        <div className="relative h-32 bg-accent rounded-xl mb-6 overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-purple-500/20" />
-          <div
-            className="absolute top-1/2 -translate-y-1/2 w-12 h-12 bg-primary rounded-lg transition-all"
-            style={{ left: `${captchaTarget}%`, marginLeft: '-24px', opacity: 0.5 }}
-          />
-          <div
-            className="absolute top-1/2 -translate-y-1/2 w-12 h-12 bg-primary rounded-lg shadow-lg transition-all"
-            style={{ left: `${captchaPosition}%`, marginLeft: '-24px' }}
-          />
-        </div>
-        <div 
-          className="captcha-slider relative h-12 bg-accent rounded-xl cursor-pointer"
-          onMouseDown={() => setDragging(true)}
-          onMouseUp={() => { setDragging(false); verifyCaptcha(); }}
-          onMouseLeave={() => setDragging(false)}
-          onMouseMove={handleCaptchaDrag}
-          onTouchStart={() => setDragging(true)}
-          onTouchEnd={() => { setDragging(false); verifyCaptcha(); }}
-          onTouchMove={handleCaptchaDrag}
-        >
-          <div className="absolute inset-0 flex items-center justify-center text-muted-foreground text-sm">
-            Drag the slider to match the position
-          </div>
-          <div
-            className="absolute top-1 bottom-1 w-12 bg-primary rounded-lg flex items-center justify-center transition-all"
-            style={{ left: `calc(${captchaPosition}% - 24px)` }}
-          >
-            <ChevronRight className="w-6 h-6 text-white" />
-          </div>
-        </div>
-        {captchaVerified && (
-          <div className="mt-4 text-center text-green-500 font-medium flex items-center justify-center gap-2">
-            <Check className="w-5 h-5" /> Verified!
-          </div>
-        )}
-      </Modal>
-
       {/* Phone OTP Modal */}
       <Modal show={showPhoneOtpModal} onClose={() => setShowPhoneOtpModal(false)} title="Phone Verification">
         <div className="text-center mb-6">
-          <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
+          <div className="w-16 h-16 bg-muted rounded-full mx-auto flex items-center justify-center mb-4">
             <Smartphone className="w-8 h-8 text-primary" />
           </div>
           <p className="text-muted-foreground">
@@ -1971,7 +1558,7 @@ export default function SecurityPage() {
                 if (e.key === 'Backspace' && !phoneOtp[i] && i > 0) phoneOtpRefs.current[i - 1]?.focus();
               }}
               ref={(el) => { phoneOtpRefs.current[i] = el; }}
-              className="w-12 h-14 text-center text-xl font-bold text-foreground bg-muted border-2 border-border rounded-xl focus:border-blue-500 focus:outline-none"
+              className="w-12 h-14 text-center text-xl font-bold text-foreground bg-muted border-2 border-border rounded-xl focus:border-primary focus:ring-2 focus:ring-ring/30 focus:outline-none"
             />
           ))}
         </div>
@@ -1987,7 +1574,7 @@ export default function SecurityPage() {
         <button
           onClick={verifyPhoneOtp}
           disabled={verifyingPhoneOtp || phoneOtp.join('').length !== 6}
-          className="w-full mt-6 py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+          className="w-full mt-6 py-3.5 bg-primary text-primary-foreground hover:bg-primary/85 disabled:bg-muted disabled:text-muted-foreground font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
         >
           {verifyingPhoneOtp ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
           Verify & Enable
@@ -1997,8 +1584,8 @@ export default function SecurityPage() {
       {/* Google 2FA Email OTP Modal */}
       <Modal show={showGoogle2faEmailOtpModal} onClose={() => setShowGoogle2faEmailOtpModal(false)} title="Email Verification">
         <div className="text-center mb-6">
-          <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
-            <Shield className="w-8 h-8 text-green-500" />
+          <div className="w-16 h-16 bg-muted rounded-full mx-auto flex items-center justify-center mb-4">
+            <Shield className="h-8 w-8 text-buy" />
           </div>
           <p className="text-muted-foreground">Verify your email before enabling Google 2FA</p>
         </div>
@@ -2023,7 +1610,7 @@ export default function SecurityPage() {
                 if (e.key === 'Backspace' && !google2faEmailOtp[i] && i > 0) google2faEmailOtpRefs.current[i - 1]?.focus();
               }}
               ref={(el) => { google2faEmailOtpRefs.current[i] = el; }}
-              className="w-12 h-14 text-center text-xl font-bold text-foreground bg-muted border-2 border-border rounded-xl focus:border-blue-500 focus:outline-none"
+              className="w-12 h-14 text-center text-xl font-bold text-foreground bg-muted border-2 border-border rounded-xl focus:border-primary focus:ring-2 focus:ring-ring/30 focus:outline-none"
             />
           ))}
         </div>
@@ -2039,7 +1626,7 @@ export default function SecurityPage() {
         <button
           onClick={verifyGoogle2faEmailOtp}
           disabled={verifyingGoogle2faEmailOtp || google2faEmailOtp.join('').length !== 6}
-          className="w-full mt-6 py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+          className="w-full mt-6 py-3.5 bg-primary text-primary-foreground hover:bg-primary/85 disabled:bg-muted disabled:text-muted-foreground font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
         >
           {verifyingGoogle2faEmailOtp ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
           Continue
@@ -2074,13 +1661,13 @@ export default function SecurityPage() {
               value={google2faCode}
               onChange={(e) => setGoogle2faCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
               placeholder="000000"
-              className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl text-center text-xl font-mono tracking-widest outline-none focus:border-blue-500"
+              className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl text-center text-xl font-mono tracking-widest outline-none focus:border-primary focus:ring-2 focus:ring-ring/30"
             />
           </div>
           <button
             onClick={enableGoogle2fa}
             disabled={enablingGoogle2fa || google2faCode.length !== 6}
-            className="w-full py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+            className="w-full py-3.5 bg-primary text-primary-foreground hover:bg-primary/85 disabled:bg-muted disabled:text-muted-foreground font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
           >
             {enablingGoogle2fa ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
             Enable 2FA
@@ -2091,8 +1678,8 @@ export default function SecurityPage() {
       {/* Disable 2FA Confirm Modal */}
       <Modal show={showDisable2faConfirmModal} onClose={() => setShowDisable2faConfirmModal(false)} title="Disable Google 2FA">
         <div className="text-center mb-6">
-          <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
-            <AlertTriangle className="w-8 h-8 text-red-500" />
+          <div className="w-16 h-16 bg-muted rounded-full mx-auto flex items-center justify-center mb-4">
+            <AlertTriangle className="h-8 w-8 text-sell" />
           </div>
           <h3 className="text-lg font-semibold text-foreground mb-2">Are you sure?</h3>
           <p className="text-muted-foreground">
@@ -2108,7 +1695,7 @@ export default function SecurityPage() {
           </button>
           <button
             onClick={confirmDisable2fa}
-            className="flex-1 py-3 bg-red-500 hover:bg-red-600 text-white font-medium rounded-xl transition-colors"
+            className="flex-1 rounded-xl bg-sell py-3 font-medium text-primary-foreground transition-colors hover:bg-sell/90"
           >
             Continue
           </button>
@@ -2126,7 +1713,7 @@ export default function SecurityPage() {
                 value={disable2faPassword}
                 onChange={(e) => setDisable2faPassword(e.target.value)}
                 placeholder="Enter your password"
-                className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-blue-500 pr-12 text-foreground placeholder:text-muted-foreground"
+                className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-primary focus:ring-2 focus:ring-ring/30 pr-12 text-foreground placeholder:text-muted-foreground"
               />
               <button
                 type="button"
@@ -2144,13 +1731,13 @@ export default function SecurityPage() {
               value={disable2faCode}
               onChange={(e) => setDisable2faCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
               placeholder="Enter 6-digit code"
-              className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl text-center text-xl font-mono tracking-widest outline-none focus:border-blue-500 text-foreground placeholder:text-muted-foreground"
+              className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl text-center text-xl font-mono tracking-widest outline-none focus:border-primary focus:ring-2 focus:ring-ring/30 text-foreground placeholder:text-muted-foreground"
             />
           </div>
           <button
             onClick={disableGoogle2fa}
             disabled={disabling2fa || !disable2faPassword || disable2faCode.length !== 6}
-            className="w-full py-3.5 bg-red-500 hover:bg-red-600 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-sell py-3.5 font-semibold text-primary-foreground transition-colors hover:bg-sell/90 disabled:bg-muted disabled:text-muted-foreground"
           >
             {disabling2fa ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
             Disable 2FA
@@ -2158,208 +1745,10 @@ export default function SecurityPage() {
         </div>
       </Modal>
 
-      {/* Fund Password Modal */}
-      <Modal show={showFundPasswordModal} onClose={() => setShowFundPasswordModal(false)} title={hasFundPassword ? 'Change Fund Password' : 'Set Fund Password'}>
-        <div className="text-center mb-6">
-          <div className="w-16 h-16 bg-purple-100 dark:bg-purple-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
-            <KeyRound className="w-8 h-8 text-purple-500" />
-          </div>
-          <p className="text-muted-foreground">
-            Fund password is required for withdrawals and P2P trading
-          </p>
-        </div>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-foreground/80 mb-2">Fund Password</label>
-            <div className="relative">
-              <input
-                type={showFundPasswordInput ? 'text' : 'password'}
-                value={fundPassword}
-                onChange={(e) => setFundPassword(e.target.value)}
-                placeholder="Enter fund password"
-                className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-blue-500 pr-12"
-              />
-              <button
-                type="button"
-                onClick={() => setShowFundPasswordInput(!showFundPasswordInput)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground"
-              >
-                {showFundPasswordInput ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-              </button>
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-foreground/80 mb-2">Confirm Password</label>
-            <div className="relative">
-              <input
-                type={showConfirmFundPasswordInput ? 'text' : 'password'}
-                value={confirmFundPassword}
-                onChange={(e) => setConfirmFundPassword(e.target.value)}
-                placeholder="Confirm fund password"
-                className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-blue-500 pr-12"
-              />
-              <button
-                type="button"
-                onClick={() => setShowConfirmFundPasswordInput(!showConfirmFundPasswordInput)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground"
-              >
-                {showConfirmFundPasswordInput ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-              </button>
-            </div>
-          </div>
-          <button
-            onClick={submitFundPassword}
-            disabled={settingFundPassword || !fundPassword || fundPassword !== confirmFundPassword}
-            className="w-full py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
-          >
-            {settingFundPassword ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
-            {user2faEnabled ? 'Continue' : 'Save'}
-          </button>
-        </div>
-      </Modal>
-
-      {/* Fund Password 2FA Modal */}
-      <Modal show={showFundPassword2faModal} onClose={() => setShowFundPassword2faModal(false)} title="Verify 2FA">
-        <div className="text-center mb-6">
-          <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
-            <Shield className="w-8 h-8 text-green-500" />
-          </div>
-          <p className="text-muted-foreground">Enter your Google 2FA code to confirm</p>
-        </div>
-        <div className="flex gap-3 justify-center">
-          {fundPassword2faCode.map((digit, i) => (
-            <input
-              key={`fund-2fa-${i}`}
-              type="text"
-              inputMode="numeric"
-              maxLength={1}
-              value={digit}
-              autoComplete="off"
-              onChange={(e) => {
-                const val = e.target.value;
-                if (!/^\d*$/.test(val)) return;
-                const arr = [...fundPassword2faCode];
-                arr[i] = val.slice(-1);
-                setFundPassword2faCode(arr);
-                if (val && i < 5) fundPassword2faRefs.current[i + 1]?.focus();
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Backspace' && !fundPassword2faCode[i] && i > 0) fundPassword2faRefs.current[i - 1]?.focus();
-              }}
-              ref={(el) => { fundPassword2faRefs.current[i] = el; }}
-              className="w-12 h-14 text-center text-xl font-bold text-foreground bg-muted border-2 border-border rounded-xl focus:border-blue-500 focus:outline-none"
-            />
-          ))}
-        </div>
-        <button
-          onClick={verifyFundPassword2fa}
-          disabled={verifyingFundPassword2fa || fundPassword2faCode.join('').length !== 6}
-          className="w-full mt-6 py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
-        >
-          {verifyingFundPassword2fa ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
-          Confirm
-        </button>
-      </Modal>
-
-      {/* Anti-Phishing Modal */}
-      <Modal show={showAntiPhishingModal} onClose={() => setShowAntiPhishingModal(false)} title={isChangingAntiPhishing ? 'Change Anti-Phishing Code' : 'Set Anti-Phishing Code'}>
-        <div className="text-center mb-6">
-          <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
-            <BadgeCheck className="w-8 h-8 text-primary" />
-          </div>
-          <p className="text-muted-foreground">
-            This code will appear in all official emails from Methereum
-          </p>
-        </div>
-        <div className="space-y-4">
-          {isChangingAntiPhishing && (
-            <div>
-              <label className="block text-sm font-medium text-foreground/80 mb-2">Current Code</label>
-              <input
-                type="text"
-                value={oldAntiPhishingCodeInput}
-                onChange={(e) => setOldAntiPhishingCodeInput(e.target.value)}
-                placeholder="Enter current anti-phishing code"
-                className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-blue-500"
-              />
-            </div>
-          )}
-          <div>
-            <label className="block text-sm font-medium text-foreground/80 mb-2">New Code (4-20 characters)</label>
-            <input
-              type="text"
-              value={antiPhishingCodeInput}
-              onChange={(e) => setAntiPhishingCodeInput(e.target.value.slice(0, 20))}
-              placeholder="Enter new anti-phishing code"
-              className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-blue-500"
-            />
-          </div>
-          <button
-            onClick={saveAntiPhishing}
-            disabled={savingAntiPhishing || antiPhishingCodeInput.length < 4}
-            className="w-full py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
-          >
-            {savingAntiPhishing ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
-            Save
-          </button>
-        </div>
-      </Modal>
-
-      {/* Whitelist Verify Modal */}
-      <Modal show={showWhitelistVerifyModal} onClose={() => setShowWhitelistVerifyModal(false)} title="Enable Withdrawal Whitelist">
-        <div className="text-center mb-6">
-          <div className="w-16 h-16 bg-orange-100 dark:bg-orange-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
-            <ShieldCheck className="w-8 h-8 text-orange-500" />
-          </div>
-          <p className="text-muted-foreground">Verify your identity to enable whitelist</p>
-        </div>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-foreground/80 mb-2">Email OTP</label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={whitelistEmailOtp}
-                onChange={(e) => setWhitelistEmailOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                placeholder="Enter 6-digit code"
-                className="flex-1 px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-blue-500"
-              />
-              <button
-                onClick={sendWhitelistOtp}
-                disabled={sendingWhitelistOtp || whitelistEmailOtpTimer > 0}
-                className="px-4 py-2 bg-accent hover:bg-accent text-foreground/80 rounded-xl transition-colors whitespace-nowrap"
-              >
-                {whitelistEmailOtpTimer > 0 ? `${whitelistEmailOtpTimer}s` : 'Send'}
-              </button>
-            </div>
-          </div>
-          {user2faEnabled && (
-            <div>
-              <label className="block text-sm font-medium text-foreground/80 mb-2">Google 2FA Code</label>
-              <input
-                type="text"
-                value={whitelistGoogle2faCode}
-                onChange={(e) => setWhitelistGoogle2faCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                placeholder="Enter 6-digit code"
-                className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-blue-500"
-              />
-            </div>
-          )}
-          <button
-            onClick={verifyWhitelistAndEnable}
-            disabled={verifyingWhitelist || whitelistEmailOtp.length !== 6 || (user2faEnabled && whitelistGoogle2faCode.length !== 6)}
-            className="w-full py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
-          >
-            {verifyingWhitelist ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
-            Enable Whitelist
-          </button>
-        </div>
-      </Modal>
-
       {/* Address Book Enable Modal */}
       <Modal show={showAddressBookModal} onClose={() => setShowAddressBookModal(false)} title="Enable Address Book Restriction">
         <div className="text-center mb-6">
-          <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
+          <div className="w-16 h-16 bg-muted rounded-full mx-auto flex items-center justify-center mb-4">
             <BookOpen className="w-8 h-8 text-primary" />
           </div>
           <h3 className="text-lg font-semibold text-foreground mb-2">Restrict Withdrawals</h3>
@@ -2377,7 +1766,7 @@ export default function SecurityPage() {
           <button
             onClick={enableAddressBook}
             disabled={enablingAddressBook}
-            className="flex-1 py-3 bg-primary hover:bg-primary/85 text-white font-medium rounded-xl transition-colors flex items-center justify-center gap-2"
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary py-3 font-medium text-primary-foreground transition-colors hover:bg-primary/85"
           >
             {enablingAddressBook ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
             Enable
@@ -2391,7 +1780,7 @@ export default function SecurityPage() {
           {emailChangeStep === 'input' && (
             <>
               <div className="text-center">
-                <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
+                <div className="w-16 h-16 bg-muted rounded-full mx-auto flex items-center justify-center mb-4">
                   <Mail className="w-8 h-8 text-primary" />
                 </div>
                 <p className="text-muted-foreground">Enter your new email address</p>
@@ -2401,12 +1790,12 @@ export default function SecurityPage() {
                 value={newEmail}
                 onChange={(e) => setNewEmail(e.target.value)}
                 placeholder="New email address"
-                className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-blue-500 text-foreground"
+                className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-primary focus:ring-2 focus:ring-ring/30 text-foreground"
               />
               <button
                 onClick={sendEmailChangeOtp}
                 disabled={sendingEmailChangeOtp || !newEmail}
-                className="w-full py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+                className="w-full py-3.5 bg-primary text-primary-foreground hover:bg-primary/85 disabled:bg-muted disabled:text-muted-foreground font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
               >
                 {sendingEmailChangeOtp ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
                 Continue
@@ -2416,8 +1805,8 @@ export default function SecurityPage() {
           {emailChangeStep === 'verify' && (
             <>
               <div className="text-center">
-                <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
-                  <Mail className="w-8 h-8 text-green-500" />
+                <div className="w-16 h-16 bg-muted rounded-full mx-auto flex items-center justify-center mb-4">
+                  <Mail className="h-8 w-8 text-buy" />
                 </div>
                 <p className="text-muted-foreground">Enter the code sent to <span className="font-medium text-foreground">{newEmail}</span></p>
               </div>
@@ -2442,7 +1831,7 @@ export default function SecurityPage() {
                       if (e.key === 'Backspace' && !emailChangeOtp[i] && i > 0) emailChangeOtpRefs.current[i - 1]?.focus();
                     }}
                     ref={(el) => { emailChangeOtpRefs.current[i] = el; }}
-                    className="w-12 h-14 text-center text-xl font-bold text-foreground bg-muted border-2 border-border rounded-xl focus:border-blue-500 focus:outline-none"
+                    className="w-12 h-14 text-center text-xl font-bold text-foreground bg-muted border-2 border-border rounded-xl focus:border-primary focus:ring-2 focus:ring-ring/30 focus:outline-none"
                   />
                 ))}
               </div>
@@ -2458,7 +1847,7 @@ export default function SecurityPage() {
               <button
                 onClick={verifyEmailChange}
                 disabled={verifyingEmailChange || emailChangeOtp.join('').length !== 6}
-                className="w-full py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+                className="w-full py-3.5 bg-primary text-primary-foreground hover:bg-primary/85 disabled:bg-muted disabled:text-muted-foreground font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
               >
                 {verifyingEmailChange ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
                 Verify & Change
@@ -2474,7 +1863,7 @@ export default function SecurityPage() {
           {smsChangeStep === 'verify_current' && (
             <>
               <div className="text-center">
-                <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
+                <div className="w-16 h-16 bg-muted rounded-full mx-auto flex items-center justify-center mb-4">
                   <Smartphone className="w-8 h-8 text-primary" />
                 </div>
                 <p className="text-muted-foreground">Enter the code sent to your current phone <span className="font-medium text-foreground">{maskPhone(userPhone || '')}</span></p>
@@ -2500,7 +1889,7 @@ export default function SecurityPage() {
                       if (e.key === 'Backspace' && !currentPhoneOtp[i] && i > 0) currentPhoneOtpRefs.current[i - 1]?.focus();
                     }}
                     ref={(el) => { currentPhoneOtpRefs.current[i] = el; }}
-                    className="w-12 h-14 text-center text-xl font-bold text-foreground bg-muted border-2 border-border rounded-xl focus:border-blue-500 focus:outline-none"
+                    className="w-12 h-14 text-center text-xl font-bold text-foreground bg-muted border-2 border-border rounded-xl focus:border-primary focus:ring-2 focus:ring-ring/30 focus:outline-none"
                   />
                 ))}
               </div>
@@ -2516,7 +1905,7 @@ export default function SecurityPage() {
               <button
                 onClick={verifyCurrentPhoneAndContinue}
                 disabled={verifyingSmsChange || currentPhoneOtp.join('').length !== 6}
-                className="w-full py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+                className="w-full py-3.5 bg-primary text-primary-foreground hover:bg-primary/85 disabled:bg-muted disabled:text-muted-foreground font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
               >
                 {verifyingSmsChange ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
                 Verify & Continue
@@ -2526,8 +1915,8 @@ export default function SecurityPage() {
           {smsChangeStep === 'input_new' && (
             <>
               <div className="text-center">
-                <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
-                  <Smartphone className="w-8 h-8 text-green-500" />
+                <div className="w-16 h-16 bg-muted rounded-full mx-auto flex items-center justify-center mb-4">
+                  <Smartphone className="h-8 w-8 text-buy" />
                 </div>
                 <p className="text-muted-foreground">Enter your new phone number</p>
               </div>
@@ -2562,13 +1951,13 @@ export default function SecurityPage() {
                   value={newPhoneNumber}
                   onChange={(e) => setNewPhoneNumber(e.target.value.replace(/\D/g, '').slice(0, 15))}
                   placeholder="Phone number"
-                  className="flex-1 px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-blue-500 text-foreground"
+                  className="flex-1 px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-primary focus:ring-2 focus:ring-ring/30 text-foreground"
                 />
               </div>
               <button
                 onClick={sendNewPhoneOtp}
                 disabled={sendingSmsChangeOtp || !newPhoneNumber}
-                className="w-full py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+                className="w-full py-3.5 bg-primary text-primary-foreground hover:bg-primary/85 disabled:bg-muted disabled:text-muted-foreground font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
               >
                 {sendingSmsChangeOtp ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
                 Continue
@@ -2578,8 +1967,8 @@ export default function SecurityPage() {
           {smsChangeStep === 'verify_new' && (
             <>
               <div className="text-center">
-                <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
-                  <Smartphone className="w-8 h-8 text-green-500" />
+                <div className="w-16 h-16 bg-muted rounded-full mx-auto flex items-center justify-center mb-4">
+                  <Smartphone className="h-8 w-8 text-buy" />
                 </div>
                 <p className="text-muted-foreground">Enter the code sent to <span className="font-medium text-foreground">{selectedCountry?.code}{newPhoneNumber}</span></p>
               </div>
@@ -2604,7 +1993,7 @@ export default function SecurityPage() {
                       if (e.key === 'Backspace' && !newPhoneOtp[i] && i > 0) newPhoneOtpRefs.current[i - 1]?.focus();
                     }}
                     ref={(el) => { newPhoneOtpRefs.current[i] = el; }}
-                    className="w-12 h-14 text-center text-xl font-bold text-foreground bg-muted border-2 border-border rounded-xl focus:border-blue-500 focus:outline-none"
+                    className="w-12 h-14 text-center text-xl font-bold text-foreground bg-muted border-2 border-border rounded-xl focus:border-primary focus:ring-2 focus:ring-ring/30 focus:outline-none"
                   />
                 ))}
               </div>
@@ -2620,7 +2009,7 @@ export default function SecurityPage() {
               <button
                 onClick={verifyNewPhoneAndSave}
                 disabled={verifyingSmsChange || newPhoneOtp.join('').length !== 6}
-                className="w-full py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+                className="w-full py-3.5 bg-primary text-primary-foreground hover:bg-primary/85 disabled:bg-muted disabled:text-muted-foreground font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
               >
                 {verifyingSmsChange ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
                 Verify & Save
@@ -2634,8 +2023,8 @@ export default function SecurityPage() {
       <Modal show={showPasswordChangeModal} onClose={() => setShowPasswordChangeModal(false)} title="Change Password">
         <div className="space-y-6">
           <div className="text-center">
-            <div className="w-16 h-16 bg-purple-100 dark:bg-purple-900/30 rounded-full mx-auto flex items-center justify-center mb-4">
-              <Lock className="w-8 h-8 text-purple-500" />
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+              <Lock className="h-8 w-8 text-primary" />
             </div>
             <p className="text-muted-foreground">Enter your current password and new password</p>
           </div>
@@ -2646,7 +2035,7 @@ export default function SecurityPage() {
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 placeholder="Current password"
-                className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-blue-500 text-foreground pr-12"
+                className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-primary focus:ring-2 focus:ring-ring/30 text-foreground pr-12"
               />
               <button
                 type="button"
@@ -2662,7 +2051,7 @@ export default function SecurityPage() {
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="New password (min 8 characters)"
-                className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-blue-500 text-foreground pr-12"
+                className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-primary focus:ring-2 focus:ring-ring/30 text-foreground pr-12"
               />
               <button
                 type="button"
@@ -2678,7 +2067,7 @@ export default function SecurityPage() {
                 value={confirmNewPassword}
                 onChange={(e) => setConfirmNewPassword(e.target.value)}
                 placeholder="Confirm new password"
-                className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-blue-500 text-foreground pr-12"
+                className="w-full px-4 py-3.5 bg-muted border border-border rounded-xl outline-none focus:border-primary focus:ring-2 focus:ring-ring/30 text-foreground pr-12"
               />
               <button
                 type="button"
@@ -2692,7 +2081,7 @@ export default function SecurityPage() {
           <button
             onClick={changePassword}
             disabled={changingPassword || !currentPassword || !newPassword || newPassword !== confirmNewPassword}
-            className="w-full py-3.5 bg-primary hover:bg-primary/85 disabled:bg-gray-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+            className="w-full py-3.5 bg-primary text-primary-foreground hover:bg-primary/85 disabled:bg-muted disabled:text-muted-foreground font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
           >
             {changingPassword ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
             Change Password
@@ -2704,8 +2093,8 @@ export default function SecurityPage() {
       <Modal show={showPasskeyModal} onClose={() => setShowPasskeyModal(false)} title="Passkey Settings">
         <div className="space-y-6">
           <div className="text-center">
-            <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-indigo-500 rounded-xl mx-auto flex items-center justify-center mb-4 shadow-lg">
-              <Fingerprint className="w-10 h-10 text-white" />
+            <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-xl bg-primary shadow-sm">
+              <Fingerprint className="h-10 w-10 text-primary-foreground" />
             </div>
             <h3 className="text-lg font-semibold text-foreground mb-2">
               {passkeys.length > 0 ? 'Manage Passkeys' : 'Enable Touch ID / Face ID'}
@@ -2723,7 +2112,7 @@ export default function SecurityPage() {
             <button
               onClick={registerPasskey}
               disabled={registeringPasskey}
-              className="w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-gray-300 disabled:to-gray-400 text-white font-semibold rounded-xl transition-all flex items-center justify-center gap-3 shadow-lg"
+              className="flex w-full items-center justify-center gap-3 rounded-xl bg-primary py-4 font-semibold text-primary-foreground shadow-sm transition-all hover:bg-primary/85 disabled:bg-muted disabled:text-muted-foreground"
             >
               {registeringPasskey ? (
                 <>
@@ -2745,11 +2134,11 @@ export default function SecurityPage() {
               {passkeys.map((passkey) => (
                 <div
                   key={passkey.id}
-                  className="flex items-center justify-between p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl"
+                  className="flex items-center justify-between rounded-xl border border-border bg-buy/10 p-4"
                 >
                   <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 bg-green-100 dark:bg-green-900/30 rounded-xl flex items-center justify-center">
-                      <Check className="w-6 h-6 text-green-600" />
+                    <div className="w-12 h-12 bg-muted rounded-xl flex items-center justify-center">
+                      <Check className="h-6 w-6 text-buy" />
                     </div>
                     <div>
                       <p className="font-semibold text-foreground">{passkey.device_name || 'This Device'}</p>
@@ -2761,7 +2150,7 @@ export default function SecurityPage() {
                   <button
                     onClick={() => deletePasskey(passkey.id)}
                     disabled={deletingPasskeyId === passkey.id}
-                    className="px-3 py-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors text-sm font-medium"
+                    className="rounded-lg px-3 py-2 text-sm font-medium text-sell transition-colors hover:bg-muted"
                   >
                     {deletingPasskeyId === passkey.id ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
@@ -2776,7 +2165,7 @@ export default function SecurityPage() {
               <button
                 onClick={registerPasskey}
                 disabled={registeringPasskey}
-                className="w-full py-3 border-2 border-dashed border-border dark:border-gray-600 text-muted-foreground font-medium rounded-xl hover:border-blue-500 hover:text-primary transition-all flex items-center justify-center gap-2"
+                className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border py-3 font-medium text-muted-foreground transition-all hover:border-primary hover:text-primary"
               >
                 {registeringPasskey ? (
                   <>

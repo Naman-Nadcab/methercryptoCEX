@@ -49,7 +49,7 @@ export default function AuthStatsPanel() {
       {/* Content */}
       <div className="relative z-10">
         {/* Headline */}
-        <h1 className="text-4xl xl:text-5xl font-bold text-white leading-tight mb-4">
+        <h1 className="text-4xl xl:text-5xl font-bold text-foreground leading-tight mb-4">
           Buy & sell directly with
         </h1>
         <h2 className="text-4xl xl:text-5xl font-bold bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent mb-12">
@@ -64,7 +64,7 @@ export default function AuthStatsPanel() {
                 {stat.icon}
               </div>
               <p className="text-muted-foreground text-sm">{stat.label}</p>
-              <p className="text-4xl font-bold text-white">{stat.value}</p>
+              <p className="text-4xl font-bold text-foreground">{stat.value}</p>
               {stat.subLabel && (
                 <p className="text-muted-foreground text-sm">{stat.subLabel}</p>
               )}
@@ -76,7 +76,7 @@ export default function AuthStatsPanel() {
         <div className="grid grid-cols-2 gap-4">
           {additionalStats.map((item, index) => (
             <div key={index} className="flex items-center gap-2">
-              <span className="text-2xl font-bold text-white">{item.value}</span>
+              <span className="text-2xl font-bold text-foreground">{item.value}</span>
               <span className="text-muted-foreground text-sm">{item.label}</span>
             </div>
           ))}

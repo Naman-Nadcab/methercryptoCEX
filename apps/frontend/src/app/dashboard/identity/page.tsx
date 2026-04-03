@@ -158,7 +158,7 @@ export default function IdentityVerificationPage() {
     return (
       <div className="min-h-screen bg-card flex items-center justify-center">
         <div className="text-center">
-          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-muted-foreground">Checking verification status...</p>
         </div>
       </div>
@@ -177,15 +177,15 @@ export default function IdentityVerificationPage() {
               Methereum
             </Link>
             <span className="text-muted-foreground">|</span>
-            <h1 className="text-lg font-medium text-foreground">Identity Verification</h1>
+            <h1 className="text-xl font-semibold text-foreground">Identity Verification</h1>
           </div>
         </header>
 
         {/* Verified Content */}
         <main className="max-w-2xl mx-auto px-6 py-12">
           <div className="bg-card rounded-xl p-8 shadow-sm border border-border text-center">
-            <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
-              <Check className="w-10 h-10 text-green-500" />
+            <div className="w-20 h-20 bg-buy-light rounded-full flex items-center justify-center mx-auto mb-6">
+              <Check className="w-10 h-10 text-buy" />
             </div>
             
             <h2 className="text-2xl font-bold text-foreground mb-2">
@@ -203,8 +203,8 @@ export default function IdentityVerificationPage() {
               </div>
               <div className="flex items-center justify-between mb-4">
                 <span className="text-muted-foreground">Status</span>
-                <span className="flex items-center gap-2 text-green-500 font-semibold">
-                  <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+                <span className="flex items-center gap-2 text-buy font-semibold">
+                  <span className="w-2 h-2 bg-buy rounded-full"></span>
                   Verified
                 </span>
               </div>
@@ -216,7 +216,7 @@ export default function IdentityVerificationPage() {
 
             <Link
               href="/dashboard/account"
-              className="inline-flex items-center gap-2 px-6 py-3 bg-primary hover:bg-primary/85 text-white font-semibold rounded-xl transition-colors"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-primary hover:bg-primary/85 text-primary-foreground font-semibold rounded-xl transition-colors"
             >
               Go to Account
               <ChevronRight className="w-4 h-4" />
@@ -243,14 +243,14 @@ export default function IdentityVerificationPage() {
               Methereum
             </Link>
             <span className="text-muted-foreground">|</span>
-            <h1 className="text-lg font-medium text-foreground">Identity Verification</h1>
+            <h1 className="text-xl font-semibold text-foreground">Identity Verification</h1>
           </div>
         </header>
 
         <main className="max-w-2xl mx-auto px-6 py-12">
           <div className="bg-card rounded-xl p-8 shadow-sm border border-border text-center">
-            <div className="w-20 h-20 bg-yellow-100 dark:bg-yellow-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
-              <AlertCircle className="w-10 h-10 text-yellow-500" />
+            <div className="w-20 h-20 bg-warning-light rounded-full flex items-center justify-center mx-auto mb-6">
+              <AlertCircle className="w-10 h-10 text-warning" />
             </div>
             
             <h2 className="text-2xl font-bold text-foreground mb-2">
@@ -284,20 +284,20 @@ export default function IdentityVerificationPage() {
             Methereum
           </Link>
           <span className="text-muted-foreground">|</span>
-          <h1 className="text-lg font-medium text-foreground">Identity Verification</h1>
+          <h1 className="text-xl font-semibold text-foreground">Identity Verification</h1>
         </div>
         <div className="flex items-center gap-4">
           <Link
             href="/dashboard/help#business"
-            className="flex items-center gap-2 text-muted-foreground hover:text-foreground dark:hover:text-white"
+            className="flex items-center gap-2 text-muted-foreground hover:text-foreground"
           >
             <Building2 className="w-4 h-4" />
             Business Verification
           </Link>
-          <button className="p-2 text-muted-foreground hover:text-foreground dark:hover:text-white">
+          <button className="p-2 text-muted-foreground hover:text-foreground">
             <HelpCircle className="w-5 h-5" />
           </button>
-          <button className="p-2 text-muted-foreground hover:text-foreground dark:hover:text-white">
+          <button className="p-2 text-muted-foreground hover:text-foreground">
             <Globe className="w-5 h-5" />
           </button>
         </div>
@@ -318,7 +318,7 @@ export default function IdentityVerificationPage() {
             <div className="relative">
               <button
                 onClick={() => setShowCountryDropdown(!showCountryDropdown)}
-                className="w-full flex items-center justify-between px-4 py-3 bg-muted border border-border rounded-xl text-left hover:border-border dark:hover:border-gray-600 transition-colors"
+                className="w-full flex items-center justify-between px-4 py-3 bg-muted border border-border rounded-xl text-left hover:border-muted-foreground/30 transition-colors"
               >
                 <div className="flex items-center gap-3">
                   <span className="text-2xl">{selectedCountry.flag}</span>
@@ -346,7 +346,7 @@ export default function IdentityVerificationPage() {
                       <span className="text-xl">{country.flag}</span>
                       <span className="text-foreground">{country.name}</span>
                       {selectedCountry.code === country.code && (
-                        <Check className="w-4 h-4 text-green-500 ml-auto" />
+                        <Check className="w-4 h-4 text-buy ml-auto" />
                       )}
                     </button>
                   ))}
@@ -373,8 +373,8 @@ export default function IdentityVerificationPage() {
                 onClick={() => setSelectedDocument(quickVerification.id)}
                 className={`w-full flex items-center gap-4 px-4 py-4 border-2 rounded-xl transition-colors ${
                   selectedDocument === quickVerification.id || !selectedDocument
-                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                    : 'border-border hover:border-border dark:hover:border-gray-600'
+                    ? 'border-primary bg-muted'
+                    : 'border-border hover:border-muted-foreground/30'
                 }`}
               >
                 <div className="w-12 h-12 bg-accent rounded-lg flex items-center justify-center">
@@ -383,7 +383,7 @@ export default function IdentityVerificationPage() {
                 <span className="text-foreground font-medium flex-1 text-left">
                   {quickVerification.name}
                 </span>
-                <span className="px-3 py-1 bg-primary text-foreground text-xs font-semibold rounded-full">
+                <span className="px-3 py-1 bg-primary text-primary-foreground text-xs font-semibold rounded-full">
                   Recommended
                 </span>
               </button>
@@ -394,7 +394,7 @@ export default function IdentityVerificationPage() {
           <div className="mb-8">
             <button
               onClick={() => setShowOtherDocuments(!showOtherDocuments)}
-              className="flex items-center gap-2 text-muted-foreground hover:text-foreground dark:hover:text-white"
+              className="flex items-center gap-2 text-muted-foreground hover:text-foreground"
             >
               No {quickVerification?.name}? Use other documents.
               <ChevronDown className={`w-4 h-4 transition-transform ${showOtherDocuments ? 'rotate-180' : ''}`} />
@@ -408,8 +408,8 @@ export default function IdentityVerificationPage() {
                     onClick={() => setSelectedDocument(doc.id)}
                     className={`w-full flex items-center gap-4 px-4 py-3 border-2 rounded-xl transition-colors ${
                       selectedDocument === doc.id
-                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                        : 'border-border hover:border-border dark:hover:border-gray-600'
+                        ? 'border-primary bg-muted'
+                        : 'border-border hover:border-muted-foreground/30'
                     }`}
                   >
                     <span className="text-xl">{doc.icon}</span>
@@ -421,7 +421,7 @@ export default function IdentityVerificationPage() {
           </div>
 
           {error && (
-            <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl flex items-center gap-2 text-destructive">
+            <div className="mb-4 p-4 bg-sell-light border border-sell/20 rounded-xl flex items-center gap-2 text-destructive">
               <AlertCircle className="w-5 h-5" />
               {error}
             </div>
@@ -431,7 +431,7 @@ export default function IdentityVerificationPage() {
           <button
             onClick={handleVerifyClick}
             disabled={loading}
-            className="w-full py-4 bg-primary hover:bg-primary/85 text-white font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="w-full py-4 bg-primary hover:bg-primary/85 text-primary-foreground font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             <span className="text-xl">🎁</span>
             Verify to Earn $20
@@ -454,8 +454,8 @@ export default function IdentityVerificationPage() {
       <footer className="py-6 text-center text-sm text-muted-foreground">
         <p>© 2018-2026 Methereum.com. All rights reserved.</p>
         <div className="mt-2 flex items-center justify-center gap-4">
-          <Link href="/terms" className="hover:text-foreground dark:hover:text-white">Terms of Service</Link>
-          <Link href="/privacy" className="hover:text-foreground dark:hover:text-white">Privacy Policy</Link>
+          <Link href="/terms" className="hover:text-foreground">Terms of Service</Link>
+          <Link href="/privacy" className="hover:text-foreground">Privacy Policy</Link>
         </div>
       </footer>
 
@@ -486,12 +486,12 @@ export default function IdentityVerificationPage() {
               <div className="border border-border rounded-xl p-6 mb-6">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-32 h-10 bg-blue-600 rounded flex items-center justify-center">
-                      <span className="text-white font-bold text-sm">DigiLocker</span>
+                    <div className="w-32 h-10 bg-primary rounded flex items-center justify-center">
+                      <span className="text-primary-foreground font-bold text-sm">DigiLocker</span>
                     </div>
                   </div>
-                  <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
-                    <Check className="w-5 h-5 text-white" />
+                  <div className="w-8 h-8 bg-buy rounded-full flex items-center justify-center">
+                    <Check className="w-5 h-5 text-primary-foreground" />
                   </div>
                 </div>
 
@@ -516,7 +516,7 @@ export default function IdentityVerificationPage() {
                         type="checkbox"
                         checked={digiLockerConsent.aadhaar}
                         onChange={(e) => setDigiLockerConsent({ ...digiLockerConsent, aadhaar: e.target.checked })}
-                        className="w-5 h-5 text-green-500 rounded border-border focus:ring-green-500"
+                        className="w-5 h-5 text-buy rounded border-border focus:ring-buy/30"
                       />
                     </label>
                     <label className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-accent">
@@ -528,7 +528,7 @@ export default function IdentityVerificationPage() {
                         type="checkbox"
                         checked={digiLockerConsent.drivingLicense}
                         onChange={(e) => setDigiLockerConsent({ ...digiLockerConsent, drivingLicense: e.target.checked })}
-                        className="w-5 h-5 text-green-500 rounded border-border focus:ring-green-500"
+                        className="w-5 h-5 text-buy rounded border-border focus:ring-buy/30"
                       />
                     </label>
                     <label className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-accent">
@@ -537,7 +537,7 @@ export default function IdentityVerificationPage() {
                         type="checkbox"
                         checked={digiLockerConsent.pan}
                         onChange={(e) => setDigiLockerConsent({ ...digiLockerConsent, pan: e.target.checked })}
-                        className="w-5 h-5 text-green-500 rounded border-border focus:ring-green-500"
+                        className="w-5 h-5 text-buy rounded border-border focus:ring-buy/30"
                       />
                     </label>
                   </div>
@@ -548,7 +548,7 @@ export default function IdentityVerificationPage() {
               <button
                 onClick={handleDigiLockerContinue}
                 disabled={loading || (!digiLockerConsent.aadhaar && !digiLockerConsent.pan)}
-                className="w-full py-4 bg-primary hover:bg-primary/85 text-white font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full py-4 bg-primary hover:bg-primary/85 text-primary-foreground font-semibold rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? 'Verifying...' : 'Continue'}
               </button>
@@ -558,7 +558,7 @@ export default function IdentityVerificationPage() {
       )}
 
       {/* Help Button */}
-      <button className="fixed bottom-6 right-6 w-12 h-12 bg-primary hover:bg-primary/85 text-white rounded-full shadow-lg flex items-center justify-center transition-colors z-40">
+      <button className="fixed bottom-6 right-6 w-12 h-12 bg-primary hover:bg-primary/85 text-primary-foreground rounded-full shadow-lg flex items-center justify-center transition-colors z-40">
         <HelpCircle className="w-6 h-6" />
       </button>
     </div>

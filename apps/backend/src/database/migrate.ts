@@ -2490,6 +2490,373 @@ const migrations = [
 
   // P2P escrow + canonical balance reads: readUserBalances selects escrow_balance
   `ALTER TABLE user_balances ADD COLUMN IF NOT EXISTS escrow_balance NUMERIC(36,18) NOT NULL DEFAULT 0;`,
+
+  // ============================================
+  // COIN SEED: ~35 currencies + ~38 spot markets for tier-1 market depth
+  // ============================================
+
+  // --- Currencies (idempotent: skip if symbol already exists) ---
+  `DO $$
+  BEGIN
+    -- Stablecoins
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'USDC' AND currency_type = 'crypto' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('USDC', 'USD Coin', 'stablecoin'::currency_type, 6);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'DAI' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('DAI', 'Dai', 'stablecoin'::currency_type, 18);
+    END IF;
+
+    -- L1 Majors
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'BNB' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('BNB', 'BNB', 'crypto'::currency_type, 18);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'SOL' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('SOL', 'Solana', 'crypto'::currency_type, 9);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'XRP' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('XRP', 'XRP', 'crypto'::currency_type, 6);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'ADA' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('ADA', 'Cardano', 'crypto'::currency_type, 6);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'AVAX' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('AVAX', 'Avalanche', 'crypto'::currency_type, 18);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'DOT' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('DOT', 'Polkadot', 'crypto'::currency_type, 10);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'ATOM' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('ATOM', 'Cosmos', 'crypto'::currency_type, 6);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'NEAR' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('NEAR', 'NEAR Protocol', 'crypto'::currency_type, 24);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'SUI' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('SUI', 'Sui', 'crypto'::currency_type, 9);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'APT' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('APT', 'Aptos', 'crypto'::currency_type, 8);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'SEI' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('SEI', 'Sei', 'crypto'::currency_type, 6);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'TRX' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('TRX', 'TRON', 'crypto'::currency_type, 6);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'LTC' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('LTC', 'Litecoin', 'crypto'::currency_type, 8);
+    END IF;
+
+    -- L2
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'MATIC' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('MATIC', 'Polygon', 'crypto'::currency_type, 18);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'ARB' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('ARB', 'Arbitrum', 'crypto'::currency_type, 18);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'OP' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('OP', 'Optimism', 'crypto'::currency_type, 18);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'IMX' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('IMX', 'Immutable X', 'crypto'::currency_type, 18);
+    END IF;
+
+    -- DeFi
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'UNI' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('UNI', 'Uniswap', 'crypto'::currency_type, 18);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'AAVE' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('AAVE', 'Aave', 'crypto'::currency_type, 18);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'LINK' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('LINK', 'Chainlink', 'crypto'::currency_type, 18);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'MKR' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('MKR', 'Maker', 'crypto'::currency_type, 18);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'LDO' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('LDO', 'Lido DAO', 'crypto'::currency_type, 18);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'INJ' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('INJ', 'Injective', 'crypto'::currency_type, 18);
+    END IF;
+
+    -- Meme
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'DOGE' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('DOGE', 'Dogecoin', 'crypto'::currency_type, 8);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'SHIB' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('SHIB', 'Shiba Inu', 'crypto'::currency_type, 18);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'PEPE' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('PEPE', 'Pepe', 'crypto'::currency_type, 18);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'WIF' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('WIF', 'dogwifhat', 'crypto'::currency_type, 6);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'FLOKI' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('FLOKI', 'Floki', 'crypto'::currency_type, 9);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'BONK' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('BONK', 'Bonk', 'crypto'::currency_type, 5);
+    END IF;
+
+    -- AI
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'FET' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('FET', 'Fetch.ai', 'crypto'::currency_type, 18);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'RENDER' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('RENDER', 'Render', 'crypto'::currency_type, 18);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'WLD' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('WLD', 'Worldcoin', 'crypto'::currency_type, 18);
+    END IF;
+
+    -- Infrastructure / Storage
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'FIL' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('FIL', 'Filecoin', 'crypto'::currency_type, 18);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'GRT' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('GRT', 'The Graph', 'crypto'::currency_type, 18);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'AR' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('AR', 'Arweave', 'crypto'::currency_type, 12);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'ICP' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('ICP', 'Internet Computer', 'crypto'::currency_type, 8);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'HBAR' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('HBAR', 'Hedera', 'crypto'::currency_type, 8);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM currencies WHERE UPPER(TRIM(symbol)) = 'VET' LIMIT 1) THEN
+      INSERT INTO currencies (symbol, name, currency_type, decimals) VALUES ('VET', 'VeChain', 'crypto'::currency_type, 18);
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'coin-seed currencies: %', SQLERRM;
+  END $$;`,
+
+  // --- Spot Markets: USDT pairs (idempotent) ---
+  `DO $$
+  DECLARE
+    rec RECORD;
+    base_cur_id UUID;
+    quote_cur_id UUID;
+  BEGIN
+    quote_cur_id := (SELECT id FROM currencies WHERE UPPER(TRIM(symbol)) = 'USDT' LIMIT 1);
+    IF quote_cur_id IS NULL THEN
+      RAISE WARNING 'coin-seed: USDT currency not found, skipping spot_markets';
+      RETURN;
+    END IF;
+
+    FOR rec IN (
+      SELECT * FROM (VALUES
+        -- sym,         base,   min_qty,        min_notional,  price_prec, qty_prec
+        ('BNB_USDT',    'BNB',   0.01,           1,             4, 4),
+        ('SOL_USDT',    'SOL',   0.01,           1,             4, 4),
+        ('XRP_USDT',    'XRP',   1,              1,             5, 2),
+        ('ADA_USDT',    'ADA',   1,              1,             5, 2),
+        ('AVAX_USDT',   'AVAX',  0.1,            1,             4, 3),
+        ('DOT_USDT',    'DOT',   0.1,            1,             4, 3),
+        ('ATOM_USDT',   'ATOM',  0.1,            1,             4, 3),
+        ('NEAR_USDT',   'NEAR',  0.1,            1,             4, 3),
+        ('SUI_USDT',    'SUI',   1,              1,             5, 2),
+        ('APT_USDT',    'APT',   0.1,            1,             4, 3),
+        ('SEI_USDT',    'SEI',   1,              1,             5, 2),
+        ('TRX_USDT',    'TRX',   1,              1,             5, 1),
+        ('LTC_USDT',    'LTC',   0.01,           1,             4, 4),
+        ('MATIC_USDT',  'MATIC', 1,              1,             5, 2),
+        ('ARB_USDT',    'ARB',   1,              1,             5, 2),
+        ('OP_USDT',     'OP',    1,              1,             5, 2),
+        ('IMX_USDT',    'IMX',   1,              1,             5, 2),
+        ('UNI_USDT',    'UNI',   0.1,            1,             4, 3),
+        ('AAVE_USDT',   'AAVE',  0.01,           1,             4, 4),
+        ('LINK_USDT',   'LINK',  0.1,            1,             4, 3),
+        ('MKR_USDT',    'MKR',   0.001,          1,             2, 5),
+        ('LDO_USDT',    'LDO',   1,              1,             4, 2),
+        ('INJ_USDT',    'INJ',   0.1,            1,             4, 3),
+        ('DOGE_USDT',   'DOGE',  1,              1,             6, 1),
+        ('SHIB_USDT',   'SHIB',  1000,           1,             10, 0),
+        ('PEPE_USDT',   'PEPE',  10000,          1,             10, 0),
+        ('WIF_USDT',    'WIF',   1,              1,             5, 2),
+        ('FLOKI_USDT',  'FLOKI', 1000,           1,             9, 0),
+        ('BONK_USDT',   'BONK',  10000,          1,             10, 0),
+        ('FET_USDT',    'FET',   1,              1,             5, 2),
+        ('RENDER_USDT', 'RENDER',0.1,            1,             4, 3),
+        ('WLD_USDT',    'WLD',   1,              1,             5, 2),
+        ('FIL_USDT',    'FIL',   0.1,            1,             4, 3),
+        ('GRT_USDT',    'GRT',   1,              1,             5, 2),
+        ('AR_USDT',     'AR',    0.1,            1,             4, 3),
+        ('ICP_USDT',    'ICP',   0.1,            1,             4, 3),
+        ('HBAR_USDT',   'HBAR',  1,              1,             5, 2),
+        ('VET_USDT',    'VET',   1,              1,             6, 1),
+        ('USDC_USDT',   'USDC',  1,              1,             5, 2),
+        ('DAI_USDT',    'DAI',   1,              1,             5, 2)
+      ) AS t(sym, base, minq, minn, ppre, qpre)
+    ) LOOP
+      IF NOT EXISTS (SELECT 1 FROM spot_markets WHERE symbol = rec.sym) THEN
+        base_cur_id := (SELECT id FROM currencies WHERE UPPER(TRIM(symbol)) = rec.base LIMIT 1);
+        INSERT INTO spot_markets (symbol, base_asset, quote_asset, base_currency_id, quote_currency_id, status, min_qty, min_notional, price_precision, qty_precision)
+        VALUES (rec.sym, rec.base, 'USDT', base_cur_id, quote_cur_id, 'active', rec.minq, rec.minn, rec.ppre, rec.qpre);
+      END IF;
+    END LOOP;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'coin-seed spot_markets USDT: %', SQLERRM;
+  END $$;`,
+
+  // --- Spot Markets: BTC pairs ---
+  `DO $$
+  DECLARE
+    rec RECORD;
+    base_cur_id UUID;
+    quote_cur_id UUID;
+  BEGIN
+    quote_cur_id := (SELECT id FROM currencies WHERE UPPER(TRIM(symbol)) = 'BTC' LIMIT 1);
+    IF quote_cur_id IS NULL THEN RETURN; END IF;
+
+    FOR rec IN (
+      SELECT * FROM (VALUES
+        ('ETH_BTC',  'ETH',  0.001,  0.0001, 6, 5),
+        ('SOL_BTC',  'SOL',  0.1,    0.0001, 8, 3),
+        ('BNB_BTC',  'BNB',  0.01,   0.0001, 7, 4),
+        ('XRP_BTC',  'XRP',  1,      0.0001, 8, 2),
+        ('DOGE_BTC', 'DOGE', 10,     0.0001, 10, 1),
+        ('LINK_BTC', 'LINK', 0.1,    0.0001, 8, 3)
+      ) AS t(sym, base, minq, minn, ppre, qpre)
+    ) LOOP
+      IF NOT EXISTS (SELECT 1 FROM spot_markets WHERE symbol = rec.sym) THEN
+        base_cur_id := (SELECT id FROM currencies WHERE UPPER(TRIM(symbol)) = rec.base LIMIT 1);
+        INSERT INTO spot_markets (symbol, base_asset, quote_asset, base_currency_id, quote_currency_id, status, min_qty, min_notional, price_precision, qty_precision)
+        VALUES (rec.sym, rec.base, 'BTC', base_cur_id, quote_cur_id, 'active', rec.minq, rec.minn, rec.ppre, rec.qpre);
+      END IF;
+    END LOOP;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'coin-seed spot_markets BTC: %', SQLERRM;
+  END $$;`,
+
+  // --- Sync new spot_markets into trading_pairs (for candle charts) ---
+  `DO $$
+  DECLARE
+    r RECORD;
+    bid UUID;
+    qid UUID;
+  BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'trading_pairs')
+       OR NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'spot_markets') THEN
+      RETURN;
+    END IF;
+    FOR r IN SELECT symbol, base_asset, quote_asset FROM spot_markets WHERE status IN ('active', 'maintenance')
+    LOOP
+      IF NOT EXISTS (SELECT 1 FROM trading_pairs WHERE trading_pairs.symbol = r.symbol) THEN
+        bid := NULL; qid := NULL;
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'tokens') THEN
+          SELECT id INTO bid FROM tokens WHERE symbol = r.base_asset AND is_active = TRUE ORDER BY is_native DESC NULLS LAST LIMIT 1;
+          SELECT id INTO qid FROM tokens WHERE symbol = r.quote_asset AND is_active = TRUE ORDER BY is_native DESC NULLS LAST LIMIT 1;
+        END IF;
+        IF bid IS NOT NULL AND qid IS NOT NULL THEN
+          INSERT INTO trading_pairs (symbol, base_token_id, quote_token_id, min_order_size, max_order_size, tick_size, step_size, maker_fee, taker_fee, is_active, trading_enabled)
+          VALUES (r.symbol, bid, qid, 0.0001, 1000000000, 0.01, 0.0001, 0.001, 0.001, TRUE, TRUE)
+          ON CONFLICT (symbol) DO NOTHING;
+        END IF;
+      END IF;
+    END LOOP;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'coin-seed trading_pairs sync: %', SQLERRM;
+  END $$;`,
+
+  // Ensure every spot_market base/quote asset has a tokens row (needed for trading_pairs FK)
+  `DO $$
+  DECLARE
+    asset TEXT;
+    default_chain TEXT;
+  BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'tokens')
+       OR NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'spot_markets') THEN
+      RETURN;
+    END IF;
+    SELECT id INTO default_chain FROM chains WHERE id = 'ethereum' LIMIT 1;
+    IF default_chain IS NULL THEN
+      SELECT id INTO default_chain FROM chains WHERE is_active = TRUE ORDER BY id LIMIT 1;
+    END IF;
+    IF default_chain IS NULL THEN RETURN; END IF;
+    FOR asset IN
+      SELECT DISTINCT unnest(ARRAY[base_asset, quote_asset]) AS a
+      FROM spot_markets WHERE status IN ('active', 'maintenance')
+    LOOP
+      IF NOT EXISTS (SELECT 1 FROM tokens WHERE UPPER(TRIM(symbol)) = UPPER(TRIM(asset)) AND is_active = TRUE) THEN
+        BEGIN
+          INSERT INTO tokens (symbol, name, chain_id, decimals, is_active)
+          VALUES (UPPER(TRIM(asset)), UPPER(TRIM(asset)), default_chain, 18, TRUE);
+        EXCEPTION WHEN unique_violation THEN NULL;
+        END;
+      END IF;
+    END LOOP;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'auto-token-seed: %', SQLERRM;
+  END $$;`,
+
+  // Re-sync spot_markets → trading_pairs using base/quote_currency_id from spot_markets
+  `DO $$
+  DECLARE
+    r RECORD;
+    bid UUID;
+    qid UUID;
+  BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'trading_pairs')
+       OR NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'spot_markets') THEN
+      RETURN;
+    END IF;
+    FOR r IN SELECT symbol, base_asset, quote_asset, base_currency_id, quote_currency_id,
+                    price_precision, qty_precision, min_qty, min_notional
+             FROM spot_markets WHERE status IN ('active', 'maintenance')
+    LOOP
+      IF NOT EXISTS (SELECT 1 FROM trading_pairs WHERE trading_pairs.symbol = r.symbol) THEN
+        bid := r.base_currency_id;
+        qid := r.quote_currency_id;
+        IF bid IS NULL THEN
+          SELECT id INTO bid FROM currencies WHERE UPPER(TRIM(symbol)) = UPPER(TRIM(r.base_asset)) LIMIT 1;
+        END IF;
+        IF qid IS NULL THEN
+          SELECT id INTO qid FROM currencies WHERE UPPER(TRIM(symbol)) = UPPER(TRIM(r.quote_asset)) LIMIT 1;
+        END IF;
+        IF bid IS NOT NULL AND qid IS NOT NULL THEN
+          INSERT INTO trading_pairs (symbol, base_currency_id, quote_currency_id, price_precision, quantity_precision,
+                                     tick_size, min_quantity, min_notional, maker_fee, taker_fee, status, trading_enabled, is_active)
+          VALUES (r.symbol, bid, qid, COALESCE(r.price_precision,8), COALESCE(r.qty_precision,8),
+                  0.01, COALESCE(r.min_qty,0.0001), COALESCE(r.min_notional,1), 0.001, 0.001, 'active', TRUE, TRUE)
+          ON CONFLICT (symbol) DO NOTHING;
+        END IF;
+      END IF;
+    END LOOP;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'auto-trading-pairs-sync: %', SQLERRM;
+  END $$;`,
+
+  // Refresh markets materialized view if exists
+  `DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_matviews WHERE matviewname = 'markets') THEN
+      REFRESH MATERIALIZED VIEW CONCURRENTLY markets;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN NULL;
+  END $$;`,
+
+  // ============================================
+  // PORTFOLIO SNAPSHOTS (for balance history chart)
+  // ============================================
+  `CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    total_usd NUMERIC(20,2) NOT NULL DEFAULT 0,
+    breakdown JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_portfolio_snapshots_user_time
+   ON portfolio_snapshots (user_id, created_at DESC);`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'portfolio_snapshots_retention') THEN
+      NULL;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN NULL;
+  END $$;`,
 ];
 
 /** True if this migration SQL touches the legacy "balances" table (not user_balances). Run such steps via raw pool so runtime guard does not block. */

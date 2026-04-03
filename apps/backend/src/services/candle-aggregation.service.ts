@@ -3,6 +3,9 @@
  * Deterministic, idempotent (upsert by bucket). Safe to run periodically.
  * Uses Redis lock to prevent duplicate runs across multiple instances.
  * Scheduled every 2 min in server.ts when runWorkers is true; disable via DISABLE_CANDLE_AGGREGATION=true.
+ *
+ * Also seeds synthetic "heartbeat" candles from external prices for markets
+ * that have no recent trades, ensuring every chart always has data.
  */
 
 import { db } from '../lib/database.js';
@@ -22,7 +25,11 @@ const INTERVAL_SECONDS_TO_TYPE: Array<{ seconds: number; intervalType: string }>
   { seconds: 86400, intervalType: '1d' },
 ];
 
-const LOOKBACK_HOURS = 24;
+const LOOKBACK_HOURS = 168;
+
+const BINANCE_KLINE_URL = 'https://api.binance.com/api/v3/klines';
+const SYNTHETIC_FETCH_TIMEOUT_MS = 12_000;
+const SYNTHETIC_LOOKBACK_CANDLES = 500;
 
 /**
  * Aggregate spot_trades into ohlcv_candles for all symbols.
@@ -148,4 +155,122 @@ export async function runCandleAggregation(): Promise<{ symbolsProcessed: number
   }
 
   return { symbolsProcessed, candlesUpserted };
+}
+
+function toOracleSymbol(marketSymbol: string): string {
+  return marketSymbol.replace(/_/g, '').replace(/-/g, '');
+}
+
+const BINANCE_INTERVAL_MAP: Record<string, string> = {
+  '1m': '1m',
+  '5m': '5m',
+  '15m': '15m',
+  '30m': '30m',
+  '1h': '1h',
+  '4h': '4h',
+  '1d': '1d',
+};
+
+/**
+ * For each active market that has zero candles in the last LOOKBACK_HOURS,
+ * fetch historical klines from Binance and seed them as synthetic candles.
+ * Runs after trade-based aggregation; only fills gaps — never overwrites real trade data.
+ */
+export async function seedSyntheticCandles(): Promise<{ seeded: number; errors: string[] }> {
+  const errors: string[] = [];
+  let seeded = 0;
+
+  try {
+    const hasOhlcv = await db.query<{ exists: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ohlcv_candles') AS exists`
+    );
+    if (!hasOhlcv.rows[0]?.exists) return { seeded, errors };
+
+    const markets = await db.query<{ id: string; symbol: string }>(
+      `SELECT sm.symbol, tp.id
+       FROM spot_markets sm
+       JOIN trading_pairs tp ON tp.symbol = sm.symbol AND tp.trading_enabled = TRUE
+       WHERE sm.status IN ('active', 'maintenance')`
+    );
+
+    logger.info('Synthetic candle seeder starting', { markets: markets.rows.length });
+
+    for (const m of markets.rows) {
+      const recent = await db.query<{ cnt: string }>(
+        `SELECT COUNT(*)::text AS cnt FROM ohlcv_candles
+         WHERE trading_pair_id = $1 AND interval_type = '1m'
+           AND open_time >= NOW() - INTERVAL '2 hours'`,
+        [m.id]
+      );
+      const recentCount = parseInt(recent.rows[0]?.cnt ?? '0', 10);
+      if (recentCount > 5) continue;
+
+      const oracleSym = toOracleSymbol(m.symbol);
+
+      for (const { intervalType } of INTERVAL_SECONDS_TO_TYPE) {
+        const binanceInterval = BINANCE_INTERVAL_MAP[intervalType];
+        if (!binanceInterval) continue;
+
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), SYNTHETIC_FETCH_TIMEOUT_MS);
+          const url = `${BINANCE_KLINE_URL}?symbol=${oracleSym}&interval=${binanceInterval}&limit=${SYNTHETIC_LOOKBACK_CANDLES}`;
+          const res = await fetch(url, { signal: controller.signal });
+          clearTimeout(timeout);
+          if (!res.ok) {
+            if (res.status === 400) continue;
+            errors.push(`${m.symbol}/${intervalType}: Binance ${res.status}`);
+            continue;
+          }
+          const klines = (await res.json()) as Array<Array<number | string>>;
+          if (!Array.isArray(klines) || klines.length === 0) continue;
+
+          const BATCH = 50;
+          for (let i = 0; i < klines.length; i += BATCH) {
+            const chunk = klines.slice(i, i + BATCH);
+            const values: string[] = [];
+            const params: (string | number | Date)[] = [];
+            let idx = 1;
+
+            for (const k of chunk) {
+              const openTimeMs = Number(k[0]);
+              const closeTimeMs = Number(k[6]);
+              if (!Number.isFinite(openTimeMs) || !Number.isFinite(closeTimeMs)) continue;
+              values.push(`($${idx}, $${idx + 1}, $${idx + 2}, $${idx + 3}, $${idx + 4}::numeric, $${idx + 5}::numeric, $${idx + 6}::numeric, $${idx + 7}::numeric, $${idx + 8}::numeric, $${idx + 9}::numeric, $${idx + 10})`);
+              params.push(
+                m.id, intervalType,
+                new Date(openTimeMs), new Date(closeTimeMs + 1),
+                String(k[1]), String(k[2]), String(k[3]), String(k[4]),
+                String(k[5]), String(k[7]), Number(k[8]) || 0
+              );
+              idx += 11;
+            }
+
+            if (values.length > 0) {
+              await db.query(
+                `INSERT INTO ohlcv_candles (
+                  trading_pair_id, interval_type, open_time, close_time,
+                  open_price, high_price, low_price, close_price,
+                  volume, quote_volume, trade_count
+                ) VALUES ${values.join(', ')}
+                ON CONFLICT (trading_pair_id, interval_type, open_time) DO NOTHING`,
+                params
+              );
+              seeded += values.length;
+            }
+          }
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (!msg.includes('aborted')) {
+            errors.push(`${m.symbol}/${intervalType}: ${msg}`);
+          }
+        }
+      }
+      logger.debug('Synthetic candles seeded for market', { symbol: m.symbol, totalSeeded: seeded });
+    }
+  } catch (err) {
+    logger.error('Synthetic candle seeding failed', { error: err instanceof Error ? err.message : String(err) });
+  }
+
+  return { seeded, errors };
 }
