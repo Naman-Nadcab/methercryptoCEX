@@ -7,7 +7,6 @@ import { emailService } from './EmailService';
 interface PendingDeposit {
   id: string;
   user_id: string;
-  blockchain_id: string;
   chain_key: string;
   tx_hash: string;
   symbol: string;
@@ -58,18 +57,15 @@ export class ConfirmationTracker {
     if (!this.isRunning) return;
 
     try {
-      // Get all pending deposits
       const result = await query(`
         SELECT 
-          d.id, d.user_id, d.blockchain_id, d.tx_hash, 
+          d.id, d.user_id, d.tx_hash, 
           d.amount::text as amount, d.block_number, d.confirmations, d.required_confirmations,
           d.currency_id,
           c.symbol,
-          b.chain_symbol as chain_key,
-          b.chain_id as chain_numeric_id
+          d.chain_id as chain_key
         FROM deposits d
         JOIN currencies c ON d.currency_id = c.id
-        LEFT JOIN blockchains b ON d.blockchain_id = b.id
         WHERE d.status = 'pending'
         ORDER BY d.created_at ASC
         LIMIT 100
@@ -79,25 +75,14 @@ export class ConfirmationTracker {
 
       logger.debug(`Checking ${result.rows.length} pending deposits`);
 
-      // Map chain symbols to our chain keys
-      const chainKeyMap: Record<string, string> = {
-        'ETH': 'ethereum',
-        'BNB': 'bsc',
-        'BSC': 'bsc',
-        'MATIC': 'polygon',
-        'ARB': 'arbitrum',
-        'BASE': 'base',
-      };
-
-      // Group by chain for efficiency
       const depositsByChain = new Map<string, PendingDeposit[]>();
       
       for (const deposit of result.rows) {
-        const chainKey = chainKeyMap[deposit.chain_key?.toUpperCase()] || 'ethereum';
+        const chainKey = deposit.chain_key || 'ethereum';
         const chainDeposits = depositsByChain.get(chainKey) || [];
         chainDeposits.push({
           ...deposit,
-          chain_key: chainKey
+          chain_key: chainKey,
         });
         depositsByChain.set(chainKey, chainDeposits);
       }

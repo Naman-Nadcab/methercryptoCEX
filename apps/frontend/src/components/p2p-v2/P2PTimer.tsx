@@ -47,16 +47,14 @@ export function P2PTimer({ expiresAtIso, active, onExpire }: Props) {
   const urgent = leftSec != null && leftSec < 300;
 
   return (
-    <div
-      className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
-        urgent
-          ? 'border-amber-500/50 bg-amber-500/10 text-amber-900 dark:text-amber-200'
-          : 'border-border bg-muted text-foreground dark:border-border dark:bg-card/40 dark:text-gray-200'
-      }`}
-    >
+    <div className={`flex items-center gap-2.5 rounded-lg border px-4 py-2.5 text-sm ${
+      urgent
+        ? 'border-[#f6465d]/30 bg-[#f6465d]/5 text-[#f6465d]'
+        : 'border-amber-500/20 bg-amber-500/5 text-amber-500'
+    }`}>
       <Clock className="h-4 w-4 shrink-0" />
       <span className="font-medium">Payment window</span>
-      <span className="ml-auto font-mono tabular-nums">
+      <span className="ml-auto font-mono text-[15px] font-bold tabular-nums">
         {leftSec == null ? '—' : `${m}:${s.toString().padStart(2, '0')}`}
       </span>
     </div>

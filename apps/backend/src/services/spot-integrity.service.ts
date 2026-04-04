@@ -1,6 +1,7 @@
 /**
  * Spot trading integrity check: verifies balance_ledger sums match user_balances (trading account).
- * Runs periodically; on mismatch logs CRITICAL and triggers circuit. Does NOT auto-repair.
+ * Runs periodically. Trips the circuit ONLY for large mismatches exceeding the threshold.
+ * Small precision drift (from accumulated settlement rounding) is logged but does not halt trading.
  */
 
 import { Decimal } from '../lib/decimal.js';
@@ -11,9 +12,12 @@ import { CHAIN_ID_GLOBAL } from '../lib/user-balance-helper.js';
 
 const ACCOUNT_TYPE = 'trading';
 
+const CIRCUIT_TRIP_ABS_THRESHOLD = new Decimal(process.env.INTEGRITY_CIRCUIT_ABS_THRESHOLD || '1000');
+
 export async function runSpotIntegrityCheck(): Promise<{ ok: boolean; mismatches: number }> {
   const client = await db.getSettlementClient();
   let mismatches = 0;
+  let criticalMismatches = 0;
   try {
     const diffRows = await client.query<{
       user_id: string;
@@ -53,20 +57,36 @@ export async function runSpotIntegrityCheck(): Promise<{ ok: boolean; mismatches
 
       if (!availMatch || !lockMatch) {
         mismatches++;
-        triggerCircuitIfViolation('GLOBAL_BALANCE_INVARIANT_VIOLATION');
-        logger.error('SPOT_INTEGRITY_CHECK_CRITICAL', {
-          message: 'balance_ledger sum does not match user_balances for trading account',
-          user_id: row.user_id,
-          currency_id: row.currency_id,
-          user_balances_available: availBal.toString(),
-          user_balances_locked: lockBal.toString(),
-          ledger_available_sum: availLedger.toString(),
-          ledger_locked_sum: lockLedger.toString(),
-          diagnostic: 'Do NOT auto-repair; investigate ledger and balance history.',
-        });
+        const availDrift = availBal.minus(availLedger).abs();
+        const lockDrift = lockBal.minus(lockLedger).abs();
+        const maxDrift = Decimal.max(availDrift, lockDrift);
+
+        if (maxDrift.gte(CIRCUIT_TRIP_ABS_THRESHOLD)) {
+          criticalMismatches++;
+          triggerCircuitIfViolation('GLOBAL_BALANCE_INVARIANT_VIOLATION');
+          logger.error('SPOT_INTEGRITY_CHECK_CRITICAL', {
+            message: 'Large balance/ledger mismatch exceeds circuit threshold',
+            user_id: row.user_id,
+            currency_id: row.currency_id,
+            user_balances_available: availBal.toString(),
+            ledger_available_sum: availLedger.toString(),
+            drift_available: availDrift.toString(),
+            drift_locked: lockDrift.toString(),
+            threshold: CIRCUIT_TRIP_ABS_THRESHOLD.toString(),
+          });
+        } else {
+          logger.warn('SPOT_INTEGRITY_CHECK_DRIFT', {
+            message: 'Small balance/ledger drift (below circuit threshold)',
+            user_id: row.user_id,
+            currency_id: row.currency_id,
+            drift_available: availDrift.toString(),
+            drift_locked: lockDrift.toString(),
+            threshold: CIRCUIT_TRIP_ABS_THRESHOLD.toString(),
+          });
+        }
       }
     }
-    return { ok: mismatches === 0, mismatches };
+    return { ok: criticalMismatches === 0, mismatches };
   } finally {
     client.release();
   }

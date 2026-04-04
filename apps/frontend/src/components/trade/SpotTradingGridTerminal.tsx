@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useMemo, useState } from 'react';
+import { Component, memo, useMemo, useState, type ErrorInfo, type ReactNode } from 'react';
 import { AlertCircle, Loader2, Info, TrendingUp } from 'lucide-react';
 import { CoinIcon } from '@/components/ui/CoinIcon';
 import Link from 'next/link';
@@ -11,7 +11,6 @@ import { ChartPanel } from './ChartPanel';
 import { ChartErrorBoundary } from './chart/ChartErrorBoundary';
 import { SpotOrderbookPanel } from './SpotOrderbookPanel';
 import { SpotBottomPanel } from './SpotBottomPanel';
-// SpotPositionPanel unused in Binance layout but preserved for future use
 import { MarketsSidebar, type MarketRow } from '@/components/trading/MarketsSidebar';
 import { formatValueFixedTrim } from './terminalFormat';
 import {
@@ -20,6 +19,36 @@ import {
   useSpotMarketTrades,
   useSpotMarketStream,
 } from './SpotMarketDataContext';
+
+class PanelErrorBoundary extends Component<
+  { children: ReactNode; name: string; resetKey?: string },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+  static getDerivedStateFromError(): { hasError: boolean } {
+    return { hasError: true };
+  }
+  componentDidCatch(error: Error, info: ErrorInfo): void {
+    console.error(`[PanelErrorBoundary:${this.props.name}]`, error.message, info.componentStack);
+  }
+  componentDidUpdate(prevProps: { resetKey?: string }): void {
+    if (prevProps.resetKey !== this.props.resetKey) this.setState({ hasError: false });
+  }
+  render(): ReactNode {
+    if (this.state.hasError) {
+      return (
+        <div className="flex h-full min-h-[60px] flex-col items-center justify-center gap-2 bg-[#1e2026] px-3 py-4 text-center">
+          <p className="text-[11px] font-medium text-[#848e9c]">{this.props.name} hit an error</p>
+          <button type="button" onClick={() => this.setState({ hasError: false })}
+            className="rounded bg-[#2b2f36] px-3 py-1 text-[10px] font-semibold text-[#eaecef] hover:bg-[#363a45]">
+            Retry
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 type Market = {
   symbol: string;
@@ -217,15 +246,16 @@ const RecentTradesPanel = memo(function RecentTradesPanel({
   qtyPrecision: number;
 }) {
   const { recentTrades } = useSpotMarketTrades();
+  const { streamPhase } = useSpotMarketStream();
 
   const trades = recentTrades ?? [];
   const topTrades = trades.slice(0, 30);
+  const isInitialLoading = topTrades.length === 0 && streamPhase !== 'live';
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <div className="flex shrink-0 items-center gap-3 border-b border-[#2b2f36] px-2 py-1">
         <span className="text-[11px] font-semibold text-[#eaecef]">Market Trades</span>
-        <span className="text-[11px] text-[#474d57] hover:text-[#848e9c] cursor-pointer">My Trades</span>
       </div>
       <div className="flex shrink-0 items-center border-b border-[#2b2f36] px-2 py-0.5">
         <span className="flex-1 text-[10px] font-medium text-[#848e9c]">Price({quoteAsset})</span>
@@ -233,7 +263,15 @@ const RecentTradesPanel = memo(function RecentTradesPanel({
         <span className="w-[52px] shrink-0 text-right text-[10px] font-medium text-[#848e9c]">Time</span>
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]">
-        {topTrades.length === 0 ? (
+        {isInitialLoading ? (
+          Array.from({ length: 12 }).map((_, i) => (
+            <div key={`sk-${i}`} className="flex shrink-0 items-center px-2 py-1">
+              <span className="h-2.5 flex-1 rounded bg-[#2b2f36]/70" />
+              <span className="ml-2 h-2.5 w-14 rounded bg-[#2b2f36]/70" />
+              <span className="ml-2 h-2.5 w-10 rounded bg-[#2b2f36]/70" />
+            </div>
+          ))
+        ) : topTrades.length === 0 ? (
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-2 py-4 text-center text-[11px] text-[#848e9c]">
             No trades yet
           </div>
@@ -321,7 +359,7 @@ function TopMoversSection({
   const { ticker } = useSpotMarketTicker();
 
   const movers = useMemo(() => {
-    return sortedMarkets.slice(0, 12).map((m) => {
+    const enriched = sortedMarkets.map((m) => {
       const isSelected = m.symbol === symbol;
       const price = isSelected && ticker?.last_price ? ticker.last_price : m.last_price ?? null;
       const open = isSelected && ticker?.open_24h ? ticker.open_24h : m.open_24h ?? null;
@@ -336,6 +374,9 @@ function TopMoversSection({
         price,
       };
     });
+    return [...enriched]
+      .sort((a, b) => Math.abs(b.change ?? 0) - Math.abs(a.change ?? 0))
+      .slice(0, 12);
   }, [sortedMarkets, symbol, ticker]);
 
   return (
@@ -492,13 +533,10 @@ function BinanceOrderEntrySection({
   const isPrimaryType = orderType === 'limit' || orderType === 'market';
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden text-[#eaecef]">
+    <div id="spot-order-entry-panel" className="flex h-full min-h-0 flex-col overflow-hidden text-[#eaecef]">
       {/* Product + Order type tabs — compact single bar */}
       <div className="flex h-8 shrink-0 items-center border-b border-[#2b2f36] px-2">
         <span className="mr-3 text-[11px] font-bold text-[#f0b90b]">Spot</span>
-        <span className="mr-2 text-[10px] text-[#474d57]">Cross</span>
-        <span className="mr-2 text-[10px] text-[#474d57]">Isolated</span>
-        <span className="text-[10px] text-[#474d57]">Grid</span>
         <span className="mx-2 h-3 w-px bg-[#2b2f36]" />
         {(['limit', 'market'] as const).map((t) => (
           <button key={t} type="button" onClick={() => setOrderType(t)}
@@ -522,10 +560,10 @@ function BinanceOrderEntrySection({
             <span className="text-[10px] font-semibold text-[#eaecef]">Buy {baseAsset}</span>
             <span className="font-mono text-[10px] text-[#848e9c]">{formatValueFixedTrim(quoteBalance, pricePrecision)} {quoteAsset}</span>
           </div>
-          {showPrice && <BinanceInsetField label="Price" suffix={quoteAsset}><input type="text" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} className={inputCls} placeholder={lastPrice ? parseFloat(lastPrice).toFixed(pricePrecision) : '0'} /></BinanceInsetField>}
+          {showPrice && <BinanceInsetField label="Price" suffix={quoteAsset}><input id="spot-price" type="text" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} className={inputCls} placeholder={lastPrice ? parseFloat(lastPrice).toFixed(pricePrecision) : '0'} /></BinanceInsetField>}
           {showStopPrice && <BinanceInsetField label="Stop" suffix={quoteAsset}><input type="text" inputMode="decimal" value={stopPrice} onChange={(e) => setStopPrice(e.target.value)} className={inputCls} placeholder="0" /></BinanceInsetField>}
           {showTrailing && <BinanceInsetField label="Delta" suffix="%"><input type="text" inputMode="decimal" value={trailingDelta} onChange={(e) => setTrailingDelta(e.target.value)} className={inputCls} placeholder="1.0" /></BinanceInsetField>}
-          <BinanceInsetField label="Amt" suffix={baseAsset}><input type="text" inputMode="decimal" value={buyQty} onChange={(e) => setBuyQty(e.target.value)} className={inputCls} placeholder="0" /></BinanceInsetField>
+          <BinanceInsetField label="Amt" suffix={baseAsset}><input id="spot-quantity" type="text" inputMode="decimal" value={buyQty} onChange={(e) => setBuyQty(e.target.value)} className={inputCls} placeholder="0" /></BinanceInsetField>
           <div className="flex items-center gap-1 py-0.5">
             {SLIDER_PCTS.filter(Boolean).map((p) => (
               <button key={p} type="button" onClick={() => handleBuySlider(p)}
@@ -538,7 +576,7 @@ function BinanceOrderEntrySection({
           {!isAuth ? (
             <Link href={loginWithRedirect(SPOT_TRADE_HREF)} className="flex h-9 items-center justify-center rounded bg-[#0ecb81] text-[13px] font-bold text-white hover:brightness-110">Log In</Link>
           ) : (
-            <button type="button" disabled={submitting || !buyQty.trim()} onClick={doBuy}
+            <button type="button" data-spot-place-order disabled={submitting || !buyQty.trim()} onClick={doBuy}
               className="flex h-9 items-center justify-center gap-1 rounded bg-[#0ecb81] text-[13px] font-bold text-white transition-all hover:brightness-110 disabled:opacity-40">
               {submitting && side === 'buy' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Buy {baseAsset}
             </button>
@@ -567,7 +605,7 @@ function BinanceOrderEntrySection({
           {!isAuth ? (
             <Link href={loginWithRedirect(SPOT_TRADE_HREF)} className="flex h-9 items-center justify-center rounded bg-[#f6465d] text-[13px] font-bold text-white hover:brightness-110">Log In</Link>
           ) : (
-            <button type="button" disabled={submitting || !sellQty.trim()} onClick={doSell}
+            <button type="button" data-spot-place-order disabled={submitting || !sellQty.trim()} onClick={doSell}
               className="flex h-9 items-center justify-center gap-1 rounded bg-[#f6465d] text-[13px] font-bold text-white transition-all hover:brightness-110 disabled:opacity-40">
               {submitting && side === 'sell' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Sell {baseAsset}
             </button>
@@ -599,7 +637,6 @@ export interface SpotTradingGridTerminalProps {
   price: string;
   stopPrice: string;
   trailingDelta: string;
-  quantity: string;
   submitting: boolean;
   submitError: string | null;
   setSubmitError: (v: string | null) => void;
@@ -642,7 +679,6 @@ export function SpotTradingGridTerminal(props: SpotTradingGridTerminalProps) {
     price,
     stopPrice,
     trailingDelta,
-    quantity,
     submitting,
     submitError,
     setSubmitError,
@@ -734,7 +770,9 @@ export function SpotTradingGridTerminal(props: SpotTradingGridTerminalProps) {
             className="flex min-w-0 flex-col overflow-hidden border-r border-solid border-[#2b2f36] bg-[#1e2026]"
             style={{ gridColumn: '1', gridRow: '3' }}
           >
-            <SpotOrderbookSection quoteAsset={quoteAsset} baseAsset={baseAsset} pricePrecision={pricePrecision} qtyPrecision={qtyPrecision} onPriceClick={handlePriceClick} />
+            <PanelErrorBoundary name="Order Book" resetKey={symbol}>
+              <SpotOrderbookSection quoteAsset={quoteAsset} baseAsset={baseAsset} pricePrecision={pricePrecision} qtyPrecision={qtyPrecision} onPriceClick={handlePriceClick} />
+            </PanelErrorBoundary>
           </div>
 
           {/* CENTER: chart 60% / order form 40% (percent of main row height) */}
@@ -757,6 +795,7 @@ export function SpotTradingGridTerminal(props: SpotTradingGridTerminalProps) {
               className="flex min-h-0 flex-col overflow-hidden border-t-2 bg-[#1e2026]"
               style={{ borderTopColor: '#363a45' }}
             >
+              <PanelErrorBoundary name="Order Form" resetKey={symbol}>
               <BinanceOrderEntrySection
                 orderType={orderType} setOrderType={setOrderType} timeInForce={timeInForce} setTimeInForce={setTimeInForce}
                 postOnly={postOnly} setPostOnly={setPostOnly} price={price} setPrice={setPrice}
@@ -766,6 +805,7 @@ export function SpotTradingGridTerminal(props: SpotTradingGridTerminalProps) {
                 setQuantity={setQuantity} selectedMarket={selectedMarket} availableBalance={availableBalance}
                 quoteBalance={quoteBalance} baseBalance={baseBalance} side={side}
               />
+              </PanelErrorBoundary>
             </div>
           </div>
         </div>
@@ -794,7 +834,9 @@ export function SpotTradingGridTerminal(props: SpotTradingGridTerminalProps) {
 
       {/* ── BELOW THE FOLD: order history — page scrolls here ── */}
       <section className="w-full border-t border-[#2b2f36] bg-[#1e2026]" aria-label="Order history and trading activity">
-        <SpotBottomPanel symbol={symbol} isAuth={isAuth} ordersVersion={ordersVersion} tradesVersion={tradesVersion} />
+        <PanelErrorBoundary name="Order History" resetKey={symbol}>
+          <SpotBottomPanel symbol={symbol} isAuth={isAuth} ordersVersion={ordersVersion} tradesVersion={tradesVersion} />
+        </PanelErrorBoundary>
       </section>
     </div>
   );

@@ -124,7 +124,7 @@ export default function AccountInfoPage() {
 
   const copyUID = () => {
     if (user?.id) {
-      navigator.clipboard.writeText(user.id.slice(0, 9));
+      navigator.clipboard.writeText(user.id);
       setCopiedUID(true);
       setTimeout(() => setCopiedUID(false), 2000);
     }
@@ -141,8 +141,8 @@ export default function AccountInfoPage() {
     });
   };
 
-  const SettingRow = ({ icon: Icon, title, description, status, statusColor, action, actionLabel, actionVariant = 'default' }: {
-    icon: any;
+  const SettingRow = ({ icon: Icon, title, description, status, statusColor, action, actionLabel, actionVariant = 'default', badge }: {
+    icon: React.ElementType;
     title: string;
     description?: string;
     status?: string;
@@ -150,6 +150,7 @@ export default function AccountInfoPage() {
     action?: () => void;
     actionLabel: string;
     actionVariant?: 'default' | 'primary' | 'success';
+    badge?: string;
   }) => (
     <div className="flex items-center justify-between p-5 hover:bg-accent/30 transition-colors">
       <div className="flex items-center gap-4">
@@ -164,6 +165,9 @@ export default function AccountInfoPage() {
         </div>
       </div>
       <div className="flex items-center gap-4">
+        {badge && (
+          <span className="px-2 py-0.5 bg-muted text-muted-foreground text-xs font-medium rounded-md">{badge}</span>
+        )}
         {status && (
           <span className={`flex items-center gap-1.5 text-sm font-medium ${statusColor}`}>
             <span className={`w-2 h-2 rounded-full ${statusColor?.includes('text-buy') ? 'bg-buy' : statusColor?.includes('text-warning') ? 'bg-warning' : 'bg-muted-foreground'}`}></span>
@@ -335,6 +339,8 @@ export default function AccountInfoPage() {
               status="Set up"
               statusColor="text-buy"
               actionLabel="Settings"
+              badge="Soon"
+              action={() => alert('Coming soon')}
             />
             <SettingRow
               icon={Users}
@@ -380,12 +386,16 @@ export default function AccountInfoPage() {
               statusColor="text-muted-foreground"
               actionLabel="Settings"
               actionVariant="primary"
+              badge="Soon"
+              action={() => alert('Coming soon')}
             />
             <SettingRow
               icon={LineChart}
               title="TradingView Alerts"
               description="Link TradingView for automated trading signals"
               actionLabel="View"
+              badge="Soon"
+              action={() => alert('Coming soon')}
             />
           </div>
         </div>
@@ -407,12 +417,16 @@ export default function AccountInfoPage() {
               title="Trusted Devices"
               description={loading ? 'Loading...' : `${profileData?.activeDevices || 1} device${(profileData?.activeDevices || 1) > 1 ? 's' : ''} currently logged in`}
               actionLabel="Manage"
+              badge="Soon"
+              action={() => alert('Coming soon')}
             />
             <SettingRow
               icon={Activity}
               title="Login History"
               description="View recent account activity"
               actionLabel="View"
+              badge="Soon"
+              action={() => alert('Coming soon')}
             />
             <div className="flex items-center justify-between p-5 hover:bg-accent/30 transition-colors">
               <div className="flex items-center gap-4">
@@ -424,9 +438,12 @@ export default function AccountInfoPage() {
                   <p className="text-sm text-muted-foreground mt-0.5">Permanently delete your account and data</p>
                 </div>
               </div>
-              <button className="px-5 py-2.5 text-sm font-medium rounded-xl bg-sell-light hover:bg-sell/20 text-destructive transition-colors">
-                Delete
-              </button>
+              <div className="flex items-center gap-3">
+                <span className="px-2 py-0.5 bg-muted text-muted-foreground text-xs font-medium rounded-md">Soon</span>
+                <button onClick={() => alert('Coming soon')} className="px-5 py-2.5 text-sm font-medium rounded-xl bg-sell-light hover:bg-sell/20 text-destructive transition-colors">
+                  Delete
+                </button>
+              </div>
             </div>
           </div>
         </div>

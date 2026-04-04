@@ -26,7 +26,6 @@ import {
   Sparkles,
   Star,
   Zap,
-  Loader2,
 } from 'lucide-react';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { toast } from '@/components/ui/toaster';
@@ -650,7 +649,7 @@ export default function ReferralProgramPage() {
         </div>
 
         {/* Terms */}
-        <div className="bg-muted dark:bg-card rounded-xl p-6 border border-border">
+        <div id="referral-terms" className="bg-muted dark:bg-card rounded-xl p-6 border border-border">
           <h3 className="font-bold text-foreground mb-4">Terms & Conditions</h3>
           <div className="text-sm text-muted-foreground space-y-2">
             <p>• Referral rewards are subject to verification and may take up to 48 hours to process.</p>

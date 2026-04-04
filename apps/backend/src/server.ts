@@ -922,6 +922,7 @@ async function start() {
       logger.info('Deposit sweep worker disabled (DISABLE_DEPOSIT_SWEEP=true)');
     }
 
+    const orderbookRefreshMs = parseInt(process.env.ORDERBOOK_CACHE_REFRESH_MS || '15000', 10);
     setInterval(async () => {
       try {
         const r = await db.query<{ symbol: string }>(`SELECT symbol FROM spot_markets WHERE status IN ('active', 'maintenance')`);
@@ -929,7 +930,7 @@ async function start() {
       } catch (e) {
         logger.warn('Spot orderbook cache refresh failed', { error: e instanceof Error ? e.message : 'Unknown' });
       }
-    }, 5000);
+    }, orderbookRefreshMs);
 
     const p2pExpiryIntervalMs = 90_000;
     setInterval(async () => {

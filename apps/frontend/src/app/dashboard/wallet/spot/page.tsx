@@ -9,8 +9,6 @@ import {
   Wallet,
   Search,
   ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
   Eye,
   EyeOff,
   ChevronUp,

@@ -19,7 +19,7 @@ export default function P2PShellLayout({ children }: { children: React.ReactNode
         <div className={`flex h-screen w-full flex-col overflow-hidden ${MOBILE_NAV_PAD}`}>
           <ExchangeHeader />
           <P2PHeader />
-          <main className="mx-auto w-full max-w-6xl min-h-0 flex-1 overflow-y-auto px-4 py-4">{children}</main>
+          <main className="mx-auto w-full max-w-[1600px] min-h-0 flex-1 overflow-y-auto px-4 py-4">{children}</main>
         </div>
         <MobileBottomNav />
       </div>

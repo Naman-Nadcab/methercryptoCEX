@@ -815,8 +815,6 @@ export default function SecurityPage() {
         return;
       }
 
-      console.log('[Passkey] Registration options received from server');
-
       // Step 2: Create passkey using NATIVE WebAuthn API
       // This forces platform authenticator (Touch ID / Face ID)
       const result = await createPasskey(optionsData.data);
@@ -826,8 +824,6 @@ export default function SecurityPage() {
         setRegisteringPasskey(false);
         return;
       }
-
-      console.log('[Passkey] Credential created, verifying with server');
 
       // Step 3: Verify the registration with the server
       const verifyResponse = await fetch(`${apiUrl}/api/v1/auth/passkey/register/verify`, {

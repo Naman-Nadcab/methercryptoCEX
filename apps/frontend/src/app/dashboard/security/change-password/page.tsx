@@ -68,6 +68,8 @@ export default function ChangePasswordPage() {
 
     if (accessToken) {
       checkPassword();
+    } else {
+      setLoading(false);
     }
   }, [accessToken, apiUrl]);
 

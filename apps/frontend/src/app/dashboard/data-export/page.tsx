@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronDown, Calendar, FileText, Download, Clock, Check, FileSpreadsheet, History, Info, Loader2 } from 'lucide-react';
+import { ChevronDown, FileText, Download, Clock, Check, FileSpreadsheet, History, Info } from 'lucide-react';
 
 type TabType = 'transaction' | 'order' | 'account';
 type TimeRangeType = '7days' | '30days' | '90days' | 'customize';
@@ -20,7 +20,6 @@ export default function DataExportPage() {
   const [statementType, setStatementType] = useState<StatementType>('monthly');
   const [statementTypeDropdown, setStatementTypeDropdown] = useState('');
   const [statementTypeDropdownOpen, setStatementTypeDropdownOpen] = useState(false);
-  const [exporting, setExporting] = useState(false);
 
   const tabs = [
     { id: 'transaction' as TabType, label: 'Transaction Log', icon: FileText },
@@ -49,8 +48,7 @@ export default function DataExportPage() {
   ];
 
   const handleExport = () => {
-    setExporting(true);
-    setTimeout(() => setExporting(false), 2000);
+    alert('Export functionality is coming soon.');
   };
 
   const Dropdown = ({ 
@@ -358,20 +356,11 @@ export default function DataExportPage() {
               <div className="pt-4 border-t border-border flex items-center gap-4">
                 <button
                   onClick={handleExport}
-                  disabled={exporting}
-                  className="px-8 py-3.5 bg-primary hover:bg-primary/85 disabled:bg-muted disabled:text-muted-foreground text-primary-foreground font-semibold rounded-xl transition-all shadow-lg shadow-blue-500/25 flex items-center gap-2"
+                  className="px-8 py-3.5 bg-primary hover:bg-primary/85 text-primary-foreground font-semibold rounded-xl transition-all shadow-lg shadow-blue-500/25 flex items-center gap-2"
                 >
-                  {exporting ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      Exporting...
-                    </>
-                  ) : (
-                    <>
-                      <Download className="w-5 h-5" />
-                      Export Now
-                    </>
-                  )}
+                  <Download className="w-5 h-5" />
+                  Export Now
+                  <span className="ml-1 px-2 py-0.5 bg-primary-foreground/20 text-[10px] font-bold rounded-md uppercase">Coming Soon</span>
                 </button>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Clock className="w-4 h-4" />

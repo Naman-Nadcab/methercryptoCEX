@@ -82,7 +82,11 @@ export default function OrdersHubPage() {
     finally { setP2pLoading(false); }
   }, [accessToken]);
 
-  useEffect(() => { if (_hasHydrated && accessToken) fetchOpen(); }, [_hasHydrated, accessToken, fetchOpen]);
+  useEffect(() => {
+    if (!_hasHydrated) return;
+    if (accessToken) fetchOpen();
+    else setOpenLoading(false);
+  }, [_hasHydrated, accessToken, fetchOpen]);
   useEffect(() => { if (tab === 'history' && accessToken) fetchHistory(null, false); }, [tab, accessToken, fetchHistory]);
   useEffect(() => { if (tab === 'p2p' && accessToken) fetchP2P(); }, [tab, accessToken, fetchP2P]);
 

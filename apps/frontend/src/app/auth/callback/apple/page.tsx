@@ -5,11 +5,13 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { handleAppleCallback, consumeOAuthRedirect } from '@/lib/oauth';
 import { useAuthStore } from '@/store/auth';
+import { useAuth } from '@/context/AuthContext';
 
 export default function AppleCallbackPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { setUser, setTokens } = useAuthStore();
+  const { login } = useAuthStore();
+  const { setAuthenticated } = useAuth();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -45,8 +47,8 @@ export default function AppleCallbackPage() {
             phoneVerified: result.data.user.phoneVerified,
             tierLevel: result.data.user.tierLevel,
           };
-          setUser(userData);
-          setTokens(result.data.accessToken, result.data.refreshToken);
+          login(userData, result.data.accessToken, result.data.refreshToken);
+          setAuthenticated(userData);
           const redirect = consumeOAuthRedirect();
           router.push(redirect || '/dashboard');
         } else {
@@ -58,7 +60,7 @@ export default function AppleCallbackPage() {
         setError('An error occurred during login');
         setTimeout(() => router.push('/login'), 3000);
       });
-  }, [searchParams, router, setUser, setTokens]);
+  }, [searchParams, router, login, setAuthenticated]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">

@@ -13,7 +13,6 @@ import {
   Upload,
   ArrowLeftRight,
   RefreshCw,
-  ChevronRight,
   ChevronDown,
   ChevronUp,
   Wallet,
@@ -97,7 +96,7 @@ function ActionDropdown({ symbol }: { symbol: string }) {
             <ArrowLeftRight className="w-3.5 h-3.5 text-muted-foreground" /> Transfer
           </Link>
           <Link
-            href={`/dashboard/trade/spot?pair=${symbol}_USDT`}
+            href={`/trade/spot?symbol=${symbol}_USDT`}
             className="flex items-center gap-2 px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors"
             onClick={() => setOpen(false)}
           >

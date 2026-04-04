@@ -19,9 +19,9 @@ class Database {
     this.pool = new Pool({
       connectionString: config.database.url,
       min: config.database.poolMin,
-      max: config.database.poolMax,
+      max: Math.max(config.database.poolMax, 40),
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
+      connectionTimeoutMillis: 30000,
       ...(sslConfig && { ssl: sslConfig }),
     });
 

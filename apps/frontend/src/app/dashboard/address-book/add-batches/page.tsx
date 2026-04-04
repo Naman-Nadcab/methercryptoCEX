@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { toast } from '@/components/ui/toaster';
-import Image from 'next/image';
 import { 
   ChevronRight, 
   Plus, 
@@ -133,10 +132,6 @@ export default function AddBatchesPage() {
         { id: '6', name: 'Bitcoin', symbol: 'BTC' },
       ]);
     }
-  };
-
-  const getAssetIcon = (symbol: string) => {
-    return `/assets/upload/currency-logo/${symbol.toLowerCase()}.svg`;
   };
 
   // On-chain address handlers

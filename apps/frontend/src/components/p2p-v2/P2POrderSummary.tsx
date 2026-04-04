@@ -8,31 +8,39 @@ import { useAuthStore } from '@/store/auth';
 import { Loader2 } from 'lucide-react';
 import { CoinIcon } from '@/components/ui/CoinIcon';
 
+/* ── Helpers ── */
 function statusLabel(s: string): string {
   switch (s) {
-    case 'payment_pending':
-      return 'Awaiting payment';
-    case 'payment_confirmed':
-      return 'Paid — awaiting release';
-    case 'completed':
-      return 'Completed';
-    case 'cancelled':
-      return 'Cancelled';
-    case 'expired':
-      return 'Expired';
-    case 'disputed':
-      return 'In dispute';
-    default:
-      return s;
+    case 'payment_pending': return 'Awaiting Payment';
+    case 'payment_confirmed': return 'Paid — Awaiting Release';
+    case 'completed': return 'Completed';
+    case 'cancelled': return 'Cancelled';
+    case 'expired': return 'Expired';
+    case 'disputed': return 'In Dispute';
+    default: return s;
   }
 }
 
-type Props = {
-  order: P2POrderRow;
-  isBuyer: boolean;
+const STATUS_CLS: Record<string, string> = {
+  payment_pending: 'bg-amber-500/10 text-amber-500',
+  payment_confirmed: 'bg-blue-500/10 text-blue-500',
+  completed: 'bg-[#0ecb81]/10 text-[#0ecb81]',
+  cancelled: 'bg-muted text-muted-foreground',
+  expired: 'bg-muted text-muted-foreground',
+  disputed: 'bg-[#f6465d]/10 text-[#f6465d]',
 };
 
-/** Secure proofs require Authorization; legacy `/assets/` can open in a new tab. */
+function verificationBadge(pvs: string | null | undefined): { label: string; cls: string } | null {
+  if (pvs == null || pvs === '') return null;
+  switch (pvs) {
+    case 'pending': return { label: 'Payment check: pending', cls: 'bg-amber-500/10 text-amber-500' };
+    case 'verified': return { label: 'Payment verified', cls: 'bg-[#0ecb81]/10 text-[#0ecb81]' };
+    case 'rejected': return { label: 'Proof rejected', cls: 'bg-[#f6465d]/10 text-[#f6465d]' };
+    default: return { label: String(pvs), cls: 'bg-muted text-muted-foreground' };
+  }
+}
+
+/* ── Payment proof viewer (logic unchanged) ── */
 function PaymentProofViewer({ orderId, paymentProofUrl }: { orderId: string; paymentProofUrl: string }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -46,31 +54,19 @@ function PaymentProofViewer({ orderId, paymentProofUrl }: { orderId: string; pay
       : paymentProofUrl;
 
   const loadSecure = async () => {
-    if (!accessToken) {
-      setErr('Not signed in');
-      return;
-    }
+    if (!accessToken) { setErr('Not signed in'); return; }
     setLoading(true);
     setErr(null);
     try {
       const base = getApiBaseUrl();
       const res = await fetch(
         `${base}/api/v1/p2p/orders/${encodeURIComponent(orderId)}/payment-proof`,
-        {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          credentials: 'include',
-        }
+        { headers: { Authorization: `Bearer ${accessToken}` }, credentials: 'include' },
       );
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error(t || res.statusText);
-      }
+      if (!res.ok) throw new Error((await res.text()) || res.statusText);
       const b = await res.blob();
       const u = URL.createObjectURL(b);
-      setBlobUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return u;
-      });
+      setBlobUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return u; });
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Failed to load proof');
     } finally {
@@ -78,12 +74,7 @@ function PaymentProofViewer({ orderId, paymentProofUrl }: { orderId: string; pay
     }
   };
 
-  useEffect(
-    () => () => {
-      if (blobUrl) URL.revokeObjectURL(blobUrl);
-    },
-    [blobUrl]
-  );
+  useEffect(() => () => { if (blobUrl) URL.revokeObjectURL(blobUrl); }, [blobUrl]);
 
   if (isSecure) {
     return (
@@ -92,123 +83,95 @@ function PaymentProofViewer({ orderId, paymentProofUrl }: { orderId: string; pay
           type="button"
           onClick={() => void loadSecure()}
           disabled={loading}
-          className="inline-flex items-center gap-2 text-sm text-primary hover:underline disabled:opacity-50 dark:text-blue-400"
-          aria-busy={loading}
+          className="inline-flex items-center gap-1.5 text-[12px] font-medium text-primary hover:underline disabled:opacity-50"
         >
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+          {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
           {blobUrl ? 'Reload proof' : 'View payment proof'}
         </button>
-        {err && <p className="text-xs text-red-600">{err}</p>}
-        {blobUrl && (
-          <img
-            src={blobUrl}
-            alt="Payment proof"
-            className="max-h-64 max-w-full rounded border border-border"
-          />
-        )}
+        {err && <p className="text-[11px] text-[#f6465d]">{err}</p>}
+        {blobUrl && <img src={blobUrl} alt="Payment proof" className="max-h-48 max-w-full rounded-lg border border-border/30" />}
       </div>
     );
   }
 
   return (
-    <a
-      href={legacyHref}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="text-sm text-primary hover:underline dark:text-blue-400"
-    >
+    <a href={legacyHref} target="_blank" rel="noopener noreferrer" className="text-[12px] font-medium text-primary hover:underline">
       Open image
     </a>
   );
 }
 
-function verificationBadge(pvs: string | null | undefined): { label: string; className: string } | null {
-  if (pvs == null || pvs === '') return null;
-  switch (pvs) {
-    case 'pending':
-      return {
-        label: 'Payment check: pending',
-        className: 'bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200',
-      };
-    case 'verified':
-      return {
-        label: 'Payment verified',
-        className: 'bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-200',
-      };
-    case 'rejected':
-      return {
-        label: 'Payment proof rejected',
-        className: 'bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-200',
-      };
-    default:
-      return { label: String(pvs), className: 'bg-accent text-foreground dark:bg-accent dark:text-gray-200' };
-  }
-}
+/* ── Main component ── */
+type Props = { order: P2POrderRow; isBuyer: boolean };
 
 export function P2POrderSummary({ order, isBuyer }: Props) {
   const fiat = order.fiat_currency ?? 'USD';
   const sym = formatFiatSymbol(fiat);
   const vBadge = verificationBadge(order.payment_verification_status);
   const isSeller = !isBuyer;
+  const sCls = STATUS_CLS[order.status] ?? 'bg-muted text-muted-foreground';
 
   return (
-    <div className="rounded-xl border border-border bg-card p-4 dark:border-border dark:bg-card">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-foreground">Order summary</h2>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-full bg-accent px-2.5 py-0.5 text-xs font-medium text-foreground/80 dark:bg-accent dark:text-gray-200">
+    <div className="rounded-lg border border-border/30 bg-card">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/20 px-4 py-3">
+        <h2 className="text-[13px] font-semibold text-foreground">Order Details</h2>
+        <div className="flex items-center gap-1.5">
+          <span className={`rounded-md px-2.5 py-1 text-[10px] font-semibold ${sCls}`}>
             {statusLabel(order.status)}
           </span>
           {vBadge && (
-            <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${vBadge.className}`}>{vBadge.label}</span>
+            <span className={`rounded-md px-2.5 py-1 text-[10px] font-semibold ${vBadge.cls}`}>{vBadge.label}</span>
           )}
         </div>
       </div>
+
       {isSeller && order.status === 'payment_confirmed' && order.payment_verification_status === 'pending' && (
-        <p className="mb-3 text-xs text-amber-700 dark:text-amber-400">
-          Do not release until you have confirmed the fiat in your account. Use &quot;Verify payment received&quot; after you are satisfied.
+        <p className="mx-4 mt-3 rounded-md bg-amber-500/5 border border-amber-500/15 px-3 py-2 text-[11px] text-amber-500">
+          Confirm the fiat arrived in your account before releasing. Use &quot;Verify payment received&quot; after checking.
         </p>
       )}
-      <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
-        <div>
-          <dt className="text-xs text-muted-foreground">Role</dt>
-          <dd className="font-medium text-foreground">{isBuyer ? 'Buyer' : 'Seller'}</dd>
+
+      {/* Info grid */}
+      <div className="grid grid-cols-2 gap-px bg-border/10 p-px m-3 rounded-md overflow-hidden">
+        <div className="bg-card p-3">
+          <p className="text-[10px] text-muted-foreground/60 mb-0.5">Role</p>
+          <p className="text-[13px] font-semibold text-foreground">{isBuyer ? 'Buyer' : 'Seller'}</p>
         </div>
-        <div>
-          <dt className="text-xs text-muted-foreground">Crypto</dt>
-          <dd className="font-mono font-medium text-foreground flex items-center gap-1.5">
-            {order.crypto_symbol && <CoinIcon symbol={order.crypto_symbol} size={18} />}
-            {order.quantity} {order.crypto_symbol ?? ''}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-xs text-muted-foreground">Fiat</dt>
-          <dd className="font-mono font-medium text-foreground">
-            {sym}
-            {order.fiat_amount ?? '—'} {fiat}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-xs text-muted-foreground">Counterparty</dt>
-          <dd className="text-foreground">
+        <div className="bg-card p-3">
+          <p className="text-[10px] text-muted-foreground/60 mb-0.5">Counterparty</p>
+          <p className="text-[13px] font-medium text-foreground truncate">
             {isBuyer ? order.seller_username ?? '—' : order.buyer_username ?? '—'}
-          </dd>
+          </p>
         </div>
-        {!isBuyer && order.status === 'payment_confirmed' && order.transaction_reference && (
-          <div className="sm:col-span-2">
-            <dt className="text-xs text-muted-foreground">Buyer transaction reference</dt>
-            <dd className="break-all font-mono text-sm text-foreground">{order.transaction_reference}</dd>
-          </div>
-        )}
-        {!isBuyer && order.status === 'payment_confirmed' && order.payment_proof_url && (
-          <div className="sm:col-span-2">
-            <dt className="text-xs text-muted-foreground">Payment proof</dt>
-            <dd>
-              <PaymentProofViewer orderId={order.id} paymentProofUrl={order.payment_proof_url} />
-            </dd>
-          </div>
-        )}
-      </dl>
+        <div className="bg-card p-3">
+          <p className="text-[10px] text-muted-foreground/60 mb-0.5">Crypto</p>
+          <p className="flex items-center gap-1.5 text-[13px] font-semibold text-foreground">
+            {order.crypto_symbol && <CoinIcon symbol={order.crypto_symbol} size={16} />}
+            <span className="font-mono">{order.quantity}</span> {order.crypto_symbol ?? ''}
+          </p>
+        </div>
+        <div className="bg-card p-3">
+          <p className="text-[10px] text-muted-foreground/60 mb-0.5">Fiat</p>
+          <p className="text-[13px] font-mono font-semibold text-foreground">
+            {sym}{order.fiat_amount ?? '—'} {fiat}
+          </p>
+        </div>
+      </div>
+
+      {/* Transaction reference & proof */}
+      {!isBuyer && order.status === 'payment_confirmed' && order.transaction_reference && (
+        <div className="mx-4 mb-3 rounded-md bg-muted/10 border border-border/15 px-3 py-2.5">
+          <p className="text-[10px] text-muted-foreground/60 mb-0.5">Buyer Transaction Reference</p>
+          <p className="break-all font-mono text-[12px] text-foreground">{order.transaction_reference}</p>
+        </div>
+      )}
+      {!isBuyer && order.status === 'payment_confirmed' && order.payment_proof_url && (
+        <div className="mx-4 mb-3 rounded-md bg-muted/10 border border-border/15 px-3 py-2.5">
+          <p className="text-[10px] text-muted-foreground/60 mb-1">Payment Proof</p>
+          <PaymentProofViewer orderId={order.id} paymentProofUrl={order.payment_proof_url} />
+        </div>
+      )}
     </div>
   );
 }

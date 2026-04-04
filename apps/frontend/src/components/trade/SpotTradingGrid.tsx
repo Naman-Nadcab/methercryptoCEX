@@ -487,7 +487,6 @@ export function SpotTradingGrid() {
         price={price}
         stopPrice={stopPrice}
         trailingDelta={trailingDelta}
-        quantity={quantity}
         submitting={submitting}
         submitError={submitError}
         setSubmitError={setSubmitError}

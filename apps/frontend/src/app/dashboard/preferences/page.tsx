@@ -172,12 +172,13 @@ export default function PreferencesPage() {
   };
 
   const updateSetting = async (key: keyof PreferenceSettings, value: any) => {
+    const previousValue = settings[key];
     const newSettings = { ...settings, [key]: value };
     setSettings(newSettings);
     setSaving(key);
 
     try {
-      await fetch(`${apiUrl}/api/v1/auth/preferences`, {
+      const response = await fetch(`${apiUrl}/api/v1/auth/preferences`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -185,7 +186,12 @@ export default function PreferencesPage() {
         },
         body: JSON.stringify({ [key]: value })
       });
+      if (!response.ok) {
+        setSettings((prev) => ({ ...prev, [key]: previousValue }));
+        notifyError('Failed to update preference. Please try again.');
+      }
     } catch (error) {
+      setSettings((prev) => ({ ...prev, [key]: previousValue }));
       notifyError('Failed to update preference. Please try again.');
     } finally {
       setTimeout(() => setSaving(null), 500);

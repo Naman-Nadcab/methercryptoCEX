@@ -3,8 +3,8 @@
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import {
-  HelpCircle, Search, Download, Upload, ArrowLeftRight, Shield, Key,
-  CreditCard, BarChart3, Users, FileText, ChevronDown, ChevronRight, ExternalLink,
+  HelpCircle, Search, Download, Upload, Shield, Key,
+  CreditCard, BarChart3, Users, ChevronDown, ChevronRight,
 } from 'lucide-react';
 
 interface HelpItem {
@@ -41,10 +41,11 @@ const HELP_ITEMS: HelpItem[] = [
   { id: 'security-anti-phish', category: 'security', title: 'Anti-Phishing Code', content: 'Set a custom anti-phishing code that appears in all official emails from us. If an email doesn\'t contain your code, it may be a phishing attempt.' },
   { id: 'account-kyc', category: 'account', title: 'Identity Verification (KYC)', content: 'Complete KYC to unlock full features: higher withdrawal limits, P2P trading, and fiat services. Go to Account → Identity to upload your documents. Verification typically completes within 24 hours.' },
   { id: 'account-api', category: 'account', title: 'API Key Management', content: 'Create API keys in Account → API to access trading via third-party tools. Set permissions (read, trade, withdraw) and IP whitelist for security. Never share your secret key.' },
-  { id: 'fees-schedule', category: 'fees', title: 'Fee Schedule', content: 'Maker and taker fees depend on your VIP level and 30-day trading volume. Maker orders (limit orders that add liquidity) have lower fees than taker orders. Check the Fee Rates page for your current tier.' },
-  { id: 'fees-vip', category: 'fees', title: 'VIP Tiers', content: 'VIP levels are updated daily based on your 30-day trading volume. Higher tiers unlock lower fees. Check Fee Rates page for volume requirements and fee discounts.' },
+  { id: 'fiat-fees', category: 'fees', title: 'Fee Schedule', content: 'Maker and taker fees depend on your VIP level and 30-day trading volume. Maker orders (limit orders that add liquidity) have lower fees than taker orders. Check the Fee Rates page for your current tier.' },
+  { id: 'vip-requirements', category: 'fees', title: 'VIP Tiers', content: 'VIP levels are updated daily based on your 30-day trading volume. Higher tiers unlock lower fees. Check Fee Rates page for volume requirements and fee discounts.' },
   { id: 'p2p-how', category: 'p2p', title: 'How P2P Trading Works', content: 'P2P allows direct crypto purchases/sales with other users via bank transfer, UPI, or other payment methods. The platform holds crypto in escrow until payment is confirmed.' },
   { id: 'p2p-dispute', category: 'p2p', title: 'P2P Disputes', content: 'If a trade has issues, either party can open a dispute. An admin will review evidence (payment proof, chat logs) and resolve it. Always keep payment receipts.' },
+  { id: 'mnt-discount', category: 'fees', title: 'MNT Fee Discount', content: 'Hold MNT tokens in your account to receive a discount on trading fees. The discount is applied automatically when fee deduction in MNT is enabled in your account settings.' },
 ];
 
 export default function HelpPage() {
@@ -109,7 +110,7 @@ export default function HelpPage() {
         ) : filtered.map((item) => {
           const isOpen = expandedId === item.id;
           return (
-            <div key={item.id} className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+            <div key={item.id} id={item.id} className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
               <button type="button" onClick={() => setExpandedId(isOpen ? null : item.id)}
                 className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-muted/50 transition-colors"
               >

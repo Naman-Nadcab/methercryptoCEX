@@ -18,32 +18,30 @@ export function P2PMerchantCard({ ad, fiat }: Props) {
   const releaseMin = (ad as { merchant_avg_release_time_minutes?: string | number }).merchant_avg_release_time_minutes;
 
   return (
-    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+    <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
       {uid ? (
-        <Link href={p2pProfilePath(String(uid))} className="font-medium text-primary hover:underline">
+        <Link href={p2pProfilePath(String(uid))} className="font-bold text-primary hover:underline transition-colors duration-150">
           {ad.username || 'Merchant'}
         </Link>
       ) : (
-        <span className="font-medium text-foreground">{ad.username || 'Merchant'}</span>
+        <span className="font-bold text-foreground">{ad.username || 'Merchant'}</span>
       )}
       {verified && (
-        <span className="inline-flex items-center gap-0.5 rounded bg-buy-light px-1.5 py-0.5 text-[10px] font-medium text-buy">
+        <span className="inline-flex items-center gap-0.5 rounded-full bg-[#0ecb81]/10 px-2 py-0.5 text-[10px] font-bold text-[#0ecb81]">
           <ShieldCheck className="h-3 w-3" />
           Verified
         </span>
       )}
-      <span>·</span>
-      <span>{completion}% completion</span>
-      <span>·</span>
+      <span className="text-muted-foreground/30">·</span>
+      <span>{completion}%</span>
+      <span className="text-muted-foreground/30">·</span>
       <span>{trades} orders</span>
       {releaseMin != null && Number(releaseMin) > 0 && (
         <>
-          <span>·</span>
-          <span>~{releaseMin}m release</span>
+          <span className="text-muted-foreground/30">·</span>
+          <span>~{releaseMin}m</span>
         </>
       )}
-      <span>·</span>
-      <span>{fiat}</span>
     </div>
   );
 }

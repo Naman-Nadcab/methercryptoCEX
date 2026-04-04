@@ -35,37 +35,31 @@ export class AddressManager {
 
   async generateAddressForUser(userId: string, chainId: string): Promise<{ address: string; created: boolean }> {
     try {
-      // Check if user already has an address for this chain
       const existing = await query(`
-        SELECT address FROM user_wallets WHERE user_id = $1 AND chain_id = $2
+        SELECT address FROM wallets WHERE user_id = $1 AND chain_id = $2
       `, [userId, chainId]);
 
       if (existing.rows.length > 0) {
         return { address: existing.rows[0].address, created: false };
       }
 
-      // Get next derivation index for this user
       const indexResult = await query(`
-        SELECT COALESCE(MAX(CAST(SPLIT_PART(derivation_path, '/', 6) AS INTEGER)), 0) + 1 as next_index
-        FROM user_wallets WHERE user_id = $1
+        SELECT COALESCE(MAX(hd_index), -1) + 1 as next_index
+        FROM wallets WHERE user_id = $1
       `, [userId]);
       
       const index = indexResult.rows[0]?.next_index || 0;
 
-      // Generate address using HD derivation
-      // Path: m/44'/60'/0'/0/{index}
       const hdNode = HDNodeWallet.fromPhrase(this.masterMnemonic);
-      const derivationPath = `m/44'/60'/0'/0/${index}`;
-      const wallet = hdNode.derivePath(derivationPath);
+      const hdPath = `m/44'/60'/0'/0/${index}`;
+      const wallet = hdNode.derivePath(hdPath);
 
-      // Encrypt private key
       const encryptedPrivateKey = this.encrypt(wallet.privateKey);
 
-      // Store in database
       await query(`
-        INSERT INTO user_wallets (id, user_id, chain_id, address, private_key_encrypted, derivation_path, created_at)
-        VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, NOW())
-      `, [userId, chainId, wallet.address.toLowerCase(), encryptedPrivateKey, derivationPath]);
+        INSERT INTO wallets (id, user_id, chain_id, address, encrypted_private_key, hd_path, hd_index, created_at)
+        VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, NOW())
+      `, [userId, chainId, wallet.address.toLowerCase(), encryptedPrivateKey, hdPath, index]);
 
       logger.info(`Generated new address for user`, { userId, chainId, address: wallet.address });
 
@@ -90,14 +84,14 @@ export class AddressManager {
   async getPrivateKey(userId: string, chainId: string): Promise<string | null> {
     try {
       const result = await query(`
-        SELECT private_key_encrypted FROM user_wallets WHERE user_id = $1 AND chain_id = $2
+        SELECT encrypted_private_key FROM wallets WHERE user_id = $1 AND chain_id = $2
       `, [userId, chainId]);
 
       if (result.rows.length === 0) {
         return null;
       }
 
-      return this.decrypt(result.rows[0].private_key_encrypted);
+      return this.decrypt(result.rows[0].encrypted_private_key);
     } catch (error) {
       logger.error(`Failed to get private key`, { userId, chainId, error });
       return null;
@@ -107,7 +101,7 @@ export class AddressManager {
   async getUserAddresses(userId: string): Promise<Record<string, string>> {
     try {
       const result = await query(`
-        SELECT chain_id, address FROM user_wallets WHERE user_id = $1
+        SELECT chain_id, address FROM wallets WHERE user_id = $1
       `, [userId]);
 
       const addresses: Record<string, string> = {};
@@ -125,7 +119,7 @@ export class AddressManager {
   async getAllWatchedAddresses(): Promise<Map<string, Set<string>>> {
     try {
       const result = await query(`
-        SELECT chain_id, LOWER(address) as address FROM user_wallets WHERE address IS NOT NULL
+        SELECT chain_id, LOWER(address) as address FROM wallets WHERE address IS NOT NULL
       `);
 
       const addressesByChain = new Map<string, Set<string>>();

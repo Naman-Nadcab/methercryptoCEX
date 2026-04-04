@@ -12,7 +12,6 @@ import {
   RefreshCw,
   ChevronRight,
   Wallet,
-  LayoutGrid,
   TrendingUp,
   Clock,
   Search,
@@ -35,7 +34,6 @@ export default function UnifiedTradingPage() {
   const [hideSmallBalances, setHideSmallBalances] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [showGuide, setShowGuide] = useState(true);
-  const [ordersExpanded, setOrdersExpanded] = useState(false);
 
   const formatNumber = (num: number | string, decimals = 2) => {
     const n = typeof num === 'string' ? parseFloat(num) : num;

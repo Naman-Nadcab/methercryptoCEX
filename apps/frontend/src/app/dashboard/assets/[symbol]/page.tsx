@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/store/auth';
 import { useBalancesFunding, useBalancesSpot, type TokenBalance, type SpotBalanceRow } from '@/lib/balances';
@@ -134,7 +134,6 @@ function resolveSymbol(row: Record<string, unknown>): string {
 
 export default function AssetSymbolPage() {
   const params = useParams();
-  const router = useRouter();
   const { accessToken, _hasHydrated } = useAuthStore();
   const rawSymbol = typeof params?.symbol === 'string' ? params.symbol : '';
   const symbol = rawSymbol.toUpperCase();

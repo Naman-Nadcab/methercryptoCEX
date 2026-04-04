@@ -8,7 +8,7 @@ import { ErrorState } from '@/components/ui/ErrorState';
 import { CoinIcon } from '@/components/ui/CoinIcon';
 import {
   ArrowDown, ArrowUp, ArrowUpDown, BarChart3, Search, Star,
-  TrendingUp, ChevronLeft, ChevronRight,
+  TrendingUp, ChevronLeft, ChevronRight, Activity,
 } from 'lucide-react';
 
 /* ─── types ─── */
@@ -96,16 +96,11 @@ const COIN_META: Record<string, { color: string; name: string }> = {
   GRT: { color: '#6747ED', name: 'The Graph' },
   AR: { color: '#222326', name: 'Arweave' },
 };
-function getCoinColor(s: string): string {
-  return COIN_META[s.toUpperCase()]?.color || `hsl(${(s.charCodeAt(0) * 37 + s.charCodeAt(s.length - 1) * 53) % 360}, 55%, 50%)`;
-}
 function getCoinName(s: string): string {
   return COIN_META[s.toUpperCase()]?.name || s;
 }
 
-/* CoinIcon is imported from @/components/ui/CoinIcon */
-
-/* ─── 7-day sparkline (wider, more realistic) ─── */
+/* ─── 7-day sparkline ─── */
 function Sparkline7D({ change }: { change: number | null }) {
   if (change == null) return <span className="text-[10px] text-muted-foreground">—</span>;
   const w = 120;
@@ -142,21 +137,33 @@ function TopMoverCard({ market, ticker }: { market: Market; ticker?: SpotTickerR
   return (
     <Link
       href={`/trade/spot?symbol=${encodeURIComponent(market.symbol)}`}
-      className="flex-shrink-0 w-[170px] rounded-xl border border-border bg-card p-3.5 hover:border-primary/30 transition-all"
+      className={`group relative flex-shrink-0 w-[200px] overflow-hidden rounded-2xl border p-4 transition-all duration-200 hover:scale-[1.02] ${
+        up
+          ? 'border-[#0ecb81]/20 hover:border-[#0ecb81]/40 hover:shadow-[0_0_24px_rgba(14,203,129,0.08)]'
+          : 'border-[#f6465d]/20 hover:border-[#f6465d]/40 hover:shadow-[0_0_24px_rgba(246,70,93,0.08)]'
+      } bg-card`}
     >
-      <div className="flex items-center gap-2 mb-2.5">
-        <CoinIcon symbol={market.base_asset} size={28} />
-        <div className="min-w-0">
-          <span className="text-[13px] font-semibold text-foreground block truncate">{market.base_asset}</span>
-          <span className="text-[10px] text-muted-foreground">{market.symbol.replace('_', '/')}</span>
+      <div className={`pointer-events-none absolute -right-6 -top-6 h-20 w-20 rounded-full blur-[40px] transition-opacity duration-300 opacity-30 group-hover:opacity-60 ${
+        up ? 'bg-[#0ecb81]/20' : 'bg-[#f6465d]/20'
+      }`} />
+      <div className="relative">
+        <div className="flex items-center gap-2.5 mb-3">
+          <CoinIcon symbol={market.base_asset} size={32} />
+          <div className="min-w-0">
+            <span className="text-sm font-semibold text-foreground block truncate">{market.base_asset}</span>
+            <span className="text-[10px] text-muted-foreground">{market.symbol.replace('_', '/')}</span>
+          </div>
         </div>
-      </div>
-      <div className="text-[13px] font-semibold text-foreground tabular-nums mb-1">{fmtPrice(ticker?.last_price)}</div>
-      <div className="flex items-center justify-between">
-        <span className={`text-[11px] font-semibold tabular-nums ${up ? 'text-[#0ecb81]' : 'text-[#f6465d]'}`}>
-          {fmtChange(c)}
-        </span>
-        <Sparkline7D change={c} />
+        <div className="text-sm font-bold text-foreground tabular-nums mb-1.5">{fmtPrice(ticker?.last_price)}</div>
+        <div className="flex items-center justify-between">
+          <span className={`inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-[12px] font-bold tabular-nums ${
+            up ? 'bg-[#0ecb81]/10 text-[#0ecb81]' : 'bg-[#f6465d]/10 text-[#f6465d]'
+          }`}>
+            {up ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+            {fmtChange(c)}
+          </span>
+          <Sparkline7D change={c} />
+        </div>
       </div>
     </Link>
   );
@@ -170,9 +177,9 @@ function SortTh({ label, sk, active, dir, onSort, right, cls }: {
   const on = active === sk;
   const Ic = !on ? ArrowUpDown : dir === 'asc' ? ArrowUp : ArrowDown;
   return (
-    <th className={`py-2.5 px-4 font-normal text-xs text-muted-foreground ${right ? 'text-right' : 'text-left'} ${cls ?? ''}`}>
+    <th className={`py-3.5 px-4 font-medium text-[11px] uppercase tracking-wider text-muted-foreground ${right ? 'text-right' : 'text-left'} ${cls ?? ''}`}>
       <button type="button" onClick={() => onSort(sk)}
-        className={`inline-flex items-center gap-0.5 hover:text-foreground transition-colors ${right ? 'flex-row-reverse' : ''}`}>
+        className={`inline-flex items-center gap-1 transition-colors duration-150 hover:text-foreground ${right ? 'flex-row-reverse' : ''}`}>
         {label}
         <Ic className={`h-3 w-3 ${on ? 'text-primary' : 'opacity-30'}`} />
       </button>
@@ -180,21 +187,66 @@ function SortTh({ label, sk, active, dir, onSort, right, cls }: {
   );
 }
 
+/* ─── Market Sentiment Bar ─── */
+function SentimentBar({ tickersBySymbol }: { tickersBySymbol: Map<string, SpotTickerRow> }) {
+  const { up, down, neutral } = useMemo(() => {
+    let u = 0, d = 0, n = 0;
+    tickersBySymbol.forEach((t) => {
+      if (t.change_pct == null) { n++; return; }
+      if (t.change_pct > 0) u++;
+      else if (t.change_pct < 0) d++;
+      else n++;
+    });
+    return { up: u, down: d, neutral: n };
+  }, [tickersBySymbol]);
+
+  const total = up + down + neutral || 1;
+  const upPct = Math.round((up / total) * 100);
+  const downPct = Math.round((down / total) * 100);
+
+  return (
+    <div className="flex items-center gap-4 rounded-xl border border-border/50 bg-card/60 px-5 py-3.5">
+      <div className="flex items-center gap-2">
+        <Activity className="h-4 w-4 text-primary" />
+        <span className="text-[12px] font-semibold text-foreground">Market Sentiment</span>
+      </div>
+      <div className="flex flex-1 items-center gap-3">
+        <span className="text-[12px] font-bold tabular-nums text-[#0ecb81]">{upPct}%</span>
+        <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-muted/40">
+          <div
+            className="absolute left-0 top-0 h-full rounded-full bg-gradient-to-r from-[#0ecb81] to-[#0ecb81]/70 transition-all duration-500"
+            style={{ width: `${upPct}%` }}
+          />
+          <div
+            className="absolute right-0 top-0 h-full rounded-full bg-gradient-to-l from-[#f6465d] to-[#f6465d]/70 transition-all duration-500"
+            style={{ width: `${downPct}%` }}
+          />
+        </div>
+        <span className="text-[12px] font-bold tabular-nums text-[#f6465d]">{downPct}%</span>
+      </div>
+      <div className="hidden items-center gap-4 text-[11px] text-muted-foreground sm:flex">
+        <span><span className="font-semibold text-[#0ecb81]">{up}</span> gainers</span>
+        <span><span className="font-semibold text-[#f6465d]">{down}</span> losers</span>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Skeleton ─── */
 function Skeleton() {
   return (
     <div>
-      {Array.from({ length: 12 }).map((_, i) => (
-        <div key={i} className="flex items-center gap-3 px-4 py-3 border-b border-border/40">
-          <span className="h-3 w-3 rounded-full bg-muted animate-pulse" />
-          <span className="h-3 w-4 bg-muted rounded animate-pulse" />
-          <span className="h-6 w-6 bg-muted rounded-full animate-pulse" />
-          <span className="h-3 w-24 bg-muted rounded animate-pulse" />
-          <span className="h-3 w-16 bg-muted rounded animate-pulse ml-auto" />
-          <span className="h-4 w-14 bg-muted rounded animate-pulse" />
-          <span className="h-3 w-16 bg-muted rounded animate-pulse hidden sm:block" />
-          <span className="h-3 w-16 bg-muted rounded animate-pulse hidden md:block" />
-          <span className="h-5 w-20 bg-muted rounded animate-pulse hidden lg:block" />
+      {Array.from({ length: 10 }).map((_, i) => (
+        <div key={i} className="flex items-center gap-4 px-5 py-4 border-b border-border/30">
+          <span className="h-3 w-3 rounded-full bg-muted/60 animate-pulse" />
+          <span className="h-3 w-5 bg-muted/60 rounded animate-pulse" />
+          <span className="h-8 w-8 bg-muted/60 rounded-full animate-pulse" />
+          <span className="h-4 w-28 bg-muted/60 rounded animate-pulse" />
+          <span className="h-4 w-20 bg-muted/60 rounded animate-pulse ml-auto" />
+          <span className="h-5 w-16 bg-muted/60 rounded-lg animate-pulse" />
+          <span className="h-4 w-16 bg-muted/60 rounded animate-pulse hidden sm:block" />
+          <span className="h-4 w-20 bg-muted/60 rounded animate-pulse hidden lg:block" />
+          <span className="h-7 w-16 bg-muted/60 rounded-lg animate-pulse" />
         </div>
       ))}
     </div>
@@ -207,6 +259,17 @@ type MainTab = (typeof MAIN_TABS)[number];
 
 /* ─── category pills ─── */
 const CATEGORIES = ['All', 'DeFi', 'AI', 'Meme', 'Layer 1', 'Layer 2', 'GameFi', 'Payments', 'NFT'] as const;
+
+const CATEGORY_TOKENS: Record<string, string[]> = {
+  DeFi: ['UNI', 'AAVE', 'MKR', 'LDO', 'GRT', 'INJ', 'LINK'],
+  AI: ['FET', 'RENDER', 'WLD'],
+  Meme: ['DOGE', 'SHIB', 'PEPE', 'WIF', 'FLOKI', 'BONK'],
+  'Layer 1': ['BTC', 'ETH', 'SOL', 'ADA', 'AVAX', 'DOT', 'ATOM', 'NEAR', 'APT', 'SUI', 'SEI', 'LTC', 'TRX', 'HBAR', 'VET', 'ICP'],
+  'Layer 2': ['ARB', 'OP', 'MATIC', 'IMX'],
+  GameFi: ['IMX'],
+  Payments: ['XRP', 'LTC', 'TRX'],
+  NFT: ['IMX', 'AR', 'FIL'],
+};
 
 /* ============================== */
 /*        MAIN COMPONENT         */
@@ -240,7 +303,7 @@ export default function MarketsPage() {
     });
   };
 
-  /* fetch — public endpoints, no auth required */
+  /* fetch */
   const refreshTickers = useCallback(async () => {
     try {
       const r = await api.get<SpotTickerRow[]>('/api/v1/spot/tickers', { skipAuth: true, notifyOnError: false });
@@ -300,8 +363,12 @@ export default function MarketsPage() {
     const q = search.trim().toLowerCase();
     if (q) rows = rows.filter(m => m.symbol.toLowerCase().includes(q) || m.base_asset.toLowerCase().includes(q) || m.quote_asset.toLowerCase().includes(q));
     if (quoteFilter !== 'all') rows = rows.filter(m => m.quote_asset === quoteFilter);
+    if (activeCat !== 'All') {
+      const tokens = CATEGORY_TOKENS[activeCat];
+      if (tokens) rows = rows.filter(m => tokens.includes(m.base_asset));
+    }
     return rows;
-  }, [markets, search, quoteFilter, activeTab, favorites]);
+  }, [markets, search, quoteFilter, activeTab, favorites, activeCat]);
 
   const handleSort = useCallback((key: SortKey) => {
     setSortKey(p => { if (p === key) { setSortDir(d => d === 'asc' ? 'desc' : 'asc'); return p; } setSortDir(key === 'pair' ? 'asc' : 'desc'); return key; });
@@ -335,25 +402,30 @@ export default function MarketsPage() {
   return (
     <div className="min-h-screen bg-background text-foreground">
 
-      {/* ====== SECTION 1: Top Movers Strip ====== */}
+      {/* ====== SECTION 1: Trending Strip ====== */}
       {!loading && topMovers.length > 0 && (
-        <section className="border-b border-border">
-          <div className="max-w-[1280px] mx-auto px-4 sm:px-6 py-5">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <TrendingUp className="h-4 w-4 text-primary" />
-                <span className="text-sm font-semibold text-foreground">Trending</span>
+        <section className="border-b border-border/60">
+          <div className="max-w-[1280px] mx-auto px-4 sm:px-6 py-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+                  <TrendingUp className="h-4 w-4 text-primary" />
+                </div>
+                <div>
+                  <span className="text-sm font-bold text-foreground">Trending</span>
+                  <span className="ml-2 text-[11px] text-muted-foreground">Top movers (24h)</span>
+                </div>
               </div>
               <div className="flex items-center gap-1">
-                <button onClick={() => scroll(scrollRef, -220)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
+                <button onClick={() => scroll(scrollRef, -240)} className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-all duration-150">
                   <ChevronLeft className="h-4 w-4" />
                 </button>
-                <button onClick={() => scroll(scrollRef, 220)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
+                <button onClick={() => scroll(scrollRef, 240)} className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-all duration-150">
                   <ChevronRight className="h-4 w-4" />
                 </button>
               </div>
             </div>
-            <div ref={scrollRef} className="flex gap-3 overflow-x-auto scrollbar-none" style={{ scrollbarWidth: 'none' }}>
+            <div ref={scrollRef} className="flex gap-4 overflow-x-auto scrollbar-none pb-1" style={{ scrollbarWidth: 'none' }}>
               {topMovers.map(m => <TopMoverCard key={m.id} market={m} ticker={tickersBySymbol.get(m.symbol)} />)}
             </div>
           </div>
@@ -361,47 +433,55 @@ export default function MarketsPage() {
       )}
 
       {/* ====== MAIN CONTENT ====== */}
-      <div className="max-w-[1280px] mx-auto px-4 sm:px-6 pt-6 pb-10">
+      <div className="max-w-[1280px] mx-auto px-4 sm:px-6 pt-8 pb-12">
 
-        {/* ====== SECTION 2: Title ====== */}
-        <h1 className="text-2xl font-bold text-foreground mb-5">Markets Overview</h1>
+        {/* Title */}
+        <h1 className="text-2xl font-bold text-foreground sm:text-3xl">Markets Overview</h1>
+        <p className="mt-1.5 text-sm text-muted-foreground">Real-time prices across all listed pairs.</p>
 
-        {/* ====== SECTION 3: Main Tabs ====== */}
-        <div className="flex items-center gap-0.5 border-b border-border mb-0">
+        {/* ====== Sentiment Bar ====== */}
+        {!loading && tickersBySymbol.size > 0 && (
+          <div className="mt-6">
+            <SentimentBar tickersBySymbol={tickersBySymbol} />
+          </div>
+        )}
+
+        {/* ====== Main Tabs ====== */}
+        <div className="mt-6 flex items-center gap-1 border-b border-border/60">
           {MAIN_TABS.map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`relative px-5 py-3 text-sm font-medium transition-colors whitespace-nowrap ${
+              className={`relative px-5 py-3 text-sm font-medium transition-all duration-200 whitespace-nowrap ${
                 activeTab === tab
                   ? 'text-primary'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               {tab === 'Favorites' && (
-                <Star className={`inline h-3.5 w-3.5 mr-1 -mt-0.5 ${activeTab === tab ? 'fill-primary' : ''}`} />
+                <Star className={`inline h-3.5 w-3.5 mr-1 -mt-0.5 transition-colors duration-200 ${activeTab === tab ? 'fill-primary' : ''}`} />
               )}
               {tab}
               {tab === 'Favorites' && favorites.size > 0 && (
                 <span className="ml-1 text-[11px] opacity-60">({favorites.size})</span>
               )}
               {activeTab === tab && (
-                <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-primary rounded-full" />
+                <span className="absolute bottom-0 left-1 right-1 h-[2px] bg-primary rounded-full" />
               )}
             </button>
           ))}
         </div>
 
-        {/* ====== SECTION 4: Category Pills ====== */}
-        <div className="flex items-center gap-1 py-3 overflow-x-auto scrollbar-none" style={{ scrollbarWidth: 'none' }} ref={pillsRef}>
+        {/* ====== Category Pills ====== */}
+        <div className="flex items-center gap-2 py-4 overflow-x-auto scrollbar-none" style={{ scrollbarWidth: 'none' }} ref={pillsRef}>
           {CATEGORIES.map(c => (
             <button
               key={c}
               onClick={() => setActiveCat(c)}
-              className={`px-3 py-1 text-xs font-medium rounded-md whitespace-nowrap transition-colors ${
+              className={`shrink-0 rounded-full px-4 py-1.5 text-[12px] font-semibold whitespace-nowrap transition-all duration-200 ${
                 activeCat === c
-                  ? 'bg-primary/15 text-primary'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
+                  ? 'bg-primary/15 text-primary shadow-[0_0_12px_hsl(var(--primary)/0.15)] border border-primary/20'
+                  : 'text-muted-foreground border border-border/50 hover:text-foreground hover:border-border hover:bg-muted/40'
               }`}
             >
               {c}
@@ -409,53 +489,51 @@ export default function MarketsPage() {
           ))}
         </div>
 
-        {/* ====== SECTION 5: Quote Tabs + Search ====== */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between py-2 border-b border-border/60 mb-1">
-          {/* Quote tabs */}
-          <div className="flex items-center gap-0.5 overflow-x-auto scrollbar-none" style={{ scrollbarWidth: 'none' }}>
+        {/* ====== Quote Tabs + Search ====== */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between py-3 border-b border-border/40">
+          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none" style={{ scrollbarWidth: 'none' }}>
             <button
               onClick={() => setQuoteFilter('all')}
-              className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${quoteFilter === 'all' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+              className={`shrink-0 rounded-lg px-3.5 py-1.5 text-[12px] font-semibold transition-all duration-200 ${quoteFilter === 'all' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'}`}
             >All</button>
             {quoteOptions.map(q => (
               <button
                 key={q}
                 onClick={() => setQuoteFilter(q)}
-                className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${quoteFilter === q ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                className={`shrink-0 rounded-lg px-3.5 py-1.5 text-[12px] font-semibold transition-all duration-200 ${quoteFilter === q ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'}`}
               >{q}</button>
             ))}
           </div>
-          {/* Search */}
           <div className="relative shrink-0">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
             <input
               type="text"
               placeholder="Search coin name"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="pl-8 pr-3 h-8 w-44 sm:w-52 bg-muted/40 border border-border rounded-lg text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/40 transition-colors"
+              className="pl-9 pr-4 h-9 w-48 sm:w-56 bg-muted/30 border border-border/60 rounded-xl text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:border-primary/40 focus:bg-muted/40 transition-all duration-200"
             />
           </div>
         </div>
 
-        {/* ====== SECTION 6: Section Label ====== */}
-        <div className="flex items-center gap-2 py-2 px-1">
-          <span className="text-xs text-muted-foreground">
+        {/* ====== Section Label ====== */}
+        <div className="flex items-center gap-2 py-3 px-1">
+          <span className="text-[12px] font-medium text-muted-foreground">
             {activeTab === 'Favorites' ? 'Your Favorites' : 'Top Tokens by Market Capitalization'}
           </span>
           {!loading && (
-            <span className="text-[10px] text-muted-foreground/50 tabular-nums">
+            <span className="rounded-full bg-muted/60 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground tabular-nums">
               {sorted.length} {sorted.length === 1 ? 'pair' : 'pairs'}
             </span>
           )}
         </div>
 
-        {/* ====== SECTION 7: Market Table ====== */}
-        <div className="rounded-xl border border-border overflow-hidden">
+        {/* ====== Market Table ====== */}
+        <div className="rounded-2xl border border-border/50 overflow-hidden shadow-sm">
           {loading ? <Skeleton /> : fetchError ? (
-            <div className="p-8"><ErrorState title="Could not load markets" message={fetchError} onRetry={() => void fetchAll()} /></div>
+            <div className="p-10"><ErrorState title="Could not load markets" message={fetchError} onRetry={() => void fetchAll()} /></div>
           ) : sorted.length === 0 ? (
-            <div className="py-16">
+            <div className="py-20">
               <EmptyState
                 icon={activeTab === 'Favorites' ? Star : BarChart3}
                 title={activeTab === 'Favorites' ? 'No favorites yet' : 'No markets found'}
@@ -463,7 +541,7 @@ export default function MarketsPage() {
                 action={activeTab !== 'Favorites' && !search.trim() && quoteFilter === 'all' ? { label: 'Go to Spot', href: '/trade/spot' } : undefined}
               />
               {activeTab === 'Favorites' && (
-                <div className="flex justify-center mt-1">
+                <div className="flex justify-center mt-2">
                   <button onClick={() => setActiveTab('Spot')} className="text-xs text-primary hover:underline">Browse All</button>
                 </div>
               )}
@@ -472,15 +550,15 @@ export default function MarketsPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm min-w-[820px]">
                 <thead>
-                  <tr className="border-b border-border">
-                    <th className="py-2.5 px-3 w-9" />
-                    <th className="py-2.5 px-2 w-8 text-left text-xs font-normal text-muted-foreground">#</th>
-                    <SortTh label="Name" sk="pair" active={sortKey} dir={sortDir} onSort={handleSort} cls="min-w-[200px]" />
+                  <tr className="border-b border-border/50 bg-muted/20">
+                    <th className="py-3.5 px-4 w-9" />
+                    <th className="py-3.5 px-2 w-8 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">#</th>
+                    <SortTh label="Name" sk="pair" active={sortKey} dir={sortDir} onSort={handleSort} cls="min-w-[220px]" />
                     <SortTh label="Price" sk="last" active={sortKey} dir={sortDir} onSort={handleSort} right />
                     <SortTh label="24h Change" sk="change" active={sortKey} dir={sortDir} onSort={handleSort} right />
                     <SortTh label="24h Volume" sk="volume" active={sortKey} dir={sortDir} onSort={handleSort} right />
-                    <th className="py-2.5 px-4 text-xs font-normal text-muted-foreground text-center hidden lg:table-cell">Last 7 Days</th>
-                    <th className="py-2.5 px-4 text-right text-xs font-normal text-muted-foreground w-24">Action</th>
+                    <th className="py-3.5 px-4 text-[11px] font-medium uppercase tracking-wider text-muted-foreground text-center hidden lg:table-cell">Last 7 Days</th>
+                    <th className="py-3.5 px-4 text-right text-[11px] font-medium uppercase tracking-wider text-muted-foreground w-28">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -494,58 +572,60 @@ export default function MarketsPage() {
                     return (
                       <tr
                         key={m.id}
-                        className={`border-b border-border/40 transition-[background-color] duration-300 hover:bg-muted/30 ${
+                        className={`border-b border-border/30 transition-all duration-200 hover:bg-muted/20 ${
                           fl === 'up' ? 'bg-[#0ecb81]/[0.04]' : fl === 'down' ? 'bg-[#f6465d]/[0.04]' : ''
                         }`}
                       >
                         {/* star */}
-                        <td className="py-3 px-3 w-9">
-                          <button onClick={e => { e.stopPropagation(); toggleFav(m.symbol); }}>
-                            <Star className={`h-3.5 w-3.5 transition-colors ${fav ? 'fill-primary text-primary' : 'text-muted-foreground/30 hover:text-primary/50'}`} />
+                        <td className="py-4 px-4 w-9">
+                          <button onClick={e => { e.stopPropagation(); toggleFav(m.symbol); }} className="transition-transform duration-150 hover:scale-125">
+                            <Star className={`h-4 w-4 transition-colors duration-200 ${fav ? 'fill-primary text-primary' : 'text-muted-foreground/25 hover:text-primary/50'}`} />
                           </button>
                         </td>
                         {/* # */}
-                        <td className="py-3 px-2 w-8 text-xs text-muted-foreground tabular-nums">{i + 1}</td>
+                        <td className="py-4 px-2 w-8 text-[12px] text-muted-foreground/60 tabular-nums">{i + 1}</td>
                         {/* Name */}
-                        <td className="py-3 px-4">
-                          <Link href={`/trade/spot?symbol=${encodeURIComponent(m.symbol)}`} className="flex items-center gap-3 group">
-                            <CoinIcon symbol={m.base_asset} size={28} />
+                        <td className="py-4 px-4">
+                          <Link href={`/trade/spot?symbol=${encodeURIComponent(m.symbol)}`} className="flex items-center gap-3.5 group">
+                            <CoinIcon symbol={m.base_asset} size={32} />
                             <div className="min-w-0">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-[13px] font-semibold text-foreground group-hover:text-primary transition-colors">{m.base_asset}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-bold text-foreground group-hover:text-primary transition-colors duration-150">{m.base_asset}</span>
                                 <span className="text-[11px] text-muted-foreground/50 hidden sm:inline">{getCoinName(m.base_asset)}</span>
                               </div>
-                              <span className="text-[10px] text-muted-foreground">{m.symbol.replace('_', '/')}</span>
+                              <span className="text-[11px] text-muted-foreground/60">{m.symbol.replace('_', '/')}</span>
                             </div>
                           </Link>
                         </td>
                         {/* Price */}
-                        <td className={`py-3 px-4 text-right tabular-nums text-[13px] font-medium transition-colors duration-300 ${
+                        <td className={`py-4 px-4 text-right tabular-nums text-sm font-semibold transition-colors duration-300 ${
                           fl === 'up' ? 'text-[#0ecb81]' : fl === 'down' ? 'text-[#f6465d]' : 'text-foreground'
                         }`}>
                           {fmtPrice(t?.last_price)}
                         </td>
                         {/* 24h change */}
-                        <td className="py-3 px-4 text-right">
+                        <td className="py-4 px-4 text-right">
                           {c != null ? (
-                            <span className={`inline-block min-w-[64px] text-center px-2 py-0.5 rounded text-xs font-semibold tabular-nums ${
-                              up ? 'bg-[#0ecb81]/10 text-[#0ecb81]' : down ? 'bg-[#f6465d]/10 text-[#f6465d]' : 'text-muted-foreground'
+                            <span className={`inline-flex items-center justify-center gap-0.5 min-w-[72px] px-2.5 py-1 rounded-lg text-[12px] font-bold tabular-nums ${
+                              up ? 'bg-[#0ecb81]/10 text-[#0ecb81]' : down ? 'bg-[#f6465d]/10 text-[#f6465d]' : 'bg-muted/40 text-muted-foreground'
                             }`}>
+                              {up && <ArrowUp className="h-3 w-3" />}
+                              {down && <ArrowDown className="h-3 w-3" />}
                               {fmtChange(c)}
                             </span>
                           ) : <span className="text-xs text-muted-foreground">—</span>}
                         </td>
                         {/* volume */}
-                        <td className="py-3 px-4 text-right tabular-nums text-xs text-muted-foreground">{fmtVol(t?.volume_24h)}</td>
+                        <td className="py-4 px-4 text-right tabular-nums text-[13px] text-muted-foreground">{fmtVol(t?.volume_24h)}</td>
                         {/* 7d chart */}
-                        <td className="py-3 px-4 text-center hidden lg:table-cell">
+                        <td className="py-4 px-4 text-center hidden lg:table-cell">
                           <div className="flex justify-center"><Sparkline7D change={c ?? null} /></div>
                         </td>
                         {/* action */}
-                        <td className="py-3 px-4 text-right">
+                        <td className="py-4 px-4 text-right">
                           <Link
                             href={`/trade/spot?symbol=${encodeURIComponent(m.symbol)}`}
-                            className="inline-flex items-center justify-center h-7 px-3.5 rounded text-[11px] font-semibold bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground transition-all"
+                            className="inline-flex items-center justify-center h-8 px-4 rounded-lg text-[12px] font-semibold bg-primary/10 text-primary transition-all duration-200 hover:bg-primary hover:text-primary-foreground hover:shadow-[0_0_16px_hsl(var(--primary)/0.25)] active:scale-[0.97]"
                           >
                             Trade
                           </Link>

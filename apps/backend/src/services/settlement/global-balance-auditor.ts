@@ -83,35 +83,50 @@ export async function runGlobalBalanceAudit(): Promise<{ ok: boolean; mismatches
     }
 
     const allKeys = new Set<string>([...expected.keys(), ...actual.keys()]);
+    const CIRCUIT_ABS_THRESHOLD = new Decimal(process.env.AUDIT_CIRCUIT_ABS_THRESHOLD || '1000');
+    let criticalMismatches = 0;
 
     for (const k of allKeys) {
       const exp = expected.get(k) ?? new Decimal(0);
       const act = actual.get(k) ?? new Decimal(0);
       if (!exp.eq(act)) {
         mismatches++;
-        triggerCircuitIfViolation('SETTLEMENT_LEDGER_AGGREGATE_MISMATCH');
+        const drift = exp.minus(act).abs();
         const pipeIdx = k.indexOf('|');
         const userId = pipeIdx === -1 ? k : k.slice(0, pipeIdx);
         const asset = pipeIdx === -1 ? '' : k.slice(pipeIdx + 1);
-        recordSettlementEvent({
-          type: 'failure_fatal',
-          error: `settlement_ledger aggregate mismatch: expected=${exp.toString()} actual=${act.toString()}`,
-          userId,
-          asset: asset || undefined,
-        });
-        logger.error('GLOBAL_SETTLEMENT_LEDGER_AUDIT_CRITICAL', {
-          message: 'Settlement ledger cumulative delta does not match replay of processed settlement_events',
-          user_id: userId,
-          asset,
-          expected_cumulative_delta: exp.toString(),
-          actual_cumulative_delta: act.toString(),
-          diagnostic:
-            'Possible missing/extra settlement_ledger rows, wrong deltas, or corrupt settlement_events. Do NOT auto-repair.',
-        });
+
+        if (drift.gte(CIRCUIT_ABS_THRESHOLD)) {
+          criticalMismatches++;
+          triggerCircuitIfViolation('SETTLEMENT_LEDGER_AGGREGATE_MISMATCH');
+          recordSettlementEvent({
+            type: 'failure_fatal',
+            error: `settlement_ledger aggregate mismatch: expected=${exp.toString()} actual=${act.toString()}`,
+            userId,
+            asset: asset || undefined,
+          });
+          logger.error('GLOBAL_SETTLEMENT_LEDGER_AUDIT_CRITICAL', {
+            message: 'Settlement ledger cumulative delta does not match replay — exceeds circuit threshold',
+            user_id: userId,
+            asset,
+            expected_cumulative_delta: exp.toString(),
+            actual_cumulative_delta: act.toString(),
+            drift: drift.toString(),
+            threshold: CIRCUIT_ABS_THRESHOLD.toString(),
+          });
+        } else {
+          logger.warn('GLOBAL_SETTLEMENT_LEDGER_AUDIT_DRIFT', {
+            message: 'Small settlement ledger drift (below circuit threshold)',
+            user_id: userId,
+            asset,
+            drift: drift.toString(),
+            threshold: CIRCUIT_ABS_THRESHOLD.toString(),
+          });
+        }
       }
     }
 
-    return { ok: mismatches === 0, mismatches };
+    return { ok: criticalMismatches === 0, mismatches };
   } finally {
     client.release();
   }

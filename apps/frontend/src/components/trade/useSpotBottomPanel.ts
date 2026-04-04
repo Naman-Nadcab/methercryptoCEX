@@ -76,7 +76,7 @@ export function useSpotBottomPanel({ symbol, isAuth, ordersVersion, tradesVersio
       const raw = await api.get(url, { notifyOnError: false });
       const res = raw as { success?: boolean; data?: { orders?: Order[]; next_cursor?: string | null }; orders?: Order[] };
       const orders = (res.success && (res.data?.orders ?? res.orders)) ? (res.data?.orders ?? res.orders ?? []) : [];
-      const list = Array.isArray(orders) ? orders.filter((o) => !symbol || o.market === symbol) : [];
+      const list = Array.isArray(orders) ? orders : [];
       setOrderHistory((prev) => (append ? [...prev, ...list] : list));
       setOrderHistoryNext(res.data?.next_cursor ?? null);
     } catch {
@@ -93,7 +93,7 @@ export function useSpotBottomPanel({ symbol, isAuth, ordersVersion, tradesVersio
     else setTradesLoading(true);
     try {
       const raw = await api.get(
-        `/api/v1/spot/trade-history?page=${page}&limit=30${symbol ? `&market=${encodeURIComponent(symbol)}` : ''}`,
+        `/api/v1/spot/trade-history?page=${page}&limit=30`,
         { notifyOnError: false }
       );
       const res = raw as { success?: boolean; data?: Trade[]; pagination?: { page: number; totalPages: number; total: number } };

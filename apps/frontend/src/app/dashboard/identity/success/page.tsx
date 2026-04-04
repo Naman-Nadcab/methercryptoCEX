@@ -105,7 +105,7 @@ export default function IdentityVerificationSuccessPage() {
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-primary ring-1 ring-border">
                       <Wallet className="h-4 w-4" aria-hidden />
                     </span>
-                    <span>$20 USDT bonus credited to your account</span>
+                    <span>Any applicable bonuses will be credited to your account</span>
                   </li>
                   <li className="flex items-center gap-3 text-muted-foreground">
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-primary ring-1 ring-border">

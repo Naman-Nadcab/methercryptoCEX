@@ -101,6 +101,19 @@ interface Withdrawal {
   internal_recipient_email?: string | null;
 }
 
+function getExplorerUrl(txHash: string, chain?: string): string {
+  const c = (chain || '').toLowerCase();
+  if (c.includes('btc') || c.includes('bitcoin')) return `https://mempool.space/tx/${txHash}`;
+  if (c.includes('sol') || c.includes('solana')) return `https://solscan.io/tx/${txHash}`;
+  if (c.includes('bsc') || c.includes('bnb')) return `https://bscscan.com/tx/${txHash}`;
+  if (c.includes('polygon') || c.includes('matic')) return `https://polygonscan.com/tx/${txHash}`;
+  if (c.includes('avax') || c.includes('avalanche')) return `https://snowtrace.io/tx/${txHash}`;
+  if (c.includes('arb') || c.includes('arbitrum')) return `https://arbiscan.io/tx/${txHash}`;
+  if (c.includes('op') || c.includes('optimism')) return `https://optimistic.etherscan.io/tx/${txHash}`;
+  if (c.includes('tron') || c.includes('trx')) return `https://tronscan.org/#/transaction/${txHash}`;
+  return `https://etherscan.io/tx/${txHash}`;
+}
+
 const FAQ_LINKS = [
   { title: 'Crypto Withdrawal FAQs', href: '/dashboard/help' },
   { title: 'How to Withdraw Through Internal Transfer', href: '/wallet/transfer' },
@@ -1256,7 +1269,7 @@ export default function WithdrawCryptoPage() {
                           <>
                             <span className="text-primary font-mono text-xs">{formatAddress(txHash)}</span>
                             <a
-                              href={selectedChain?.explorer_url ? `${selectedChain.explorer_url.replace(/\/$/, '')}/tx/${txHash}` : `https://etherscan.io/tx/${txHash}`}
+                              href={selectedChain?.explorer_url ? `${selectedChain.explorer_url.replace(/\/$/, '')}/tx/${txHash}` : getExplorerUrl(txHash, withdrawal.chain_type ?? withdrawal.chain_name)}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-muted-foreground hover:text-primary transition-colors"

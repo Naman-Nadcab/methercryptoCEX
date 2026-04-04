@@ -12,7 +12,7 @@ import {
 import { useAuthStore } from '@/store/auth';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useP2pOrderWs, type P2pOrderWsEvent } from '@/hooks/useP2pOrderWs';
-import { Send } from 'lucide-react';
+import { Send, MessageCircle } from 'lucide-react';
 
 type Props = {
   orderId: string;
@@ -21,7 +21,7 @@ type Props = {
 
 export function P2PChat({ orderId, enabled }: Props) {
   const queryClient = useQueryClient();
-  const { accessToken, _hasHydrated } = useAuthStore();
+  const { accessToken, _hasHydrated, user } = useAuthStore();
   const [text, setText] = useState('');
   const endRef = useRef<HTMLDivElement>(null);
   const lastTypingSent = useRef(0);
@@ -43,7 +43,7 @@ export function P2PChat({ orderId, enabled }: Props) {
           });
         }
       },
-      [queryClient, qKey]
+      [queryClient, qKey],
     ),
   });
 
@@ -101,70 +101,108 @@ export function P2PChat({ orderId, enabled }: Props) {
     }
   };
 
+  const myId = user?.id;
+
   if (!enabled) {
     return (
-      <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground dark:border-border dark:bg-card">
-        Chat is available when the order is open.
+      <div className="flex items-center gap-3 rounded-lg border border-border/30 bg-card p-4 text-sm text-muted-foreground">
+        <MessageCircle className="h-4 w-4 text-muted-foreground/40" />
+        Chat available when the order is open.
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col rounded-xl border border-border bg-card dark:border-border dark:bg-card">
-      <div className="flex items-center justify-between border-b border-border px-4 py-2 text-sm font-medium text-foreground dark:border-border dark:text-foreground">
-        <span>Order chat</span>
-        <span className="text-[10px] font-normal text-muted-foreground">
+    <div className="flex flex-col rounded-lg border border-border/30 bg-card overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-border/20 px-4 py-2.5">
+        <span className="flex items-center gap-1.5 text-[13px] font-semibold text-foreground">
+          <MessageCircle className="h-3.5 w-3.5 text-primary" />
+          Chat
+        </span>
+        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+          wsConnected ? 'bg-[#0ecb81]/10 text-[#0ecb81]' : 'bg-amber-500/10 text-amber-500'
+        }`}>
           {wsConnected ? 'Live' : 'Reconnecting…'}
         </span>
       </div>
-      <div className="h-64 overflow-y-auto p-3 text-sm">
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto p-3 min-h-[320px] max-h-[calc(100vh-20rem)]">
         {isLoading ? (
-          <div className="space-y-3" aria-hidden>
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-14 w-full rounded-lg" />
+          <div className="space-y-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className={`h-10 rounded-lg ${i % 2 === 0 ? 'w-3/4' : 'ml-auto w-2/3'}`} />
             ))}
           </div>
         ) : null}
+
         {!isLoading && messages.length === 0 && (
-          <p className="text-sm text-muted-foreground">No messages yet. Coordinate payment details here.</p>
+          <div className="flex flex-col items-center justify-center h-full text-center py-12">
+            <MessageCircle className="h-7 w-7 text-muted-foreground/15 mb-2" />
+            <p className="text-[12px] text-muted-foreground">No messages yet</p>
+          </div>
         )}
-        <ul className="space-y-2">
-          {messages.map((m) => (
-            <li key={m.id} className="rounded-lg bg-muted px-3 py-2 dark:bg-card/50">
-              <div className="flex flex-wrap items-baseline justify-between gap-1">
-                <span className="text-xs font-medium text-primary">
-                  {m.senderUsername ?? m.senderId.slice(0, 8)}
-                </span>
-                <time className="text-[10px] text-muted-foreground" dateTime={m.createdAt}>
-                  {new Date(m.createdAt).toLocaleString()}
-                </time>
+
+        <div className="space-y-2">
+          {messages.map((m) => {
+            const isMe = myId === m.senderId;
+            const isSystem = !m.senderId || m.senderId === 'system' || m.senderUsername?.toLowerCase() === 'system';
+
+            if (isSystem) {
+              return (
+                <div key={m.id} className="flex justify-center py-1">
+                  <span className="rounded-full bg-muted/30 px-3 py-1 text-[10px] text-muted-foreground">
+                    {m.message}
+                  </span>
+                </div>
+              );
+            }
+
+            return (
+              <div key={m.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[78%] rounded-lg px-3 py-2 ${
+                  isMe
+                    ? 'bg-primary/10 border border-primary/15'
+                    : 'bg-muted/20 border border-border/15'
+                }`}>
+                  {!isMe && (
+                    <p className="text-[10px] font-semibold text-primary mb-0.5">
+                      {m.senderUsername ?? m.senderId.slice(0, 8)}
+                    </p>
+                  )}
+                  <p className="text-[13px] text-foreground whitespace-pre-wrap leading-relaxed">{m.message}</p>
+                  <time className="block mt-0.5 text-[9px] text-muted-foreground/60 text-right" dateTime={m.createdAt}>
+                    {new Date(m.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                  </time>
+                </div>
               </div>
-              <p className="mt-1 whitespace-pre-wrap text-foreground dark:text-gray-200">{m.message}</p>
-            </li>
-          ))}
-        </ul>
+            );
+          })}
+        </div>
         <div ref={endRef} />
       </div>
-      <form onSubmit={submit} className="flex gap-2 border-t border-border p-3 dark:border-border">
+
+      {/* Input */}
+      <form onSubmit={submit} className="flex gap-2 border-t border-border/20 p-2.5">
         <input
           type="text"
           value={text}
           onChange={(e) => onChangeText(e.target.value)}
           maxLength={2000}
           placeholder="Type a message…"
-          className="min-w-0 flex-1 rounded-lg border border-border bg-card px-3 py-2 text-sm dark:border-border dark:bg-background dark:text-foreground"
+          className="min-w-0 flex-1 rounded-lg border border-border/40 bg-background px-3 py-2 text-[13px] text-foreground transition-colors focus:border-primary/40 focus:outline-none"
         />
         <button
           type="submit"
           disabled={sendMut.isPending || !text.trim()}
-          className="inline-flex items-center gap-1 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
         >
           <Send className="h-4 w-4" />
-          Send
         </button>
       </form>
       {sendMut.isError && (
-        <p className="px-3 pb-2 text-xs text-red-600">Failed to send. Try again.</p>
+        <p className="px-3 pb-2 text-[11px] text-[#f6465d]">Failed to send. Try again.</p>
       )}
     </div>
   );

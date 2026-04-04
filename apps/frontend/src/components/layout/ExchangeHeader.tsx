@@ -1,21 +1,36 @@
 'use client';
 
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { Search, User, Menu, X, FileText, Wallet } from 'lucide-react';
+import { usePathname, useRouter } from 'next/navigation';
+import {
+  Search, User, Menu, X, FileText, Wallet,
+  LayoutDashboard, Shield, Gift, Key, Receipt, Settings, LogOut, Copy, ChevronRight,
+} from 'lucide-react';
 import ThemeToggle from '@/components/ThemeToggle';
 import { NotificationCenter } from '@/components/layout/NotificationCenter';
 import { GlobalSearch } from '@/components/layout/GlobalSearch';
 import { useAuthStore } from '@/store/auth';
+import { useAuth } from '@/context/AuthContext';
 import { SPOT_TRADE_HREF, isSpotTradePath } from '@/lib/tier1-canonical-routes';
 import { MARKETS_HREF, ORDERS_HREF, WALLET_HREF, P2P_HREF, ROUTES, LEGACY_PATH_PREFIXES } from '@/lib/routes';
+import { getApiBaseUrl } from '@/lib/getApiUrl';
 
 const MAIN_NAV = [
   { label: 'Markets', href: MARKETS_HREF },
   { label: 'Trade', href: SPOT_TRADE_HREF },
   { label: 'P2P', href: P2P_HREF },
   { label: 'Earn', href: ROUTES.earn },
+];
+
+const USER_MENU = [
+  { href: ROUTES.dashboard.root, label: 'Overview', icon: LayoutDashboard },
+  { href: ROUTES.dashboard.account, label: 'Account', icon: User },
+  { href: ROUTES.dashboard.security, label: 'Security', icon: Shield },
+  { href: ROUTES.dashboard.referral, label: 'Referral', icon: Gift },
+  { href: ROUTES.dashboard.api, label: 'API Management', icon: Key },
+  { href: ROUTES.dashboard.feeRates, label: 'Fee Tier', icon: Receipt },
+  { href: ROUTES.dashboard.preferences, label: 'Preferences', icon: Settings },
 ];
 
 function isMainNavActive(pathname: string | null, href: string): boolean {
@@ -27,6 +42,13 @@ function isMainNavActive(pathname: string | null, href: string): boolean {
   if (href === P2P_HREF) return pathname.startsWith(P2P_HREF) || pathname.startsWith(LEGACY_PATH_PREFIXES.p2pV2);
   if (href === ROUTES.earn) return pathname.startsWith(ROUTES.earn) || pathname.startsWith(LEGACY_PATH_PREFIXES.dashboardEarn);
   return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function maskEmail(email: string): string {
+  if (!email) return '***@****';
+  const [local, domain] = email.split('@');
+  if (!domain) return '***@****';
+  return `${local.slice(0, 3)}**${local.length > 5 ? local.slice(-1) : ''}@****`;
 }
 
 interface ExchangeHeaderProps {
@@ -43,11 +65,16 @@ export function ExchangeHeader({
   showPairSearch = false,
 }: ExchangeHeaderProps) {
   const pathname = usePathname();
-  const { accessToken } = useAuthStore();
+  const router = useRouter();
+  const { accessToken, user } = useAuthStore();
+  const { setUnauthenticated } = useAuth();
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [uidCopied, setUidCopied] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
   const displaySymbol = currentSymbol ? currentSymbol.replace(/_/g, '/') : '';
   const filteredPairs = useMemo(() => {
@@ -59,6 +86,36 @@ export function ExchangeHeader({
   useEffect(() => {
     if (searchOpen && searchInputRef.current) searchInputRef.current.focus();
   }, [searchOpen]);
+
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [userMenuOpen]);
+
+  const handleLogout = useCallback(async () => {
+    setUserMenuOpen(false);
+    const token = useAuthStore.getState().accessToken;
+    const apiUrl = getApiBaseUrl();
+    if (token && apiUrl !== undefined) {
+      try { await fetch(`${apiUrl}/api/v1/auth/logout`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }); } catch { /* best effort */ }
+    }
+    setUnauthenticated();
+    router.replace('/login');
+  }, [setUnauthenticated, router]);
+
+  const copyUID = useCallback(() => {
+    if (user?.id) {
+      navigator.clipboard.writeText(user.id);
+      setUidCopied(true);
+      setTimeout(() => setUidCopied(false), 2000);
+    }
+  }, [user?.id]);
 
   return (
     <header className="sticky top-0 z-40 flex h-14 flex-shrink-0 items-center justify-between gap-3 border-b border-[#2b2f36] bg-[#181a20] px-3">
@@ -159,16 +216,79 @@ export function ExchangeHeader({
               <Wallet className="h-[18px] w-[18px]" />
             </Link>
             <NotificationCenter accessToken={accessToken} />
-            <Link href={ROUTES.dashboard.account} className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" aria-label="Profile">
-              <User className="h-[18px] w-[18px]" />
-            </Link>
+
+            {/* User profile dropdown */}
+            <div className="relative" ref={userMenuRef}>
+              <button
+                type="button"
+                onClick={() => setUserMenuOpen((o) => !o)}
+                className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                aria-label="User menu"
+              >
+                <User className="h-[18px] w-[18px]" />
+              </button>
+
+              {userMenuOpen && (
+                <div className="absolute right-0 top-full z-50 mt-1.5 w-72 overflow-hidden rounded-xl border border-border bg-card shadow-xl animate-in fade-in slide-in-from-top-2 duration-150">
+                  {/* User info */}
+                  <div className="p-4 border-b border-border">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent">
+                        <User className="h-5 w-5 text-muted-foreground" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{maskEmail(user?.email || '')}</p>
+                        <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                          <span>UID: {user?.id?.slice(0, 8) || '******'}</span>
+                          <button
+                            type="button"
+                            onClick={copyUID}
+                            className="p-0.5 hover:text-primary"
+                            aria-label={uidCopied ? 'Copied' : 'Copy user ID'}
+                          >
+                            {uidCopied ? <span className="text-[#0ecb81] text-[10px]">✓</span> : <Copy className="h-3 w-3" />}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Menu items */}
+                  <div className="p-1.5 max-h-64 overflow-y-auto">
+                    {USER_MENU.map((item) => (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        onClick={() => setUserMenuOpen(false)}
+                        className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground transition-colors hover:bg-accent"
+                      >
+                        <item.icon className="h-4 w-4 text-muted-foreground" />
+                        {item.label}
+                      </Link>
+                    ))}
+                  </div>
+
+                  {/* Logout */}
+                  <div className="p-1.5 border-t border-border">
+                    <button
+                      type="button"
+                      onClick={handleLogout}
+                      className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-destructive transition-colors hover:bg-destructive/10"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      Logout
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </>
         ) : (
           <div className="flex items-center gap-1.5">
             <Link href="/login" className="rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
               Log In
             </Link>
-            <Link href="/register" className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">
+            <Link href={ROUTES.signup} className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">
               Register
             </Link>
           </div>

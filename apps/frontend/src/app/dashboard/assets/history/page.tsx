@@ -26,6 +26,19 @@ import {
   HelpCircle,
 } from 'lucide-react';
 
+function getExplorerUrl(txHash: string, chain?: string): string {
+  const c = (chain || '').toLowerCase();
+  if (c.includes('btc') || c.includes('bitcoin')) return `https://mempool.space/tx/${txHash}`;
+  if (c.includes('sol') || c.includes('solana')) return `https://solscan.io/tx/${txHash}`;
+  if (c.includes('bsc') || c.includes('bnb')) return `https://bscscan.com/tx/${txHash}`;
+  if (c.includes('polygon') || c.includes('matic')) return `https://polygonscan.com/tx/${txHash}`;
+  if (c.includes('avax') || c.includes('avalanche')) return `https://snowtrace.io/tx/${txHash}`;
+  if (c.includes('arb') || c.includes('arbitrum')) return `https://arbiscan.io/tx/${txHash}`;
+  if (c.includes('op') || c.includes('optimism')) return `https://optimistic.etherscan.io/tx/${txHash}`;
+  if (c.includes('tron') || c.includes('trx')) return `https://tronscan.org/#/transaction/${txHash}`;
+  return `https://etherscan.io/tx/${txHash}`;
+}
+
 interface Transaction {
   id: string;
   type: 'deposit' | 'withdraw' | 'transfer';
@@ -837,7 +850,7 @@ export default function AssetHistoryPage() {
                                         )}
                                       </button>
                                       <a
-                                        href={`https://etherscan.io/tx/${tx.txid}`}
+                                        href={getExplorerUrl(tx.txid, tx.chain_type)}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="rounded p-1 transition-colors hover:bg-muted"

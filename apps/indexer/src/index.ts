@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import path from 'path';
 
-dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 
 import { CHAIN_CONFIGS } from './config/chains';
 import { query } from './config/database';
@@ -64,45 +64,28 @@ class IndexerManager {
         )
       `);
 
-      // Deposits table should already exist from main backend schema
-      // Just ensure indexes exist
       try {
         await query(`CREATE INDEX IF NOT EXISTS idx_deposits_user_id ON deposits(user_id)`);
         await query(`CREATE INDEX IF NOT EXISTS idx_deposits_status ON deposits(status)`);
         await query(`CREATE INDEX IF NOT EXISTS idx_deposits_to_address ON deposits(to_address)`);
       } catch (e) {
-        // Indexes might already exist, ignore
+        // Indexes might already exist
       }
 
-      // Create user_wallets table if not exists
-      await query(`
-        CREATE TABLE IF NOT EXISTS user_wallets (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          user_id UUID NOT NULL,
-          chain_id VARCHAR(50) NOT NULL,
-          address VARCHAR(100) NOT NULL,
-          private_key_encrypted TEXT,
-          derivation_path VARCHAR(100),
-          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-          UNIQUE(user_id, chain_id)
-        )
-      `);
+      // Ensure deposits table has chain_id column (newer schema uses chain_id VARCHAR instead of blockchain_id UUID)
+      await query(`ALTER TABLE deposits ADD COLUMN IF NOT EXISTS chain_id VARCHAR(20)`);
 
-      // Create tokens table if not exists  
+      // Ensure UNIQUE constraint on (chain_id, tx_hash, to_address) to prevent duplicate deposits
       await query(`
-        CREATE TABLE IF NOT EXISTS tokens (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          chain_id VARCHAR(50) NOT NULL,
-          contract_address VARCHAR(100),
-          symbol VARCHAR(20) NOT NULL,
-          name VARCHAR(100) NOT NULL,
-          decimals INTEGER NOT NULL DEFAULT 18,
-          is_native BOOLEAN DEFAULT FALSE,
-          is_active BOOLEAN DEFAULT TRUE,
-          logo_url TEXT,
-          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-          UNIQUE(chain_id, contract_address)
-        )
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conname = 'deposits_unique_chain_tx_to' AND conrelid = 'deposits'::regclass
+          ) THEN
+            ALTER TABLE deposits ADD CONSTRAINT deposits_unique_chain_tx_to UNIQUE (chain_id, tx_hash, to_address);
+          END IF;
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$;
       `);
 
       logger.info('Database tables initialized');

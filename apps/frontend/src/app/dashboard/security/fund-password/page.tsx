@@ -385,6 +385,7 @@ export default function FundPasswordPage() {
               type="submit"
               disabled={
                 submitting ||
+                checkingSame ||
                 !isValidNewPassword ||
                 !validations.passwordsMatch ||
                 sameAsLogin === true ||

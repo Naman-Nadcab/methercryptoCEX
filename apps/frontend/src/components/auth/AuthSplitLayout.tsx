@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { DollarSign, Users, Coins } from 'lucide-react';
 import ThemeToggle from '@/components/ThemeToggle';
@@ -13,6 +14,8 @@ export default function AuthSplitLayout({
   children: React.ReactNode;
   showCookieBanner?: boolean;
 }) {
+  const [cookiesAccepted, setCookiesAccepted] = useState(false);
+
   return (
     <div className="min-h-screen flex bg-background">
       {/* Left - Brand panel with subtle grid pattern */}
@@ -68,13 +71,13 @@ export default function AuthSplitLayout({
           <div className="flex-1 flex items-center justify-center px-5 lg:px-8 py-6">
           <div className="w-full max-w-[420px]">{children}</div>
         </div>
-        {showCookieBanner && (
+        {showCookieBanner && !cookiesAccepted && (
           <div className="p-4 border-t border-border bg-gray-50/50 dark:bg-background">
             <div className="flex items-center justify-between max-w-4xl mx-auto gap-4 flex-wrap">
               <p className="text-xs text-muted-foreground">
                 We use cookies. <Link href={ROUTES.cookies} className="text-primary hover:underline">Cookie Policy</Link>
               </p>
-              <button type="button" className="px-4 py-2 rounded-lg bg-accent text-foreground/80 text-sm font-medium hover:bg-gray-300 dark:hover:bg-accent transition-colors">
+              <button type="button" onClick={() => setCookiesAccepted(true)} className="px-4 py-2 rounded-lg bg-accent text-foreground/80 text-sm font-medium hover:bg-gray-300 dark:hover:bg-accent transition-colors">
                 Accept All
               </button>
             </div>

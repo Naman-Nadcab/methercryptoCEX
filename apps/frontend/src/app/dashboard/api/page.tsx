@@ -236,6 +236,9 @@ export default function ApiPage() {
             rateLimitMax={100}
             loading={loading}
           />
+          {!loading && apiKeys.length === 0 && (
+            <p className="mt-2 text-xs text-muted-foreground text-center">Stats update in real-time once you start using your API keys.</p>
+          )}
         </div>
 
         {/* API Security Indicators & Doc Links */}

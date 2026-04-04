@@ -76,8 +76,9 @@ export default function SpotOrdersViewPage() {
   }, [accessToken]);
 
   useEffect(() => {
-    fetchOpenOrders();
-  }, [fetchOpenOrders]);
+    if (accessToken) fetchOpenOrders();
+    else setOrdersLoading(false);
+  }, [accessToken, fetchOpenOrders]);
 
   useEffect(() => {
     if (ordersTab === 'history') fetchHistoryOrders(null, false);

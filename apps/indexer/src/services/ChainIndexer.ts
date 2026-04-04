@@ -104,14 +104,11 @@ export class ChainIndexer {
 
   private async loadWatchedAddresses(): Promise<void> {
     try {
-      // Load user deposit addresses for this chain
-      // Join with blockchains table using chain_id (numeric)
       const result = await query(`
-        SELECT DISTINCT LOWER(uw.address) as address 
-        FROM user_wallets uw
-        JOIN blockchains b ON uw.blockchain_id = b.id
-        WHERE b.chain_id = $1 AND uw.address IS NOT NULL AND uw.is_active = TRUE
-      `, [this.config.id]);
+        SELECT DISTINCT LOWER(w.address) as address 
+        FROM wallets w
+        WHERE w.chain_id = $1 AND w.address IS NOT NULL AND w.is_active = TRUE
+      `, [this.chainKey]);
       
       result.rows.forEach(row => {
         this.watchedAddresses.add(row.address.toLowerCase());
@@ -125,15 +122,14 @@ export class ChainIndexer {
 
   private async loadTokenContracts(): Promise<void> {
     try {
-      // Load tokens from currencies table that have contract addresses
-      // The currencies table has contract_address for ERC20 tokens
       const result = await query(`
-        SELECT LOWER(c.contract_address) as address, c.symbol, c.decimals 
-        FROM currencies c
-        WHERE c.contract_address IS NOT NULL 
-          AND c.contract_address != '' 
-          AND c.is_active = TRUE
-      `);
+        SELECT LOWER(t.contract_address) as address, t.symbol, t.decimals 
+        FROM tokens t
+        WHERE t.contract_address IS NOT NULL 
+          AND t.contract_address != '' 
+          AND t.is_active = TRUE
+          AND t.chain_id = $1
+      `, [this.chainKey]);
       
       result.rows.forEach(row => {
         if (row.address) {
@@ -338,13 +334,11 @@ export class ChainIndexer {
         return;
       }
 
-      // Get user by deposit address (join with blockchains using chain_id)
       const userResult = await query(`
-        SELECT uw.user_id, uw.id as wallet_id, uw.blockchain_id
-        FROM user_wallets uw
-        JOIN blockchains b ON uw.blockchain_id = b.id
-        WHERE LOWER(uw.address) = $1 AND b.chain_id = $2
-      `, [deposit.toAddress, this.config.id]);
+        SELECT w.user_id, w.id as wallet_id, w.chain_id
+        FROM wallets w
+        WHERE LOWER(w.address) = $1 AND w.chain_id = $2
+      `, [deposit.toAddress, this.chainKey]);
       
       if (userResult.rows.length === 0) {
         logger.warn(`No user found for address ${deposit.toAddress} on ${deposit.chainId}`);
@@ -353,7 +347,7 @@ export class ChainIndexer {
       
       const userId = userResult.rows[0].user_id;
       const walletId = userResult.rows[0].wallet_id;
-      const blockchainId = userResult.rows[0].blockchain_id;
+      const chainId = userResult.rows[0].chain_id;
 
       // Get currency ID
       let currencyId: string | null = null;
@@ -385,11 +379,9 @@ export class ChainIndexer {
         return;
       }
 
-      // Record the deposit. ON CONFLICT DO NOTHING prevents duplicate rows for same on-chain tx
-      // (DB constraint: UNIQUE(blockchain_id, tx_hash, to_address)). Replay or reindex safely reuses existing row.
       const insertResult = await query(`
         INSERT INTO deposits (
-          id, user_id, currency_id, blockchain_id, wallet_id, tx_hash, 
+          id, user_id, currency_id, chain_id, wallet_id, tx_hash, 
           from_address, to_address, amount, fee, confirmations, 
           required_confirmations, block_number, block_timestamp, 
           status, created_at, updated_at
@@ -397,12 +389,12 @@ export class ChainIndexer {
           gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, 0, 0, $9, $10, 
           to_timestamp($11), 'pending', NOW(), NOW()
         )
-        ON CONFLICT (blockchain_id, tx_hash, to_address) DO NOTHING
+        ON CONFLICT (chain_id, tx_hash, to_address) DO NOTHING
         RETURNING id
       `, [
         userId,
         currencyId,
-        blockchainId,
+        chainId,
         walletId,
         deposit.txHash,
         deposit.fromAddress,

@@ -3,15 +3,15 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useAuthStore } from '@/store/auth';
+import { useRouter } from 'next/navigation';
 import {
   Info,
   Calendar,
-  ChevronDown,
   Gift,
   HelpCircle,
-  FileText,
   Loader2,
 } from 'lucide-react';
+import { toast } from '@/components/ui/toaster';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
 
 type SignupTab = 'signups' | 'fiat' | 'card' | 'earn';
@@ -40,11 +40,11 @@ interface ReferralData {
 }
 
 export default function MyReferralsPage() {
+  const router = useRouter();
   const { accessToken, _hasHydrated } = useAuthStore();
   const [signupTab, setSignupTab] = useState<SignupTab>('signups');
   const [historyTab, setHistoryTab] = useState<HistoryTab>('commission');
   const [spotTab, setSpotTab] = useState<SpotTab>('spot');
-  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const [data, setData] = useState<ReferralData | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -182,7 +182,10 @@ export default function MyReferralsPage() {
                   <p className="text-muted-foreground text-sm mb-2">Withdrawable Balance</p>
                   <div className="flex items-center gap-3">
                     <p className="text-xl font-semibold text-foreground">{Number.isFinite(totalEarnings) ? totalEarnings.toFixed(2) : '0.00'} <span className="text-sm text-muted-foreground">USDT</span></p>
-                    <button className="px-4 py-1.5 bg-transparent border border-border text-foreground/80 dark:text-foreground text-sm rounded-lg hover:bg-accent transition-colors">
+                    <button
+                      onClick={() => toast({ title: 'Coming soon', description: 'Withdrawals for referral earnings will be available soon.', variant: 'default' })}
+                      className="px-4 py-1.5 bg-transparent border border-border text-foreground/80 dark:text-foreground text-sm rounded-lg hover:bg-accent transition-colors"
+                    >
                       Withdraw
                     </button>
                   </div>
@@ -254,9 +257,9 @@ export default function MyReferralsPage() {
             {/* Date Range Filter */}
             <div className="flex items-center gap-2 mb-6">
               <div className="flex items-center bg-accent dark:bg-card rounded-lg px-3 py-2 text-sm text-muted-foreground">
-                <span>2026-01-01</span>
+                <span>{(() => { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`; })()}</span>
                 <span className="mx-2 text-muted-foreground">~</span>
-                <span>2026-01-30</span>
+                <span>{(() => { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`; })()}</span>
                 <Calendar className="w-4 h-4 ml-2 text-muted-foreground" />
               </div>
             </div>
@@ -480,7 +483,10 @@ export default function MyReferralsPage() {
       </div>
 
       {/* Help Button */}
-      <button className="fixed bottom-6 right-6 w-12 h-12 bg-primary hover:bg-primary/85 text-primary-foreground rounded-full shadow-lg flex items-center justify-center transition-colors z-40">
+      <button
+        onClick={() => router.push('/dashboard/help')}
+        className="fixed bottom-6 right-6 w-12 h-12 bg-primary hover:bg-primary/85 text-primary-foreground rounded-full shadow-lg flex items-center justify-center transition-colors z-40"
+      >
         <HelpCircle className="w-6 h-6" />
       </button>
 
@@ -497,13 +503,20 @@ export default function MyReferralsPage() {
                 <span className="text-xl font-bold text-foreground">Methereum</span>
               </div>
               <div className="flex flex-wrap gap-2">
-                {['f', 'x', 'ig', 'yt', 'in', 'tg', 'tk', 'rd', 'dc'].map((social, i) => (
-                  <div
-                    key={i}
-                    className="w-8 h-8 bg-accent rounded-full flex items-center justify-center cursor-pointer hover:bg-accent"
+                {[
+                  { key: 'x', label: '𝕏', href: 'https://twitter.com' },
+                  { key: 'tg', label: 'TG', href: 'https://t.me' },
+                  { key: 'dc', label: 'DC', href: 'https://discord.com' },
+                ].map((social) => (
+                  <a
+                    key={social.key}
+                    href={social.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-8 h-8 bg-accent rounded-full flex items-center justify-center cursor-pointer hover:bg-muted-foreground/20 transition-colors"
                   >
-                    <span className="text-xs text-muted-foreground">●</span>
-                  </div>
+                    <span className="text-[10px] font-bold text-muted-foreground">{social.label}</span>
+                  </a>
                 ))}
               </div>
             </div>
@@ -512,16 +525,9 @@ export default function MyReferralsPage() {
             <div>
               <h4 className="font-semibold mb-3 text-foreground">About</h4>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                <li className="hover:text-foreground cursor-pointer">About Methereum</li>
-                <li className="hover:text-foreground cursor-pointer">Meet Mantle</li>
-                <li className="hover:text-foreground cursor-pointer">Press Room</li>
-                <li className="hover:text-foreground cursor-pointer">Communities</li>
-                <li className="hover:text-foreground cursor-pointer">Announcements</li>
-                <li className="hover:text-foreground cursor-pointer">Risk Disclosure</li>
-                <li className="hover:text-foreground cursor-pointer">Whistleblower Channel</li>
-                <li className="hover:text-foreground cursor-pointer">Careers</li>
-                <li className="hover:text-foreground cursor-pointer">Islamic Account</li>
-                <li className="hover:text-foreground cursor-pointer">Fees & Transactions Overview</li>
+                <li><Link href="/dashboard/help" className="hover:text-foreground">About Methereum</Link></li>
+                <li><Link href="/dashboard/announcements" className="hover:text-foreground">Announcements</Link></li>
+                <li><Link href="/dashboard/fee-rates" className="hover:text-foreground">Fees & Transactions Overview</Link></li>
               </ul>
             </div>
 
@@ -529,14 +535,9 @@ export default function MyReferralsPage() {
             <div>
               <h4 className="font-semibold mb-3 text-foreground">Services</h4>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                <li className="hover:text-foreground cursor-pointer">One-Click Buy</li>
-                <li className="hover:text-foreground cursor-pointer">P2P Trading (0 Fees)</li>
-                <li className="hover:text-foreground cursor-pointer">VIP Program</li>
-                <li className="hover:text-foreground cursor-pointer">Referral Program</li>
-                <li className="hover:text-foreground cursor-pointer">Institutional Services</li>
-                <li className="hover:text-foreground cursor-pointer">Listing Application</li>
-                <li className="hover:text-foreground cursor-pointer">Tax API</li>
-                <li className="hover:text-foreground cursor-pointer">Audit</li>
+                <li><Link href="/p2p" className="hover:text-foreground">P2P Trading (0 Fees)</Link></li>
+                <li><Link href="/dashboard/referral" className="hover:text-foreground">Referral Program</Link></li>
+                <li><Link href="/dashboard/api" className="hover:text-foreground">API</Link></li>
               </ul>
             </div>
 
@@ -544,14 +545,8 @@ export default function MyReferralsPage() {
             <div>
               <h4 className="font-semibold mb-3 text-foreground">Support</h4>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                <li className="hover:text-foreground cursor-pointer">Submit a Request</li>
-                <li className="hover:text-foreground cursor-pointer">Help Center</li>
-                <li className="hover:text-foreground cursor-pointer">Support Hub</li>
-                <li className="hover:text-foreground cursor-pointer">User Feedback</li>
-                <li className="hover:text-foreground cursor-pointer">Methereum Learn</li>
-                <li className="hover:text-foreground cursor-pointer">Trading Fee</li>
-                <li className="hover:text-foreground cursor-pointer">API</li>
-                <li className="hover:text-foreground cursor-pointer">Authenticity Check</li>
+                <li><Link href="/dashboard/help" className="hover:text-foreground">Help Center</Link></li>
+                <li><Link href="/dashboard/fee-rates" className="hover:text-foreground">Trading Fee</Link></li>
               </ul>
             </div>
 
@@ -559,12 +554,9 @@ export default function MyReferralsPage() {
             <div>
               <h4 className="font-semibold mb-3 text-foreground">Products</h4>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                <li className="hover:text-foreground cursor-pointer">Trade</li>
-                <li className="hover:text-foreground cursor-pointer">P2P</li>
-                <li className="hover:text-foreground cursor-pointer">Earn</li>
-                <li className="hover:text-foreground cursor-pointer">Launchpad</li>
-                <li className="hover:text-foreground cursor-pointer">Methereum Card</li>
-                <li className="hover:text-foreground cursor-pointer">TradingView</li>
+                <li><Link href="/trade/spot" className="hover:text-foreground">Trade</Link></li>
+                <li><Link href="/p2p" className="hover:text-foreground">P2P</Link></li>
+                <li><Link href="/dashboard/markets" className="hover:text-foreground">Markets</Link></li>
               </ul>
             </div>
           </div>

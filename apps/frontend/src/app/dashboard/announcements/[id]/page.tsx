@@ -1,10 +1,21 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Bell, Loader2 } from 'lucide-react';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
+
+function sanitizeHtml(html: string): string {
+  return html
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/on\w+\s*=\s*"[^"]*"/gi, '')
+    .replace(/on\w+\s*=\s*'[^']*'/gi, '')
+    .replace(/javascript\s*:/gi, 'blocked:')
+    .replace(/<iframe\b[^>]*>/gi, '')
+    .replace(/<object\b[^>]*>/gi, '')
+    .replace(/<embed\b[^>]*>/gi, '');
+}
 
 interface Announcement {
   id: string;
@@ -20,7 +31,6 @@ interface Announcement {
 
 export default function AnnouncementDetailPage() {
   const params = useParams();
-  const router = useRouter();
   const id = params?.id as string;
   const [item, setItem] = useState<Announcement | null>(null);
   const [loading, setLoading] = useState(true);
@@ -82,7 +92,7 @@ export default function AnnouncementDetailPage() {
           {item.body ? (
             <div
               className="prose prose-sm dark:prose-invert max-w-none text-foreground/80"
-              dangerouslySetInnerHTML={{ __html: item.body }}
+              dangerouslySetInnerHTML={{ __html: sanitizeHtml(item.body) }}
             />
           ) : (
             <p className="text-muted-foreground">No additional content.</p>

@@ -98,8 +98,8 @@ export default function WithdrawalLimitsPage() {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
       const profileResult = await profileRes.json();
-      if (profileResult.success && profileResult.data?.phone) {
-        setUserPhone(profileResult.data.phone);
+      if (profileResult.success && profileResult.data?.user?.phone) {
+        setUserPhone(profileResult.data.user.phone);
       }
     } catch (error) {
       console.error('Failed to fetch 2FA status:', error);

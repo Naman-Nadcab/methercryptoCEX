@@ -186,38 +186,38 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
     return list;
   }, [data.openOrders, data.openOrdersForMarket, symbol, showAllMarkets]);
 
+  const getField = (obj: Record<string, unknown>, key: string): unknown => obj[key as keyof typeof obj];
+
   const sortedOpenOrders = useMemo(() => {
     const list = [...displayOpenOrders];
     const dir = sortDir === 'asc' ? 1 : -1;
-    list.sort((a, b) => {
-      const av = (a as any)[sortKey];
-      const bv = (b as any)[sortKey];
-      return compare(av, bv, sortKey, dir);
-    });
+    list.sort((a, b) => compare(getField(a, sortKey), getField(b, sortKey), sortKey, dir));
     return list;
   }, [displayOpenOrders, sortKey, sortDir]);
 
+  const displayOrderHistory = useMemo(() => {
+    if (showAllMarkets) return data.orderHistory;
+    return data.orderHistory.filter((o) => !symbol || o.market === symbol);
+  }, [data.orderHistory, symbol, showAllMarkets]);
+
   const sortedOrderHistory = useMemo(() => {
-    const list = [...data.orderHistory];
+    const list = [...displayOrderHistory];
     const dir = sortDir === 'asc' ? 1 : -1;
-    list.sort((a, b) => {
-      const av = (a as any)[sortKey];
-      const bv = (b as any)[sortKey];
-      return compare(av, bv, sortKey, dir);
-    });
+    list.sort((a, b) => compare(getField(a, sortKey), getField(b, sortKey), sortKey, dir));
     return list;
-  }, [data.orderHistory, sortKey, sortDir]);
+  }, [displayOrderHistory, sortKey, sortDir]);
+
+  const displayTrades = useMemo(() => {
+    if (showAllMarkets) return data.trades;
+    return data.trades.filter((t) => !symbol || t.market === symbol);
+  }, [data.trades, symbol, showAllMarkets]);
 
   const sortedTrades = useMemo(() => {
-    const list = [...data.trades];
+    const list = [...displayTrades];
     const dir = sortDir === 'asc' ? 1 : -1;
-    list.sort((a, b) => {
-      const av = (a as any)[sortKey];
-      const bv = (b as any)[sortKey];
-      return compare(av, bv, sortKey, dir);
-    });
+    list.sort((a, b) => compare(getField(a, sortKey), getField(b, sortKey), sortKey, dir));
     return list;
-  }, [data.trades, sortKey, sortDir]);
+  }, [displayTrades, sortKey, sortDir]);
 
   const sortGlyph = (key: string) => {
     if (sortKey !== key) return '';
@@ -252,18 +252,16 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
           <button type="button" onClick={() => data.setTab('assets')} className={tabBtn(data.tab === 'assets')}>Assets</button>
         </div>
         <div className="flex items-center gap-2 pr-2">
-          {data.tab === 'open' && (
-            <>
-              <button type="button" onClick={() => setShowAllMarkets((v) => !v)} className="min-h-[36px] px-3 py-1.5 text-[10px] text-[#848e9c] hover:text-[#eaecef] border border-[#2b2f36] rounded touch-manipulation" title={showAllMarkets ? 'Show current pair only' : 'Show all markets'}>
-                {showAllMarkets ? 'All' : 'Pair'}
-              </button>
-              {canCancelAll && (
-                <button type="button" onClick={() => data.handleCancelAll?.()} disabled={data.cancellingAll} className="min-h-[36px] px-3 py-1.5 text-[10px] text-destructive hover:bg-destructive/10 border border-destructive/30 rounded flex items-center gap-1 disabled:opacity-50 touch-manipulation" title="Cancel all open orders for this pair">
-                  {data.cancellingAll ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
-                  Cancel All
-                </button>
-              )}
-            </>
+          {(data.tab === 'open' || data.tab === 'orders' || data.tab === 'trades') && (
+            <button type="button" onClick={() => setShowAllMarkets((v) => !v)} className="min-h-[36px] px-3 py-1.5 text-[10px] text-[#848e9c] hover:text-[#eaecef] border border-[#2b2f36] rounded touch-manipulation" title={showAllMarkets ? 'Show current pair only' : 'Show all markets'}>
+              {showAllMarkets ? 'All' : 'Pair'}
+            </button>
+          )}
+          {data.tab === 'open' && canCancelAll && (
+            <button type="button" onClick={() => data.handleCancelAll?.()} disabled={data.cancellingAll} className="min-h-[36px] px-3 py-1.5 text-[10px] text-destructive hover:bg-destructive/10 border border-destructive/30 rounded flex items-center gap-1 disabled:opacity-50 touch-manipulation" title="Cancel all open orders for this pair">
+              {data.cancellingAll ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+              Cancel All
+            </button>
           )}
           {data.tab === 'orders' && data.orderHistory.length > 0 && (
             <button type="button" onClick={() => { const csv = ordersToCsv(data.orderHistory); downloadCsv(`spot-orders-${new Date().toISOString().slice(0,10)}.csv`, csv); }} className="min-h-[36px] px-3 py-1.5 text-[10px] text-[#848e9c] hover:text-[#eaecef] border border-[#2b2f36] rounded flex items-center gap-1 touch-manipulation" title="Export Order History as CSV">

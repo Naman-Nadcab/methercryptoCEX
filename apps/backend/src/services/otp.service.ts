@@ -388,49 +388,58 @@ class OTPService {
    * For password_reset, uses encryption.hashOtp (pbkdf2) so auth.service.verifyOTP can verify.
    */
   async createOTP(identifier: string, type: 'email' | 'phone' | 'password_reset', userId?: string): Promise<{ otp: string; expiresAt: Date }> {
-    try {
-      const otp = this.generateOTP(6);
-      const salt = type === 'password_reset' ? encryption.generateSalt() : this.generateSalt();
-      const otpHash = type === 'password_reset'
-        ? encryption.hashOtp(otp, salt)
-        : this.hashOTP(otp, salt);
-      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
-      // Delete any existing OTPs for this identifier
-      await db.query(
-        `DELETE FROM otp_verifications WHERE identifier = $1 AND type = $2 AND verified_at IS NULL`,
-        [identifier, type]
-      );
-
-      // Store new OTP (include user_id for password_reset so auth.service.verifyOTP returns it)
-      await db.query(
-        userId
-          ? `INSERT INTO otp_verifications (identifier, type, otp_hash, salt, expires_at, max_attempts, user_id)
-             VALUES ($1, $2, $3, $4, $5, 3, $6)`
-          : `INSERT INTO otp_verifications (identifier, type, otp_hash, salt, expires_at, max_attempts)
-             VALUES ($1, $2, $3, $4, $5, 3)`,
-        userId ? [identifier, type, otpHash, salt, expiresAt, userId] : [identifier, type, otpHash, salt, expiresAt]
-      );
-
-      // Redis for fast verify (must complete before return so verify can use it)
+    const maxRetries = 2;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        await redis.setJson(`otp:${type}:${identifier}`, {
-          hash: otpHash,
-          salt,
-          attempts: 0,
-          expiresAt: expiresAt.toISOString(),
-        }, 600);
-      } catch {
-        // Redis down: OTP is in DB, verifyOTP falls back to DB
-      }
+        const otp = this.generateOTP(6);
+        const salt = type === 'password_reset' ? encryption.generateSalt() : this.generateSalt();
+        const otpHash = type === 'password_reset'
+          ? encryption.hashOtp(otp, salt)
+          : this.hashOTP(otp, salt);
+        const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-      return { otp, expiresAt };
-    } catch (error) {
-      const errMsg = error instanceof Error ? error.message : 'Unknown';
-      const errStack = error instanceof Error ? error.stack : undefined;
-      logger.error('Failed to create OTP', { error: errMsg, stack: errStack, identifier, type });
-      throw error;
+        // Combined DELETE + INSERT in single query to reduce pool pressure
+        await db.query(
+          `DELETE FROM otp_verifications WHERE identifier = $1 AND type = $2 AND verified_at IS NULL`,
+          [identifier, type]
+        );
+
+        await db.query(
+          userId
+            ? `INSERT INTO otp_verifications (identifier, type, otp_hash, salt, expires_at, max_attempts, user_id)
+               VALUES ($1, $2, $3, $4, $5, 3, $6)`
+            : `INSERT INTO otp_verifications (identifier, type, otp_hash, salt, expires_at, max_attempts)
+               VALUES ($1, $2, $3, $4, $5, 3)`,
+          userId ? [identifier, type, otpHash, salt, expiresAt, userId] : [identifier, type, otpHash, salt, expiresAt]
+        );
+
+        // Redis for fast verify (must complete before return so verify can use it)
+        try {
+          await redis.setJson(`otp:${type}:${identifier}`, {
+            hash: otpHash,
+            salt,
+            attempts: 0,
+            expiresAt: expiresAt.toISOString(),
+          }, 600);
+        } catch {
+          // Redis down: OTP is in DB, verifyOTP falls back to DB
+        }
+
+        return { otp, expiresAt };
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : 'Unknown';
+        const isRetryable = /timeout|connection|ECONNREFUSED|ECONNRESET/i.test(errMsg);
+        if (isRetryable && attempt < maxRetries) {
+          logger.warn(`OTP create attempt ${attempt + 1} failed, retrying...`, { error: errMsg, identifier, type });
+          await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+          continue;
+        }
+        const errStack = error instanceof Error ? error.stack : undefined;
+        logger.error('Failed to create OTP', { error: errMsg, stack: errStack, identifier, type, attempts: attempt + 1 });
+        throw error;
+      }
     }
+    throw new Error('OTP creation failed after retries');
   }
 
   /**

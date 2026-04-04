@@ -9,8 +9,8 @@ import { getApiBaseUrl } from '@/lib/getApiUrl';
 import Link from 'next/link';
 import {
   Eye, EyeOff, Download, Upload, ArrowLeftRight, RefreshCw, Wallet,
-  TrendingUp, TrendingDown, ArrowRight, FileText, Search, ChevronDown,
-  BarChart3, Sparkles, Filter, ArrowUpRight, ArrowDownRight, Trash2,
+  TrendingUp, TrendingDown, ArrowRight, FileText, Search,
+  BarChart3, Sparkles, ArrowUpRight, ArrowDownRight,
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { CoinIcon } from '@/components/ui/CoinIcon';
@@ -148,7 +148,7 @@ export default function AssetsOverviewPage() {
   useEffect(() => {
     if (!accessToken) return;
     api.get<{ success: boolean; data?: PortfolioPoint[] }>(`/api/v1/wallet/portfolio-history?period=${chartPeriod}`, { notifyOnError: false })
-      .then((r) => { if (r.data?.success && r.data.data) setPortfolioHistory(r.data.data); })
+      .then((r) => { if (r.success && r.data) setPortfolioHistory(r.data); })
       .catch(() => {});
   }, [accessToken, chartPeriod]);
 
@@ -156,7 +156,7 @@ export default function AssetsOverviewPage() {
   useEffect(() => {
     if (!accessToken) return;
     api.get<{ success: boolean; data?: Transaction[] }>('/api/v1/wallet/transactions/all?limit=8', { notifyOnError: false })
-      .then((r) => { if (r.data?.success && r.data.data) setRecentTxs(r.data.data); })
+      .then((r) => { if (r.success && r.data) setRecentTxs(r.data); })
       .catch(() => {});
   }, [accessToken]);
 

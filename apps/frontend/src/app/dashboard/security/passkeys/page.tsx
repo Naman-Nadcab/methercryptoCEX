@@ -22,7 +22,7 @@ import { toast } from '@/components/ui/toaster';
 
 interface Passkey {
   id: string;
-  name: string;
+  device_name: string;
   created_at: string;
   last_used_at: string | null;
 }
@@ -186,7 +186,7 @@ export default function PasskeysPage() {
     setCreating(true);
     try {
       // Get challenge from backend
-      const challengeRes = await fetch(`${apiUrl}/api/v1/auth/passkeys/challenge`, {
+      const challengeRes = await fetch(`${apiUrl}/api/v1/auth/passkey/register/options`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -258,17 +258,23 @@ export default function PasskeysPage() {
       };
 
       // Send credential to backend
-      const registerRes = await fetch(`${apiUrl}/api/v1/auth/passkeys/register`, {
+      const registerRes = await fetch(`${apiUrl}/api/v1/auth/passkey/register/verify`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
-          credentialId: arrayBufferToBase64(credential.rawId),
-          clientDataJSON: arrayBufferToBase64(response.clientDataJSON),
-          attestationObject: arrayBufferToBase64(response.attestationObject),
-          name: `iCloud Keychain #${passkeys.length + 1}`,
+          credential: {
+            id: arrayBufferToBase64(credential.rawId),
+            rawId: arrayBufferToBase64(credential.rawId),
+            type: credential.type,
+            response: {
+              clientDataJSON: arrayBufferToBase64(response.clientDataJSON),
+              attestationObject: arrayBufferToBase64(response.attestationObject),
+            },
+          },
+          deviceName: `iCloud Keychain #${passkeys.length + 1}`,
         }),
       });
       const registerResult = await registerRes.json();
@@ -303,7 +309,7 @@ export default function PasskeysPage() {
   // Handle Rename
   const handleRenameClick = (passkey: Passkey) => {
     setRenamePasskeyId(passkey.id);
-    setRenameName(passkey.name);
+    setRenameName(passkey.device_name);
     setShowRenameModal(true);
   };
 
@@ -322,7 +328,7 @@ export default function PasskeysPage() {
       const result = await response.json();
 
       if (result.success) {
-        setPasskeys(passkeys.map(p => p.id === renamePasskeyId ? { ...p, name: renameName.trim() } : p));
+        setPasskeys(passkeys.map(p => p.id === renamePasskeyId ? { ...p, device_name: renameName.trim() } : p));
         setShowRenameModal(false);
         setRenamePasskeyId('');
         setRenameName('');
@@ -533,7 +539,7 @@ export default function PasskeysPage() {
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-3">
                         <KeyRound className="w-5 h-5 text-muted-foreground" />
-                        <span className="text-sm text-foreground">{passkey.name}</span>
+                        <span className="text-sm text-foreground">{passkey.device_name}</span>
                       </div>
                     </td>
                     <td className="px-4 py-4 text-sm text-muted-foreground">{formatDate(passkey.created_at)}</td>

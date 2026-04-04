@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { Sparkles, Gift, Trophy, Zap, Clock, ArrowRight, Bell } from 'lucide-react';
+import { toast } from '@/components/ui/toaster';
 
 const UPCOMING = [
   { title: 'Trading Competition', desc: 'Top traders by volume win exclusive rewards. Stay tuned for launch.', icon: Trophy, color: 'text-amber-500 bg-amber-500/10' },
@@ -28,7 +29,11 @@ export default function EventsPage() {
             <p className="mt-0.5 text-xs text-muted-foreground">We're preparing exciting events for you. Enable notifications to be the first to know.</p>
           </div>
         </div>
-        <button type="button" className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+        <button
+          type="button"
+          onClick={() => toast({ title: 'Coming soon', description: 'Push notifications for events will be available soon.', variant: 'default' })}
+          className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+        >
           <Bell className="h-3.5 w-3.5" /> Enable Notifications
         </button>
       </div>

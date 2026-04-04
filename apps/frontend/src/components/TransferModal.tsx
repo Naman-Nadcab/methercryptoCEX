@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { X, ArrowLeftRight, ChevronDown, AlertCircle, CheckCircle2, Loader2, Search, Wallet, ArrowRight } from 'lucide-react';
-import Image from 'next/image';
 import { useAuthStore } from '@/store/auth';
 import { CoinIcon } from '@/components/ui/CoinIcon';
 import { getApiBaseUrl } from '@/lib/getApiUrl';

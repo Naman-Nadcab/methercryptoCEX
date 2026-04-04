@@ -28,7 +28,6 @@ import {
   Download,
   Settings,
   FileText,
-  Search,
 } from 'lucide-react';
 import SessionManager from '@/components/SessionManager';
 import ThemeToggle from '@/components/ThemeToggle';
