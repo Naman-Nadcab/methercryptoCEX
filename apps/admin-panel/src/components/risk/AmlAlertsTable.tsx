@@ -4,6 +4,7 @@ import Link from 'next/link';
 import type { AmlAlertRow } from '@/lib/risk-api';
 import { StatusBadge } from '@/components/dashboard/StatusBadge';
 import { Button } from '@/components/ui/Button';
+import { ProtectedAction } from '@/components/rbac/ProtectedAction';
 import { Eye, XCircle, ArrowUpCircle, Lock } from 'lucide-react';
 
 export interface AmlAlertsTableProps {
@@ -32,9 +33,9 @@ function severityVariant(s: string): 'success' | 'warning' | 'danger' | 'default
 
 export function AmlAlertsTable({ rows, onReview, onClose, onEscalate, onFreeze }: AmlAlertsTableProps) {
   return (
-    <div className="overflow-x-auto rounded-xl border border-admin-border bg-white">
+    <div className="overflow-x-auto rounded-xl border border-admin-border bg-admin-card">
       <table className="w-full min-w-[800px] text-left text-sm">
-        <thead className="bg-gray-50">
+        <thead className="bg-white/[0.02]">
           <tr>
             <th className="px-4 py-3 font-medium text-admin-muted">Alert ID</th>
             <th className="px-4 py-3 font-medium text-admin-muted">User</th>
@@ -54,8 +55,8 @@ export function AmlAlertsTable({ rows, onReview, onClose, onEscalate, onFreeze }
             </tr>
           ) : (
             rows.map((row) => (
-              <tr key={row.id} className="border-t border-admin-border hover:bg-gray-50/50">
-                <td className="px-4 py-3 font-mono text-xs text-gray-600">
+              <tr key={row.id} className="border-t border-admin-border hover:bg-admin-card/[0.03]">
+                <td className="px-4 py-3 font-mono text-xs text-admin-muted">
                   {row.id.slice(0, 8)}…
                 </td>
                 <td className="px-4 py-3">
@@ -64,33 +65,41 @@ export function AmlAlertsTable({ rows, onReview, onClose, onEscalate, onFreeze }
                       {row.user_email}
                     </Link>
                   ) : (
-                    <span className="text-gray-500">{row.user_id?.slice(0, 8)}…</span>
+                    <span className="text-admin-muted">{row.user_id?.slice(0, 8)}…</span>
                   )}
                 </td>
-                <td className="px-4 py-3 text-gray-900">{row.alert_type?.replace(/_/g, ' ') ?? '—'}</td>
+                <td className="px-4 py-3 text-admin-text">{row.alert_type?.replace(/_/g, ' ') ?? '—'}</td>
                 <td className="px-4 py-3">
                   <StatusBadge status={row.severity} variant={severityVariant(row.severity)} />
                 </td>
                 <td className="px-4 py-3">
                   <StatusBadge status={row.status} />
                 </td>
-                <td className="px-4 py-3 text-gray-600">{formatDate(row.created_at)}</td>
+                <td className="px-4 py-3 text-admin-muted">{formatDate(row.created_at)}</td>
                 <td className="px-4 py-3">
                   <div className="flex flex-wrap gap-1">
                     {(row.status === 'open' || row.status === 'reviewing') && (
                       <>
-                        <Button variant="ghost" size="sm" onClick={() => onReview(row)} title="Review">
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => onClose(row)} title="Close">
-                          <XCircle className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => onEscalate(row)} title="Escalate STR">
-                          <ArrowUpCircle className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => onFreeze(row)} title="Freeze Account">
-                          <Lock className="h-4 w-4" />
-                        </Button>
+                        <ProtectedAction permission="aml:view" fallback="disabled">
+                          <Button variant="ghost" size="sm" onClick={() => onReview(row)} title="Review">
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </ProtectedAction>
+                        <ProtectedAction permission="aml:view" fallback="disabled">
+                          <Button variant="ghost" size="sm" onClick={() => onClose(row)} title="Close">
+                            <XCircle className="h-4 w-4" />
+                          </Button>
+                        </ProtectedAction>
+                        <ProtectedAction permission="aml:escalate" fallback="disabled">
+                          <Button variant="ghost" size="sm" onClick={() => onEscalate(row)} title="Escalate STR">
+                            <ArrowUpCircle className="h-4 w-4" />
+                          </Button>
+                        </ProtectedAction>
+                        <ProtectedAction permission="users:edit" fallback="disabled">
+                          <Button variant="ghost" size="sm" onClick={() => onFreeze(row)} title="Freeze Account">
+                            <Lock className="h-4 w-4" />
+                          </Button>
+                        </ProtectedAction>
                       </>
                     )}
                   </div>

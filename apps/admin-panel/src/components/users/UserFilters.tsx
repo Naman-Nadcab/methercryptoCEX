@@ -52,7 +52,7 @@ export function UserFilters({ values, onChange, onExportCsv }: UserFiltersProps)
       <select
         value={values.status}
         onChange={(e) => update('status', e.target.value)}
-        className="h-10 rounded-lg border border-admin-border bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-admin-primary"
+        className="h-10 rounded-lg border border-admin-border bg-admin-card px-3 py-2 text-sm text-admin-text focus:outline-none focus:ring-2 focus:ring-admin-primary"
       >
         {STATUS_OPTIONS.map((o) => (
           <option key={o.value} value={o.value}>
@@ -63,7 +63,7 @@ export function UserFilters({ values, onChange, onExportCsv }: UserFiltersProps)
       <select
         value={values.kycStatus}
         onChange={(e) => update('kycStatus', e.target.value)}
-        className="h-10 rounded-lg border border-admin-border bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-admin-primary"
+        className="h-10 rounded-lg border border-admin-border bg-admin-card px-3 py-2 text-sm text-admin-text focus:outline-none focus:ring-2 focus:ring-admin-primary"
       >
         {KYC_OPTIONS.map((o) => (
           <option key={o.value} value={o.value}>
@@ -74,14 +74,14 @@ export function UserFilters({ values, onChange, onExportCsv }: UserFiltersProps)
       <select
         value={values.country}
         onChange={(e) => update('country', e.target.value)}
-        className="h-10 rounded-lg border border-admin-border bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-admin-primary"
+        className="h-10 rounded-lg border border-admin-border bg-admin-card px-3 py-2 text-sm text-admin-text focus:outline-none focus:ring-2 focus:ring-admin-primary"
       >
         <option value="all">All countries</option>
       </select>
       <select
         value={values.signupDate}
         onChange={(e) => update('signupDate', e.target.value)}
-        className="h-10 rounded-lg border border-admin-border bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-admin-primary"
+        className="h-10 rounded-lg border border-admin-border bg-admin-card px-3 py-2 text-sm text-admin-text focus:outline-none focus:ring-2 focus:ring-admin-primary"
       >
         <option value="all">Any date</option>
         <option value="7">Last 7 days</option>

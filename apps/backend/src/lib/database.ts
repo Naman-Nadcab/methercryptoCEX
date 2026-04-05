@@ -18,10 +18,11 @@ class Database {
       : { rejectUnauthorized: config.database.sslRejectUnauthorized };
     this.pool = new Pool({
       connectionString: config.database.url,
-      min: config.database.poolMin,
-      max: Math.max(config.database.poolMax, 40),
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 30000,
+      min: Math.max(config.database.poolMin, 5),
+      max: Math.max(config.database.poolMax, 50),
+      idleTimeoutMillis: 60000,
+      connectionTimeoutMillis: 15000,
+      statement_timeout: 30000,
       ...(sslConfig && { ssl: sslConfig }),
     });
 

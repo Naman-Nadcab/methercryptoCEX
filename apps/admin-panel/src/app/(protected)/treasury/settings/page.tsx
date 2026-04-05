@@ -7,6 +7,7 @@ import { useAdminAuthStore } from '@/store/auth';
 import { getTreasurySettings, patchTreasurySettings, type TreasurySettings } from '@/lib/treasury-api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { FormSkeleton } from '@/components/ui';
 import { ArrowLeft } from 'lucide-react';
 
 export default function TreasurySettingsPage() {
@@ -54,7 +55,7 @@ export default function TreasurySettingsPage() {
   };
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-5">
       <div className="flex items-center gap-4">
         <Link href="/treasury">
           <Button variant="ghost" size="sm">
@@ -62,8 +63,8 @@ export default function TreasurySettingsPage() {
           </Button>
         </Link>
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Treasury Sweep Settings</h1>
-          <p className="mt-1 text-sm text-admin-muted">Configure auto-sweep and gas reserve. Changes take effect without redeploy.</p>
+          <h1 className="text-lg font-semibold text-admin-text">Treasury Sweep Settings</h1>
+          <p className="text-xs text-admin-muted mt-0.5">Configure auto-sweep and gas reserve. Changes take effect without redeploy.</p>
         </div>
       </div>
 
@@ -73,7 +74,7 @@ export default function TreasurySettingsPage() {
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="py-8 text-center text-admin-muted">Loading…</div>
+            <FormSkeleton fields={5} />
           ) : (
             <form onSubmit={handleSubmit} className="max-w-xl space-y-4">
               <div className="flex items-center gap-2">
@@ -82,14 +83,14 @@ export default function TreasurySettingsPage() {
                   id="auto_sweep"
                   checked={autoSweep}
                   onChange={(e) => setAutoSweep(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300 text-admin-primary focus:ring-admin-primary"
+                  className="h-4 w-4 rounded border-admin-border text-admin-primary focus:ring-admin-primary"
                 />
-                <label htmlFor="auto_sweep" className="text-sm font-medium text-gray-900">
+                <label htmlFor="auto_sweep" className="text-sm font-medium text-admin-text">
                   Auto Sweep Enabled
                 </label>
               </div>
               <div>
-                <label htmlFor="sweep_interval" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="sweep_interval" className="block text-sm font-medium text-admin-text">
                   Sweep Interval (seconds)
                 </label>
                 <input
@@ -99,11 +100,11 @@ export default function TreasurySettingsPage() {
                   step={60}
                   value={sweepInterval}
                   onChange={(e) => setSweepInterval(parseInt(e.target.value, 10) || 3600)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
                 />
               </div>
               <div>
-                <label htmlFor="min_sweep_amount" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="min_sweep_amount" className="block text-sm font-medium text-admin-text">
                   Minimum Sweep Amount (wei)
                 </label>
                 <input
@@ -111,11 +112,11 @@ export default function TreasurySettingsPage() {
                   type="text"
                   value={minSweepAmount}
                   onChange={(e) => setMinSweepAmount(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm"
+                  className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 font-mono text-sm"
                 />
               </div>
               <div>
-                <label htmlFor="gas_reserve" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="gas_reserve" className="block text-sm font-medium text-admin-text">
                   Gas Reserve Threshold (wei)
                 </label>
                 <input
@@ -123,7 +124,7 @@ export default function TreasurySettingsPage() {
                   type="text"
                   value={gasReserve}
                   onChange={(e) => setGasReserve(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm"
+                  className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 font-mono text-sm"
                 />
               </div>
               <div className="flex gap-2">

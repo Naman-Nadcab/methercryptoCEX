@@ -51,7 +51,7 @@ export function DepositsTable({ rows, onManualCredit, canManualCredit = true }: 
       id: 'user',
       header: 'User',
       cell: ({ row }) => (
-        <span className="text-gray-900">
+        <span className="text-admin-text">
           {(row.original.user_email ?? row.original.user_id) ?? '—'}
         </span>
       ),
@@ -149,9 +149,9 @@ export function DepositsTable({ rows, onManualCredit, canManualCredit = true }: 
   });
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-admin-border bg-white">
+    <div className="overflow-x-auto rounded-xl border border-admin-border bg-admin-card">
       <table className="w-full min-w-[900px] border-collapse">
-        <thead className="sticky top-0 z-10 bg-gray-50">
+        <thead className="sticky top-0 z-10 bg-white/[0.02]">
           {table.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id}>
               {headerGroup.headers.map((header) => (
@@ -176,7 +176,7 @@ export function DepositsTable({ rows, onManualCredit, canManualCredit = true }: 
             table.getRowModel().rows.map((row) => (
               <tr
                 key={row.id}
-                className="border-b border-admin-border/60 hover:bg-gray-50 cursor-pointer"
+                className="border-b border-admin-border/60 hover:bg-admin-card/5 cursor-pointer"
                 onClick={() => router.push(`/deposits/${row.original.deposit_id}`)}
               >
                 {row.getVisibleCells().map((cell) => (

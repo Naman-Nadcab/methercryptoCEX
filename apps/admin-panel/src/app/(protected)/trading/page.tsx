@@ -1,12 +1,11 @@
 'use client';
 
+import Link from 'next/link';
 import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAdminAuthStore } from '@/store/auth';
 import {
   getTradingOverview,
-  getTradingOrders,
-  getTradingTrades,
   getTradingMarkets,
   getTradingHalt,
   getTradingCircuit,
@@ -16,14 +15,14 @@ import {
   getMonitoringTrading,
   postMarketHalt,
 } from '@/lib/trading-api';
+import { getLiquidityBotConfig } from '@/lib/admin/trading';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { OrdersTable } from '@/components/trading/OrdersTable';
-import { TradesTable } from '@/components/trading/TradesTable';
 import { TradingControlModal, type ControlAction } from '@/components/trading/TradingControlModal';
 import { OrderbookSnapshotPanel } from '@/components/trading/OrderbookSnapshotPanel';
 import { useAdminWs } from '@/hooks/useAdminWs';
+import { ProtectedAction } from '@/components/rbac/ProtectedAction';
 import {
   TrendingUp,
   BarChart3,
@@ -35,6 +34,8 @@ import {
   Store,
   Clock,
   Zap,
+  ShoppingCart,
+  LineChart,
 } from 'lucide-react';
 
 const DEFAULT_MARKETS = ['BTC_USDT', 'ETH_USDT', 'BTCUSDT', 'ETHUSDT'];
@@ -42,65 +43,60 @@ const DEFAULT_MARKETS = ['BTC_USDT', 'ETH_USDT', 'BTCUSDT', 'ETHUSDT'];
 export default function TradingPage() {
   const token = useAdminAuthStore((s) => s.accessToken);
   const queryClient = useQueryClient();
-  const [ordersPage, setOrdersPage] = useState(1);
-  const [tradesPage, setTradesPage] = useState(1);
-  const [ordersStatus, setOrdersStatus] = useState<string>('all');
   const [controlModal, setControlModal] = useState<ControlAction | null>(null);
-  const [activeTable, setActiveTable] = useState<'orders' | 'trades'>('orders');
   const [orderbookMarket, setOrderbookMarket] = useState('BTC_USDT');
   const [marketHaltMarket, setMarketHaltMarket] = useState('BTC_USDT');
 
   const { data: overviewData } = useQuery({
     queryKey: ['admin', 'trading', 'overview', token],
+    staleTime: 30_000,
     queryFn: () => getTradingOverview(token),
     enabled: !!token,
   });
 
   const { data: haltData } = useQuery({
     queryKey: ['admin', 'trading', 'halt', token],
+    staleTime: 30_000,
     queryFn: () => getTradingHalt(token),
     enabled: !!token,
   });
 
   const { data: circuitData } = useQuery({
     queryKey: ['admin', 'trading', 'circuit', token],
+    staleTime: 30_000,
     queryFn: () => getTradingCircuit(token),
     enabled: !!token,
   });
 
   const { data: marketsData } = useQuery({
     queryKey: ['admin', 'trading', 'markets', token],
+    staleTime: 30_000,
     queryFn: () => getTradingMarkets(token),
-    enabled: !!token,
-  });
-
-  const { data: ordersData, isLoading: ordersLoading } = useQuery({
-    queryKey: ['admin', 'trading', 'orders', token, ordersPage, ordersStatus],
-    queryFn: () =>
-      getTradingOrders(token, {
-        page: ordersPage,
-        limit: 20,
-        status: ordersStatus === 'all' ? undefined : ordersStatus,
-      }),
-    enabled: !!token,
-  });
-
-  const { data: tradesData, isLoading: tradesLoading } = useQuery({
-    queryKey: ['admin', 'trading', 'trades', token, tradesPage],
-    queryFn: () => getTradingTrades(token, { page: tradesPage, limit: 20 }),
     enabled: !!token,
   });
 
   const { data: orderbookData, isLoading: orderbookLoading } = useQuery({
     queryKey: ['admin', 'trading', 'orderbook', token, orderbookMarket],
+    staleTime: 30_000,
     queryFn: () => getTradingOrderbook(token, orderbookMarket, 10),
     enabled: !!token && !!orderbookMarket,
+    refetchInterval: 10_000,
   });
 
   const { data: monitoringData } = useQuery({
     queryKey: ['admin', 'monitoring', 'trading', token],
+    staleTime: 30_000,
     queryFn: () => getMonitoringTrading(token),
     enabled: !!token,
+    refetchInterval: 15_000,
+  });
+
+  const { data: liquidityBotRes, isLoading: liquidityBotLoading, isError: liquidityBotIsError } = useQuery({
+    queryKey: ['admin', 'liquidity-bot', 'config', token],
+    staleTime: 30_000,
+    queryFn: () => getLiquidityBotConfig(token),
+    enabled: !!token,
+    refetchInterval: 30_000,
   });
 
   useAdminWs({
@@ -164,6 +160,17 @@ export default function TradingPage() {
   const activeMarkets = marketsRunning + marketsHalted;
   const liquidityHealth = halted ? 'Halted' : circuitOpen ? 'Circuit Open' : 'Good';
 
+  const liquidityBotCfg = liquidityBotRes?.success ? liquidityBotRes.data : undefined;
+  const liquidityBotStatus = liquidityBotLoading
+    ? '…'
+    : liquidityBotIsError || liquidityBotRes?.success === false
+      ? 'Unavailable'
+      : liquidityBotCfg?.enabled
+        ? liquidityBotCfg.apiKeyConfigured
+          ? 'Active'
+          : 'On (no API key)'
+        : 'Off';
+
   const formatVolume = (v: string) => {
     const n = parseFloat(v);
     if (Number.isNaN(n)) return '$0';
@@ -172,18 +179,11 @@ export default function TradingPage() {
     return new Intl.NumberFormat('en-US', { style: 'currency', maximumFractionDigits: 0 }).format(n);
   };
 
-  const orders = (ordersData?.data?.orders ?? []) as import('@/lib/trading-api').OrderRow[];
-  const trades = (tradesData?.data?.trades ?? []) as import('@/lib/trading-api').TradeRow[];
-  const ordersPagination = ordersData?.data?.pagination;
-  const tradesPagination = tradesData?.data?.pagination;
-
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-gray-900">Trading Operations</h1>
-        <p className="mt-1 text-sm text-admin-muted">
-          Monitor orders, trades, and control market status.
-        </p>
+        <h1 className="text-lg font-semibold text-admin-text">Trading</h1>
+        <p className="text-xs text-admin-muted mt-0.5">Monitor orders, trades, and control market status.</p>
       </div>
 
       {/* Dashboard cards */}
@@ -245,19 +245,19 @@ export default function TradingPage() {
       {/* Market status panel */}
       <Card>
         <CardContent className="p-6">
-          <h2 className="text-lg font-semibold text-gray-900">Market Status</h2>
-          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <div className="rounded-lg border border-admin-border bg-gray-50/50 p-4">
-              <p className="text-sm font-medium text-admin-muted">Markets Running</p>
-              <p className="mt-1 text-2xl font-semibold text-admin-success">{marketsRunning}</p>
+          <h2 className="text-sm font-semibold text-admin-text">Market Status</h2>
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="rounded-lg border border-admin-border bg-white/[0.02] p-3">
+              <p className="text-[10px] font-medium uppercase tracking-wider text-admin-muted">Markets Running</p>
+              <p className="mt-1 text-xl font-bold text-admin-success tabular-nums">{marketsRunning}</p>
             </div>
-            <div className="rounded-lg border border-admin-border bg-gray-50/50 p-4">
-              <p className="text-sm font-medium text-admin-muted">Markets Halted</p>
-              <p className="mt-1 text-2xl font-semibold text-admin-danger">{marketsHalted}</p>
+            <div className="rounded-lg border border-admin-border bg-white/[0.02] p-3">
+              <p className="text-[10px] font-medium uppercase tracking-wider text-admin-muted">Markets Halted</p>
+              <p className="mt-1 text-xl font-bold text-admin-danger tabular-nums">{marketsHalted}</p>
             </div>
-            <div className="rounded-lg border border-admin-border bg-gray-50/50 p-4">
-              <p className="text-sm font-medium text-admin-muted">Liquidity Bot Status</p>
-              <p className="mt-1 text-2xl font-semibold text-gray-900">—</p>
+            <div className="rounded-lg border border-admin-border bg-white/[0.02] p-3">
+              <p className="text-[10px] font-medium uppercase tracking-wider text-admin-muted">Liquidity Bot</p>
+              <p className="mt-1 text-xl font-bold text-admin-text tabular-nums">{liquidityBotStatus}</p>
             </div>
           </div>
         </CardContent>
@@ -279,40 +279,44 @@ export default function TradingPage() {
       {/* Trading control panel */}
       <Card>
         <CardContent className="p-6">
-          <h2 className="text-lg font-semibold text-gray-900">Trading Control</h2>
+          <h2 className="text-lg font-semibold text-admin-text">Trading Control</h2>
           <div className="mt-4 flex flex-wrap gap-2">
-            <Button
-              variant="secondary"
-              onClick={() => setControlModal(halted ? 'resume_trading' : 'pause_trading')}
-            >
-              {halted ? (
-                <>
-                  <Play className="mr-2 h-4 w-4" />
-                  Resume Trading
-                </>
-              ) : (
-                <>
-                  <Pause className="mr-2 h-4 w-4" />
-                  Pause Trading
-                </>
-              )}
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => setControlModal(circuitOpen ? 'close_circuit' : 'open_circuit')}
-            >
-              {circuitOpen ? (
-                <>
-                  <ShieldCheck className="mr-2 h-4 w-4" />
-                  Close Circuit Breaker
-                </>
-              ) : (
-                <>
-                  <AlertTriangle className="mr-2 h-4 w-4" />
-                  Open Circuit Breaker
-                </>
-              )}
-            </Button>
+            <ProtectedAction permission="control:trading" fallback="disabled">
+              <Button
+                variant="secondary"
+                onClick={() => setControlModal(halted ? 'resume_trading' : 'pause_trading')}
+              >
+                {halted ? (
+                  <>
+                    <Play className="mr-2 h-4 w-4" />
+                    Resume Trading
+                  </>
+                ) : (
+                  <>
+                    <Pause className="mr-2 h-4 w-4" />
+                    Pause Trading
+                  </>
+                )}
+              </Button>
+            </ProtectedAction>
+            <ProtectedAction permission="control:trading" fallback="disabled">
+              <Button
+                variant="secondary"
+                onClick={() => setControlModal(circuitOpen ? 'close_circuit' : 'open_circuit')}
+              >
+                {circuitOpen ? (
+                  <>
+                    <ShieldCheck className="mr-2 h-4 w-4" />
+                    Close Circuit Breaker
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle className="mr-2 h-4 w-4" />
+                    Open Circuit Breaker
+                  </>
+                )}
+              </Button>
+            </ProtectedAction>
           </div>
         </CardContent>
       </Card>
@@ -320,7 +324,7 @@ export default function TradingPage() {
       {/* Market specific halt */}
       <Card>
         <CardContent className="p-6">
-          <h2 className="text-lg font-semibold text-gray-900">Market Specific Halt</h2>
+          <h2 className="text-lg font-semibold text-admin-text">Market Specific Halt</h2>
           <p className="mt-1 text-sm text-admin-muted">Pause or resume a single market.</p>
           <div className="mt-4 flex flex-wrap items-end gap-4">
             <div>
@@ -331,7 +335,7 @@ export default function TradingPage() {
                 id="market-halt-select"
                 value={marketHaltMarket}
                 onChange={(e) => setMarketHaltMarket(e.target.value)}
-                className="mt-1 rounded-lg border border-admin-border bg-white px-3 py-2 text-sm text-gray-900"
+                className="mt-1 rounded-lg border border-admin-border bg-admin-card px-3 py-2 text-sm text-admin-text"
               >
                 {(marketsData?.data?.markets?.length
                   ? (marketsData.data.markets as Array<{ symbol: string }>).map((m) => m.symbol)
@@ -343,156 +347,59 @@ export default function TradingPage() {
                 ))}
               </select>
             </div>
-            <Button
-              variant="secondary"
-              onClick={() =>
-                marketHaltMutation.mutate({ market: marketHaltMarket, halted: true })
-              }
-              disabled={marketHaltMutation.isPending}
-            >
-              <Pause className="mr-2 h-4 w-4" />
-              Pause {marketHaltMarket}
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() =>
-                marketHaltMutation.mutate({ market: marketHaltMarket, halted: false })
-              }
-              disabled={marketHaltMutation.isPending}
-            >
-              <Play className="mr-2 h-4 w-4" />
-              Resume {marketHaltMarket}
-            </Button>
+            <ProtectedAction permission="markets:manage" fallback="disabled">
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  marketHaltMutation.mutate({ market: marketHaltMarket, halted: true })
+                }
+                disabled={marketHaltMutation.isPending}
+              >
+                <Pause className="mr-2 h-4 w-4" />
+                Pause {marketHaltMarket}
+              </Button>
+            </ProtectedAction>
+            <ProtectedAction permission="markets:manage" fallback="disabled">
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  marketHaltMutation.mutate({ market: marketHaltMarket, halted: false })
+                }
+                disabled={marketHaltMutation.isPending}
+              >
+                <Play className="mr-2 h-4 w-4" />
+                Resume {marketHaltMarket}
+              </Button>
+            </ProtectedAction>
           </div>
         </CardContent>
       </Card>
 
-      {/* Orders & Trades tables with tabs */}
-      <Card>
-        <CardContent className="p-6">
-          <nav className="flex gap-1 border-b border-admin-border">
-            <button
-              type="button"
-              onClick={() => setActiveTable('orders')}
-              className={`border-b-2 px-4 py-2 text-sm font-medium ${
-                activeTable === 'orders'
-                  ? 'border-admin-primary text-admin-primary'
-                  : 'border-transparent text-admin-muted hover:text-gray-900'
-              }`}
-            >
-              Orders
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTable('trades')}
-              className={`border-b-2 px-4 py-2 text-sm font-medium ${
-                activeTable === 'trades'
-                  ? 'border-admin-primary text-admin-primary'
-                  : 'border-transparent text-admin-muted hover:text-gray-900'
-              }`}
-            >
-              Trades
-            </button>
-          </nav>
-
-          {activeTable === 'orders' && (
-            <div className="mt-4">
-              <div className="mb-4 flex items-center justify-between">
-                <select
-                  value={ordersStatus}
-                  onChange={(e) => setOrdersStatus(e.target.value)}
-                  className="rounded-lg border border-admin-border bg-white px-3 py-2 text-sm text-gray-900"
-                >
-                  <option value="all">All statuses</option>
-                  <option value="OPEN">OPEN</option>
-                  <option value="PARTIALLY_FILLED">PARTIALLY_FILLED</option>
-                  <option value="FILLED">FILLED</option>
-                  <option value="CANCELLED">CANCELLED</option>
-                </select>
+      {/* Orders & Trades — use dedicated pages */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Link href="/orders">
+          <Card className="hover:shadow-md transition-all duration-200 cursor-pointer group">
+            <CardContent className="py-4 px-4 flex items-center gap-3">
+              <ShoppingCart className="h-5 w-5 text-admin-primary" />
+              <div>
+                <p className="text-sm font-semibold text-admin-text group-hover:text-admin-primary">Orders</p>
+                <p className="text-xs text-admin-muted">View and filter all orders</p>
               </div>
-              {ordersLoading ? (
-                <div className="py-12 text-center text-admin-muted">Loading orders…</div>
-              ) : (
-                <>
-                  <OrdersTable rows={orders} />
-                  {ordersPagination && ordersPagination.totalPages > 1 && (
-                    <div className="mt-4 flex items-center justify-between border-t border-admin-border pt-4">
-                      <p className="text-sm text-admin-muted">
-                        Page {ordersPagination.page} of {ordersPagination.totalPages} ·{' '}
-                        {ordersPagination.total} total
-                      </p>
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setOrdersPage((p) => Math.max(1, p - 1))}
-                          disabled={ordersPage <= 1}
-                          className="rounded-lg border border-admin-border bg-white px-3 py-1.5 text-sm font-medium text-gray-700 disabled:opacity-50"
-                        >
-                          Previous
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setOrdersPage((p) =>
-                              Math.min(ordersPagination.totalPages, p + 1)
-                            )
-                          }
-                          disabled={ordersPage >= ordersPagination.totalPages}
-                          className="rounded-lg border border-admin-border bg-white px-3 py-1.5 text-sm font-medium text-gray-700 disabled:opacity-50"
-                        >
-                          Next
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-
-          {activeTable === 'trades' && (
-            <div className="mt-4">
-              {tradesLoading ? (
-                <div className="py-12 text-center text-admin-muted">Loading trades…</div>
-              ) : (
-                <>
-                  <TradesTable rows={trades} />
-                  {tradesPagination && tradesPagination.totalPages > 1 && (
-                    <div className="mt-4 flex items-center justify-between border-t border-admin-border pt-4">
-                      <p className="text-sm text-admin-muted">
-                        Page {tradesPagination.page} of {tradesPagination.totalPages} ·{' '}
-                        {tradesPagination.total} total
-                      </p>
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setTradesPage((p) => Math.max(1, p - 1))}
-                          disabled={tradesPage <= 1}
-                          className="rounded-lg border border-admin-border bg-white px-3 py-1.5 text-sm font-medium text-gray-700 disabled:opacity-50"
-                        >
-                          Previous
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setTradesPage((p) =>
-                              Math.min(tradesPagination.totalPages, p + 1)
-                            )
-                          }
-                          disabled={tradesPage >= tradesPagination.totalPages}
-                          className="rounded-lg border border-admin-border bg-white px-3 py-1.5 text-sm font-medium text-gray-700 disabled:opacity-50"
-                        >
-                          Next
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+        </Link>
+        <Link href="/trades">
+          <Card className="hover:shadow-md transition-all duration-200 cursor-pointer group">
+            <CardContent className="py-4 px-4 flex items-center gap-3">
+              <LineChart className="h-5 w-5 text-admin-primary" />
+              <div>
+                <p className="text-sm font-semibold text-admin-text group-hover:text-admin-primary">Trade History</p>
+                <p className="text-xs text-admin-muted">Browse all executed trades</p>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+      </div>
 
       <TradingControlModal
         open={!!controlModal}

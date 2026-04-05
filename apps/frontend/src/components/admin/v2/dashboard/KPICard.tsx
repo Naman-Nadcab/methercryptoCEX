@@ -49,7 +49,7 @@ export function KPICard({
   const card = (
     <div
       className={cn(
-        'rounded-[var(--admin-radius)] border border-[var(--admin-card-border)] bg-white p-4 shadow-[var(--admin-shadow)] hover:shadow-[var(--admin-shadow-hover)] transition-shadow border-l-4 min-h-[100px] flex flex-col',
+        'rounded-[var(--admin-radius)] border border-[var(--admin-card-border)] bg-[var(--admin-card-bg)] p-4 shadow-[var(--admin-shadow)] hover:shadow-[var(--admin-shadow-hover)] transition-shadow border-l-4 min-h-[100px] flex flex-col',
         accentColors[accent],
         href && 'cursor-pointer',
         className

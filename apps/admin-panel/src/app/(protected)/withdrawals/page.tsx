@@ -9,10 +9,13 @@ import {
   rejectWithdrawal,
   type WithdrawalRow,
 } from '@/lib/withdrawals-api';
+import { StatCard } from '@/components/dashboard/StatCard';
 import { WithdrawalsTable } from '@/components/withdrawals/WithdrawalsTable';
 import { ApproveWithdrawalModal } from '@/components/withdrawals/ApproveWithdrawalModal';
 import { RejectWithdrawalModal } from '@/components/withdrawals/RejectWithdrawalModal';
 import { useAdminWs } from '@/hooks/useAdminWs';
+import { ArrowUpFromLine, Clock, XCircle, CheckCircle2, DollarSign } from 'lucide-react';
+import { TableSkeleton } from '@/components/ui';
 
 export default function WithdrawalsPage() {
   const token = useAdminAuthStore((s) => s.accessToken);
@@ -24,6 +27,7 @@ export default function WithdrawalsPage() {
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['admin', 'withdrawals', token, page, statusFilter],
+    staleTime: 30_000,
     queryFn: () =>
       getWithdrawalsList(token, {
         page,
@@ -31,6 +35,7 @@ export default function WithdrawalsPage() {
         status: statusFilter === 'all' ? undefined : statusFilter,
       }),
     enabled: !!token,
+    refetchInterval: 30_000,
   });
 
   useAdminWs({
@@ -77,6 +82,7 @@ export default function WithdrawalsPage() {
   );
 
   const withdrawals = (data?.data?.withdrawals ?? []) as WithdrawalRow[];
+  const stats = data?.data?.stats as Record<string, number> | undefined;
   const pagination = data?.data?.pagination;
   const total = pagination?.total ?? 0;
   const totalPages = pagination?.totalPages ?? 1;
@@ -84,17 +90,52 @@ export default function WithdrawalsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-gray-900">Withdrawals</h1>
-        <p className="mt-1 text-sm text-admin-muted">
-          Review, approve, or reject user withdrawals. Large withdrawal alerts and risk flags from backend.
-        </p>
+        <h1 className="text-lg font-semibold text-admin-text">Withdrawals</h1>
+        <p className="text-xs text-admin-muted mt-0.5">Review, approve, or reject user withdrawals.</p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <StatCard
+          title="Pending Approval"
+          value={stats?.pending_approval ?? '0'}
+          icon={Clock}
+          iconBg="bg-admin-warning/10 text-admin-warning"
+        />
+        <StatCard
+          title="Processing"
+          value={stats?.processing ?? '0'}
+          icon={ArrowUpFromLine}
+          iconBg="bg-admin-primary/10 text-admin-primary"
+        />
+        <StatCard
+          title="Completed (24h)"
+          value={stats?.completed ?? '0'}
+          icon={CheckCircle2}
+          iconBg="bg-admin-success/10 text-admin-success"
+        />
+        <StatCard
+          title="Failed"
+          value={stats?.failed ?? '0'}
+          icon={XCircle}
+          iconBg="bg-admin-danger/10 text-admin-danger"
+        />
+        <StatCard
+          title="Volume (24h)"
+          value={
+            stats?.volume_24h != null
+              ? `$${Number(stats.volume_24h).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+              : '—'
+          }
+          icon={DollarSign}
+          iconBg="bg-admin-primary/10 text-admin-primary"
+        />
       </div>
 
       <div className="flex flex-wrap items-center gap-4">
-        <select
+          <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="h-10 rounded-lg border border-admin-border bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-admin-primary"
+          className="rounded-lg border border-admin-border bg-white/[0.02] px-2.5 py-1.5 text-xs text-admin-muted focus:border-admin-primary focus:outline-none focus:ring-1 focus:ring-admin-primary"
         >
           <option value="all">All statuses</option>
           <option value="pending_approval">Pending Approval</option>
@@ -107,21 +148,20 @@ export default function WithdrawalsPage() {
         </select>
       </div>
 
-      <div className="rounded-[12px] bg-white p-6 shadow-[0_1px_3px_0_rgba(0,0,0,0.08)]">
+      <div className="rounded-xl border border-admin-border bg-admin-card">
         {isError && (
           <p className="mb-4 text-sm text-admin-danger">
             {(error as { message?: string })?.message ?? 'Failed to load withdrawals'}
           </p>
         )}
         {isLoading ? (
-          <div className="flex items-center justify-center py-12 text-admin-muted">Loading withdrawals…</div>
+          <TableSkeleton rows={6} cols={6} />
         ) : (
           <>
             <WithdrawalsTable
               rows={withdrawals}
               onApprove={(w) => setApproveModal(w)}
               onReject={(w) => setRejectModal(w)}
-              canApproveReject={true}
             />
             {totalPages > 1 && (
               <div className="mt-4 flex items-center justify-between border-t border-admin-border pt-4">
@@ -133,7 +173,7 @@ export default function WithdrawalsPage() {
                     type="button"
                     disabled={page <= 1}
                     onClick={() => setPage((p) => p - 1)}
-                    className="rounded border border-admin-border bg-white px-3 py-1.5 text-sm disabled:opacity-50 hover:bg-gray-50"
+                    className="rounded border border-admin-border bg-admin-card px-3 py-1.5 text-sm disabled:opacity-50 hover:bg-white/5"
                   >
                     Previous
                   </button>
@@ -141,7 +181,7 @@ export default function WithdrawalsPage() {
                     type="button"
                     disabled={page >= totalPages}
                     onClick={() => setPage((p) => p + 1)}
-                    className="rounded border border-admin-border bg-white px-3 py-1.5 text-sm disabled:opacity-50 hover:bg-gray-50"
+                    className="rounded border border-admin-border bg-admin-card px-3 py-1.5 text-sm disabled:opacity-50 hover:bg-white/5"
                   >
                     Next
                   </button>

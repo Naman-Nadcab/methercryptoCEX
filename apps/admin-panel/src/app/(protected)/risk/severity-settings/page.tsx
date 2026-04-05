@@ -7,6 +7,7 @@ import { useAdminAuthStore } from '@/store/auth';
 import { getRiskSeveritySettings, patchRiskSeveritySettings, type RiskSeveritySettings } from '@/lib/risk-api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { FormSkeleton } from '@/components/ui';
 import { ArrowLeft } from 'lucide-react';
 
 const SEVERITY_OPTIONS = ['low', 'medium', 'high'] as const;
@@ -49,7 +50,7 @@ export default function RiskSeveritySettingsPage() {
   };
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-5">
       <div className="flex items-center gap-4">
         <Link href="/risk">
           <Button variant="ghost" size="sm">
@@ -57,8 +58,8 @@ export default function RiskSeveritySettingsPage() {
           </Button>
         </Link>
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Alert Severity Configuration</h1>
-          <p className="mt-1 text-sm text-admin-muted">
+          <h1 className="text-lg font-semibold text-admin-text">Alert Severity Configuration</h1>
+          <p className="text-xs text-admin-muted mt-0.5">
             Map thresholds to severity levels (e.g. whale trade &gt; $100K → Medium, &gt; $500K → High).
           </p>
         </div>
@@ -70,18 +71,18 @@ export default function RiskSeveritySettingsPage() {
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="py-8 text-center text-admin-muted">Loading…</div>
+            <FormSkeleton fields={4} />
           ) : (
             <form onSubmit={handleSubmit} className="max-w-xl space-y-4">
               <div>
-                <label htmlFor="whale_100k" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="whale_100k" className="block text-sm font-medium text-admin-text">
                   Whale trade &gt; $100K → severity
                 </label>
                 <select
                   id="whale_100k"
                   value={whale100k}
                   onChange={(e) => setWhale100k(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
                 >
                   {SEVERITY_OPTIONS.map((s) => (
                     <option key={s} value={s}>{s}</option>
@@ -89,14 +90,14 @@ export default function RiskSeveritySettingsPage() {
                 </select>
               </div>
               <div>
-                <label htmlFor="whale_500k" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="whale_500k" className="block text-sm font-medium text-admin-text">
                   Whale trade &gt; $500K → severity
                 </label>
                 <select
                   id="whale_500k"
                   value={whale500k}
                   onChange={(e) => setWhale500k(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
                 >
                   {SEVERITY_OPTIONS.map((s) => (
                     <option key={s} value={s}>{s}</option>

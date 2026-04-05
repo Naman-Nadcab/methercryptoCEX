@@ -41,10 +41,10 @@ export function UserHeaderCard({ user, onSuspend, onBan, onReset2FA }: UserHeade
   const status = (user.status as string) ?? '';
 
   return (
-    <div className="rounded-[12px] bg-white p-6 shadow-[0_1px_3px_0_rgba(0,0,0,0.08)]">
+    <div className="rounded-[12px] bg-admin-card p-6 shadow-[0_1px_3px_0_rgba(0,0,0,0.08)]">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-1">
-          <h1 className="text-xl font-semibold text-gray-900">{name}</h1>
+          <h1 className="text-xl font-semibold text-admin-text">{name}</h1>
           <p className="text-sm text-admin-muted">{email}</p>
           <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
             <span className="text-admin-muted">ID: {user.id ?? '—'}</span>

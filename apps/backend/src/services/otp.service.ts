@@ -5,89 +5,61 @@ import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
 import { config } from '../config/index.js';
 import { encryption } from '../lib/encryption.js';
+import { dynamicConfig, type SmtpConfig, type SmsConfig } from './dynamic-config.service.js';
 
 /** Timeout for OTP delivery (SMTP/SMS). Prevents login request from hanging when provider is slow/unreachable. */
 const OTP_SEND_TIMEOUT_MS = 15_000;
 
 interface OTPConfig {
-  email?: {
-    host: string;
-    port: number;
-    secure: boolean;
-    user: string;
-    pass: string;
-    from: string;
-  };
   sms?: {
     provider: 'twilio' | 'msg91' | 'textlocal' | 'fast2sms';
     apiKey: string;
     apiSecret?: string;
     senderId?: string;
-    messageId?: string; // For DLT templates (Fast2SMS)
-    route?: string; // For Fast2SMS route
+    messageId?: string;
+    route?: string;
   };
 }
 
 class OTPService {
-  private emailTransporter: nodemailer.Transporter | null = null;
-  private smsConfig: OTPConfig['sms'] | null = null;
+  private cachedTransporter: nodemailer.Transporter | null = null;
+  private cachedSmtpFingerprint: string = '';
 
   constructor() {
-    // Initialize email transporter if configured
-    const smtpHost = process.env.SMTP_HOST;
-    const smtpUser = process.env.SMTP_USER;
-    const smtpPass = process.env.SMTP_PASS || process.env.SMTP_PASSWORD;
-    
-    if (smtpHost && smtpUser && smtpPass) {
-      const smtpPort = parseInt(process.env.SMTP_PORT || '465');
-      const smtpSecure = process.env.SMTP_SECURE === 'true' || smtpPort === 465;
-      
-      // Nodemailer defaults connectionTimeout to 120s — slow/blocked SMTP then delays delivery ~2 min.
-      this.emailTransporter = nodemailer.createTransport({
-        host: smtpHost,
-        port: smtpPort,
-        secure: smtpSecure,
-        pool: true,
-        maxConnections: 2,
-        maxMessages: 100,
-        connectionTimeout: 12_000,
-        greetingTimeout: 12_000,
-        socketTimeout: OTP_SEND_TIMEOUT_MS,
-        auth: {
-          user: smtpUser,
-          pass: smtpPass,
-        },
-      });
-      
-      logger.info(`Email OTP service initialized with SMTP (${smtpHost}:${smtpPort})`);
-    } else {
-      logger.info('Email OTP service running in DEV mode (OTPs will be logged)');
+    logger.info('OTP service initialized (dynamic config mode — reads SMTP/SMS from DB with env fallback)');
+  }
+
+  private buildSmtpTransporter(smtp: SmtpConfig): nodemailer.Transporter {
+    return nodemailer.createTransport({
+      host: smtp.host,
+      port: smtp.port,
+      secure: smtp.secure,
+      pool: true,
+      maxConnections: 2,
+      maxMessages: 100,
+      connectionTimeout: 12_000,
+      greetingTimeout: 12_000,
+      socketTimeout: OTP_SEND_TIMEOUT_MS,
+      auth: { user: smtp.user, pass: smtp.pass },
+    });
+  }
+
+  private async getEmailTransporter(): Promise<{ transporter: nodemailer.Transporter; fromAddress: string } | null> {
+    const smtp = await dynamicConfig.getSmtpConfig();
+    if (!smtp) return null;
+
+    const fingerprint = `${smtp.host}:${smtp.port}:${smtp.user}`;
+    if (this.cachedTransporter && this.cachedSmtpFingerprint === fingerprint) {
+      return { transporter: this.cachedTransporter, fromAddress: `"${smtp.fromName}" <${smtp.fromEmail}>` };
     }
 
-    // Initialize SMS config if configured (Twilio)
-    const twilioSid = process.env.TWILIO_ACCOUNT_SID;
-    const twilioToken = process.env.TWILIO_AUTH_TOKEN;
-    const twilioPhone = process.env.TWILIO_PHONE_NUMBER;
-    
-    if (twilioSid && twilioToken && twilioPhone) {
-      this.smsConfig = {
-        provider: 'twilio',
-        apiKey: twilioSid,
-        apiSecret: twilioToken,
-        senderId: twilioPhone,
-      };
-      logger.info('SMS OTP service initialized (Twilio)');
-    } else if (process.env.SMS_PROVIDER && process.env.SMS_API_KEY) {
-      this.smsConfig = {
-        provider: process.env.SMS_PROVIDER as 'twilio' | 'msg91' | 'textlocal',
-        apiKey: process.env.SMS_API_KEY,
-        apiSecret: process.env.SMS_API_SECRET,
-        senderId: process.env.SMS_SENDER_ID,
-      };
-      logger.info(`SMS OTP service initialized (${this.smsConfig.provider})`);
-    } else {
-      logger.info('SMS OTP service running in DEV mode (OTPs will be logged)');
+    if (this.cachedTransporter) {
+      try { this.cachedTransporter.close(); } catch { /* ignore */ }
     }
+    this.cachedTransporter = this.buildSmtpTransporter(smtp);
+    this.cachedSmtpFingerprint = fingerprint;
+    logger.info(`SMTP transporter refreshed: ${smtp.host}:${smtp.port}`);
+    return { transporter: this.cachedTransporter, fromAddress: `"${smtp.fromName}" <${smtp.fromEmail}>` };
   }
 
   /**
@@ -117,21 +89,21 @@ class OTPService {
   }
 
   /**
-   * Send OTP via Email
+   * Send OTP via Email — reads SMTP config dynamically from DB (api_settings) with env fallback.
    */
   async sendEmailOTP(email: string, otp: string): Promise<boolean> {
     if (process.env.NODE_ENV !== 'production') {
-      console.log(`\n📧 [DEV] Email OTP for ${email}: ${otp}\n`);
       logger.info(`[DEV] Email OTP for ${email}: ${otp}`);
     }
 
-    if (!this.emailTransporter) {
+    const emailCtx = await this.getEmailTransporter();
+    if (!emailCtx) {
       return true;
     }
 
     try {
-      const sendPromise = this.emailTransporter.sendMail({
-        from: process.env.SMTP_FROM || '"CryptoExchange" <onboarding@resend.dev>',
+      const sendPromise = emailCtx.transporter.sendMail({
+        from: emailCtx.fromAddress,
         to: email,
         subject: 'Your Verification Code - CryptoExchange',
         html: `
@@ -165,24 +137,23 @@ class OTPService {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown';
       logger.warn('SMTP send failed', { error: errorMessage, email });
-      // OTP is already stored in DB; log it once so flow can continue (user/support can use from logs if needed)
-      logger.info(`[OTP FALLBACK] Email OTP for ${email}: ${otp} (use this code to login)`);
-      // Always return true so login flow is not blocked; verify will work from DB
+      if (process.env.NODE_ENV !== 'production') {
+        logger.info(`[OTP FALLBACK] Email OTP for ${email}: ${otp} (use this code to login)`);
+      }
       return true;
     }
   }
 
   /**
-   * Send OTP via SMS
+   * Send OTP via SMS — reads config dynamically from DB (api_settings) with env fallback.
    */
   async sendSMSOTP(phone: string, otp: string): Promise<boolean> {
-    // Try to get SMS config from database first
-    const dbConfig = await this.getSMSConfigFromDB();
-    const smsConfig = dbConfig || this.smsConfig;
+    const smsConfig = await dynamicConfig.getSmsConfig();
 
     if (!smsConfig) {
-      // In development, just log the OTP
-      logger.info(`[DEV] SMS OTP for ${phone}: ${otp}`);
+      if (process.env.NODE_ENV !== 'production') {
+        logger.info(`[DEV] SMS OTP for ${phone}: ${otp}`);
+      }
       return true;
     }
 
@@ -217,56 +188,6 @@ class OTPService {
         return true;
       }
       return false;
-    }
-  }
-
-  private static readonly SMS_CONFIG_CACHE_KEY = 'otp:sms_config';
-  private static readonly SMS_CONFIG_TTL_SECONDS = 300; // 5 minutes
-
-  /**
-   * Get SMS config from database (cached in Redis). Prioritizes fast2sms for Indian numbers.
-   */
-  private async getSMSConfigFromDB(): Promise<OTPConfig['sms'] | null> {
-    try {
-      const cached = await redis.getJson<OTPConfig['sms']>(OTPService.SMS_CONFIG_CACHE_KEY);
-      if (cached) return cached;
-    } catch {
-      /* Redis down; fall through to DB */
-    }
-    try {
-      const result = await db.query<{
-        provider: string;
-        api_key: string;
-        api_secret: string | null;
-        additional_config: Record<string, string>;
-      }>(
-        `SELECT provider, api_key, api_secret, additional_config FROM api_settings
-         WHERE category = 'sms' AND is_active = TRUE
-         ORDER BY CASE WHEN provider = 'fast2sms' THEN 0 ELSE 1 END, is_default DESC LIMIT 1`
-      );
-
-      if (result.rows.length > 0 && result.rows[0]) {
-        const row = result.rows[0];
-        const config = row.additional_config || {};
-        const smsConfig: OTPConfig['sms'] = {
-          provider: row.provider as 'twilio' | 'msg91' | 'textlocal' | 'fast2sms',
-          apiKey: row.api_key || config.api_key || '',
-          apiSecret: row.api_secret ?? config.api_secret ?? undefined,
-          senderId: config.sender_id || 'INRXPE',
-          messageId: config.message_id || '181649',
-          route: config.route || 'dlt',
-        };
-        try {
-          await redis.setJson(OTPService.SMS_CONFIG_CACHE_KEY, smsConfig, OTPService.SMS_CONFIG_TTL_SECONDS);
-        } catch {
-          /* best effort */
-        }
-        return smsConfig;
-      }
-      return null;
-    } catch (error) {
-      logger.error('Failed to get SMS config from DB', { error: error instanceof Error ? error.message : 'Unknown' });
-      return null;
     }
   }
 

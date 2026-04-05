@@ -7,7 +7,8 @@ import type { FastifyInstance } from 'fastify';
 import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
-import { getAdminFromRequest } from './admin.fastify.js';
+import { getAdminWithPermission } from './admin.fastify.js';
+import { logAuditFromRequest } from '../services/audit-log.service.js';
 
 const INDEXER_URL = process.env.INDEXER_API_URL || process.env.INDEXER_URL || 'http://localhost:4001';
 const GEO_BLOCK_KEY = 'GEO_BLOCKED_COUNTRIES';
@@ -16,7 +17,11 @@ const ORACLE_PREFIX = 'oracle.';
 
 export default async function adminIntegrationsRoutes(app: FastifyInstance) {
   app.addHook('preHandler', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
+    const isRead = request.method.toUpperCase() === 'GET';
+    const admin = await getAdminWithPermission(
+      app, request, reply,
+      isRead ? 'monitoring:view' : 'settings:edit'
+    );
     if (!admin) return;
   });
 
@@ -156,8 +161,20 @@ export default async function adminIntegrationsRoutes(app: FastifyInstance) {
           lastError: lastError || null,
           lastLatencyMs: latency ? parseInt(latency, 10) : null,
           prices: prices.slice(0, 10),
-          latencySeries: [], // Populate from metrics if available
-          deviationSeries: [],
+          latencySeries: await (async () => {
+            try {
+              const raw = await redis.get('oracle:latency_series').catch(() => null);
+              if (raw) return JSON.parse(raw);
+            } catch { /* ignore */ }
+            return [];
+          })(),
+          deviationSeries: await (async () => {
+            try {
+              const raw = await redis.get('oracle:deviation_series').catch(() => null);
+              if (raw) return JSON.parse(raw);
+            } catch { /* ignore */ }
+            return [];
+          })(),
         },
       });
     } catch (e) {
@@ -167,6 +184,8 @@ export default async function adminIntegrationsRoutes(app: FastifyInstance) {
   });
 
   app.patch<{ Body: { provider?: string; updateIntervalSec?: number; failoverProvider?: string; maxDeviationThreshold?: number } }>('/oracle/settings', async (request, reply) => {
+    const admin = await getAdminWithPermission(app, request, reply, 'settings:edit');
+    if (!admin) return;
     try {
       const body = request.body || {};
       const toSet: Record<string, string> = {};
@@ -181,6 +200,11 @@ export default async function adminIntegrationsRoutes(app: FastifyInstance) {
           [k, JSON.stringify(v)]
         );
       }
+      logAuditFromRequest(request, {
+        actorType: 'admin', actorId: admin.adminId,
+        action: 'oracle_settings_updated', resourceType: 'system_settings',
+        newValue: toSet,
+      }).catch(() => {});
       return reply.send({ success: true, data: { message: 'Oracle settings updated' } });
     } catch (e) {
       logger.warn('Oracle settings update error', { error: e instanceof Error ? e.message : 'Unknown' });
@@ -231,6 +255,8 @@ export default async function adminIntegrationsRoutes(app: FastifyInstance) {
   });
 
   app.patch<{ Body: { enabled?: boolean; blockedCountries?: string[] } }>('/security/geo-blocking', async (request, reply) => {
+    const admin = await getAdminWithPermission(app, request, reply, 'settings:edit');
+    if (!admin) return;
     try {
       const { enabled, blockedCountries } = request.body || {};
       if (enabled !== undefined) {
@@ -250,6 +276,11 @@ export default async function adminIntegrationsRoutes(app: FastifyInstance) {
         );
         await redis.set('geo_block:countries', str).catch(() => {});
       }
+      logAuditFromRequest(request, {
+        actorType: 'admin', actorId: admin.adminId,
+        action: 'geo_blocking_updated', resourceType: 'system_settings',
+        newValue: { enabled, blockedCountries },
+      }).catch(() => {});
       return reply.send({ success: true, data: { message: 'Updated' } });
     } catch (e) {
       logger.warn('Geo-blocking update error', { error: e instanceof Error ? e.message : 'Unknown' });

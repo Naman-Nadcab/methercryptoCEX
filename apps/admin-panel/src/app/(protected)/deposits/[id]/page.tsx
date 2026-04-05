@@ -8,11 +8,12 @@ import { useAdminAuthStore, hasAdminPermission } from '@/store/auth';
 import { getDepositById, manualCredit, checkDuplicateDeposit } from '@/lib/deposits-api';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { DetailSkeleton } from '@/components/ui';
 import { DepositStatusBadge } from '@/components/deposits/DepositStatusBadge';
 import { ConfirmationProgress } from '@/components/deposits/ConfirmationProgress';
 import { LargeDepositBadge, StuckDepositBadge, isDepositStuck } from '@/components/deposits/DepositIndicators';
 import { ManualCreditModal } from '@/components/deposits/ManualCreditModal';
-import { User, CreditCard, RefreshCw } from 'lucide-react';
+import { User, CreditCard } from 'lucide-react';
 
 export default function DepositDetailPage() {
   const params = useParams();
@@ -97,7 +98,7 @@ export default function DepositDetailPage() {
 
   if (!id) {
     return (
-      <div className="rounded-xl bg-white p-6 shadow-sm">
+      <div className="rounded-xl bg-admin-card p-6 shadow-sm">
         <p className="text-admin-muted">Invalid deposit ID.</p>
       </div>
     );
@@ -105,15 +106,15 @@ export default function DepositDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="rounded-xl bg-white p-6 shadow-sm">
-        <p className="text-admin-muted">Loading deposit…</p>
+      <div className="rounded-xl bg-admin-card p-6 shadow-sm">
+        <DetailSkeleton rows={10} />
       </div>
     );
   }
 
   if (isError || !deposit) {
     return (
-      <div className="rounded-xl bg-white p-6 shadow-sm">
+      <div className="rounded-xl bg-admin-card p-6 shadow-sm">
         <p className="text-admin-danger">Deposit not found.</p>
         <Button variant="secondary" className="mt-4" onClick={() => router.push('/deposits')}>
           Back to list
@@ -123,11 +124,11 @@ export default function DepositDetailPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Deposit {String(deposit.deposit_id).slice(0, 8)}…</h1>
-          <p className="mt-1 text-sm text-admin-muted">Deposit details and actions</p>
+          <h1 className="text-lg font-semibold text-admin-text">Deposit {String(deposit.deposit_id).slice(0, 8)}…</h1>
+          <p className="text-xs text-admin-muted mt-0.5">Deposit details and actions</p>
         </div>
         <Button variant="secondary" onClick={() => router.push('/deposits')}>
           Back to list
@@ -154,29 +155,29 @@ export default function DepositDetailPage() {
             </div>
             <div>
               <dt className="text-sm font-medium text-admin-muted">Asset</dt>
-              <dd className="mt-1 text-gray-900">{deposit.token_symbol ?? '—'}</dd>
+              <dd className="mt-1 text-admin-text">{deposit.token_symbol ?? '—'}</dd>
             </div>
             <div>
               <dt className="text-sm font-medium text-admin-muted">Amount</dt>
-              <dd className="mt-1 font-mono text-gray-900">{deposit.amount ?? '—'}</dd>
+              <dd className="mt-1 font-mono text-admin-text">{deposit.amount ?? '—'}</dd>
             </div>
             <div>
               <dt className="text-sm font-medium text-admin-muted">Chain</dt>
-              <dd className="mt-1 text-gray-900">{deposit.chain_name ?? deposit.chain_symbol ?? '—'}</dd>
+              <dd className="mt-1 text-admin-text">{deposit.chain_name ?? deposit.chain_symbol ?? '—'}</dd>
             </div>
             <div>
               <dt className="text-sm font-medium text-admin-muted">Network</dt>
-              <dd className="mt-1 text-gray-900">{deposit.token_name ?? deposit.chain_symbol ?? '—'}</dd>
+              <dd className="mt-1 text-admin-text">{deposit.token_name ?? deposit.chain_symbol ?? '—'}</dd>
             </div>
             <div>
               <dt className="text-sm font-medium text-admin-muted">Deposit Address</dt>
-              <dd className="mt-1 break-all font-mono text-sm text-gray-900">
+              <dd className="mt-1 break-all font-mono text-sm text-admin-text">
                 {deposit.to_address ?? '—'}
               </dd>
             </div>
             <div>
               <dt className="text-sm font-medium text-admin-muted">TX Hash</dt>
-              <dd className="mt-1 break-all font-mono text-sm text-gray-900">
+              <dd className="mt-1 break-all font-mono text-sm text-admin-text">
                 {deposit.tx_hash ?? '—'}
               </dd>
             </div>
@@ -188,7 +189,7 @@ export default function DepositDetailPage() {
             </div>
             <div>
               <dt className="text-sm font-medium text-admin-muted">Block Height</dt>
-              <dd className="mt-1 text-gray-900">{deposit.block_number ?? '—'}</dd>
+              <dd className="mt-1 text-admin-text">{deposit.block_number ?? '—'}</dd>
             </div>
             <div>
               <dt className="text-sm font-medium text-admin-muted">Status</dt>
@@ -198,7 +199,7 @@ export default function DepositDetailPage() {
             </div>
             <div>
               <dt className="text-sm font-medium text-admin-muted">Created</dt>
-              <dd className="mt-1 text-gray-900">{created}</dd>
+              <dd className="mt-1 text-admin-text">{created}</dd>
             </div>
           </dl>
         </CardContent>
@@ -217,10 +218,6 @@ export default function DepositDetailPage() {
             Manual Credit
           </Button>
         )}
-        <Button variant="secondary" disabled title="Reprocess not implemented">
-          <RefreshCw className="mr-2 h-4 w-4" />
-          Reprocess Deposit
-        </Button>
       </div>
 
       <ManualCreditModal

@@ -412,9 +412,7 @@ export function SpotTradingGrid() {
             {marketsError || 'No spot markets available'}
           </p>
           <p className="mt-2 text-xs text-muted-foreground">
-            Start the backend (default{' '}
-            <code className="rounded bg-accent px-1 dark:bg-accent">http://localhost:4000</code>
-            ), ensure Postgres is up, and run migrations/seed if{' '}
+            Start the backend, ensure Postgres is up, and run migrations/seed if{' '}
             <code className="rounded bg-accent px-1 dark:bg-accent">spot_markets</code> is empty.
           </p>
           {typeof window !== 'undefined' && (

@@ -74,7 +74,7 @@ export function UsersTable({
         cell: ({ row }) => {
           const u = row.original;
           const name = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || u.email || '—';
-          return <span className="font-medium text-gray-900">{name || u.id.slice(0, 8)}</span>;
+          return <span className="font-medium text-admin-text">{name || u.id.slice(0, 8)}</span>;
         },
       },
       {
@@ -165,10 +165,10 @@ export function UsersTable({
   const canNext = page < totalPages;
 
   return (
-    <div className="overflow-hidden rounded-xl border border-admin-border bg-white">
+    <div className="overflow-hidden rounded-xl border border-admin-border bg-admin-card">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[900px] border-collapse">
-          <thead className="sticky top-0 z-10 bg-gray-50">
+          <thead className="sticky top-0 z-10 bg-white/[0.02]">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
@@ -204,7 +204,7 @@ export function UsersTable({
               table.getRowModel().rows.map((row) => (
                 <tr
                   key={row.id}
-                  className="border-b border-admin-border/60 transition-colors hover:bg-gray-50"
+                  className="border-b border-admin-border/60 transition-colors hover:bg-admin-card/5"
                   role="button"
                   tabIndex={0}
                   onClick={() => router.push(`/users/${row.original.id}`)}
@@ -226,7 +226,7 @@ export function UsersTable({
           </tbody>
         </table>
       </div>
-      <div className="flex items-center justify-between border-t border-admin-border bg-gray-50/80 px-4 py-2">
+      <div className="flex items-center justify-between border-t border-admin-border bg-admin-card/[0.03] px-4 py-2">
         <div className="flex items-center gap-2 text-sm text-admin-muted">
           {onExportCsv && (
             <button
@@ -246,7 +246,7 @@ export function UsersTable({
             type="button"
             disabled={!canPrev}
             onClick={() => onPageChange(page - 1)}
-            className="rounded border border-admin-border bg-white px-3 py-1.5 text-sm disabled:opacity-50 hover:bg-gray-50"
+            className="rounded border border-admin-border bg-admin-card px-3 py-1.5 text-sm disabled:opacity-50 hover:bg-admin-card/5"
           >
             Previous
           </button>
@@ -257,7 +257,7 @@ export function UsersTable({
             type="button"
             disabled={!canNext}
             onClick={() => onPageChange(page + 1)}
-            className="rounded border border-admin-border bg-white px-3 py-1.5 text-sm disabled:opacity-50 hover:bg-gray-50"
+            className="rounded border border-admin-border bg-admin-card px-3 py-1.5 text-sm disabled:opacity-50 hover:bg-admin-card/5"
           >
             Next
           </button>

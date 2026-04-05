@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/dashboard/StatusBadge';
 import { ArrowLeft, Plus, Pencil } from 'lucide-react';
+import { TableSkeleton } from '@/components/ui';
 
 const PROVIDER_TYPES = [
   { value: 'rpc', label: 'RPC Nodes' },
@@ -100,7 +101,7 @@ export default function SettingsInfrastructurePage() {
   const typeLabel = (t: string) => PROVIDER_TYPES.find((p) => p.value === t)?.label ?? t;
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <Link href="/settings">
@@ -109,8 +110,8 @@ export default function SettingsInfrastructurePage() {
             </Button>
           </Link>
           <div>
-            <h1 className="text-2xl font-semibold text-gray-900">Infrastructure</h1>
-            <p className="mt-1 text-sm text-admin-muted">
+            <h1 className="text-lg font-semibold text-admin-text">Infrastructure</h1>
+            <p className="text-xs text-admin-muted mt-0.5">
               Configure RPC nodes, price oracles, email/SMS gateways, and webhook endpoints. Updates apply without redeploy.
             </p>
           </div>
@@ -126,9 +127,9 @@ export default function SettingsInfrastructurePage() {
           <CardTitle>Third-Party Infrastructure</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto rounded-xl border border-admin-border bg-white">
+          <div className="overflow-x-auto rounded-xl border border-admin-border bg-admin-card">
             <table className="w-full min-w-[600px] text-left text-sm">
-              <thead className="bg-gray-50">
+              <thead className="bg-white/[0.02]">
                 <tr>
                   <th className="px-4 py-3 font-medium text-admin-muted">Provider Name</th>
                   <th className="px-4 py-3 font-medium text-admin-muted">Type</th>
@@ -141,8 +142,8 @@ export default function SettingsInfrastructurePage() {
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-admin-muted">
-                      Loading…
+                    <td colSpan={6} className="p-0">
+                      <TableSkeleton rows={3} cols={5} />
                     </td>
                   </tr>
                 ) : providers.length === 0 ? (
@@ -153,13 +154,13 @@ export default function SettingsInfrastructurePage() {
                   </tr>
                 ) : (
                   providers.map((row) => (
-                    <tr key={row.id} className="border-t border-admin-border hover:bg-gray-50/50">
+                    <tr key={row.id} className="border-t border-admin-border hover:bg-white/5">
                       <td className="px-4 py-3 font-medium">{row.provider_name}</td>
-                      <td className="px-4 py-3 text-gray-700">{typeLabel(row.provider_type)}</td>
-                      <td className="max-w-[200px] truncate px-4 py-3 font-mono text-xs text-gray-600" title={row.endpoint_url}>
+                      <td className="px-4 py-3 text-admin-text">{typeLabel(row.provider_type)}</td>
+                      <td className="max-w-[200px] truncate px-4 py-3 font-mono text-xs text-admin-muted" title={row.endpoint_url}>
                         {row.endpoint_url || '—'}
                       </td>
-                      <td className="px-4 py-3 font-mono text-xs text-gray-500">
+                      <td className="px-4 py-3 font-mono text-xs text-admin-muted">
                         {row.api_key || '—'}
                       </td>
                       <td className="px-4 py-3">
@@ -185,15 +186,15 @@ export default function SettingsInfrastructurePage() {
           onClick={() => setModal(null)}
         >
           <div
-            className="w-full max-w-md rounded-xl bg-white p-6 shadow-lg"
+            className="w-full max-w-md rounded-xl bg-admin-card p-6 shadow-lg"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-lg font-semibold text-gray-900">
+            <h3 className="text-lg font-semibold text-admin-text">
               {modal.type === 'add' ? 'Add provider' : 'Edit provider'}
             </h3>
             <form onSubmit={handleSubmit} className="mt-4 space-y-4">
               <div>
-                <label htmlFor="infra-type" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="infra-type" className="block text-sm font-medium text-admin-text">
                   Type
                 </label>
                 <select
@@ -211,7 +212,7 @@ export default function SettingsInfrastructurePage() {
                 </select>
               </div>
               <div>
-                <label htmlFor="infra-name" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="infra-name" className="block text-sm font-medium text-admin-text">
                   Provider Name *
                 </label>
                 <input
@@ -225,7 +226,7 @@ export default function SettingsInfrastructurePage() {
                 />
               </div>
               <div>
-                <label htmlFor="infra-url" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="infra-url" className="block text-sm font-medium text-admin-text">
                   Endpoint URL
                 </label>
                 <input
@@ -238,7 +239,7 @@ export default function SettingsInfrastructurePage() {
                 />
               </div>
               <div>
-                <label htmlFor="infra-key" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="infra-key" className="block text-sm font-medium text-admin-text">
                   API Key {modal.type === 'edit' && '(leave blank to keep current)'}
                 </label>
                 <input
@@ -251,7 +252,7 @@ export default function SettingsInfrastructurePage() {
                 />
               </div>
               <div>
-                <label htmlFor="infra-status" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="infra-status" className="block text-sm font-medium text-admin-text">
                   Status
                 </label>
                 <select

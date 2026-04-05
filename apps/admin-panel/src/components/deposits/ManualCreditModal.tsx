@@ -66,10 +66,10 @@ export function ManualCreditModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={handleClose}>
       <div
-        className="w-full max-w-md rounded-xl bg-white p-6 shadow-lg"
+        className="w-full max-w-md rounded-xl bg-admin-card p-6 shadow-lg"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-lg font-semibold text-gray-900">Manual Credit</h3>
+        <h3 className="text-lg font-semibold text-admin-text">Manual Credit</h3>
         <p className="mt-1 text-sm text-admin-muted">
           Use only when the deposit indexer fails. User: {userEmail ?? (userId ? String(userId) : '—')}
         </p>
@@ -81,7 +81,7 @@ export function ManualCreditModal({
         )}
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
           <div>
-            <label htmlFor="mc-amount" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="mc-amount" className="block text-sm font-medium text-admin-text">
               Amount *
             </label>
             <input
@@ -95,7 +95,7 @@ export function ManualCreditModal({
             />
           </div>
           <div>
-            <label htmlFor="mc-asset" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="mc-asset" className="block text-sm font-medium text-admin-text">
               Asset *
             </label>
             <input
@@ -109,7 +109,7 @@ export function ManualCreditModal({
             />
           </div>
           <div>
-            <label htmlFor="mc-note" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="mc-note" className="block text-sm font-medium text-admin-text">
               Admin note (optional)
             </label>
             <textarea
@@ -127,7 +127,7 @@ export function ManualCreditModal({
               onChange={(e) => setConfirmed(e.target.checked)}
               className="rounded border-admin-border text-admin-primary focus:ring-admin-primary"
             />
-            <span className="text-sm text-gray-700">
+            <span className="text-sm text-admin-text">
               I confirm this manual credit is authorized (e.g. deposit indexer failed).
             </span>
           </label>

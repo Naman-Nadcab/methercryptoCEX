@@ -259,14 +259,16 @@ export async function createPasskey(
       })),
     };
 
-    console.log('[WebAuthn] Creating credential with options:', {
-      rpId: options.rp.id,
-      rpName: options.rp.name,
-      authenticatorAttachment: 'platform',
-      residentKey: 'required',
-      userVerification: 'required',
-      hints: options.hints,
-    });
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[WebAuthn] Creating credential with options:', {
+        rpId: options.rp.id,
+        rpName: options.rp.name,
+        authenticatorAttachment: 'platform',
+        residentKey: 'required',
+        userVerification: 'required',
+        hints: options.hints,
+      });
+    }
 
     // For browsers that support hints (WebAuthn Level 3), add them
     // This helps Safari/Chrome on macOS to prefer Touch ID over QR
@@ -309,7 +311,7 @@ export async function createPasskey(
       authenticatorAttachment: credential.authenticatorAttachment || undefined,
     };
 
-    console.log('[WebAuthn] Credential created successfully:', {
+    if (process.env.NODE_ENV !== 'production') console.log('[WebAuthn] Credential created successfully:', {
       id: credential.id.substring(0, 20) + '...',
       transports,
       authenticatorAttachment: credential.authenticatorAttachment,
@@ -407,7 +409,7 @@ export async function getPasskeyAssertion(
       allowCredentials,
     };
 
-    console.log('[WebAuthn] Getting assertion with options:', {
+    if (process.env.NODE_ENV !== 'production') console.log('[WebAuthn] Getting assertion with options:', {
       rpId: options.rpId,
       userVerification: 'required',
       allowCredentialsCount: allowCredentials.length,
@@ -449,7 +451,7 @@ export async function getPasskeyAssertion(
       authenticatorAttachment: credential.authenticatorAttachment || undefined,
     };
 
-    console.log('[WebAuthn] Assertion received successfully:', {
+    if (process.env.NODE_ENV !== 'production') console.log('[WebAuthn] Assertion received successfully:', {
       id: credential.id.substring(0, 20) + '...',
       authenticatorAttachment: credential.authenticatorAttachment,
     });

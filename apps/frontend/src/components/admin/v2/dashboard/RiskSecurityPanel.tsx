@@ -20,7 +20,7 @@ export function RiskSecurityPanel() {
   ];
 
   return (
-    <div className="rounded-[var(--admin-radius)] border border-[var(--admin-card-border)] bg-white p-4 shadow-[var(--admin-shadow)]">
+    <div className="rounded-[var(--admin-radius)] border border-[var(--admin-card-border)] bg-[var(--admin-card-bg)] p-4 shadow-[var(--admin-shadow)]">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-[var(--admin-text)]">Risk & Security</h3>
         <Link href="/admin/risk" className="text-xs font-medium text-[var(--admin-primary)] hover:underline">

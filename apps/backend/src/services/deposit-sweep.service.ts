@@ -56,12 +56,26 @@ const emptyInsight = (credited: number, minWei: string, gasReserve: string): Eli
 });
 
 export async function listSweepableAddresses(): Promise<{ sweepable: SweepableAddress[]; insight: EligibilityInsight }> {
-  const minWei = BigInt(config.depositSweep.minWei);
+  let sweepEnabled = config.depositSweep?.enabled !== false;
+  let minWeiOverride: string | null = null;
+
+  try {
+    const settingsRes = await db.query<{ value: string }>(`SELECT value FROM system_settings WHERE key = 'treasury_settings' LIMIT 1`);
+    if (settingsRes.rows.length > 0) {
+      const ts = typeof settingsRes.rows[0]!.value === 'string' ? JSON.parse(settingsRes.rows[0]!.value) : settingsRes.rows[0]!.value;
+      if (ts.auto_sweep_enabled === false) sweepEnabled = false;
+      if (ts.min_sweep_amount && Number(ts.min_sweep_amount) > 0) {
+        minWeiOverride = String(BigInt(Math.floor(Number(ts.min_sweep_amount) * 1e18)));
+      }
+    }
+  } catch (_) { /* fallback to env config */ }
+
+  const minWei = BigInt(minWeiOverride ?? config.depositSweep.minWei);
   const minWeiStr = minWei.toString();
   const gasReserveWei = GAS_RESERVE_WEI.toString();
 
-  if (!config.depositSweep.enabled) {
-    logger.info('Deposit sweep: disabled (DEPOSIT_SWEEP_ENABLED not true), listSweepableAddresses returns []', {
+  if (!sweepEnabled) {
+    logger.info('Deposit sweep: disabled (config or treasury_settings), listSweepableAddresses returns []', {
       deposit_sweep_enabled: false,
       min_wei: minWeiStr,
       gas_reserve_wei: gasReserveWei,
@@ -356,8 +370,17 @@ export async function runDepositSweep(): Promise<RunDepositSweepResult> {
   const errors: string[] = [];
   let sweptCount = 0;
 
-  if (!config.depositSweep.enabled) {
-    logger.info('Deposit sweep run skipped: DEPOSIT_SWEEP_ENABLED is not true');
+  let sweepEnabled = config.depositSweep?.enabled !== false;
+  try {
+    const settingsRes = await db.query<{ value: string }>(`SELECT value FROM system_settings WHERE key = 'treasury_settings' LIMIT 1`);
+    if (settingsRes.rows.length > 0) {
+      const ts = typeof settingsRes.rows[0]!.value === 'string' ? JSON.parse(settingsRes.rows[0]!.value) : settingsRes.rows[0]!.value;
+      if (ts.auto_sweep_enabled === false) sweepEnabled = false;
+    }
+  } catch (_) { /* fallback to env config */ }
+
+  if (!sweepEnabled) {
+    logger.info('Deposit sweep run skipped: disabled via config or treasury_settings');
     return { sweptCount: 0, errors: [] };
   }
 

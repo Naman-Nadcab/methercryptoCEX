@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/dashboard/StatusBadge';
 import { ArrowLeft, Plus, Pencil } from 'lucide-react';
+import { TableSkeleton } from '@/components/ui';
 
 const NETWORKS = ['mainnet', 'testnet', 'sepolia', 'goerli'];
 const STATUSES = ['active', 'inactive', 'maintenance'];
@@ -94,7 +95,7 @@ export default function SettingsNodesPage() {
   };
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <Link href="/settings">
@@ -103,8 +104,8 @@ export default function SettingsNodesPage() {
             </Button>
           </Link>
           <div>
-            <h1 className="text-2xl font-semibold text-gray-900">Node Providers</h1>
-            <p className="mt-1 text-sm text-admin-muted">Manage RPC node providers (Infura, Alchemy, QuickNode, self-hosted). Updates apply without redeploy.</p>
+            <h1 className="text-lg font-semibold text-admin-text">Node Providers</h1>
+            <p className="text-xs text-admin-muted mt-0.5">Manage RPC node providers (Infura, Alchemy, QuickNode, self-hosted). Updates apply without redeploy.</p>
           </div>
         </div>
         <Button size="sm" onClick={openAdd}>
@@ -119,11 +120,11 @@ export default function SettingsNodesPage() {
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="py-8 text-center text-admin-muted">Loading…</div>
+            <TableSkeleton rows={3} cols={5} />
           ) : (
             <div className="overflow-x-auto rounded-xl border border-admin-border">
               <table className="w-full min-w-[700px] text-left text-sm">
-                <thead className="bg-gray-50">
+                <thead className="bg-white/[0.02]">
                   <tr>
                     <th className="px-4 py-3 font-medium text-admin-muted">Provider</th>
                     <th className="px-4 py-3 font-medium text-admin-muted">RPC URL</th>
@@ -142,13 +143,13 @@ export default function SettingsNodesPage() {
                     </tr>
                   ) : (
                     nodes.map((n) => (
-                      <tr key={n.id} className="border-t border-admin-border hover:bg-gray-50/50">
-                        <td className="px-4 py-3 font-medium text-gray-900">{n.provider_name}</td>
-                        <td className="px-4 py-3 font-mono text-xs text-gray-600 max-w-[200px] truncate" title={n.rpc_url}>
+                      <tr key={n.id} className="border-t border-admin-border hover:bg-white/5">
+                        <td className="px-4 py-3 font-medium text-admin-text">{n.provider_name}</td>
+                        <td className="px-4 py-3 font-mono text-xs text-admin-muted max-w-[200px] truncate" title={n.rpc_url}>
                           {n.rpc_url || '—'}
                         </td>
-                        <td className="px-4 py-3 text-gray-600">{n.api_key || '—'}</td>
-                        <td className="px-4 py-3 text-gray-600">{n.network}</td>
+                        <td className="px-4 py-3 text-admin-muted">{n.api_key || '—'}</td>
+                        <td className="px-4 py-3 text-admin-muted">{n.network}</td>
                         <td className="px-4 py-3">
                           <StatusBadge status={n.status} />
                         </td>
@@ -170,50 +171,50 @@ export default function SettingsNodesPage() {
       {modal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setModal(null)}>
           <div
-            className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"
+            className="w-full max-w-md rounded-xl bg-admin-card p-6 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="text-lg font-semibold text-gray-900">
+            <h2 className="text-lg font-semibold text-admin-text">
               {modal.type === 'add' ? 'Add node provider' : 'Edit node provider'}
             </h2>
             <form onSubmit={handleSubmit} className="mt-4 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Provider name</label>
+                <label className="block text-sm font-medium text-admin-text">Provider name</label>
                 <input
                   type="text"
                   value={form.provider_name}
                   onChange={(e) => setForm((f) => ({ ...f, provider_name: e.target.value }))}
                   placeholder="e.g. Infura, Alchemy"
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
                   required
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">RPC URL</label>
+                <label className="block text-sm font-medium text-admin-text">RPC URL</label>
                 <input
                   type="url"
                   value={form.rpc_url}
                   onChange={(e) => setForm((f) => ({ ...f, rpc_url: e.target.value }))}
                   placeholder="https://..."
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">API key</label>
+                <label className="block text-sm font-medium text-admin-text">API key</label>
                 <input
                   type="password"
                   value={form.api_key}
                   onChange={(e) => setForm((f) => ({ ...f, api_key: e.target.value }))}
                   placeholder={modal.type === 'edit' ? 'Leave blank to keep current' : 'Optional'}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Network</label>
+                <label className="block text-sm font-medium text-admin-text">Network</label>
                 <select
                   value={form.network}
                   onChange={(e) => setForm((f) => ({ ...f, network: e.target.value }))}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
                 >
                   {NETWORKS.map((n) => (
                     <option key={n} value={n}>{n}</option>
@@ -221,11 +222,11 @@ export default function SettingsNodesPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Status</label>
+                <label className="block text-sm font-medium text-admin-text">Status</label>
                 <select
                   value={form.status}
                   onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
                 >
                   {STATUSES.map((s) => (
                     <option key={s} value={s}>{s}</option>

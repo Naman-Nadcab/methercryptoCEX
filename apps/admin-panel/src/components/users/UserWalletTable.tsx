@@ -27,7 +27,7 @@ export function UserWalletTable({ balances, isLoading }: UserWalletTableProps) {
       <div className="overflow-x-auto">
         <table className="w-full min-w-[400px] border-collapse">
           <thead>
-            <tr className="border-b border-admin-border bg-gray-50">
+            <tr className="border-b border-admin-border bg-white/[0.02]">
               <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-admin-muted">Asset</th>
               <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-admin-muted">Available</th>
               <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-admin-muted">Locked</th>
@@ -49,7 +49,7 @@ export function UserWalletTable({ balances, isLoading }: UserWalletTableProps) {
     <div className="overflow-x-auto">
       <table className="w-full min-w-[400px] border-collapse">
         <thead>
-          <tr className="border-b border-admin-border bg-gray-50">
+          <tr className="border-b border-admin-border bg-white/[0.02]">
             <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-admin-muted">Asset</th>
             <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-admin-muted">Available</th>
             <th className="px-4 py-3 text-right text-xs font-semibold uppercase text-admin-muted">Locked</th>
@@ -69,8 +69,8 @@ export function UserWalletTable({ balances, isLoading }: UserWalletTableProps) {
               const escrow = row.escrow_balance ?? '0';
               const total = row.total_balance ?? String(parseFloat(avail) + parseFloat(locked) + parseFloat(escrow));
               return (
-                <tr key={row.token_id ?? row.token_symbol ?? i} className="border-b border-admin-border/60 hover:bg-gray-50">
-                  <td className="px-4 py-3 font-medium text-gray-900">{row.token_symbol}</td>
+                <tr key={row.token_id ?? row.token_symbol ?? i} className="border-b border-admin-border/60 hover:bg-white/5">
+                  <td className="px-4 py-3 font-medium text-admin-text">{row.token_symbol}</td>
                   <td className="px-4 py-3 text-right tabular-nums">{formatNum(avail)}</td>
                   <td className="px-4 py-3 text-right tabular-nums">{formatNum(locked)}</td>
                   <td className="px-4 py-3 text-right tabular-nums">{formatNum(escrow)}</td>

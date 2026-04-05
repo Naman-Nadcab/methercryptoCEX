@@ -8,6 +8,7 @@ import { getWithdrawalById } from '@/lib/withdrawals-api';
 import { WithdrawalStatusBadge } from '@/components/withdrawals/WithdrawalStatusBadge';
 import { WithdrawalRiskBadge } from '@/components/withdrawals/WithdrawalRiskBadge';
 import { Button } from '@/components/ui/Button';
+import { DetailSkeleton } from '@/components/ui';
 import { User } from 'lucide-react';
 
 function formatDate(s: string | undefined): string {
@@ -35,7 +36,7 @@ export default function WithdrawalDetailPage() {
 
   if (!id) {
     return (
-      <div className="p-6">
+      <div>
         <p className="text-admin-danger">Invalid withdrawal ID</p>
       </div>
     );
@@ -43,11 +44,11 @@ export default function WithdrawalDetailPage() {
 
   if (isLoading || !w) {
     return (
-      <div className="p-6">
+      <div>
         {isError ? (
           <p className="text-admin-danger">Failed to load withdrawal.</p>
         ) : (
-          <div className="text-admin-muted">Loading…</div>
+          <DetailSkeleton rows={10} />
         )}
       </div>
     );
@@ -56,7 +57,7 @@ export default function WithdrawalDetailPage() {
   const isLargeWithdrawal = w.risk_flags?.includes('Large Withdrawal');
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div className="flex items-center gap-2">
         <button
           type="button"
@@ -67,10 +68,11 @@ export default function WithdrawalDetailPage() {
         </button>
       </div>
 
-      <div className="rounded-[12px] bg-white p-6 shadow-[0_1px_3px_0_rgba(0,0,0,0.08)]">
+      <div className="rounded-[12px] bg-admin-card p-6 shadow-[0_1px_3px_0_rgba(0,0,0,0.08)]">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-xl font-semibold text-gray-900">Withdrawal {String(w.id).slice(0, 8)}…</h1>
+            <h1 className="text-lg font-semibold text-admin-text">Withdrawal {String(w.id).slice(0, 8)}…</h1>
+            <p className="text-xs text-admin-muted mt-0.5">Status, risk, and payout details</p>
             <div className="mt-2 flex flex-wrap items-center gap-3">
               <WithdrawalStatusBadge status={w.status} />
               <WithdrawalRiskBadge score={w.risk_score} flags={w.risk_flags} />
@@ -139,7 +141,7 @@ export default function WithdrawalDetailPage() {
         </dl>
 
         {w.rejection_reason && (
-          <div className="mt-4 rounded-lg border border-admin-border bg-gray-50 p-4">
+          <div className="mt-4 rounded-lg border border-admin-border bg-white/[0.02] p-4">
             <dt className="text-sm font-medium text-admin-muted">Rejection reason</dt>
             <dd className="mt-1 text-sm">{w.rejection_reason}</dd>
           </div>

@@ -10,6 +10,7 @@ import AdminSessionManager from '@/components/admin/AdminSessionManager';
 import ThemeProvider from '@/components/ThemeProvider';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { useAdminRealtime } from '@/hooks/admin/useAdminRealtime';
+import { useThemeStore } from '@/store/theme';
 
 export default function AdminProtectedLayout({
   children,
@@ -22,6 +23,11 @@ export default function AdminProtectedLayout({
   const hasHydrated = useAdminAuthStore((state) => state._hasHydrated);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [checking, setChecking] = useState(true);
+  const setTheme = useThemeStore((s) => s.setTheme);
+
+  useEffect(() => {
+    setTheme('dark');
+  }, [setTheme]);
 
   useEffect(() => {
     if (!hasHydrated) return;
@@ -95,7 +101,7 @@ export default function AdminProtectedLayout({
   return (
     <ThemeProvider>
       <AdminSessionManager idleTimeout={30 * 60 * 1000} />
-      <div className="admin-panel min-h-screen bg-[var(--admin-bg)]" data-theme="admin-light">
+      <div className="admin-panel min-h-screen bg-[var(--admin-bg)]">
         <AdminV2Sidebar isOpen={sidebarOpen} setIsOpen={setSidebarOpen} />
         <div className="lg:ml-[260px] min-h-screen flex flex-col transition-[margin] duration-200">
           <AdminV2Header onMenuClick={() => setSidebarOpen(true)} />

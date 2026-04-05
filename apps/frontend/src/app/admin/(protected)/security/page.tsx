@@ -1,25 +1,18 @@
+import { ShieldCheck } from 'lucide-react';
+
 export default function SecurityPage() {
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Security & Compliance</h1>
-      <p className="text-gray-500 dark:text-gray-400">Monitor security events and compliance status</p>
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Failed Logins (24h)</p>
-          <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">156</p>
+      <h1 className="text-2xl font-bold text-[var(--admin-text)]">Security &amp; Compliance</h1>
+      <p className="text-[var(--admin-text-muted)]">Monitor security events and compliance status</p>
+      <div className="flex flex-col items-center justify-center py-20 rounded-[var(--admin-radius)] border border-[var(--admin-card-border)] bg-[var(--admin-card-bg)] shadow-[var(--admin-shadow)]">
+        <div className="w-14 h-14 rounded-2xl bg-[var(--admin-primary)]/10 flex items-center justify-center mb-4">
+          <ShieldCheck className="w-7 h-7 text-[var(--admin-primary)]" />
         </div>
-        <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Suspicious Activities</p>
-          <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">12</p>
-        </div>
-        <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Blocked IPs</p>
-          <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">45</p>
-        </div>
-        <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4">
-          <p className="text-sm text-gray-500 dark:text-gray-400">2FA Adoption</p>
-          <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">72.5%</p>
-        </div>
+        <h2 className="text-lg font-semibold text-[var(--admin-text)]">Coming Soon</h2>
+        <p className="mt-1 text-sm text-[var(--admin-text-muted)] max-w-sm text-center">
+          The security dashboard is under development. You&apos;ll be able to monitor failed logins, suspicious activities, blocked IPs, and 2FA adoption here.
+        </p>
       </div>
     </div>
   );

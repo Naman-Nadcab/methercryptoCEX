@@ -7,6 +7,7 @@ import { useAdminAuthStore } from '@/store/auth';
 import { getConfigAuditLogs, type ConfigAuditLogRow } from '@/lib/audit-api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { TableSkeleton } from '@/components/ui';
 import { ArrowLeft, Download, FileText } from 'lucide-react';
 
 function escapeCsvField(s: string): string {
@@ -80,7 +81,7 @@ export default function AuditConfigPage() {
   };
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <Link href="/settings/system">
@@ -89,8 +90,8 @@ export default function AuditConfigPage() {
             </Button>
           </Link>
           <div>
-            <h1 className="text-2xl font-semibold text-gray-900">Config changes</h1>
-            <p className="mt-1 text-sm text-admin-muted">
+            <h1 className="text-lg font-semibold text-admin-text">Config changes</h1>
+            <p className="text-xs text-admin-muted mt-0.5">
               Configuration change history from audit log (system settings, feature flags, profiles, safe mode).
             </p>
           </div>
@@ -116,12 +117,12 @@ export default function AuditConfigPage() {
               placeholder="Admin"
               value={filterAdmin}
               onChange={(e) => setFilterAdmin(e.target.value)}
-              className="rounded-lg border border-admin-border px-3 py-2 text-sm text-gray-900 placeholder:text-admin-muted focus:border-admin-primary focus:outline-none focus:ring-1 focus:ring-admin-primary"
+              className="rounded-lg border border-admin-border px-3 py-2 text-sm text-admin-text placeholder:text-admin-muted focus:border-admin-primary focus:outline-none focus:ring-1 focus:ring-admin-primary"
             />
             <select
               value={filterAction}
               onChange={(e) => setFilterAction(e.target.value)}
-              className="rounded-lg border border-admin-border bg-white px-3 py-2 text-sm text-gray-900"
+              className="rounded-lg border border-admin-border bg-admin-card px-3 py-2 text-sm text-admin-text"
             >
               <option value="">All actions</option>
               {actionTypes.map((a) => (
@@ -133,20 +134,20 @@ export default function AuditConfigPage() {
               placeholder="Setting key"
               value={filterSettingKey}
               onChange={(e) => setFilterSettingKey(e.target.value)}
-              className="rounded-lg border border-admin-border px-3 py-2 text-sm text-gray-900 placeholder:text-admin-muted focus:border-admin-primary focus:outline-none focus:ring-1 focus:ring-admin-primary"
+              className="rounded-lg border border-admin-border px-3 py-2 text-sm text-admin-text placeholder:text-admin-muted focus:border-admin-primary focus:outline-none focus:ring-1 focus:ring-admin-primary"
             />
             <input
               type="date"
               value={filterDateFrom}
               onChange={(e) => setFilterDateFrom(e.target.value)}
-              className="rounded-lg border border-admin-border px-3 py-2 text-sm text-gray-900"
+              className="rounded-lg border border-admin-border px-3 py-2 text-sm text-admin-text"
               title="From date"
             />
             <input
               type="date"
               value={filterDateTo}
               onChange={(e) => setFilterDateTo(e.target.value)}
-              className="rounded-lg border border-admin-border px-3 py-2 text-sm text-gray-900"
+              className="rounded-lg border border-admin-border px-3 py-2 text-sm text-admin-text"
               title="To date"
             />
           </div>
@@ -158,13 +159,13 @@ export default function AuditConfigPage() {
           )}
 
           {isLoading && (
-            <div className="py-12 text-center text-admin-muted">Loading…</div>
+            <TableSkeleton rows={5} cols={5} />
           )}
 
           {!isLoading && !isError && (
             <div className="overflow-x-auto rounded-xl border border-admin-border">
               <table className="w-full text-left text-sm">
-                <thead className="bg-gray-50">
+                <thead className="bg-white/[0.02]">
                   <tr>
                     <th className="px-4 py-3 font-medium text-admin-muted">Timestamp</th>
                     <th className="px-4 py-3 font-medium text-admin-muted">Admin</th>

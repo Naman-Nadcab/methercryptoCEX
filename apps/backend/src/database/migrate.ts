@@ -1442,9 +1442,22 @@ const migrations = [
    BEFORE UPDATE ON api_settings
    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();`,
 
-  // Seed api_settings for SMS OTP (admin fills api_key/api_secret and sets is_active = true)
-  `INSERT INTO api_settings (category, provider, name, is_active, is_default) VALUES ('sms', 'fast2sms', 'Fast2SMS', FALSE, TRUE) ON CONFLICT (category, provider) DO NOTHING;`,
+  // Seed api_settings — admin fills credentials and sets is_active = true
+  `INSERT INTO api_settings (category, provider, name, is_active, is_default, additional_config) VALUES ('sms', 'fast2sms', 'Fast2SMS', FALSE, TRUE, '{"sender_id":"INRXPE","message_id":"181649","route":"dlt"}') ON CONFLICT (category, provider) DO NOTHING;`,
   `INSERT INTO api_settings (category, provider, name, is_active, is_default) VALUES ('sms', 'twilio', 'Twilio SMS', FALSE, FALSE) ON CONFLICT (category, provider) DO NOTHING;`,
+  `INSERT INTO api_settings (category, provider, name, is_active, is_default) VALUES ('sms', 'msg91', 'MSG91', FALSE, FALSE) ON CONFLICT (category, provider) DO NOTHING;`,
+  `INSERT INTO api_settings (category, provider, name, is_active, is_default, additional_config) VALUES ('email', 'smtp', 'SMTP Email', FALSE, TRUE, '{"host":"","port":"465","secure":"true","from_email":"noreply@exchange.com","from_name":"CryptoExchange"}') ON CONFLICT (category, provider) DO NOTHING;`,
+  `INSERT INTO api_settings (category, provider, name, is_active, is_default) VALUES ('email', 'resend', 'Resend', FALSE, FALSE) ON CONFLICT (category, provider) DO NOTHING;`,
+  `INSERT INTO api_settings (category, provider, name, is_active, is_default) VALUES ('email', 'sendgrid', 'SendGrid', FALSE, FALSE) ON CONFLICT (category, provider) DO NOTHING;`,
+  `INSERT INTO api_settings (category, provider, name, is_active, is_default) VALUES ('kyc', 'hyperverge', 'HyperVerge', FALSE, TRUE) ON CONFLICT (category, provider) DO NOTHING;`,
+  `INSERT INTO api_settings (category, provider, name, is_active, is_default) VALUES ('kyc', 'sumsub', 'Sumsub', FALSE, FALSE) ON CONFLICT (category, provider) DO NOTHING;`,
+  `INSERT INTO api_settings (category, provider, name, is_active, is_default, additional_config) VALUES ('rpc', 'ethereum', 'Ethereum RPC', FALSE, TRUE, '{"timeout":"30000"}') ON CONFLICT (category, provider) DO NOTHING;`,
+  `INSERT INTO api_settings (category, provider, name, is_active, is_default, additional_config) VALUES ('rpc', 'bsc', 'BSC RPC', FALSE, FALSE, '{"timeout":"30000"}') ON CONFLICT (category, provider) DO NOTHING;`,
+  `INSERT INTO api_settings (category, provider, name, is_active, is_default, additional_config) VALUES ('rpc', 'polygon', 'Polygon RPC', FALSE, FALSE, '{"timeout":"30000"}') ON CONFLICT (category, provider) DO NOTHING;`,
+  `INSERT INTO api_settings (category, provider, name, is_active, is_default) VALUES ('push', 'firebase', 'Firebase FCM', FALSE, TRUE) ON CONFLICT (category, provider) DO NOTHING;`,
+  `INSERT INTO api_settings (category, provider, name, is_active, is_default) VALUES ('recaptcha', 'google', 'Google reCAPTCHA', FALSE, TRUE) ON CONFLICT (category, provider) DO NOTHING;`,
+  `INSERT INTO api_settings (category, provider, name, is_active, is_default) VALUES ('chart', 'binance', 'Binance OHLCV', FALSE, TRUE) ON CONFLICT (category, provider) DO NOTHING;`,
+  `INSERT INTO api_settings (category, provider, name, is_active, is_default) VALUES ('market_data', 'coingecko', 'CoinGecko', FALSE, TRUE) ON CONFLICT (category, provider) DO NOTHING;`,
 
   // ============================================
   // FEATURE TOGGLES TABLE
@@ -1742,6 +1755,21 @@ const migrations = [
   );`,
   `CREATE INDEX IF NOT EXISTS idx_admin_users_email ON admin_users(email);`,
   `CREATE INDEX IF NOT EXISTS idx_admin_users_active ON admin_users(is_active) WHERE is_active = TRUE;`,
+  `ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER NOT NULL DEFAULT 0;`,
+  `ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMP WITH TIME ZONE;`,
+  `CREATE INDEX IF NOT EXISTS idx_admin_users_locked_until ON admin_users(locked_until) WHERE locked_until IS NOT NULL;`,
+
+  // Admin dashboard query optimization indexes
+  `CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at DESC) WHERE deleted_at IS NULL;`,
+  `CREATE INDEX IF NOT EXISTS idx_kyc_applications_status ON kyc_applications(status);`,
+  `CREATE INDEX IF NOT EXISTS idx_kyc_applications_reviewed ON kyc_applications(reviewed_at DESC) WHERE reviewed_at IS NOT NULL;`,
+  `CREATE INDEX IF NOT EXISTS idx_p2p_ads_status ON p2p_ads(status) WHERE status = 'active';`,
+  `CREATE INDEX IF NOT EXISTS idx_referral_codes_active ON referral_codes(is_active) WHERE is_active = TRUE;`,
+  `CREATE INDEX IF NOT EXISTS idx_deposits_status_created ON deposits(status, created_at DESC);`,
+  `CREATE INDEX IF NOT EXISTS idx_aml_alerts_status_created ON aml_alerts(status, created_at DESC);`,
+  `DO $$ BEGIN CREATE INDEX IF NOT EXISTS idx_spot_trades_market_created ON spot_trades(market, created_at DESC); EXCEPTION WHEN OTHERS THEN NULL; END $$;`,
+  `CREATE INDEX IF NOT EXISTS idx_withdrawals_created_at ON withdrawals(created_at DESC);`,
+  `CREATE INDEX IF NOT EXISTS idx_withdrawals_status_created ON withdrawals(status, created_at DESC);`,
 
   // system_announcements.created_by FK (table is created earlier; admin_users must exist first)
   `DO $$
@@ -2437,6 +2465,8 @@ const migrations = [
 
   // Performance: composite indexes for balance reads and ticker aggregation
   `CREATE INDEX IF NOT EXISTS idx_user_balances_user_account ON user_balances(user_id, account_type);`,
+  `CREATE INDEX IF NOT EXISTS idx_user_balances_currency ON user_balances(currency_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_currencies_blockchain ON currencies(blockchain_id);`,
   `DO $$
   BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'spot_trades' AND column_name = 'market') THEN
@@ -2857,6 +2887,85 @@ const migrations = [
     END IF;
   EXCEPTION WHEN OTHERS THEN NULL;
   END $$;`,
+
+  // ============================================
+  // PHASE 5: Admin 2FA columns
+  // ============================================
+  `ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN NOT NULL DEFAULT FALSE;`,
+  `ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS two_factor_secret TEXT;`,
+  `ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS two_factor_backup_codes TEXT[];`,
+
+  // ============================================
+  // PHASE 5: Multi-Approval System for Critical Actions
+  // ============================================
+  `CREATE TABLE IF NOT EXISTS admin_approval_requests (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    action_type VARCHAR(50) NOT NULL,
+    action_payload JSONB NOT NULL,
+    requested_by UUID NOT NULL REFERENCES admin_users(id),
+    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'expired')),
+    required_approvals INTEGER NOT NULL DEFAULT 2,
+    current_approvals INTEGER NOT NULL DEFAULT 0,
+    approved_by UUID[],
+    rejected_by UUID,
+    rejection_reason TEXT,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    executed_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_approval_requests_status ON admin_approval_requests(status) WHERE status = 'pending';`,
+
+  // ============================================
+  // SUPPORT TICKETS
+  // ============================================
+  `CREATE TABLE IF NOT EXISTS support_tickets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id),
+    subject TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'general',
+    priority TEXT NOT NULL DEFAULT 'medium',
+    status TEXT NOT NULL DEFAULT 'open',
+    assigned_admin_id UUID REFERENCES admin_users(id),
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    resolved_at TIMESTAMPTZ,
+    resolution_note TEXT
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_support_tickets_user ON support_tickets(user_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_support_tickets_status ON support_tickets(status);`,
+  `CREATE INDEX IF NOT EXISTS idx_support_tickets_assigned ON support_tickets(assigned_admin_id);`,
+
+  `CREATE TABLE IF NOT EXISTS support_ticket_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    ticket_id UUID REFERENCES support_tickets(id) ON DELETE CASCADE,
+    sender_type TEXT NOT NULL,
+    sender_id UUID NOT NULL,
+    message TEXT NOT NULL,
+    attachments JSONB DEFAULT '[]',
+    created_at TIMESTAMPTZ DEFAULT now()
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_ticket_messages_ticket ON support_ticket_messages(ticket_id);`,
+
+  // ============================================
+  // PHASE 7: P2P Merchant Applications
+  // ============================================
+  `CREATE TABLE IF NOT EXISTS p2p_merchant_applications (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id) UNIQUE,
+    business_name TEXT,
+    business_type TEXT,
+    volume_30d NUMERIC DEFAULT 0,
+    completion_rate NUMERIC DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'pending',
+    reviewed_by UUID REFERENCES admin_users(id),
+    reviewed_at TIMESTAMPTZ,
+    review_note TEXT,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_p2p_merchant_applications_status ON p2p_merchant_applications(status);`,
+  `CREATE INDEX IF NOT EXISTS idx_p2p_merchant_applications_user ON p2p_merchant_applications(user_id);`,
 ];
 
 /** True if this migration SQL touches the legacy "balances" table (not user_balances). Run such steps via raw pool so runtime guard does not block. */
@@ -2908,6 +3017,7 @@ async function migrate(direction: 'up' | 'down' = 'up'): Promise<void> {
           audit_logs_immutable,
           audit_logs,
           transactions,
+          p2p_merchant_applications,
           p2p_disputes,
           p2p_orders,
           p2p_merchant_stats,

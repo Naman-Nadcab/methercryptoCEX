@@ -15,6 +15,26 @@ import { logger } from '../lib/logger.js';
 
 Decimal.set({ rounding: Decimal.ROUND_DOWN });
 
+async function areDepositsPaused(): Promise<boolean> {
+  try {
+    const [toggleRow, emergencyRow] = await Promise.all([
+      db.query<{ is_enabled: boolean | null }>(
+        `SELECT is_enabled FROM feature_toggles WHERE feature_key = 'deposit.enabled' ORDER BY updated_at DESC NULLS LAST LIMIT 1`
+      ).catch(() => ({ rows: [] as { is_enabled: boolean | null }[] })),
+      db.query<{ value: unknown }>(
+        `SELECT value FROM system_settings WHERE key = 'emergency_disable_deposits' LIMIT 1`
+      ).catch(() => ({ rows: [] as { value: unknown }[] })),
+    ]);
+    const toggleDisabled = toggleRow.rows.length > 0 && toggleRow.rows[0]!.is_enabled === false;
+    const emergencyVal = emergencyRow.rows[0]?.value;
+    const emergencyActive = emergencyVal === true || emergencyVal === '1' || emergencyVal === 'true'
+      || (typeof emergencyVal === 'string' && emergencyVal.toLowerCase() === 'true');
+    return toggleDisabled || emergencyActive;
+  } catch {
+    return false;
+  }
+}
+
 export interface CreditResult {
   credited: boolean;
   reason?: string;
@@ -62,6 +82,11 @@ async function markDepositFlagged(
  * Idempotent: safe to call multiple times; only one caller can win the atomic update.
  */
 export async function creditDepositIfConfirmed(depositId: string): Promise<CreditResult> {
+  if (await areDepositsPaused()) {
+    logger.info('Deposit credit skipped — deposits paused by admin controls', { depositId });
+    return { credited: false, reason: 'deposits_paused' };
+  }
+
   const result = await db.transaction(async (client) => {
     const sel = await client.query<{
       id: string;
@@ -175,6 +200,11 @@ export async function creditDepositIfConfirmed(depositId: string): Promise<Credi
  * Each deposit is credited atomically (one tx per deposit) to avoid holding locks across many rows.
  */
 export async function creditOverdueDepositsForUser(userId: string): Promise<{ credited: number; skipped: number }> {
+  if (await areDepositsPaused()) {
+    logger.info('Overdue deposit credit skipped — deposits paused by admin controls', { userId });
+    return { credited: 0, skipped: 0 };
+  }
+
   const list = await db.query<{ id: string }>(
     `SELECT id FROM deposits
      WHERE user_id = $1 AND status = 'pending'
@@ -200,6 +230,11 @@ export async function creditOverdueDepositsForUser(userId: string): Promise<{ cr
  * Atomic: only one caller can win the UPDATE ... WHERE balance_applied_at IS NULL; then credit.
  */
 export async function applyBalanceForOneCompletedDeposit(depositId: string): Promise<CreditResult> {
+  if (await areDepositsPaused()) {
+    logger.info('Deposit balance apply skipped — deposits paused by admin controls', { depositId });
+    return { credited: false, reason: 'deposits_paused' };
+  }
+
   const result = await db.transaction(async (client) => {
     const upd = await client.query<{
       id: string;

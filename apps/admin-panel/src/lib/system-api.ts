@@ -52,6 +52,11 @@ export interface FeatureDependencyRow {
   updated_at?: string | null;
 }
 
+export interface OperationalWalletStatus {
+  depositPaused: boolean;
+  withdrawalPaused: boolean;
+}
+
 export function getSystemSettings(token: string | null) {
   return adminFetch<{ settings: Record<string, SystemSettingEntry> }>('/system/settings', { token });
 }
@@ -168,5 +173,20 @@ export function postSystemSafeMode(token: string | null, enabled: boolean) {
     method: 'POST',
     token,
     body: { enabled },
+  });
+}
+
+export function getOperationalWalletStatus(token: string | null) {
+  return adminFetch<OperationalWalletStatus>('/operational/wallet-status', { token });
+}
+
+export function patchOperationalWalletStatus(
+  token: string | null,
+  body: { depositPaused?: boolean; withdrawalPaused?: boolean }
+) {
+  return adminFetch<{ message: string }>('/operational/wallet-status', {
+    method: 'PATCH',
+    token,
+    body,
   });
 }

@@ -6,7 +6,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { db } from '../lib/database.js';
-import { getAdminFromRequest } from './admin.fastify.js';
+import { getAdminWithPermission } from './admin.fastify.js';
 import { getTierLimitsFromSettings, updateTierLimits } from '../services/withdrawal-tier-limits.service.js';
 import { generateSTR, generateCTR, markReportSubmitted } from '../services/aml-reporting.service.js';
 import { checkSanctions } from '../services/sanctions-screening.service.js';
@@ -17,7 +17,13 @@ const ALERT_KEYS = ['alert_webhook_url', 'alert_slack_webhook_url', 'alert_pager
 
 export default async function adminPhase1ComplianceRoutes(app: FastifyInstance) {
   app.addHook('preHandler', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
+    const isRead = request.method.toUpperCase() === 'GET';
+    const admin = await getAdminWithPermission(
+      app,
+      request,
+      reply,
+      isRead ? 'monitoring:view' : 'settings:edit'
+    );
     if (!admin) return;
   });
 

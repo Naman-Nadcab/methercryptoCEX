@@ -6,6 +6,9 @@ import { useAdminAuthStore } from '@/store/auth';
 import {
   getMarketsList,
   updateMarket,
+  createSettingsTradingPair,
+  toggleSettingsTradingPair,
+  deleteSettingsTradingPair,
   type MarketRow,
 } from '@/lib/markets-api';
 import { postMarketHalt } from '@/lib/trading-api';
@@ -13,19 +16,28 @@ import { StatCard } from '@/components/dashboard/StatCard';
 import { MarketsTable } from '@/components/markets/MarketsTable';
 import { MarketControlModal, type MarketControlAction } from '@/components/markets/MarketControlModal';
 import { EditFeesModal } from '@/components/markets/EditFeesModal';
+import { CreatePairModal } from '@/components/markets/CreatePairModal';
+import { DeletePairModal } from '@/components/markets/DeletePairModal';
+import { Button } from '@/components/ui/Button';
+import { TableSkeleton } from '@/components/ui';
 import { useAdminWs } from '@/hooks/useAdminWs';
-import { BarChart3, Layers, PauseCircle, Percent } from 'lucide-react';
+import { BarChart3, Layers, PauseCircle, Percent, Plus } from 'lucide-react';
 
 export default function MarketsPage() {
   const token = useAdminAuthStore((s) => s.accessToken);
   const queryClient = useQueryClient();
   const [controlModal, setControlModal] = useState<{ action: MarketControlAction; market: MarketRow | null } | null>(null);
   const [editFeesMarket, setEditFeesMarket] = useState<MarketRow | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<MarketRow | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin', 'markets', token],
+    staleTime: 30_000,
     queryFn: () => getMarketsList(token),
     enabled: !!token,
+    refetchInterval: 15_000,
   });
 
   const updateMutation = useMutation({
@@ -60,6 +72,43 @@ export default function MarketsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'markets'] });
       setControlModal(null);
+    },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (body: Parameters<typeof createSettingsTradingPair>[1]) => {
+      const res = await createSettingsTradingPair(token, body);
+      if (!res.success) throw new Error((res as { error?: { message?: string } }).error?.message ?? 'Create failed');
+      return res;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'markets'] });
+      setShowCreateModal(false);
+    },
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: async (row: MarketRow) => {
+      const id = row.id ?? row.symbol;
+      setTogglingId(id);
+      const res = await toggleSettingsTradingPair(token, id!);
+      if (!res.success) throw new Error((res as { error?: { message?: string } }).error?.message ?? 'Toggle failed');
+      return res;
+    },
+    onSettled: () => setTogglingId(null),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'markets'] }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (row: MarketRow) => {
+      const id = row.id ?? row.symbol;
+      const res = await deleteSettingsTradingPair(token, id!);
+      if (!res.success) throw new Error((res as { error?: { message?: string } }).error?.message ?? 'Delete failed');
+      return res;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'markets'] });
+      setDeleteTarget(null);
     },
   });
 
@@ -109,10 +158,15 @@ export default function MarketsPage() {
   };
 
   return (
-    <div className="space-y-6 p-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-gray-900">Markets Management</h1>
-        <p className="mt-1 text-sm text-admin-muted">View and manage trading pairs.</p>
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-lg font-semibold text-admin-text">Markets</h1>
+          <p className="text-xs text-admin-muted mt-0.5">View and manage trading pairs.</p>
+        </div>
+        <Button size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => setShowCreateModal(true)}>
+          Create Pair
+        </Button>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -142,14 +196,14 @@ export default function MarketsPage() {
               : '—'
           }
           icon={Percent}
-          iconBg="bg-gray-100 text-admin-muted"
+          iconBg="bg-white/5 text-admin-muted"
         />
       </div>
 
-      <div className="rounded-xl border border-admin-border bg-white p-6">
-        <h2 className="mb-4 text-lg font-semibold text-gray-900">Markets</h2>
+      <div className="rounded-xl border border-admin-border bg-admin-card p-6">
+        <h2 className="mb-4 text-lg font-semibold text-admin-text">Markets</h2>
         {isLoading ? (
-          <div className="py-8 text-center text-admin-muted">Loading…</div>
+          <TableSkeleton rows={8} cols={6} />
         ) : (
           <MarketsTable
             rows={markets}
@@ -158,6 +212,9 @@ export default function MarketsPage() {
             onPause={(row) => setControlModal({ action: 'pause', market: row })}
             onResume={(row) => setControlModal({ action: 'resume', market: row })}
             onEditFees={(row) => setEditFeesMarket(row)}
+            onToggleActive={(row) => toggleMutation.mutate(row)}
+            onDelete={(row) => setDeleteTarget(row)}
+            togglingId={togglingId}
           />
         )}
       </div>
@@ -177,6 +234,21 @@ export default function MarketsPage() {
         onClose={() => setEditFeesMarket(null)}
         onConfirm={handleEditFeesConfirm}
         isLoading={updateMutation.isPending}
+      />
+
+      <CreatePairModal
+        open={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onConfirm={(data) => createMutation.mutate(data)}
+        isLoading={createMutation.isPending}
+      />
+
+      <DeletePairModal
+        open={!!deleteTarget}
+        market={deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget)}
+        isLoading={deleteMutation.isPending}
       />
     </div>
   );

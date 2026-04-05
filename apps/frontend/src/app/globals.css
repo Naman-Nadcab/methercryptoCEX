@@ -324,6 +324,40 @@ input[type="number"] {
   --destructive: 0 84% 60%;
 }
 
+/* ========== ADMIN PANEL: DARK THEME ========== */
+.dark .admin-panel {
+  --admin-bg: #0F1117;
+  --admin-card-bg: #181A20;
+  --admin-card-border: #2A2D35;
+  --admin-sidebar-bg: #14161C;
+  --admin-header-bg: #14161C;
+  --admin-text: #E5E7EB;
+  --admin-text-muted: #9CA3AF;
+  --admin-active-bg: rgba(139, 92, 246, 0.15);
+  --admin-hover-bg: #1F2128;
+  --admin-primary: #8B5CF6;
+  --admin-primary-light: #A78BFA;
+  --admin-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.3), 0 1px 2px -1px rgba(0, 0, 0, 0.2);
+  --admin-shadow-hover: 0 4px 6px -1px rgba(0, 0, 0, 0.35), 0 2px 4px -2px rgba(0, 0, 0, 0.2);
+  --admin-input-bg: #1F2128;
+  --admin-muted: #9CA3AF;
+  --chart-primary: #A78BFA;
+  --chart-secondary: #818CF8;
+  --chart-grid: #2A2D35;
+  --chart-accent: #C084FC;
+  --background: 225 15% 7%;
+  --foreground: 220 14% 90%;
+  --card: 225 12% 11%;
+  --card-foreground: 220 14% 90%;
+  --muted: 225 10% 15%;
+  --muted-foreground: 220 9% 65%;
+  --border: 225 10% 18%;
+  --primary: 263 70% 66%;
+  --primary-foreground: 0 0% 100%;
+  --ring: 263 70% 66%;
+  --destructive: 0 84% 60%;
+}
+
 @keyframes admin-fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes admin-slide-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes admin-scale-in { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
@@ -340,12 +374,17 @@ input[type="number"] {
   border-radius: 6px;
 }
 
+.dark .admin-panel .admin-skeleton {
+  background: linear-gradient(90deg, #1F2128 25%, #2A2D35 50%, #1F2128 75%);
+  background-size: 200% 100%;
+}
+
 /* Admin tables: modern SaaS CRM style */
 .admin-panel table thead {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: #FFFFFF;
+  background: var(--admin-card-bg);
 }
 
 .admin-panel table th {
@@ -353,17 +392,17 @@ input[type="number"] {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #6B7280;
+  color: var(--admin-text-muted);
   padding: 14px 20px;
-  border-bottom: 1px solid #E5E7EB;
+  border-bottom: 1px solid var(--admin-card-border);
 }
 
 .admin-panel table td {
   padding: 14px 20px;
-  border-bottom: 1px solid #F3F4F6;
+  border-bottom: 1px solid var(--admin-card-border);
   vertical-align: middle;
   font-size: 14px;
-  color: #111827;
+  color: var(--admin-text);
 }
 
 .admin-panel table tbody tr {
@@ -371,7 +410,7 @@ input[type="number"] {
 }
 
 .admin-panel table tbody tr:hover {
-  background: #F9FAFB;
+  background: var(--admin-hover-bg);
 }
 
 .admin-panel table .num {

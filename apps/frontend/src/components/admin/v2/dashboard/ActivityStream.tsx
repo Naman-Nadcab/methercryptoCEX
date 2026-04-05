@@ -30,7 +30,7 @@ export function ActivityStream() {
 
   if (wLoading && dLoading) {
     return (
-      <div className="rounded-[var(--admin-radius)] border border-[var(--admin-card-border)] bg-white p-4 shadow-[var(--admin-shadow)]">
+      <div className="rounded-[var(--admin-radius)] border border-[var(--admin-card-border)] bg-[var(--admin-card-bg)] p-4 shadow-[var(--admin-shadow)]">
         <h3 className="text-sm font-semibold text-[var(--admin-text)] mb-3">Recent Activity</h3>
         <div className="flex items-center justify-center py-8">
           <Loader2 className="w-6 h-6 animate-spin text-[var(--admin-primary)]" />
@@ -40,7 +40,7 @@ export function ActivityStream() {
   }
 
   return (
-    <div className="rounded-[var(--admin-radius)] border border-[var(--admin-card-border)] bg-white p-4 shadow-[var(--admin-shadow)]">
+    <div className="rounded-[var(--admin-radius)] border border-[var(--admin-card-border)] bg-[var(--admin-card-bg)] p-4 shadow-[var(--admin-shadow)]">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-[var(--admin-text)]">Recent Activity</h3>
         <Link href="/admin/withdrawals" className="text-xs font-medium text-[var(--admin-primary)] hover:underline">

@@ -69,6 +69,46 @@ interface TransferIdempotencyCache {
   response: { success: true; message: string; data: Record<string, unknown> };
 }
 
+function toBooleanFlag(value: unknown, defaultValue: boolean): boolean {
+  if (value == null) return defaultValue;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  const normalized = String(value).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on', 'enabled'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off', 'disabled'].includes(normalized)) return false;
+  return defaultValue;
+}
+
+async function isFeatureToggleEnabled(featureKey: string, defaultEnabled = true): Promise<boolean> {
+  try {
+    const row = await db.query<{ is_enabled: boolean | null }>(
+      `SELECT is_enabled
+       FROM feature_toggles
+       WHERE feature_key = $1
+       ORDER BY updated_at DESC NULLS LAST, created_at DESC
+       LIMIT 1`,
+      [featureKey]
+    );
+    if (row.rows.length === 0) return defaultEnabled;
+    return row.rows[0]!.is_enabled !== false;
+  } catch {
+    return defaultEnabled;
+  }
+}
+
+async function isSystemSettingEnabled(settingKey: string, defaultEnabled = true): Promise<boolean> {
+  try {
+    const row = await db.query<{ value: unknown }>(
+      `SELECT value FROM system_settings WHERE key = $1 LIMIT 1`,
+      [settingKey]
+    );
+    if (row.rows.length === 0) return defaultEnabled;
+    return toBooleanFlag(row.rows[0]!.value, defaultEnabled);
+  } catch {
+    return defaultEnabled;
+  }
+}
+
 interface ChainDB {
   id: string;
   id_text?: string;
@@ -326,6 +366,18 @@ export default async function walletRoutes(app: FastifyInstance) {
       });
 
     try {
+      // Hard-enforce operational deposit toggles (feature flag + emergency switch).
+      const [depositFeatureEnabled, emergencyDisableDeposits] = await Promise.all([
+        isFeatureToggleEnabled('deposit.enabled', true),
+        isSystemSettingEnabled('emergency_disable_deposits', false),
+      ]);
+      if (!depositFeatureEnabled || emergencyDisableDeposits) {
+        return reply.status(503).send({
+          success: false,
+          error: { code: 'DEPOSITS_PAUSED', message: 'Deposits are temporarily paused by system controls.' },
+        });
+      }
+
       // Step 1: KYC (support both kyc_applications and kyc_records)
       let isKycVerified = false;
       try {
@@ -1624,6 +1676,18 @@ export default async function walletRoutes(app: FastifyInstance) {
     preHandler: [app.authenticate, rateLimitByUser('wallet:withdrawal', 5, 3600, { failClosed: config.rateLimit.failClosed })],
   }, async (request, reply) => {
     try {
+      // Hard-enforce operational withdrawal toggles (feature flag + emergency switch).
+      const [withdrawFeatureEnabled, emergencyDisableWithdrawals] = await Promise.all([
+        isFeatureToggleEnabled('withdrawal.enabled', true),
+        isSystemSettingEnabled('emergency_disable_withdrawals', false),
+      ]);
+      if (!withdrawFeatureEnabled || emergencyDisableWithdrawals) {
+        return reply.status(503).send({
+          success: false,
+          error: { code: 'WITHDRAWALS_PAUSED', message: 'Withdrawals are temporarily paused by system controls.' },
+        });
+      }
+
       if (request.user?.allowWithdraw === false) {
         return reply.status(403).send({
           success: false,

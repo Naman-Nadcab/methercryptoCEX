@@ -148,7 +148,7 @@ export default function AssetsOverviewPage() {
   useEffect(() => {
     if (!accessToken) return;
     api.get<{ success: boolean; data?: PortfolioPoint[] }>(`/api/v1/wallet/portfolio-history?period=${chartPeriod}`, { notifyOnError: false })
-      .then((r) => { if (r.success && r.data) setPortfolioHistory(r.data); })
+      .then((r) => { if (r.success && Array.isArray(r.data)) setPortfolioHistory(r.data as PortfolioPoint[]); })
       .catch(() => {});
   }, [accessToken, chartPeriod]);
 
@@ -156,7 +156,7 @@ export default function AssetsOverviewPage() {
   useEffect(() => {
     if (!accessToken) return;
     api.get<{ success: boolean; data?: Transaction[] }>('/api/v1/wallet/transactions/all?limit=8', { notifyOnError: false })
-      .then((r) => { if (r.success && r.data) setRecentTxs(r.data); })
+      .then((r) => { if (r.success && Array.isArray(r.data)) setRecentTxs(r.data as Transaction[]); })
       .catch(() => {});
   }, [accessToken]);
 

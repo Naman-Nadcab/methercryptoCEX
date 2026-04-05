@@ -27,9 +27,9 @@ function formatVolume(v: string): string {
 
 export function HighRiskUsersTable({ rows }: HighRiskUsersTableProps) {
   return (
-    <div className="overflow-x-auto rounded-xl border border-admin-border bg-white">
+    <div className="overflow-x-auto rounded-xl border border-admin-border bg-admin-card">
       <table className="w-full min-w-[700px] text-left text-sm">
-        <thead className="bg-gray-50">
+        <thead className="bg-white/[0.02]">
           <tr>
             <th className="px-4 py-3 font-medium text-admin-muted">User</th>
             <th className="px-4 py-3 font-medium text-admin-muted">Risk Score</th>
@@ -47,18 +47,18 @@ export function HighRiskUsersTable({ rows }: HighRiskUsersTableProps) {
             </tr>
           ) : (
             rows.map((row) => (
-              <tr key={row.user_id} className="border-t border-admin-border hover:bg-gray-50/50">
+              <tr key={row.user_id} className="border-t border-admin-border hover:bg-admin-card/[0.03]">
                 <td className="px-4 py-3">
                   {row.user_email ? (
                     <Link href={`/users/${row.user_id}`} className="text-admin-primary hover:underline">
                       {row.user_email}
                     </Link>
                   ) : (
-                    <span className="font-mono text-gray-600">{row.user_id?.slice(0, 8)}…</span>
+                    <span className="font-mono text-admin-muted">{row.user_id?.slice(0, 8)}…</span>
                   )}
                 </td>
                 <td className="px-4 py-3">
-                  <span className={row.risk_score > 2 ? 'font-semibold text-red-600' : 'text-gray-900'}>
+                  <span className={row.risk_score > 2 ? 'font-semibold text-red-600' : 'text-admin-text'}>
                     {row.risk_score}
                   </span>
                 </td>
@@ -74,8 +74,8 @@ export function HighRiskUsersTable({ rows }: HighRiskUsersTableProps) {
                     )}
                   </div>
                 </td>
-                <td className="px-4 py-3 tabular-nums text-gray-900">{formatVolume(row.total_volume)}</td>
-                <td className="px-4 py-3 text-gray-600">{formatDate(row.last_activity)}</td>
+                <td className="px-4 py-3 tabular-nums text-admin-text">{formatVolume(row.total_volume)}</td>
+                <td className="px-4 py-3 text-admin-muted">{formatDate(row.last_activity)}</td>
               </tr>
             ))
           )}

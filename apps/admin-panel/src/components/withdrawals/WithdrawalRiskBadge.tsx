@@ -5,7 +5,7 @@ import { cn } from '@/lib/cn';
 export type RiskScore = 'low' | 'medium' | 'high';
 
 const STYLES: Record<RiskScore, string> = {
-  low: 'bg-gray-100 text-admin-muted',
+  low: 'bg-white/5 text-admin-muted',
   medium: 'bg-amber-100 text-admin-warning',
   high: 'bg-red-100 text-admin-danger',
 };

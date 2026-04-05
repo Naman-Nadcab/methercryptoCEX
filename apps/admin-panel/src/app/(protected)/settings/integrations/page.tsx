@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/dashboard/StatusBadge';
 import { ArrowLeft, Plus, Pencil } from 'lucide-react';
+import { TableSkeleton } from '@/components/ui';
 
 const PROVIDER_NAMES = ['Chainalysis', 'TRM Labs', 'Elliptic', 'SumSub', 'ComplyAdvantage'];
 
@@ -93,7 +94,7 @@ export default function SettingsIntegrationsPage() {
   };
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <Link href="/settings">
@@ -102,8 +103,8 @@ export default function SettingsIntegrationsPage() {
             </Button>
           </Link>
           <div>
-            <h1 className="text-2xl font-semibold text-gray-900">Compliance Integrations</h1>
-            <p className="mt-1 text-sm text-admin-muted">
+            <h1 className="text-lg font-semibold text-admin-text">Compliance Integrations</h1>
+            <p className="text-xs text-admin-muted mt-0.5">
               Configure Chainalysis, TRM Labs, Elliptic, SumSub, ComplyAdvantage. Enable/disable and update API keys without redeploy.
             </p>
           </div>
@@ -120,11 +121,11 @@ export default function SettingsIntegrationsPage() {
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="py-8 text-center text-admin-muted">Loading…</div>
+            <TableSkeleton rows={3} cols={4} />
           ) : (
             <div className="overflow-x-auto rounded-xl border border-admin-border">
               <table className="w-full min-w-[700px] text-left text-sm">
-                <thead className="bg-gray-50">
+                <thead className="bg-white/[0.02]">
                   <tr>
                     <th className="px-4 py-3 font-medium text-admin-muted">Provider</th>
                     <th className="px-4 py-3 font-medium text-admin-muted">API URL</th>
@@ -143,13 +144,13 @@ export default function SettingsIntegrationsPage() {
                     </tr>
                   ) : (
                     integrations.map((r) => (
-                      <tr key={r.id} className="border-t border-admin-border hover:bg-gray-50/50">
-                        <td className="px-4 py-3 font-medium text-gray-900">{r.provider_name}</td>
-                        <td className="px-4 py-3 font-mono text-xs text-gray-600 max-w-[200px] truncate" title={r.api_url}>
+                      <tr key={r.id} className="border-t border-admin-border hover:bg-white/5">
+                        <td className="px-4 py-3 font-medium text-admin-text">{r.provider_name}</td>
+                        <td className="px-4 py-3 font-mono text-xs text-admin-muted max-w-[200px] truncate" title={r.api_url}>
                           {r.api_url || '—'}
                         </td>
-                        <td className="px-4 py-3 text-gray-600">{r.api_key || '—'}</td>
-                        <td className="px-4 py-3 text-gray-600">{r.webhook_secret || '—'}</td>
+                        <td className="px-4 py-3 text-admin-muted">{r.api_key || '—'}</td>
+                        <td className="px-4 py-3 text-admin-muted">{r.webhook_secret || '—'}</td>
                         <td className="px-4 py-3">
                           <StatusBadge status={r.status} />
                         </td>
@@ -171,20 +172,20 @@ export default function SettingsIntegrationsPage() {
       {modal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setModal(null)}>
           <div
-            className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl"
+            className="w-full max-w-md rounded-xl bg-admin-card p-6 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="text-lg font-semibold text-gray-900">
+            <h2 className="text-lg font-semibold text-admin-text">
               {modal.type === 'add' ? 'Add compliance provider' : 'Edit compliance provider'}
             </h2>
             <form onSubmit={handleSubmit} className="mt-4 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Provider name</label>
+                <label className="block text-sm font-medium text-admin-text">Provider name</label>
                 {modal.type === 'add' ? (
                   <select
                     value={form.provider_name}
                     onChange={(e) => setForm((f) => ({ ...f, provider_name: e.target.value }))}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                    className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
                     required
                   >
                     <option value="">Select provider</option>
@@ -197,47 +198,47 @@ export default function SettingsIntegrationsPage() {
                     type="text"
                     value={form.provider_name}
                     onChange={(e) => setForm((f) => ({ ...f, provider_name: e.target.value }))}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                    className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
                     required
                   />
                 )}
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">API URL</label>
+                <label className="block text-sm font-medium text-admin-text">API URL</label>
                 <input
                   type="url"
                   value={form.api_url}
                   onChange={(e) => setForm((f) => ({ ...f, api_url: e.target.value }))}
                   placeholder="https://..."
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">API key</label>
+                <label className="block text-sm font-medium text-admin-text">API key</label>
                 <input
                   type="password"
                   value={form.api_key}
                   onChange={(e) => setForm((f) => ({ ...f, api_key: e.target.value }))}
                   placeholder={modal.type === 'edit' ? 'Leave blank to keep current' : 'Optional'}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Webhook secret</label>
+                <label className="block text-sm font-medium text-admin-text">Webhook secret</label>
                 <input
                   type="password"
                   value={form.webhook_secret}
                   onChange={(e) => setForm((f) => ({ ...f, webhook_secret: e.target.value }))}
                   placeholder={modal.type === 'edit' ? 'Leave blank to keep current' : 'Optional'}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Status</label>
+                <label className="block text-sm font-medium text-admin-text">Status</label>
                 <select
                   value={form.status}
                   onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
                 >
                   <option value="active">active</option>
                   <option value="inactive">inactive</option>

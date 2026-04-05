@@ -62,13 +62,15 @@ const envSchema = z.object({
   APPLE_CALLBACK_URL: z.string().optional(),
   TELEGRAM_BOT_TOKEN: z.string().optional(),
 
-  // Email
+  // Email (accepts SMTP_PASSWORD or SMTP_PASS; EMAIL_FROM or SMTP_FROM)
   SMTP_HOST: z.string().default('smtp.gmail.com'),
   SMTP_PORT: z.coerce.number().default(587),
   SMTP_SECURE: z.coerce.boolean().default(false),
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
-  EMAIL_FROM: z.string().default('noreply@exchange.com'),
+  SMTP_PASS: z.string().optional(),
+  EMAIL_FROM: z.string().optional(),
+  SMTP_FROM: z.string().optional(),
 
   // SMS
   SMS_PROVIDER: z.enum(['twilio', 'sns', 'mock']).default('mock'),
@@ -736,8 +738,8 @@ export const config = {
     port: parsed.data.SMTP_PORT,
     secure: parsed.data.SMTP_SECURE,
     user: parsed.data.SMTP_USER,
-    password: parsed.data.SMTP_PASSWORD,
-    from: parsed.data.EMAIL_FROM,
+    password: parsed.data.SMTP_PASSWORD || parsed.data.SMTP_PASS || '',
+    from: parsed.data.EMAIL_FROM || parsed.data.SMTP_FROM || 'noreply@exchange.com',
   },
 
   sms: {

@@ -7,6 +7,7 @@ import { useAdminAuthStore } from '@/store/auth';
 import { getRiskSettings, patchRiskSettings, type RiskSettings } from '@/lib/risk-api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { FormSkeleton } from '@/components/ui';
 import { ArrowLeft } from 'lucide-react';
 
 export default function RiskSettingsPage() {
@@ -54,7 +55,7 @@ export default function RiskSettingsPage() {
   };
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-5">
       <div className="flex items-center gap-4">
         <Link href="/risk">
           <Button variant="ghost" size="sm">
@@ -62,8 +63,8 @@ export default function RiskSettingsPage() {
           </Button>
         </Link>
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Dynamic Risk Rules</h1>
-          <p className="mt-1 text-sm text-admin-muted">
+          <h1 className="text-lg font-semibold text-admin-text">Dynamic Risk Rules</h1>
+          <p className="text-xs text-admin-muted mt-0.5">
             Configure thresholds for large withdrawals, whale trades, cancel rate, and market manipulation window.
           </p>
         </div>
@@ -75,11 +76,11 @@ export default function RiskSettingsPage() {
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="py-8 text-center text-admin-muted">Loading…</div>
+            <FormSkeleton fields={5} />
           ) : (
             <form onSubmit={handleSubmit} className="max-w-xl space-y-4">
               <div>
-                <label htmlFor="large_withdrawal" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="large_withdrawal" className="block text-sm font-medium text-admin-text">
                   Large Withdrawal Threshold (USD)
                 </label>
                 <input
@@ -88,11 +89,11 @@ export default function RiskSettingsPage() {
                   min={0}
                   value={largeWithdrawal}
                   onChange={(e) => setLargeWithdrawal(parseInt(e.target.value, 10) || 0)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
                 />
               </div>
               <div>
-                <label htmlFor="whale_trade" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="whale_trade" className="block text-sm font-medium text-admin-text">
                   Whale Trade Threshold (USD)
                 </label>
                 <input
@@ -101,11 +102,11 @@ export default function RiskSettingsPage() {
                   min={0}
                   value={whaleTrade}
                   onChange={(e) => setWhaleTrade(parseInt(e.target.value, 10) || 0)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
                 />
               </div>
               <div>
-                <label htmlFor="cancel_rate" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="cancel_rate" className="block text-sm font-medium text-admin-text">
                   Cancel Rate Threshold (%)
                 </label>
                 <input
@@ -115,11 +116,11 @@ export default function RiskSettingsPage() {
                   max={100}
                   value={cancelRate}
                   onChange={(e) => setCancelRate(parseInt(e.target.value, 10) || 0)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
                 />
               </div>
               <div>
-                <label htmlFor="manipulation_window" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="manipulation_window" className="block text-sm font-medium text-admin-text">
                   Market Manipulation Window (seconds)
                 </label>
                 <input
@@ -128,7 +129,7 @@ export default function RiskSettingsPage() {
                   min={0}
                   value={manipulationWindow}
                   onChange={(e) => setManipulationWindow(parseInt(e.target.value, 10) || 0)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
                 />
               </div>
               <div className="flex gap-2">

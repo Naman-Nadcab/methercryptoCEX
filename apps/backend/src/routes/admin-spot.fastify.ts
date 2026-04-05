@@ -3,16 +3,25 @@ import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
 import { setSymbolCircuit, isSymbolCircuitOpen } from '../lib/per-symbol-circuit.js';
 import { logger } from '../lib/logger.js';
-import { getAdminFromRequest } from './admin.fastify.js';
+import { getAdminWithPermission } from './admin.fastify.js';
 import { getOrderbookFromDb } from '../services/spot-orderbook-cache.service.js';
 
 const CIRCUIT_KEY_PREFIX = 'spot:circuit:';
 
 export default async function adminSpotRoutes(app: FastifyInstance) {
+  app.addHook('preHandler', async (request, reply) => {
+    const isRead = request.method.toUpperCase() === 'GET';
+    const admin = await getAdminWithPermission(
+      app,
+      request,
+      reply,
+      isRead ? 'monitoring:view' : 'markets:manage'
+    );
+    if (!admin) return;
+  });
+
   // GET /admin/spot/orderbook/:symbol — L2 orderbook for admin monitor (depth default 50, max 100)
   app.get<{ Params: { symbol: string }; Querystring: { depth?: string } }>('/orderbook/:symbol', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
-    if (!admin) return;
     const symbol = (request.params.symbol || '').toUpperCase().replace(/-/g, '_');
     const depth = Math.min(100, Math.max(10, parseInt(request.query.depth || '50', 10) || 50));
     try {
@@ -34,8 +43,6 @@ export default async function adminSpotRoutes(app: FastifyInstance) {
 
   // GET /admin/spot/markets — list all spot markets (admin), with circuit_breaker_count per symbol
   app.get('/markets', async (request: FastifyRequest, reply: FastifyReply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
-    if (!admin) return;
     try {
       const result = await db.query(`
         SELECT id, symbol, base_asset, quote_asset, status, min_qty, min_notional, price_precision, qty_precision,
@@ -65,8 +72,6 @@ export default async function adminSpotRoutes(app: FastifyInstance) {
 
   // GET /admin/spot/markets/:symbol — market detail + circuit breaker count + live stats
   app.get<{ Params: { symbol: string } }>('/markets/:symbol', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
-    if (!admin) return;
     const symbol = (request.params.symbol || '').toUpperCase().replace(/-/g, '_');
     try {
       const marketRes = await db.query(`
@@ -119,7 +124,7 @@ export default async function adminSpotRoutes(app: FastifyInstance) {
 
   // POST /admin/spot/markets/:symbol/symbol-circuit — set per-symbol halt (body: { halted: boolean })
   app.post<{ Params: { symbol: string }; Body: { halted: boolean } }>('/markets/:symbol/symbol-circuit', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
+    const admin = await getAdminWithPermission(app, request, reply, 'markets:manage');
     if (!admin) return;
     const symbol = (request.params.symbol || '').toUpperCase().replace(/-/g, '_');
     const halted = request.body?.halted === true;
@@ -135,7 +140,7 @@ export default async function adminSpotRoutes(app: FastifyInstance) {
 
   // POST /admin/spot/markets/:symbol/circuit-reset — clear circuit key and set status to active
   app.post<{ Params: { symbol: string } }>('/markets/:symbol/circuit-reset', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
+    const admin = await getAdminWithPermission(app, request, reply, 'markets:manage');
     if (!admin) return;
     const symbol = (request.params.symbol || '').toUpperCase().replace(/-/g, '_');
     try {
@@ -155,7 +160,7 @@ export default async function adminSpotRoutes(app: FastifyInstance) {
     Params: { symbol: string };
     Body: { status?: string; min_qty?: number; min_notional?: number; maker_fee?: number; taker_fee?: number };
   }>('/markets/:symbol', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
+    const admin = await getAdminWithPermission(app, request, reply, 'markets:manage');
     if (!admin) return;
     const symbol = (request.params.symbol || '').toUpperCase().replace(/-/g, '_');
     const { status, min_qty, min_notional, maker_fee, taker_fee } = request.body || {};
@@ -213,8 +218,6 @@ export default async function adminSpotRoutes(app: FastifyInstance) {
   app.get<{
     Querystring: { market?: string; status?: string; user_id?: string; limit?: string; offset?: string };
   }>('/orders', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
-    if (!admin) return;
     const market = (request.query.market || '').trim().toUpperCase().replace(/-/g, '_') || null;
     const status = (request.query.status || '').trim().toUpperCase() || null;
     const user_id = (request.query.user_id || '').trim() || null;
@@ -266,8 +269,6 @@ export default async function adminSpotRoutes(app: FastifyInstance) {
   app.get<{
     Querystring: { market?: string; user_id?: string; limit?: string; offset?: string };
   }>('/trades', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
-    if (!admin) return;
     const market = (request.query.market || '').trim().toUpperCase().replace(/-/g, '_') || null;
     const user_id = (request.query.user_id || '').trim() || null;
     const limit = Math.min(100, Math.max(1, parseInt(request.query.limit || '50', 10) || 50));

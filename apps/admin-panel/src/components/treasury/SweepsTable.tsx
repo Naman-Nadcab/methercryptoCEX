@@ -9,6 +9,7 @@ import {
 import type { SweepRow } from '@/lib/treasury-api';
 import { StatusBadge } from '@/components/dashboard/StatusBadge';
 import { Button } from '@/components/ui/Button';
+import { ProtectedAction } from '@/components/rbac/ProtectedAction';
 import { RefreshCw } from 'lucide-react';
 
 function truncateAddress(addr: string, head = 8, tail = 6): string {
@@ -91,14 +92,16 @@ export function SweepsTable({ rows, onRetry }: SweepsTableProps) {
             header: 'Actions',
             cell: ({ row }: { row: { original: SweepRow } }) =>
               row.original.status === 'failed' ? (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => onRetry(row.original)}
-                  title="Retry sweep"
-                >
-                  <RefreshCw className="h-4 w-4" />
-                </Button>
+                <ProtectedAction permission="treasury:sweep" fallback="disabled">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => onRetry(row.original)}
+                    title="Retry sweep"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                </ProtectedAction>
               ) : (
                 '—'
               ),
@@ -114,11 +117,11 @@ export function SweepsTable({ rows, onRetry }: SweepsTableProps) {
   });
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-admin-border bg-white">
+    <div className="overflow-x-auto rounded-xl border border-admin-border bg-admin-card">
       <table className="w-full text-left text-sm">
         <thead>
           {table.getHeaderGroups().map((hg) => (
-            <tr key={hg.id} className="border-b border-admin-border bg-gray-50">
+            <tr key={hg.id} className="border-b border-admin-border bg-white/[0.02]">
               {hg.headers.map((h) => (
                 <th key={h.id} className="px-4 py-3 font-medium text-admin-muted">
                   {flexRender(h.column.columnDef.header, h.getContext())}
@@ -129,9 +132,9 @@ export function SweepsTable({ rows, onRetry }: SweepsTableProps) {
         </thead>
         <tbody>
           {table.getRowModel().rows.map((row) => (
-            <tr key={row.id} className="border-b border-admin-border last:border-0 hover:bg-gray-50/50">
+            <tr key={row.id} className="border-b border-admin-border last:border-0 hover:bg-white/[0.03]">
               {row.getVisibleCells().map((cell) => (
-                <td key={cell.id} className="px-4 py-3 text-gray-900">
+                <td key={cell.id} className="px-4 py-3 text-admin-text">
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}
                 </td>
               ))}

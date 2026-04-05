@@ -27,6 +27,7 @@ import { StatCard } from '@/components/dashboard/StatCard';
 import { StatusBadge } from '@/components/dashboard/StatusBadge';
 import { Plus, Pencil, Power, PowerOff, Wifi, Cable, Activity, Zap, ListOrdered, RefreshCw, ArrowRightLeft } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { TableSkeleton } from '@/components/ui';
 
 function relativeTime(iso: string) {
   const d = new Date(iso);
@@ -78,32 +79,51 @@ export default function IntegrationsPage() {
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin', 'integrations', token, category],
+    staleTime: 30_000,
     queryFn: () => getIntegrations(token, category),
     enabled: !!token,
+    refetchInterval: 15_000,
   });
 
   const { data: healthData } = useQuery({
     queryKey: ['admin', 'integrations', 'health', token],
+    staleTime: 30_000,
     queryFn: () => getIntegrationsHealth(token),
     enabled: !!token,
+    refetchInterval: 15_000,
   });
 
   const { data: rateLimitData } = useQuery({
     queryKey: ['admin', 'integrations', 'rate-limits', token],
     queryFn: () => getIntegrationsRateLimits(token),
     enabled: !!token,
+    refetchInterval: 20_000,
   });
 
-  const { data: deliveriesData } = useQuery({
+  const {
+    data: deliveriesData,
+    isLoading: deliveriesLoading,
+    isError: deliveriesIsError,
+    error: deliveriesQueryError,
+  } = useQuery({
     queryKey: ['admin', 'integrations', 'webhook-deliveries', token],
+    staleTime: 30_000,
     queryFn: () => getWebhookDeliveries(token, { limit: 50, offset: 0 }),
     enabled: !!token && activeTab === 'webhooks',
+    refetchInterval: 15_000,
   });
 
-  const { data: logsData } = useQuery({
+  const {
+    data: logsData,
+    isLoading: logsLoading,
+    isError: logsIsError,
+    error: logsQueryError,
+  } = useQuery({
     queryKey: ['admin', 'integrations', 'event-logs', token],
+    staleTime: 30_000,
     queryFn: () => getIntegrationEventLogs(token, { limit: 50, offset: 0 }),
     enabled: !!token && activeTab === 'logs',
+    refetchInterval: 15_000,
   });
 
   const createMutation = useMutation({
@@ -162,6 +182,8 @@ export default function IntegrationsPage() {
   const rateLimits = (rateLimitData?.data?.rate_limits ?? []) as IntegrationRateLimitRow[];
   const deliveries = (deliveriesData?.data?.deliveries ?? []) as WebhookDeliveryRow[];
   const eventLogs = (logsData?.data?.logs ?? []) as IntegrationEventLogRow[];
+  const deliveriesFetchFailed = deliveriesIsError || deliveriesData?.success === false;
+  const logsFetchFailed = logsIsError || logsData?.success === false;
   const integrations = (data?.data?.integrations ?? []) as IntegrationRow[];
   const resetForm = () =>
     setForm({
@@ -236,13 +258,11 @@ export default function IntegrationsPage() {
   };
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Integrations Control Center</h1>
-          <p className="mt-1 text-sm text-admin-muted">
-            Manage external services: API keys, enable/disable, test connections, failover, and webhooks.
-          </p>
+          <h1 className="text-lg font-semibold text-admin-text">Integrations</h1>
+          <p className="text-xs text-admin-muted mt-0.5">Manage external services, API keys, test connections, and webhooks.</p>
         </div>
         <Button size="sm" onClick={openAdd}>
           <Plus className="mr-1 h-4 w-4" />
@@ -263,21 +283,21 @@ export default function IntegrationsPage() {
         <button
           type="button"
           onClick={() => setActiveTab('overview')}
-          className={cn('rounded-lg px-3 py-1.5 text-sm font-medium', activeTab === 'overview' ? 'bg-admin-primary/10 text-admin-primary' : 'text-admin-muted hover:bg-gray-100')}
+          className={cn('rounded-lg px-3 py-1.5 text-sm font-medium', activeTab === 'overview' ? 'bg-admin-primary/10 text-admin-primary' : 'text-admin-muted hover:bg-white/5')}
         >
           Overview
         </button>
         <button
           type="button"
           onClick={() => setActiveTab('webhooks')}
-          className={cn('rounded-lg px-3 py-1.5 text-sm font-medium', activeTab === 'webhooks' ? 'bg-admin-primary/10 text-admin-primary' : 'text-admin-muted hover:bg-gray-100')}
+          className={cn('rounded-lg px-3 py-1.5 text-sm font-medium', activeTab === 'webhooks' ? 'bg-admin-primary/10 text-admin-primary' : 'text-admin-muted hover:bg-white/5')}
         >
           Webhook deliveries
         </button>
         <button
           type="button"
           onClick={() => setActiveTab('logs')}
-          className={cn('rounded-lg px-3 py-1.5 text-sm font-medium', activeTab === 'logs' ? 'bg-admin-primary/10 text-admin-primary' : 'text-admin-muted hover:bg-gray-100')}
+          className={cn('rounded-lg px-3 py-1.5 text-sm font-medium', activeTab === 'logs' ? 'bg-admin-primary/10 text-admin-primary' : 'text-admin-muted hover:bg-white/5')}
         >
           Event logs
         </button>
@@ -305,7 +325,7 @@ export default function IntegrationsPage() {
                   'rounded-lg border px-4 py-2 text-sm font-medium transition-colors',
                   category === cat
                     ? 'border-admin-primary bg-admin-primary/10 text-admin-primary'
-                    : 'border-admin-border bg-white text-admin-muted hover:bg-gray-50'
+                    : 'border-admin-border bg-admin-card text-admin-muted hover:bg-white/5'
                 )}
               >
                 {CATEGORY_LABELS[cat]}
@@ -313,9 +333,9 @@ export default function IntegrationsPage() {
             ))}
           </div>
 
-          <div className="mt-4 overflow-x-auto rounded-xl border border-admin-border bg-white">
+          <div className="mt-4 overflow-x-auto rounded-xl border border-admin-border bg-admin-card">
             <table className="w-full min-w-[800px] text-left text-sm">
-              <thead className="bg-gray-50">
+              <thead className="bg-white/[0.02]">
                 <tr>
                   <th className="px-4 py-3 font-medium text-admin-muted">Provider</th>
                   <th className="px-4 py-3 font-medium text-admin-muted">Category</th>
@@ -344,12 +364,12 @@ export default function IntegrationsPage() {
                   </tr>
                 ) : (
                   integrations.map((row) => (
-                    <tr key={row.id} className="border-t border-admin-border hover:bg-gray-50/50">
+                    <tr key={row.id} className="border-t border-admin-border hover:bg-white/5">
                       <td className="px-4 py-3 font-medium">{row.provider_name}</td>
-                      <td className="px-4 py-3 text-gray-700">
+                      <td className="px-4 py-3 text-admin-text">
                         {CATEGORY_LABELS[row.category as IntegrationCategory] ?? row.category}
                       </td>
-                      <td className="max-w-[180px] truncate font-mono text-xs text-gray-600" title={row.endpoint_url}>
+                      <td className="max-w-[180px] truncate font-mono text-xs text-admin-muted" title={row.endpoint_url}>
                         {row.endpoint_url || '—'}
                       </td>
                       <td className="px-4 py-3 text-admin-muted">
@@ -401,7 +421,7 @@ export default function IntegrationsPage() {
                           </Button>
                         </div>
                         {testResult?.id === row.id && (
-                          <div className="mt-1 rounded bg-gray-100 px-2 py-1 text-xs">
+                          <div className="mt-1 rounded bg-white/5 px-2 py-1 text-xs">
                             Latency: {testResult.latency_ms} ms · Status: {testResult.status}
                             {testResult.error && ` · ${testResult.error}`}
                           </div>
@@ -416,10 +436,10 @@ export default function IntegrationsPage() {
 
           {category === 'webhook_endpoints' && integrations.some((r) => r.event_type) && (
             <div className="mt-4">
-              <h4 className="mb-2 text-sm font-medium text-gray-700">Webhooks</h4>
+              <h4 className="mb-2 text-sm font-medium text-admin-text">Webhooks</h4>
               <div className="overflow-x-auto rounded-lg border border-admin-border">
                 <table className="w-full text-left text-sm">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-white/[0.02]">
                     <tr>
                       <th className="px-4 py-2 font-medium text-admin-muted">Webhook URL</th>
                       <th className="px-4 py-2 font-medium text-admin-muted">Event Type</th>
@@ -446,10 +466,10 @@ export default function IntegrationsPage() {
 
           {category === 'price_oracles' && integrations.length > 0 && (
             <div className="mt-4">
-              <h4 className="mb-2 text-sm font-medium text-gray-700">Oracle providers</h4>
+              <h4 className="mb-2 text-sm font-medium text-admin-text">Oracle providers</h4>
               <div className="overflow-x-auto rounded-lg border border-admin-border">
                 <table className="w-full text-left text-sm">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-white/[0.02]">
                     <tr>
                       <th className="px-4 py-2 font-medium text-admin-muted">Provider</th>
                       <th className="px-4 py-2 font-medium text-admin-muted">Assets covered</th>
@@ -476,10 +496,10 @@ export default function IntegrationsPage() {
 
           {rateLimits.length > 0 && (
             <div className="mt-6">
-              <h4 className="mb-2 text-sm font-medium text-gray-700">API rate limits</h4>
+              <h4 className="mb-2 text-sm font-medium text-admin-text">API rate limits</h4>
               <div className="overflow-x-auto rounded-lg border border-admin-border">
                 <table className="w-full text-left text-sm">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-white/[0.02]">
                     <tr>
                       <th className="px-4 py-2 font-medium text-admin-muted">Provider</th>
                       <th className="px-4 py-2 font-medium text-admin-muted">Category</th>
@@ -513,9 +533,18 @@ export default function IntegrationsPage() {
             <CardTitle>Webhook delivery history</CardTitle>
           </CardHeader>
           <CardContent>
+            {deliveriesLoading ? (
+              <TableSkeleton rows={5} cols={7} />
+            ) : deliveriesFetchFailed ? (
+              <p className="px-4 py-8 text-center text-sm text-admin-danger" role="alert">
+                {(deliveriesQueryError as Error)?.message ??
+                  deliveriesData?.error?.message ??
+                  'Failed to load webhook deliveries.'}
+              </p>
+            ) : (
             <div className="overflow-x-auto rounded-xl border border-admin-border">
               <table className="w-full min-w-[640px] text-left text-sm">
-                <thead className="bg-gray-50">
+                <thead className="bg-white/[0.02]">
                   <tr>
                     <th className="px-4 py-3 font-medium text-admin-muted">Webhook URL</th>
                     <th className="px-4 py-3 font-medium text-admin-muted">Event type</th>
@@ -535,7 +564,7 @@ export default function IntegrationsPage() {
                     </tr>
                   ) : (
                     deliveries.map((d) => (
-                      <tr key={d.id} className="border-t border-admin-border hover:bg-gray-50/50">
+                      <tr key={d.id} className="border-t border-admin-border hover:bg-white/5">
                         <td className="max-w-[200px] truncate px-4 py-3 font-mono text-xs" title={d.webhook_url}>{d.webhook_url || '—'}</td>
                         <td className="px-4 py-3">{d.event_type || '—'}</td>
                         <td className="px-4 py-3">
@@ -557,6 +586,7 @@ export default function IntegrationsPage() {
                 </tbody>
               </table>
             </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -567,9 +597,18 @@ export default function IntegrationsPage() {
             <CardTitle>Integration event logs</CardTitle>
           </CardHeader>
           <CardContent>
+            {logsLoading ? (
+              <TableSkeleton rows={5} cols={5} />
+            ) : logsFetchFailed ? (
+              <p className="px-4 py-8 text-center text-sm text-admin-danger" role="alert">
+                {(logsQueryError as Error)?.message ??
+                  logsData?.error?.message ??
+                  'Failed to load integration event logs.'}
+              </p>
+            ) : (
             <div className="overflow-x-auto rounded-xl border border-admin-border">
               <table className="w-full min-w-[500px] text-left text-sm">
-                <thead className="bg-gray-50">
+                <thead className="bg-white/[0.02]">
                   <tr>
                     <th className="px-4 py-3 font-medium text-admin-muted">Integration</th>
                     <th className="px-4 py-3 font-medium text-admin-muted">Event</th>
@@ -587,7 +626,7 @@ export default function IntegrationsPage() {
                     </tr>
                   ) : (
                     eventLogs.map((log, i) => (
-                      <tr key={i} className="border-t border-admin-border hover:bg-gray-50/50">
+                      <tr key={i} className="border-t border-admin-border hover:bg-white/5">
                         <td className="px-4 py-3 font-medium">{log.integration}</td>
                         <td className="px-4 py-3">{log.event}</td>
                         <td className="px-4 py-3">
@@ -601,6 +640,7 @@ export default function IntegrationsPage() {
                 </tbody>
               </table>
             </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -608,15 +648,15 @@ export default function IntegrationsPage() {
       {modal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setModal(null)}>
           <div
-            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 shadow-lg"
+            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-admin-card p-6 shadow-lg"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-lg font-semibold text-gray-900">
+            <h3 className="text-lg font-semibold text-admin-text">
               {modal.type === 'add' ? 'Add integration' : 'Edit integration'}
             </h3>
             <form onSubmit={handleSubmit} className="mt-4 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Provider name *</label>
+                <label className="block text-sm font-medium text-admin-text">Provider name *</label>
                 <input
                   type="text"
                   value={form.provider_name}
@@ -626,7 +666,7 @@ export default function IntegrationsPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Category *</label>
+                <label className="block text-sm font-medium text-admin-text">Category *</label>
                 <select
                   value={form.category}
                   onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
@@ -641,7 +681,7 @@ export default function IntegrationsPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Endpoint URL</label>
+                <label className="block text-sm font-medium text-admin-text">Endpoint URL</label>
                 <input
                   type="url"
                   value={form.endpoint_url}
@@ -650,7 +690,7 @@ export default function IntegrationsPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">API Key (leave blank to keep current)</label>
+                <label className="block text-sm font-medium text-admin-text">API Key (leave blank to keep current)</label>
                 <input
                   type="password"
                   value={form.api_key}
@@ -660,7 +700,7 @@ export default function IntegrationsPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Secret Key (leave blank to keep current)</label>
+                <label className="block text-sm font-medium text-admin-text">Secret Key (leave blank to keep current)</label>
                 <input
                   type="password"
                   value={form.secret_key}
@@ -670,7 +710,7 @@ export default function IntegrationsPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Webhook Secret (leave blank to keep current)</label>
+                <label className="block text-sm font-medium text-admin-text">Webhook Secret (leave blank to keep current)</label>
                 <input
                   type="password"
                   value={form.webhook_secret}
@@ -681,7 +721,7 @@ export default function IntegrationsPage() {
               </div>
               {(form.category === 'webhook_endpoints') && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Event type</label>
+                  <label className="block text-sm font-medium text-admin-text">Event type</label>
                   <select
                     value={form.event_type}
                     onChange={(e) => setForm((f) => ({ ...f, event_type: e.target.value }))}
@@ -699,7 +739,7 @@ export default function IntegrationsPage() {
               {(form.category === 'price_oracles') && (
                 <>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Assets covered</label>
+                    <label className="block text-sm font-medium text-admin-text">Assets covered</label>
                     <input
                       type="text"
                       value={form.assets_covered}
@@ -709,7 +749,7 @@ export default function IntegrationsPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Update interval (seconds)</label>
+                    <label className="block text-sm font-medium text-admin-text">Update interval (seconds)</label>
                     <input
                       type="number"
                       min={1}
@@ -721,7 +761,7 @@ export default function IntegrationsPage() {
                 </>
               )}
               <div>
-                <label className="block text-sm font-medium text-gray-700">Status</label>
+                <label className="block text-sm font-medium text-admin-text">Status</label>
                 <select
                   value={form.status}
                   onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
@@ -746,8 +786,8 @@ export default function IntegrationsPage() {
 
       {priorityModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setPriorityModal(null)}>
-          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-gray-900">Failover priority</h3>
+          <div className="w-full max-w-sm rounded-xl bg-admin-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-admin-text">Failover priority</h3>
             <p className="mt-1 text-sm text-admin-muted">{priorityModal.provider_name} — set priority (lower = used first)</p>
             <div className="mt-4 flex items-center gap-2">
               <input
@@ -773,8 +813,8 @@ export default function IntegrationsPage() {
 
       {switchModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setSwitchModal(null)}>
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-gray-900">Switch provider</h3>
+          <div className="w-full max-w-md rounded-xl bg-admin-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-admin-text">Switch provider</h3>
             <p className="mt-1 text-sm text-admin-muted">
               Set active provider for {CATEGORY_LABELS[switchModal.category]}.
             </p>

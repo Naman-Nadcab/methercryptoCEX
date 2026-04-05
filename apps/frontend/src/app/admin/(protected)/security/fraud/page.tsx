@@ -1,13 +1,17 @@
 'use client';
 
+import { ShieldAlert } from 'lucide-react';
+
 export default function FraudDetectionPage() {
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Fraud Detection</h1>
-      <p className="text-gray-400 text-sm">Monitor and manage fraud alerts</p>
-      <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
-        <p className="text-gray-500 text-center">Fraud detection</p>
+    <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
+      <div className="p-4 rounded-full bg-primary/10 mb-4">
+        <ShieldAlert className="w-8 h-8 text-primary" />
       </div>
+      <h2 className="text-xl font-semibold text-foreground mb-2">Fraud Detection</h2>
+      <p className="text-muted-foreground max-w-md">
+        Real-time fraud monitoring with ML-powered anomaly detection, suspicious transaction flagging, and automated risk scoring.
+      </p>
     </div>
   );
 }

@@ -2,10 +2,6 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-const app = Fastify({
-  logger: true,
-  trustProxy: true,
-});
 import cors from '@fastify/cors';
 import compress from '@fastify/compress';
 import helmet from '@fastify/helmet';
@@ -99,7 +95,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   app.addHook('onRequest', async (request) => {
     const path = (request.url as string)?.split('?')[0] ?? '';
     if (path.includes('/auth/')) {
-      console.log('[LIFECYCLE] INCOMING REQUEST:', request.method, path);
+      logger.debug(`[LIFECYCLE] INCOMING REQUEST: ${request.method} ${path}`);
     }
   });
 
@@ -365,7 +361,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     };
   });
 
-  // Prometheus metrics (GET /metrics) — includes SLO gauges
+  // Prometheus metrics (GET /metrics) — includes SLO gauges + exchange-domain metrics
   app.get('/metrics', async (_request, reply) => {
     const {
       register,
@@ -377,6 +373,7 @@ export async function buildServer(): Promise<FastifyInstance> {
       spotOrderbookWriterPending,
     } = await import('./lib/prometheus-metrics.js');
     const { getSpotMetrics } = await import('./services/spot-metrics.service.js');
+    const { collectExchangeMetrics } = await import('./services/prometheus-metrics.service.js');
     try {
       const wqRes = await db
         .query<{ n: string }>(
@@ -411,6 +408,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     } catch {
       /* best-effort; gauges keep last value */
     }
+    await collectExchangeMetrics();
     const { evaluateTier1AlertsOnMetricsScrape } = await import('./services/tier1-alert-evaluation.service.js');
     await evaluateTier1AlertsOnMetricsScrape();
     reply.header('Content-Type', register.contentType);
@@ -641,12 +639,6 @@ export async function buildServer(): Promise<FastifyInstance> {
     const statusCode = err?.statusCode || 500;
     const msg = err?.message || 'Internal server error';
     if (err?.code === 'FST_ERR_VALIDATION' || (statusCode === 400 && err?.validation)) {
-      console.log('[send-otp/validation] Request REJECTED before handler:', {
-        path: request.url,
-        method: request.method,
-        validation: err.validation,
-        message: msg,
-      });
       logger.warn('Schema validation failed (request rejected before handler)', {
         path: request.url,
         validation: err.validation,

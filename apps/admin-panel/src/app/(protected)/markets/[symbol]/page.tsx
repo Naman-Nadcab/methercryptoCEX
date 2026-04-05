@@ -11,6 +11,7 @@ import { StatCard } from '@/components/dashboard/StatCard';
 import { MarketStatusBadge } from '@/components/markets/MarketStatusBadge';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { DetailSkeleton } from '@/components/ui';
 import { useAdminWs } from '@/hooks/useAdminWs';
 import { ArrowLeft, DollarSign, BarChart3 } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -94,7 +95,7 @@ export default function MarketDetailPage() {
 
   if (!symbol) {
     return (
-      <div className="space-y-6 p-6">
+      <div className="space-y-5">
         <p className="text-admin-muted">Missing market symbol.</p>
         <Link href="/markets">
           <Button variant="secondary">Back to Markets</Button>
@@ -105,15 +106,15 @@ export default function MarketDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="space-y-6 p-6">
-        <div className="py-8 text-center text-admin-muted">Loading…</div>
+      <div className="space-y-5">
+        <DetailSkeleton rows={8} />
       </div>
     );
   }
 
   if (isError || !market) {
     return (
-      <div className="space-y-6 p-6">
+      <div className="space-y-5">
         <p className="text-admin-muted">Market not found.</p>
         <Link href="/markets">
           <Button variant="secondary">Back to Markets</Button>
@@ -128,7 +129,7 @@ export default function MarketDetailPage() {
       : String(market.symbol ?? symbol).replace(/_/g, '/');
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-5">
       <div className="flex items-center gap-4">
         <Link href="/markets">
           <Button variant="secondary" size="sm">
@@ -137,8 +138,8 @@ export default function MarketDetailPage() {
           </Button>
         </Link>
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">{displaySymbol}</h1>
-          <p className="text-sm text-admin-muted">Market details</p>
+          <h1 className="text-lg font-semibold text-admin-text">{displaySymbol}</h1>
+          <p className="text-xs text-admin-muted mt-0.5">Market details</p>
         </div>
       </div>
 
@@ -184,7 +185,7 @@ export default function MarketDetailPage() {
               'border-b-2 px-4 py-3 text-sm font-medium transition-colors',
               activeTab === 'overview'
                 ? 'border-admin-primary text-admin-primary'
-                : 'border-transparent text-admin-muted hover:border-gray-300 hover:text-gray-700'
+                : 'border-transparent text-admin-muted hover:border-admin-border hover:text-admin-text'
             )}
           >
             Overview
@@ -196,7 +197,7 @@ export default function MarketDetailPage() {
               'border-b-2 px-4 py-3 text-sm font-medium transition-colors',
               activeTab === 'fee-history'
                 ? 'border-admin-primary text-admin-primary'
-                : 'border-transparent text-admin-muted hover:border-gray-300 hover:text-gray-700'
+                : 'border-transparent text-admin-muted hover:border-admin-border hover:text-admin-text'
             )}
           >
             Fee History

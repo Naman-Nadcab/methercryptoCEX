@@ -28,3 +28,4 @@ export * from './analytics';
 export * from './risk';
 export * from './search';
 export * from './systemHealth';
+export * from './featureFlags';

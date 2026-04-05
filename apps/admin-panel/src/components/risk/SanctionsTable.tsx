@@ -24,9 +24,9 @@ function formatTimeAgo(iso: string): string {
 
 export function SanctionsTable({ rows }: SanctionsTableProps) {
   return (
-    <div className="overflow-x-auto rounded-xl border border-admin-border bg-white">
+    <div className="overflow-x-auto rounded-xl border border-admin-border bg-admin-card">
       <table className="w-full min-w-[700px] text-left text-sm">
-        <thead className="bg-gray-50">
+        <thead className="bg-white/[0.02]">
           <tr>
             <th className="px-4 py-3 font-medium text-admin-muted">Address</th>
             <th className="px-4 py-3 font-medium text-admin-muted">User</th>
@@ -45,7 +45,7 @@ export function SanctionsTable({ rows }: SanctionsTableProps) {
             </tr>
           ) : (
             rows.map((row) => (
-              <tr key={row.id} className="border-t border-admin-border hover:bg-gray-50/50">
+              <tr key={row.id} className="border-t border-admin-border hover:bg-admin-card/[0.03]">
                 <td className="px-4 py-3 font-mono text-xs" title={row.address_full ?? row.address}>
                   {row.address}
                 </td>
@@ -55,14 +55,14 @@ export function SanctionsTable({ rows }: SanctionsTableProps) {
                       {row.user_email}
                     </Link>
                   ) : (
-                    <span className="text-gray-500">{row.user_id?.slice(0, 8)}…</span>
+                    <span className="text-admin-muted">{row.user_id?.slice(0, 8)}…</span>
                   )}
                 </td>
-                <td className="px-4 py-3 text-gray-900">{row.chain}</td>
+                <td className="px-4 py-3 text-admin-text">{row.chain}</td>
                 <td className="px-4 py-3">
                   <StatusBadge status={row.risk_level} variant={row.risk_level === 'High' ? 'danger' : 'warning'} />
                 </td>
-                <td className="px-4 py-3 text-gray-600">{formatTimeAgo(row.last_activity)}</td>
+                <td className="px-4 py-3 text-admin-muted">{formatTimeAgo(row.last_activity)}</td>
                 <td className="px-4 py-3">
                   <StatusBadge status={row.status} />
                 </td>

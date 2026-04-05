@@ -1,34 +1,62 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAdminAuthStore } from '@/store/auth';
 import { getUserById, getUserBalances, updateUserStatus, getUserStats, getUserSecurity, getUserApiKeys } from '@/lib/users-api';
 import { getUserRiskTimeline } from '@/lib/risk-api';
-import { getWithdrawals } from '@/lib/api';
-import { getDeposits } from '@/lib/api';
-import { UserHeaderCard } from '@/components/users/UserHeaderCard';
-import { UserTabs, type UserTabId } from '@/components/users/UserTabs';
+import { getWithdrawals, getDeposits, adminFetch } from '@/lib/api';
 import { UserWalletTable } from '@/components/users/UserWalletTable';
-import { StatCard } from '@/components/dashboard/StatCard';
-import { ArrowDownToLine, ArrowUpFromLine, TrendingUp, BarChart3, Repeat } from 'lucide-react';
+import { StatusBadge } from '@/components/dashboard/StatusBadge';
+import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 import { useAdminWs } from '@/hooks/useAdminWs';
+import {
+  ArrowLeft, ArrowDownToLine, ArrowUpFromLine, TrendingUp, BarChart3,
+  Repeat, Mail, Globe, Calendar, Shield, ShieldOff, Ban, KeyRound,
+  User, Wallet, Clock, Activity, Key, AlertTriangle, Copy, Check,
+  DollarSign, X,
+} from 'lucide-react';
+import { cn } from '@/lib/cn';
 
-function formatCurrency(val: string | number | undefined): string {
+type TabId = 'overview' | 'wallets' | 'orders' | 'trades' | 'deposits' | 'withdrawals' | 'p2p' | 'activity' | 'security' | 'api-keys' | 'risk-timeline';
+
+const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
+  { id: 'overview', label: 'Overview', icon: User },
+  { id: 'wallets', label: 'Wallets', icon: Wallet },
+  { id: 'orders', label: 'Orders', icon: BarChart3 },
+  { id: 'trades', label: 'Trades', icon: TrendingUp },
+  { id: 'deposits', label: 'Deposits', icon: ArrowDownToLine },
+  { id: 'withdrawals', label: 'Withdrawals', icon: ArrowUpFromLine },
+  { id: 'p2p', label: 'P2P', icon: Repeat },
+  { id: 'activity', label: 'Activity', icon: Activity },
+  { id: 'security', label: 'Security', icon: Shield },
+  { id: 'api-keys', label: 'API Keys', icon: Key },
+  { id: 'risk-timeline', label: 'Risk', icon: AlertTriangle },
+];
+
+function fmtCurrency(val: string | number | undefined): string {
   if (val === undefined || val === null) return '$0.00';
   const n = typeof val === 'string' ? parseFloat(val) : Number(val);
   if (Number.isNaN(n)) return '$0.00';
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(n);
 }
 
-function formatDate(s: string | undefined): string {
+function fmtDate(s: string | undefined): string {
   if (!s) return '—';
-  try {
-    return new Date(s).toLocaleString();
-  } catch {
-    return '—';
-  }
+  try { return new Date(s).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }); } catch { return '—'; }
+}
+
+function fmtShortDate(s: string | undefined): string {
+  if (!s) return '—';
+  try { return new Date(s).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' }); } catch { return '—'; }
+}
+
+function displayStatus(s: string | undefined): string {
+  if (!s) return '—';
+  if (s.toLowerCase() === 'locked') return 'Banned';
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 export default function UserDetailPage() {
@@ -37,92 +65,117 @@ export default function UserDetailPage() {
   const id = typeof params?.id === 'string' ? params.id : '';
   const token = useAdminAuthStore((s) => s.accessToken);
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<UserTabId>('overview');
+  const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const [copied, setCopied] = useState(false);
+  const [showBalanceAdjust, setShowBalanceAdjust] = useState(false);
+  const [adjCurrency, setAdjCurrency] = useState('');
+  const [adjAmount, setAdjAmount] = useState('');
+  const [adjType, setAdjType] = useState<'credit' | 'debit'>('credit');
+  const [adjReason, setAdjReason] = useState('');
+  const [adjError, setAdjError] = useState('');
 
   const { data: userData, isLoading: userLoading, isError: userError } = useQuery({
     queryKey: ['admin', 'user', id, token],
+    staleTime: 30_000,
     queryFn: () => getUserById(token, id),
     enabled: !!token && !!id,
   });
-
   const { data: balancesData, isLoading: balancesLoading } = useQuery({
     queryKey: ['admin', 'user-balances', id, token],
+    staleTime: 30_000,
     queryFn: () => getUserBalances(token, id),
     enabled: !!token && !!id && activeTab === 'wallets',
   });
-
   const { data: withdrawalsData } = useQuery({
     queryKey: ['admin', 'withdrawals', id, token],
+    staleTime: 30_000,
     queryFn: () => getWithdrawals(token, { limit: 50, user: id }),
     enabled: !!token && !!id && activeTab === 'withdrawals',
   });
-
   const { data: depositsData } = useQuery({
     queryKey: ['admin', 'deposits', id, token],
     queryFn: () => getDeposits(token, { limit: 50, user: id }),
     enabled: !!token && !!id && activeTab === 'deposits',
   });
-
   const { data: statsData } = useQuery({
     queryKey: ['admin', 'user-stats', id, token],
+    staleTime: 30_000,
     queryFn: () => getUserStats(token, id),
     enabled: !!token && !!id && activeTab === 'overview',
   });
-
   const { data: securityData, isLoading: securityLoading } = useQuery({
     queryKey: ['admin', 'user-security', id, token],
+    staleTime: 30_000,
     queryFn: () => getUserSecurity(token, id),
     enabled: !!token && !!id && activeTab === 'security',
   });
-
   const { data: apiKeysData, isLoading: apiKeysLoading } = useQuery({
     queryKey: ['admin', 'user-api-keys', id, token],
     queryFn: () => getUserApiKeys(token, id),
     enabled: !!token && !!id && activeTab === 'api-keys',
   });
-
   const { data: riskTimelineData, isLoading: riskTimelineLoading } = useQuery({
     queryKey: ['admin', 'user-risk-timeline', id, token],
+    staleTime: 30_000,
     queryFn: () => getUserRiskTimeline(token, id),
     enabled: !!token && !!id && activeTab === 'risk-timeline',
   });
+  const { data: ordersData, isLoading: ordersLoading } = useQuery({
+    queryKey: ['admin', 'user-orders', id, token],
+    staleTime: 30_000,
+    queryFn: () => adminFetch('/trading/orders', { token, params: { user_id: id, limit: '50' } }),
+    enabled: !!token && !!id && activeTab === 'orders',
+  });
+  const { data: tradesData, isLoading: tradesLoading } = useQuery({
+    queryKey: ['admin', 'user-trades', id, token],
+    staleTime: 30_000,
+    queryFn: () => adminFetch('/trading/trades', { token, params: { user_id: id, limit: '50' } }),
+    enabled: !!token && !!id && activeTab === 'trades',
+  });
+  const { data: p2pData, isLoading: p2pLoading } = useQuery({
+    queryKey: ['admin', 'user-p2p', id, token],
+    staleTime: 30_000,
+    queryFn: () => adminFetch('/p2p/orders', { token, params: { user_id: id, limit: '50' } }),
+    enabled: !!token && !!id && activeTab === 'p2p',
+  });
 
   const updateStatus = useMutation({
-    mutationFn: ({ status, reason }: { status: 'active' | 'suspended' | 'locked'; reason?: string }) =>
-      updateUserStatus(token, id, { status, reason }),
+    mutationFn: ({ status }: { status: 'active' | 'suspended' | 'locked' }) =>
+      updateUserStatus(token, id, { status }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['admin', 'user', id] }); queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }); },
+  });
+
+  const balanceAdjust = useMutation({
+    mutationFn: (payload: { currency_id: string; amount: string; type: 'credit' | 'debit'; reason: string }) =>
+      adminFetch(`/users/${id}/balance-adjust`, { method: 'POST', token, body: payload }),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'user-balances', id] });
       queryClient.invalidateQueries({ queryKey: ['admin', 'user', id] });
-      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      setShowBalanceAdjust(false);
+      setAdjCurrency('');
+      setAdjAmount('');
+      setAdjType('credit');
+      setAdjReason('');
+      setAdjError('');
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { message?: string })?.message || 'Balance adjustment failed';
+      setAdjError(msg);
     },
   });
 
-  const handleSuspend = useCallback(() => {
-    if (confirm('Suspend this user?')) updateStatus.mutate({ status: 'suspended' });
-  }, [updateStatus]);
-  const handleBan = useCallback(() => {
-    if (confirm('Ban this user? (Sets status to locked)')) updateStatus.mutate({ status: 'locked' });
-  }, [updateStatus]);
-  const handleReset2FA = useCallback(() => {
-    if (confirm('Reset 2FA for this user? They will need to set it up again.')) {
-      // Backend may expose POST /admin/users/:id/reset-2fa; for now just alert
-      alert('Reset 2FA: backend endpoint can be wired here.');
-    }
-  }, []);
+  const handleSuspend = useCallback(() => { if (confirm('Suspend this user?')) updateStatus.mutate({ status: 'suspended' }); }, [updateStatus]);
+  const handleBan = useCallback(() => { if (confirm('Ban this user?')) updateStatus.mutate({ status: 'locked' }); }, [updateStatus]);
+  const handleActivate = useCallback(() => { if (confirm('Reactivate this user?')) updateStatus.mutate({ status: 'active' }); }, [updateStatus]);
 
   useAdminWs({
     onEvent: (event) => {
       if (!id) return;
       const payload = (event?.data ?? event?.payload) as { user_id?: string; userId?: string } | undefined;
-      const uid = payload?.user_id ?? payload?.userId;
-      if (uid !== id) return;
-      const type = (event?.type as string) ?? '';
-      if (['trade_executed', 'withdrawal_requested', 'deposit_confirmed'].includes(type)) {
-        queryClient.invalidateQueries({ queryKey: ['admin', 'user', id] });
-        queryClient.invalidateQueries({ queryKey: ['admin', 'user-balances', id] });
-        queryClient.invalidateQueries({ queryKey: ['admin', 'user-stats', id] });
-        if (type === 'withdrawal_requested') queryClient.invalidateQueries({ queryKey: ['admin', 'withdrawals', id] });
-        if (type === 'deposit_confirmed') queryClient.invalidateQueries({ queryKey: ['admin', 'deposits', id] });
-      }
+      if ((payload?.user_id ?? payload?.userId) !== id) return;
+      queryClient.invalidateQueries({ queryKey: ['admin', 'user', id] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'user-balances', id] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'user-stats', id] });
     },
   });
 
@@ -132,257 +185,454 @@ export default function UserDetailPage() {
   const withdrawals = (withdrawalsData?.data as { withdrawals?: unknown[] })?.withdrawals ?? [];
   const deposits = (depositsData?.data as { deposits?: unknown[] } | undefined)?.deposits ?? [];
 
-  const rawBalances = balancesData?.data?.balances ?? balances;
-  const walletRows = (Array.isArray(rawBalances) ? rawBalances : []).map((b: Record<string, unknown>) => ({
-    token_symbol: (b.token_symbol ?? b.symbol ?? '') as string,
-    token_id: (b.token_id ?? b.currency_id) as string,
-    available_balance: (b.available_balance ?? '0') as string,
-    locked_balance: (b.locked_balance ?? '0') as string,
-    total_balance: (b.total_balance ?? '0') as string,
-    escrow_balance: (b.escrow_balance ?? '0') as string,
-  }));
+  const walletRows = useMemo(() => {
+    const raw = balancesData?.data?.balances ?? balances;
+    return (Array.isArray(raw) ? raw : []).map((b: Record<string, unknown>) => ({
+      token_symbol: (b.token_symbol ?? b.symbol ?? '') as string,
+      token_id: (b.token_id ?? b.currency_id) as string,
+      available_balance: (b.available_balance ?? '0') as string,
+      locked_balance: (b.locked_balance ?? '0') as string,
+      total_balance: (b.total_balance ?? '0') as string,
+      escrow_balance: (b.escrow_balance ?? '0') as string,
+    }));
+  }, [balancesData, balances]);
 
-  if (!id) {
-    return (
-      <div className="p-6">
-        <p className="text-admin-danger">Invalid user ID</p>
-      </div>
-    );
-  }
+  const copyId = useCallback(() => {
+    navigator.clipboard.writeText(id);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }, [id]);
+
+  if (!id) return <div className="p-6"><p className="text-red-600">Invalid user ID</p></div>;
 
   if (userLoading || !user) {
     return (
-      <div className="p-6">
-        {userError ? (
-          <p className="text-admin-danger">Failed to load user.</p>
-        ) : (
-          <div className="text-admin-muted">Loading user…</div>
-        )}
+      <div className="space-y-5">
+        <button
+          type="button"
+          onClick={() => router.push('/users')}
+          className="flex items-center gap-1.5 text-xs text-admin-primary hover:underline"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" /> Back to Users
+        </button>
+        <div className="rounded-xl border border-admin-border bg-admin-card px-5 py-4">
+          {userError ? (
+            <p className="text-red-600">Failed to load user.</p>
+          ) : (
+            <div className="flex flex-wrap items-start gap-4">
+              <div className="h-12 w-12 shrink-0 animate-pulse rounded-full bg-white/5" />
+              <div className="min-w-0 flex-1 space-y-3">
+                <div className="h-5 w-48 max-w-full animate-pulse rounded bg-white/5" />
+                <div className="flex flex-wrap gap-2">
+                  <div className="h-3 w-40 animate-pulse rounded bg-white/5" />
+                  <div className="h-3 w-24 animate-pulse rounded bg-white/5" />
+                  <div className="h-3 w-36 animate-pulse rounded bg-white/5" />
+                </div>
+                <div className="flex gap-2">
+                  <div className="h-6 w-16 animate-pulse rounded bg-white/5" />
+                  <div className="h-6 w-24 animate-pulse rounded bg-white/5" />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     );
   }
 
+  const name = [user.first_name, user.last_name].filter(Boolean).join(' ') || (user.username as string) || (user.email as string) || id.slice(0, 8);
+  const email = (user.email as string) || '—';
+  const status = ((user.status as string) ?? '').toLowerCase();
+  const kycStatus = (user.kyc_status as string) ?? null;
+  const kycLevel = (user.kyc_level as number) ?? 0;
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => router.push('/users')}
-          className="text-sm text-admin-primary hover:underline"
-        >
-          ← Users
-        </button>
+    <div className="space-y-5">
+      {/* Back + Breadcrumb */}
+      <button onClick={() => router.push('/users')} className="flex items-center gap-1.5 text-xs text-admin-primary hover:underline">
+        <ArrowLeft className="h-3.5 w-3.5" /> Back to Users
+      </button>
+
+      {/* User Header */}
+      <div className="rounded-xl border border-admin-border bg-admin-card">
+        <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-4">
+          <div className="flex items-center gap-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-admin-primary/10 text-admin-primary text-lg font-bold shrink-0">
+              {(name[0] ?? '?').toUpperCase()}
+            </div>
+            <div>
+              <h1 className="text-base font-semibold text-admin-text">{name}</h1>
+              <div className="flex items-center gap-3 mt-1 text-xs text-admin-muted flex-wrap">
+                <span className="flex items-center gap-1"><Mail className="h-3 w-3" />{email}</span>
+                <span className="flex items-center gap-1"><Globe className="h-3 w-3" />{(user.country_code as string) || '—'}</span>
+                <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />Joined {fmtShortDate(user.created_at as string)}</span>
+              </div>
+              <div className="flex items-center gap-2 mt-1.5">
+                <StatusBadge status={displayStatus(user.status as string)} variant={status === 'active' ? 'success' : status === 'suspended' ? 'warning' : 'danger'} />
+                {kycStatus === 'approved' ? (
+                  <Badge variant="success" size="sm">KYC L{kycLevel} Verified</Badge>
+                ) : kycStatus === 'pending' || kycStatus === 'under_review' ? (
+                  <Badge variant="warning" size="sm">KYC L{kycLevel} Pending</Badge>
+                ) : (
+                  <Badge variant="default" size="sm">KYC: {kycStatus || 'None'}</Badge>
+                )}
+                <button onClick={copyId} className="flex items-center gap-1 text-[10px] text-admin-muted hover:text-admin-muted transition-colors" title="Copy User ID">
+                  {copied ? <Check className="h-2.5 w-2.5 text-emerald-500" /> : <Copy className="h-2.5 w-2.5" />}
+                  {id.slice(0, 8)}…
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" size="sm" onClick={() => { setAdjError(''); setShowBalanceAdjust(true); }} icon={<DollarSign className="h-3.5 w-3.5" />}>Balance Adjust</Button>
+            {status === 'suspended' || status === 'locked' ? (
+              <Button variant="secondary" size="sm" onClick={handleActivate} icon={<Shield className="h-3.5 w-3.5" />}>Reactivate</Button>
+            ) : null}
+            {status !== 'suspended' && (
+              <Button variant="secondary" size="sm" onClick={handleSuspend} icon={<ShieldOff className="h-3.5 w-3.5" />}>Suspend</Button>
+            )}
+            {status !== 'locked' && (
+              <button onClick={handleBan} className="flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-100 transition-colors">
+                <Ban className="h-3.5 w-3.5" /> Ban
+              </button>
+            )}
+            <Button variant="secondary" size="sm" icon={<KeyRound className="h-3.5 w-3.5" />}
+              onClick={() => {
+                if (!confirm('Are you sure you want to reset 2FA for this user? They will need to set up 2FA again.')) return;
+                adminFetch(`/users/${id}/reset-2fa`, { method: 'POST', token })
+                  .then(() => { queryClient.invalidateQueries({ queryKey: ['admin', 'user', id] }); })
+                  .catch(() => { alert('Failed to reset 2FA. The endpoint may not be available yet.'); });
+              }}>Reset 2FA</Button>
+          </div>
+        </div>
       </div>
 
-      <UserHeaderCard
-        user={user}
-        onSuspend={handleSuspend}
-        onBan={handleBan}
-        onReset2FA={handleReset2FA}
-      />
+      {/* Tabs */}
+      <div className="rounded-xl border border-admin-border bg-admin-card">
+        <div className="border-b border-admin-border overflow-x-auto">
+          <nav className="flex gap-0 min-w-max px-1">
+            {TABS.map((tab) => (
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                className={cn('flex items-center gap-1.5 border-b-2 px-3 py-2.5 text-xs font-medium transition-colors whitespace-nowrap',
+                  activeTab === tab.id ? 'border-admin-primary text-admin-primary' : 'border-transparent text-admin-muted hover:text-admin-muted')}>
+                <tab.icon className="h-3 w-3" />
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+        </div>
 
-      <UserTabs activeTab={activeTab} onTabChange={setActiveTab}>
-        {activeTab === 'overview' && (
-          <div className="space-y-6">
-            <p className="text-sm text-admin-muted">
-              User ID: {user.id as string} · Email verified: {(user.email_verified as boolean) ? 'Yes' : 'No'} · Last login: {formatDate(user.last_login_at as string)}
-            </p>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-              <StatCard title="Total Deposits" value={formatCurrency(statsData?.data?.total_deposits)} icon={ArrowDownToLine} />
-              <StatCard title="Total Withdrawals" value={formatCurrency(statsData?.data?.total_withdrawals)} icon={ArrowUpFromLine} />
-              <StatCard title="Total Trades" value={statsData?.data?.total_trades ?? '0'} icon={BarChart3} />
-              <StatCard title="30d Trading Volume" value={formatCurrency(statsData?.data?.volume_30d)} icon={TrendingUp} />
-              <StatCard title="P2P Orders" value={statsData?.data?.p2p_orders_count ?? '0'} icon={Repeat} />
+        <div className="p-5">
+          {/* Overview */}
+          {activeTab === 'overview' && (
+            <div className="space-y-5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                <MiniStat label="Total Deposits" value={fmtCurrency(statsData?.data?.total_deposits)} icon={ArrowDownToLine} />
+                <MiniStat label="Total Withdrawals" value={fmtCurrency(statsData?.data?.total_withdrawals)} icon={ArrowUpFromLine} />
+                <MiniStat label="Total Trades" value={statsData?.data?.total_trades ?? '0'} icon={BarChart3} />
+                <MiniStat label="30d Volume" value={fmtCurrency(statsData?.data?.volume_30d)} icon={TrendingUp} />
+                <MiniStat label="P2P Orders" value={statsData?.data?.p2p_orders_count ?? '0'} icon={Repeat} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <InfoRow label="User ID" value={id} mono />
+                <InfoRow label="Email Verified" value={(user.email_verified as boolean) ? 'Yes' : 'No'} />
+                <InfoRow label="Phone" value={(user.phone as string) || '—'} />
+                <InfoRow label="Last Login" value={fmtDate(user.last_login_at as string)} />
+                <InfoRow label="Tier Level" value={String(user.tier_level ?? 0)} />
+                <InfoRow label="Total Wallets" value={String(walletRows.length)} />
+              </div>
             </div>
-            {walletRows.length > 0 && (
-              <p className="text-sm text-admin-muted">Total wallets: {walletRows.length}</p>
-            )}
-          </div>
-        )}
+          )}
 
-        {activeTab === 'wallets' && (
-          <UserWalletTable balances={walletRows} isLoading={balancesLoading} />
-        )}
+          {/* Wallets */}
+          {activeTab === 'wallets' && <UserWalletTable balances={walletRows} isLoading={balancesLoading} />}
 
-        {activeTab === 'orders' && (
-          <div className="rounded-lg border border-admin-border p-4 text-center text-admin-muted">
-            Spot orders for this user. Use Trading → Orders and filter by user, or connect to orders-by-user API.
-          </div>
-        )}
+          {/* Orders */}
+          {activeTab === 'orders' && (
+            ordersLoading ? <LoadingTab /> :
+            (() => { const orders = (ordersData?.data as { orders?: unknown[] })?.orders ?? []; return orders.length === 0 ? <EmptyTab message="No orders found." /> : (
+              <TxTable headers={['Market', 'Side', 'Type', 'Price', 'Qty', 'Status', 'Time']} empty="No orders"
+                rows={(orders as Array<Record<string, unknown>>).map((o) => [
+                  <span key="m" className="font-medium">{String(o.symbol ?? o.market ?? '—')}</span>,
+                  <Badge key="s" variant={(String(o.side ?? '')).toLowerCase() === 'buy' ? 'success' : 'danger'} size="sm">{String(o.side ?? '—')}</Badge>,
+                  <span key="t" className="text-admin-muted">{String(o.type ?? o.order_type ?? '—')}</span>,
+                  <span key="p" className="tabular-nums">{String(o.price ?? '—')}</span>,
+                  <span key="q" className="tabular-nums">{String(o.quantity ?? o.amount ?? '—')}</span>,
+                  <StatusBadge key="st" status={String(o.status ?? '—')} />,
+                  <span key="d" className="text-admin-muted">{fmtShortDate(o.created_at as string)}</span>,
+                ])} />
+            );})()
+          )}
 
-        {activeTab === 'trades' && (
-          <div className="rounded-lg border border-admin-border p-4 text-center text-admin-muted">
-            Spot trades for this user. Use Trading → Trade history and filter by user, or connect to trades-by-user API.
-          </div>
-        )}
+          {/* Trades */}
+          {activeTab === 'trades' && (
+            tradesLoading ? <LoadingTab /> :
+            (() => { const trades = (tradesData?.data as { trades?: unknown[] })?.trades ?? []; return trades.length === 0 ? <EmptyTab message="No trades found." /> : (
+              <TxTable headers={['Market', 'Side', 'Price', 'Quantity', 'Fee', 'Time']} empty="No trades"
+                rows={(trades as Array<Record<string, unknown>>).map((t) => [
+                  <span key="m" className="font-medium">{String(t.symbol ?? t.market ?? '—')}</span>,
+                  <Badge key="s" variant={String(t.side ?? '').toLowerCase() === 'buy' ? 'success' : 'danger'} size="sm">{String(t.side ?? '—')}</Badge>,
+                  <span key="p" className="tabular-nums">{String(t.price ?? '—')}</span>,
+                  <span key="q" className="tabular-nums">{String(t.quantity ?? t.amount ?? '—')}</span>,
+                  <span key="f" className="tabular-nums text-admin-muted">{String(t.fee ?? '0')}</span>,
+                  <span key="d" className="text-admin-muted">{fmtShortDate(t.created_at as string)}</span>,
+                ])} />
+            );})()
+          )}
 
-        {activeTab === 'deposits' && (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="border-b border-admin-border bg-gray-50">
-                  <th className="px-4 py-2 text-left text-xs font-semibold text-admin-muted">TX Hash</th>
-                  <th className="px-4 py-2 text-left text-xs font-semibold text-admin-muted">Asset</th>
-                  <th className="px-4 py-2 text-right text-xs font-semibold text-admin-muted">Amount</th>
-                  <th className="px-4 py-2 text-left text-xs font-semibold text-admin-muted">Status</th>
-                  <th className="px-4 py-2 text-left text-xs font-semibold text-admin-muted">Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                {deposits.length === 0 ? (
-                  <tr><td colSpan={5} className="px-4 py-6 text-center text-admin-muted">No deposits</td></tr>
-                ) : (
-                  (deposits as Array<Record<string, unknown>>).map((d, i) => (
-                    <tr key={(d.id ?? i) as string} className="border-b border-admin-border/60">
-                      <td className="px-4 py-2 font-mono text-sm">{(d.tx_hash as string) ?? '—'}</td>
-                      <td className="px-4 py-2">{(d.token_symbol as string) ?? '—'}</td>
-                      <td className="px-4 py-2 text-right">{(d.amount as string) ?? '—'}</td>
-                      <td className="px-4 py-2">{(d.status as string) ?? '—'}</td>
-                      <td className="px-4 py-2 text-admin-muted">{formatDate(d.created_at as string)}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
+          {/* P2P */}
+          {activeTab === 'p2p' && (
+            p2pLoading ? <LoadingTab /> :
+            (() => { const p2pOrders = (p2pData?.data as { orders?: unknown[] })?.orders ?? []; return p2pOrders.length === 0 ? <EmptyTab message="No P2P orders found." /> : (
+              <TxTable headers={['Type', 'Asset', 'Amount', 'Fiat', 'Status', 'Time']} empty="No P2P orders"
+                rows={(p2pOrders as Array<Record<string, unknown>>).map((o) => [
+                  <Badge key="t" variant={String(o.type ?? '').toLowerCase() === 'buy' ? 'success' : 'danger'} size="sm">{String(o.type ?? '—')}</Badge>,
+                  <span key="a" className="font-medium">{String(o.crypto_asset ?? o.asset ?? '—')}</span>,
+                  <span key="am" className="tabular-nums">{String(o.crypto_amount ?? o.amount ?? '—')}</span>,
+                  <span key="f" className="tabular-nums">{String(o.fiat_amount ?? '—')} {String(o.fiat_currency ?? '')}</span>,
+                  <StatusBadge key="s" status={String(o.status ?? '—')} />,
+                  <span key="d" className="text-admin-muted">{fmtShortDate(o.created_at as string)}</span>,
+                ])} />
+            );})()
+          )}
 
-        {activeTab === 'withdrawals' && (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="border-b border-admin-border bg-gray-50">
-                  <th className="px-4 py-2 text-left text-xs font-semibold text-admin-muted">Asset</th>
-                  <th className="px-4 py-2 text-right text-xs font-semibold text-admin-muted">Amount</th>
-                  <th className="px-4 py-2 text-left text-xs font-semibold text-admin-muted">Address</th>
-                  <th className="px-4 py-2 text-left text-xs font-semibold text-admin-muted">Status</th>
-                  <th className="px-4 py-2 text-left text-xs font-semibold text-admin-muted">Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                {withdrawals.length === 0 ? (
-                  <tr><td colSpan={5} className="px-4 py-6 text-center text-admin-muted">No withdrawals</td></tr>
-                ) : (
-                  (withdrawals as Array<Record<string, unknown>>).map((w, i) => (
-                    <tr key={(w.id ?? i) as string} className="border-b border-admin-border/60">
-                      <td className="px-4 py-2">{(w.token_symbol ?? w.currency_symbol) as string ?? '—'}</td>
-                      <td className="px-4 py-2 text-right">{(w.amount as string) ?? '—'}</td>
-                      <td className="px-4 py-2 font-mono text-sm truncate max-w-[180px]">{(w.address ?? w.to_address) as string ?? '—'}</td>
-                      <td className="px-4 py-2">{(w.status as string) ?? '—'}</td>
-                      <td className="px-4 py-2 text-admin-muted">{formatDate(w.created_at as string)}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
+          {/* Deposits */}
+          {activeTab === 'deposits' && (
+            <TxTable headers={['TX Hash', 'Asset', 'Amount', 'Status', 'Time']} empty="No deposits"
+              rows={(deposits as Array<Record<string, unknown>>).map((d) => [
+                <span key="h" className="font-mono text-[10px] text-admin-muted">{((d.tx_hash as string) ?? '—').slice(0, 16)}…</span>,
+                <span key="a">{(d.token_symbol as string) ?? '—'}</span>,
+                <span key="am" className="tabular-nums font-medium">{(d.amount as string) ?? '—'}</span>,
+                <StatusBadge key="s" status={(d.status as string) ?? '—'} />,
+                <span key="t" className="text-admin-muted">{fmtShortDate(d.created_at as string)}</span>,
+              ])} />
+          )}
 
-        {activeTab === 'p2p' && (
-          <div className="rounded-lg border border-admin-border p-4 text-center text-admin-muted">
-            P2P orders for this user. Connect to P2P orders API with user filter.
-          </div>
-        )}
+          {/* Withdrawals */}
+          {activeTab === 'withdrawals' && (
+            <TxTable headers={['Asset', 'Amount', 'Address', 'Status', 'Time']} empty="No withdrawals"
+              rows={(withdrawals as Array<Record<string, unknown>>).map((w) => [
+                <span key="a">{((w.token_symbol ?? w.currency_symbol) as string) ?? '—'}</span>,
+                <span key="am" className="tabular-nums font-medium">{(w.amount as string) ?? '—'}</span>,
+                <span key="addr" className="font-mono text-[10px] text-admin-muted truncate max-w-[140px] inline-block">{((w.address ?? w.to_address) as string) ?? '—'}</span>,
+                <StatusBadge key="s" status={(w.status as string) ?? '—'} />,
+                <span key="t" className="text-admin-muted">{fmtShortDate(w.created_at as string)}</span>,
+              ])} />
+          )}
 
-        {activeTab === 'activity' && (
-          <div className="space-y-2">
-            {activity.length === 0 ? (
-              <p className="text-admin-muted">No activity logs</p>
-            ) : (
-              (activity as Array<Record<string, unknown>>).map((a, i) => (
-                <div key={(a.id ?? i) as string} className="flex items-center justify-between rounded-lg border border-admin-border/60 px-4 py-2 text-sm">
-                  <span>{(a.action ?? a.event_type ?? a.type) as string ?? 'Activity'}</span>
-                  <span className="text-admin-muted">{formatDate(a.created_at as string)}</span>
-                </div>
-              ))
-            )}
-          </div>
-        )}
+          {/* Activity */}
+          {activeTab === 'activity' && (
+            activity.length === 0 ? <EmptyTab message="No activity logs recorded." /> : (
+              <div className="space-y-1.5">
+                {(activity as Array<Record<string, unknown>>).map((a, i) => (
+                  <div key={(a.id ?? i) as string} className="flex items-center justify-between rounded-lg border border-admin-border/60 px-4 py-2 text-xs">
+                    <span className="font-medium text-admin-text">{(a.action ?? a.event_type ?? a.type) as string ?? 'Activity'}</span>
+                    <span className="text-admin-muted">{fmtDate(a.created_at as string)}</span>
+                  </div>
+                ))}
+              </div>
+            )
+          )}
 
-        {activeTab === 'security' && (
-          <div className="overflow-x-auto">
-            {securityLoading ? (
-              <p className="text-admin-muted">Loading…</p>
-            ) : !securityData?.data?.sessions?.length ? (
-              <p className="text-admin-muted">No sessions</p>
-            ) : (
-              <table className="w-full min-w-[500px] border-collapse">
-                <thead>
-                  <tr className="border-b border-admin-border bg-gray-50">
-                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-admin-muted">Device</th>
-                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-admin-muted">IP Address</th>
-                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-admin-muted">Location</th>
-                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-admin-muted">Last Login</th>
-                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-admin-muted">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {securityData.data.sessions.map((s, i) => (
-                    <tr key={i} className="border-b border-admin-border/60 hover:bg-gray-50">
-                      <td className="px-4 py-2">{s.device}</td>
-                      <td className="px-4 py-2 font-mono text-sm">{s.ip_address}</td>
-                      <td className="px-4 py-2">{s.location}</td>
-                      <td className="px-4 py-2 text-admin-muted">{formatDate(s.last_login)}</td>
-                      <td className="px-4 py-2">{s.status}</td>
-                    </tr>
+          {/* Security */}
+          {activeTab === 'security' && (
+            securityLoading ? <LoadingTab /> :
+            !securityData?.data?.sessions?.length ? <EmptyTab message="No active sessions." /> : (
+              <TxTable headers={['Device', 'IP Address', 'Location', 'Last Login', 'Status']} empty=""
+                rows={securityData.data.sessions.map((s) => [
+                  <span key="d" className="font-medium text-admin-text">{s.device}</span>,
+                  <span key="ip" className="font-mono text-[10px] text-admin-muted">{s.ip_address}</span>,
+                  <span key="l">{s.location}</span>,
+                  <span key="t" className="text-admin-muted">{fmtShortDate(s.last_login)}</span>,
+                  <StatusBadge key="s" status={s.status} />,
+                ])} />
+            )
+          )}
+
+          {/* API Keys */}
+          {activeTab === 'api-keys' && (
+            apiKeysLoading ? <LoadingTab /> :
+            !apiKeysData?.data?.api_keys?.length ? <EmptyTab message="No API keys configured." /> : (
+              <TxTable headers={['Key', 'Permissions', 'Created', 'Last Used', 'IP Whitelist']} empty=""
+                rows={apiKeysData.data.api_keys.map((k) => [
+                  <span key="k" className="font-mono text-[10px] text-admin-muted">{k.key}</span>,
+                  <span key="p">{k.permissions}</span>,
+                  <span key="c" className="text-admin-muted">{fmtShortDate(k.created)}</span>,
+                  <span key="u" className="text-admin-muted">{k.last_used === '—' ? '—' : fmtShortDate(k.last_used)}</span>,
+                  <span key="ip" className="text-admin-muted">{k.ip_whitelist}</span>,
+                ])} />
+            )
+          )}
+
+          {/* Risk Timeline */}
+          {activeTab === 'risk-timeline' && (
+            riskTimelineLoading ? <LoadingTab /> :
+            !riskTimelineData?.data?.events?.length ? <EmptyTab message="No risk timeline events." /> : (
+              <div className="space-y-1.5">
+                {riskTimelineData.data.events.map((ev, i) => (
+                  <div key={i} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-admin-border/60 px-4 py-2.5 text-xs">
+                    <span className="font-medium text-admin-text">{ev.event_type}</span>
+                    <span className="text-admin-muted">{fmtDate(ev.timestamp)}</span>
+                    {ev.admin_action && <span className="w-full text-[10px] text-admin-muted">Admin: {ev.admin_action}</span>}
+                  </div>
+                ))}
+              </div>
+            )
+          )}
+        </div>
+      </div>
+
+      {/* Balance Adjustment Modal */}
+      {showBalanceAdjust && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-md rounded-xl border border-admin-border bg-admin-card shadow-xl">
+            <div className="flex items-center justify-between border-b border-admin-border px-5 py-3">
+              <h3 className="text-sm font-semibold text-admin-text">Balance Adjustment</h3>
+              <button onClick={() => setShowBalanceAdjust(false)} className="text-admin-muted hover:text-admin-muted"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="space-y-4 px-5 py-4">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-admin-muted">Currency</label>
+                <select
+                  value={adjCurrency}
+                  onChange={(e) => setAdjCurrency(e.target.value)}
+                  className="w-full rounded-lg border border-admin-border bg-admin-card px-3 py-2 text-sm focus:border-admin-primary focus:outline-none"
+                >
+                  <option value="">Select currency…</option>
+                  {walletRows.map((w) => (
+                    <option key={w.token_id} value={w.token_id}>
+                      {w.token_symbol} (avail: {w.available_balance})
+                    </option>
                   ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'api-keys' && (
-          <div className="overflow-x-auto">
-            {apiKeysLoading ? (
-              <p className="text-admin-muted">Loading…</p>
-            ) : !apiKeysData?.data?.api_keys?.length ? (
-              <p className="text-admin-muted">No API keys</p>
-            ) : (
-              <table className="w-full min-w-[500px] border-collapse">
-                <thead>
-                  <tr className="border-b border-admin-border bg-gray-50">
-                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-admin-muted">Key</th>
-                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-admin-muted">Permissions</th>
-                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-admin-muted">Created</th>
-                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-admin-muted">Last Used</th>
-                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-admin-muted">IP Whitelist</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {apiKeysData.data.api_keys.map((k, i) => (
-                    <tr key={i} className="border-b border-admin-border/60 hover:bg-gray-50">
-                      <td className="px-4 py-2 font-mono text-sm">{k.key}</td>
-                      <td className="px-4 py-2">{k.permissions}</td>
-                      <td className="px-4 py-2 text-admin-muted">{formatDate(k.created)}</td>
-                      <td className="px-4 py-2 text-admin-muted">{k.last_used === '—' ? '—' : formatDate(k.last_used)}</td>
-                      <td className="px-4 py-2 text-sm">{k.ip_whitelist}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'risk-timeline' && (
-          <div className="space-y-2">
-            {riskTimelineLoading ? (
-              <p className="text-admin-muted">Loading…</p>
-            ) : !riskTimelineData?.data?.events?.length ? (
-              <p className="text-admin-muted">No risk timeline events</p>
-            ) : (
-              riskTimelineData.data.events.map((ev, i) => (
-                <div key={i} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-admin-border/60 px-4 py-3 text-sm">
-                  <span className="font-medium">{ev.event_type}</span>
-                  <span className="text-admin-muted">{formatDate(ev.timestamp)}</span>
-                  {ev.admin_action && <span className="w-full text-xs text-admin-muted">Admin: {ev.admin_action}</span>}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-admin-muted">Amount</label>
+                <input
+                  type="number"
+                  step="any"
+                  min="0"
+                  value={adjAmount}
+                  onChange={(e) => setAdjAmount(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full rounded-lg border border-admin-border px-3 py-2 text-sm tabular-nums focus:border-admin-primary focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-admin-muted">Type</label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="radio" name="adjType" checked={adjType === 'credit'} onChange={() => setAdjType('credit')} className="accent-emerald-600" />
+                    <span className="text-emerald-700 font-medium">Credit</span>
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="radio" name="adjType" checked={adjType === 'debit'} onChange={() => setAdjType('debit')} className="accent-red-600" />
+                    <span className="text-red-700 font-medium">Debit</span>
+                  </label>
                 </div>
-              ))
-            )}
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-admin-muted">Reason (required)</label>
+                <textarea
+                  value={adjReason}
+                  onChange={(e) => setAdjReason(e.target.value)}
+                  rows={3}
+                  placeholder="Describe the reason for this adjustment…"
+                  className="w-full rounded-lg border border-admin-border px-3 py-2 text-sm focus:border-admin-primary focus:outline-none resize-none"
+                />
+              </div>
+              {adjError && <p className="text-xs text-red-600">{adjError}</p>}
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-admin-border px-5 py-3">
+              <Button variant="secondary" size="sm" onClick={() => setShowBalanceAdjust(false)}>Cancel</Button>
+              <Button
+                size="sm"
+                disabled={!adjCurrency || !adjAmount || !adjReason.trim() || balanceAdjust.isPending}
+                onClick={() => {
+                  if (!adjCurrency || !adjAmount || !adjReason.trim()) return;
+                  if (!confirm(`Confirm ${adjType} of ${adjAmount} to this user?`)) return;
+                  balanceAdjust.mutate({ currency_id: adjCurrency, amount: adjAmount, type: adjType, reason: adjReason.trim() });
+                }}
+              >
+                {balanceAdjust.isPending ? 'Processing…' : `Confirm ${adjType === 'credit' ? 'Credit' : 'Debit'}`}
+              </Button>
+            </div>
           </div>
-        )}
-      </UserTabs>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Sub-components                                                    */
+/* ------------------------------------------------------------------ */
+
+function MiniStat({ label, value, icon: Icon }: { label: string; value: string | number; icon: React.ElementType }) {
+  return (
+    <div className="rounded-lg border border-admin-border bg-white/[0.02] px-3.5 py-2.5">
+      <div className="flex items-center gap-1.5 mb-1">
+        <Icon className="h-3 w-3 text-admin-muted" />
+        <p className="text-[10px] text-admin-muted font-medium">{label}</p>
+      </div>
+      <p className="text-sm font-bold tabular-nums text-admin-text">{value}</p>
+    </div>
+  );
+}
+
+function InfoRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="flex items-center justify-between py-1.5 border-b border-admin-border/40">
+      <span className="text-[10px] text-admin-muted font-medium uppercase tracking-wider">{label}</span>
+      <span className={cn('text-xs text-admin-text', mono && 'font-mono text-[10px]')}>{value}</span>
+    </div>
+  );
+}
+
+function TxTable({ headers, rows, empty }: { headers: string[]; rows: React.ReactNode[][]; empty: string }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-left text-xs">
+        <thead>
+          <tr className="border-b border-admin-border bg-white/[0.02]">
+            {headers.map((h) => (<th key={h} className="px-4 py-2 font-medium text-admin-muted">{h}</th>))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 ? (
+            <tr><td colSpan={headers.length} className="px-4 py-8 text-center text-admin-muted">{empty || 'No data'}</td></tr>
+          ) : rows.map((cells, i) => (
+            <tr key={i} className="border-b border-admin-border/50 hover:bg-white/5">
+              {cells.map((cell, j) => (<td key={j} className="px-4 py-2">{cell}</td>))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function EmptyTab({ message }: { message: string }) {
+  return (
+    <div className="py-10 text-center">
+      <Shield className="h-7 w-7 text-gray-200 mx-auto mb-2" />
+      <p className="text-xs text-admin-muted">{message}</p>
+    </div>
+  );
+}
+
+function LoadingTab() {
+  return (
+    <div className="space-y-3 py-4">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div key={i} className="flex items-center gap-4">
+          <div className="h-3 w-24 animate-pulse rounded bg-white/5" />
+          <div className="h-3 w-32 animate-pulse rounded bg-white/5" />
+          <div className="h-3 w-16 animate-pulse rounded bg-white/5" />
+        </div>
+      ))}
     </div>
   );
 }

@@ -5,7 +5,7 @@
 import type { FastifyInstance } from 'fastify';
 import { db } from '../lib/database.js';
 import { logger } from '../lib/logger.js';
-import { getAdminFromRequest } from './admin.fastify.js';
+import { getAdminWithPermission } from './admin.fastify.js';
 import { getTradingHalted } from '../lib/trading-halt.js';
 import { getMmCircuitState, setMmCircuitState } from '../services/mm-circuit-breaker.service.js';
 import { getSpotMetrics } from '../services/spot-metrics.service.js';
@@ -13,7 +13,13 @@ import { config } from '../config/index.js';
 
 export default async function adminControlRoutes(app: FastifyInstance) {
   app.addHook('preHandler', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
+    const isRead = request.method.toUpperCase() === 'GET';
+    const admin = await getAdminWithPermission(
+      app,
+      request,
+      reply,
+      isRead ? 'monitoring:view' : 'control:commands'
+    );
     if (!admin) return;
   });
 

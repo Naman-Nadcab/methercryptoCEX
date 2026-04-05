@@ -38,7 +38,7 @@ export function OrdersTable({ rows }: { rows: OrderRow[] }) {
       id: 'user',
       header: 'User',
       cell: ({ row }) => (
-        <span className="text-gray-900">{row.original.user_email ?? row.original.user_id ?? '—'}</span>
+        <span className="text-admin-text">{row.original.user_email ?? row.original.user_id ?? '—'}</span>
       ),
     },
     { accessorKey: 'market', header: 'Market', cell: ({ getValue }) => getValue() ?? '—' },
@@ -82,9 +82,9 @@ export function OrdersTable({ rows }: { rows: OrderRow[] }) {
   });
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-admin-border bg-white">
+    <div className="overflow-x-auto rounded-xl border border-admin-border bg-admin-card">
       <table className="w-full min-w-[800px] border-collapse">
-        <thead className="sticky top-0 z-10 bg-gray-50">
+        <thead className="sticky top-0 z-10 bg-white/[0.02]">
           {table.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id}>
               {headerGroup.headers.map((header) => (
@@ -107,7 +107,7 @@ export function OrdersTable({ rows }: { rows: OrderRow[] }) {
             </tr>
           ) : (
             table.getRowModel().rows.map((row) => (
-              <tr key={row.id} className="border-b border-admin-border/60 hover:bg-gray-50">
+              <tr key={row.id} className="border-b border-admin-border/60 hover:bg-admin-card/5">
                 {row.getVisibleCells().map((cell) => (
                   <td key={cell.id} className="px-4 py-3 text-sm">
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}

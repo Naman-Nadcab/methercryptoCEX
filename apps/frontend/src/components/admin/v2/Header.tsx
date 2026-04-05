@@ -153,7 +153,7 @@ export default function AdminV2Header({ onMenuClick }: AdminV2HeaderProps) {
   };
 
   return (
-    <header className="h-14 border-b border-[var(--admin-card-border)] bg-white flex items-center justify-between px-4 gap-4 sticky top-0 z-30">
+    <header className="h-14 border-b border-[var(--admin-card-border)] bg-[var(--admin-header-bg)] flex items-center justify-between px-4 gap-4 sticky top-0 z-30">
       <div className="flex items-center gap-3 min-w-0 flex-1">
         <Button
           variant="ghost"
@@ -255,7 +255,7 @@ export default function AdminV2Header({ onMenuClick }: AdminV2HeaderProps) {
             )}
           </Button>
           {showAlerts && (
-            <div className="absolute right-0 mt-2 w-72 bg-white border border-[var(--admin-card-border)] rounded-[var(--admin-radius)] shadow-lg z-50 overflow-hidden">
+            <div className="absolute right-0 mt-2 w-72 bg-[var(--admin-card-bg)] border border-[var(--admin-card-border)] rounded-[var(--admin-radius)] shadow-lg z-50 overflow-hidden">
               <div className="px-4 py-3 border-b border-[var(--admin-card-border)]">
                 <h3 className="text-sm font-semibold text-[var(--admin-text)]">Alerts</h3>
               </div>

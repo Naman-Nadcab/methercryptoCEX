@@ -85,10 +85,10 @@ export function MarketControlModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={handleClose}>
       <div
-        className="w-full max-w-md rounded-xl bg-white p-6 shadow-lg"
+        className="w-full max-w-md rounded-xl bg-admin-card p-6 shadow-lg"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+        <h3 className="text-lg font-semibold text-admin-text">{title}</h3>
         {symbol && (
           <p className="mt-1 text-sm font-medium text-admin-muted">Market: {symbol}</p>
         )}
@@ -96,14 +96,14 @@ export function MarketControlModal({
         {isPause && (
           <div className="mt-4 space-y-4">
             <div>
-              <label htmlFor="market-halt-reason" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="market-halt-reason" className="block text-sm font-medium text-admin-text">
                 Reason *
               </label>
               <select
                 id="market-halt-reason"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-admin-border bg-white px-3 py-2 text-sm focus:ring-2 focus:ring-admin-primary"
+                className="mt-1 w-full rounded-lg border border-admin-border bg-admin-card px-3 py-2 text-sm focus:ring-2 focus:ring-admin-primary"
               >
                 <option value="">Select reason</option>
                 {PAUSE_REASONS.map((r) => (
@@ -114,7 +114,7 @@ export function MarketControlModal({
               </select>
             </div>
             <div>
-              <label htmlFor="market-halt-note" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="market-halt-note" className="block text-sm font-medium text-admin-text">
                 Admin note (optional)
               </label>
               <textarea

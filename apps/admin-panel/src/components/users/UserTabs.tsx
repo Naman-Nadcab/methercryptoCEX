@@ -27,7 +27,7 @@ export interface UserTabsProps {
 
 export function UserTabs({ activeTab, onTabChange, children }: UserTabsProps) {
   return (
-    <div className="rounded-[12px] bg-white shadow-[0_1px_3px_0_rgba(0,0,0,0.08)]">
+    <div className="rounded-[12px] bg-admin-card shadow-[0_1px_3px_0_rgba(0,0,0,0.08)]">
       <div className="border-b border-admin-border">
         <nav className="flex gap-1 overflow-x-auto px-4" aria-label="User detail tabs">
           {TABS.map((tab) => (
@@ -39,7 +39,7 @@ export function UserTabs({ activeTab, onTabChange, children }: UserTabsProps) {
                 'whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium transition-colors',
                 activeTab === tab.id
                   ? 'border-admin-primary text-admin-primary'
-                  : 'border-transparent text-admin-muted hover:border-gray-300 hover:text-gray-700'
+                  : 'border-transparent text-admin-muted hover:border-admin-border hover:text-admin-text'
               )}
             >
               {tab.label}

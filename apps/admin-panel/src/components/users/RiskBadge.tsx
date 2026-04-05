@@ -11,7 +11,7 @@ export interface RiskBadgeProps {
 }
 
 const LEVEL_STYLES: Record<RiskLevel, string> = {
-  low: 'bg-gray-100 text-admin-muted',
+  low: 'bg-white/5 text-admin-muted',
   medium: 'bg-amber-100 text-admin-warning',
   high: 'bg-red-100 text-admin-danger',
 };

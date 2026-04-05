@@ -7,16 +7,25 @@ import type { FastifyInstance } from 'fastify';
 import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
-import { getAdminFromRequest } from './admin.fastify.js';
+import { getAdminWithPermission } from './admin.fastify.js';
+import { logAuditFromRequest } from '../services/audit-log.service.js';
 
 export default async function adminOperationalRoutes(app: FastifyInstance) {
   app.addHook('preHandler', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
+    const isRead = request.method.toUpperCase() === 'GET';
+    const admin = await getAdminWithPermission(
+      app,
+      request,
+      reply,
+      isRead ? 'monitoring:view' : 'control:commands'
+    );
     if (!admin) return;
   });
 
   // PATCH /operational/wallet-status — set deposit/withdrawal pause via feature_toggles
   app.patch<{ Body: { depositPaused?: boolean; withdrawalPaused?: boolean } }>('/operational/wallet-status', async (request, reply) => {
+    const admin = await getAdminWithPermission(app, request, reply, 'control:commands');
+    if (!admin) return;
     try {
       const { depositPaused, withdrawalPaused } = request.body ?? {};
       if (depositPaused != null) {
@@ -29,6 +38,13 @@ export default async function adminOperationalRoutes(app: FastifyInstance) {
           `UPDATE feature_toggles SET is_enabled = $1, updated_at = NOW() WHERE feature_key = 'withdrawal.enabled'`
         , [!withdrawalPaused]);
       }
+      logAuditFromRequest(request, {
+        actorType: 'admin',
+        actorId: admin.adminId,
+        action: 'wallet_status_updated',
+        resourceType: 'feature_toggles',
+        newValue: { depositPaused, withdrawalPaused },
+      }).catch(() => {});
       return reply.send({ success: true, data: { message: 'Updated' } });
     } catch (e) {
       logger.warn('Wallet status update error', { error: e instanceof Error ? e.message : 'Unknown' });
@@ -83,11 +99,11 @@ export default async function adminOperationalRoutes(app: FastifyInstance) {
         // ignore
       }
 
-      const baseReq = requestVolume > 0 ? Math.round(requestVolume / 24) : 1;
+      const baseReq = requestVolume > 0 ? Math.round(requestVolume / 24) : 0;
       const series24h = Array.from({ length: 24 }, (_, i) => ({
         hour: i,
-        requests: baseReq + Math.floor(Math.random() * (baseReq * 0.3)),
-        violations: Math.floor(violations / 24) + (i % 3 === 0 ? 1 : 0),
+        requests: baseReq,
+        violations: violations > 0 ? Math.floor(violations / 24) : 0,
       }));
 
       return reply.send({
@@ -147,7 +163,7 @@ export default async function adminOperationalRoutes(app: FastifyInstance) {
 
   // POST /operational/backups/create — trigger database snapshot
   app.post('/operational/backups/create', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, true);
+    const admin = await getAdminWithPermission(app, request, reply, 'settings:edit');
     if (!admin) return;
     try {
       const hasTable = await db.query<{ exists: boolean }>(
@@ -175,14 +191,38 @@ export default async function adminOperationalRoutes(app: FastifyInstance) {
         [id, admin.adminId]
       );
 
-      // In production: trigger pg_dump or external backup script
-      // For now: mark as completed (stub)
-      await db.query(`UPDATE backup_history SET status = 'completed', size_bytes = 0 WHERE id = $1`, [id]);
+      const { exec } = await import('child_process');
+      const { promisify } = await import('util');
+      const execAsync = promisify(exec);
+      const fs = await import('fs');
 
-      return reply.send({
-        success: true,
-        data: { id, status: 'completed', message: 'Backup triggered (stub)' },
-      });
+      const backupDir = process.env.BACKUP_DIR || '/tmp/exchange-backups';
+      if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const filename = `backup-${timestamp}.sql.gz`;
+      const filePath = `${backupDir}/${filename}`;
+
+      const dbUrl = process.env.DATABASE_URL || '';
+
+      try {
+        await execAsync(`pg_dump "${dbUrl}" --no-owner --no-acl | gzip > "${filePath}"`, { timeout: 120000 });
+        const stats = fs.statSync(filePath);
+        await db.query(
+          `UPDATE backup_history SET status = 'completed', size_bytes = $1, path = $2 WHERE id = $3`,
+          [stats.size, filePath, id]
+        );
+        return reply.send({
+          success: true,
+          data: { id, status: 'completed', sizeBytes: stats.size, path: filename, message: 'Database backup completed' },
+        });
+      } catch (pgErr) {
+        logger.error('pg_dump failed', { error: pgErr instanceof Error ? pgErr.message : 'Unknown' });
+        await db.query(`UPDATE backup_history SET status = 'failed' WHERE id = $1`, [id]);
+        return reply.send({
+          success: true,
+          data: { id, status: 'failed', message: 'pg_dump execution failed. Ensure pg_dump is installed and DATABASE_URL is set.' },
+        });
+      }
     } catch (e) {
       logger.error('Backup create error', { error: e instanceof Error ? e.message : 'Unknown' });
       return reply.status(500).send({
@@ -194,7 +234,7 @@ export default async function adminOperationalRoutes(app: FastifyInstance) {
 
   // POST /operational/backups/:id/restore — restore from backup (stub)
   app.post<{ Params: { id: string } }>('/operational/backups/:id/restore', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, true);
+    const admin = await getAdminWithPermission(app, request, reply, 'settings:edit');
     if (!admin) return;
     const { id } = request.params;
     try {

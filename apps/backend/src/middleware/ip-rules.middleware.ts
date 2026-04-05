@@ -96,7 +96,6 @@ export function ipRulesMiddleware(app: FastifyInstance): void {
   app.addHook('onRequest', async (request: FastifyRequest, reply: FastifyReply) => {
     const path = (request.url || '').split('?')[0] ?? '';
     if (PUBLIC_AUTH_ROUTES.has(path)) {
-      console.log('[BYPASS]', path);
       return;
     }
     if (SKIP_PATHS.has(path)) return;

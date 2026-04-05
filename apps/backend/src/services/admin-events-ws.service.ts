@@ -2,10 +2,13 @@
  * Admin control events WebSocket: broadcast control_status_changed, emergency_level_changed,
  * incident_created, service_restarted, liquidity_kill_activated to admin dashboard.
  * Channel: /api/v1/admin/ws/events
+ *
+ * Debounced: same event type is coalesced within a 5s window to prevent UI spam.
  */
 
 import type { WebSocket } from 'ws';
 import { logger } from '../lib/logger.js';
+import { eventBus, type EventChannel } from '../lib/eventBus.js';
 
 export type AdminControlEventType =
   | 'connected'
@@ -31,6 +34,8 @@ interface AdminEventsConnection {
 }
 
 const connections = new Map<string, AdminEventsConnection>();
+const DEBOUNCE_MS = 5000;
+const lastBroadcast = new Map<AdminControlEventType, number>();
 
 function genId(): string {
   return `admin-events-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -66,8 +71,30 @@ export function unregisterAdminEventsConnection(connectionId: string): void {
   connections.delete(connectionId);
 }
 
+const EVENT_TO_CHANNEL: Partial<Record<AdminControlEventType, EventChannel>> = {
+  control_status_changed: 'system:status',
+  emergency_level_changed: 'system:status',
+  incident_created: 'incident:update',
+  health_score_updated: 'system:status',
+};
+
+const ALWAYS_BROADCAST: Set<AdminControlEventType> = new Set([
+  'incident_created',
+  'emergency_level_changed',
+  'liquidity_kill_activated',
+  'service_restarted',
+]);
+
 export function broadcastAdminControlEvent(event: AdminControlEventType, payload: Record<string, unknown>): void {
-  const message: AdminControlEventMessage = { event, payload, timestamp: Date.now() };
+  const now = Date.now();
+
+  if (!ALWAYS_BROADCAST.has(event)) {
+    const last = lastBroadcast.get(event) ?? 0;
+    if (now - last < DEBOUNCE_MS) return;
+  }
+  lastBroadcast.set(event, now);
+
+  const message: AdminControlEventMessage = { event, payload, timestamp: now };
   const raw = JSON.stringify(message);
   for (const conn of connections.values()) {
     if (conn.socket.readyState === 1) {
@@ -78,6 +105,12 @@ export function broadcastAdminControlEvent(event: AdminControlEventType, payload
       }
     }
   }
+
+  const channel = EVENT_TO_CHANNEL[event];
+  if (channel) {
+    eventBus.publish(channel, { ...payload, controlEvent: event }, 'control');
+  }
+  eventBus.publish('activity:update', { ...payload, action: event }, 'control');
 }
 
 export function getAdminEventsConnectionCount(): number {

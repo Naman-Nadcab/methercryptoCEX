@@ -5,15 +5,16 @@
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db } from '../lib/database.js';
+import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
-import { getAdminFromRequest } from './admin.fastify.js';
+import { getAdminWithPermission } from './admin.fastify.js';
 
 type Period = '24h' | '7d' | '30d';
 const PERIOD_HOURS: Record<Period, number> = { '24h': 24, '7d': 168, '30d': 720 };
 
 async function analyticsRoutes(app: FastifyInstance) {
   app.addHook('preHandler', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
+    const admin = await getAdminWithPermission(app, request, reply, 'analytics:view');
     if (!admin) return;
   });
 
@@ -524,6 +525,12 @@ async function analyticsRoutes(app: FastifyInstance) {
     const period = (request.query.period ?? '24h') as Period;
     const hours = PERIOD_HOURS[period] ?? 24;
     try {
+      const cacheKey = `admin:cache:analytics_all:${period}`;
+      try {
+        const cached = await redis.getJson<Record<string, unknown>>(cacheKey);
+        if (cached) return reply.send({ success: true, data: cached });
+      } catch { /* Redis down */ }
+
       const [trading, users, deposits, withdrawals, p2p, aml] = await Promise.all([
         db.query(
           `SELECT COALESCE(SUM((quantity::numeric * price::numeric)), 0) AS volume, COUNT(*) AS count
@@ -553,18 +560,17 @@ async function analyticsRoutes(app: FastifyInstance) {
           [String(hours)]
         ).catch(() => ({ rows: [{ count: 0 }] })),
       ]);
-      return reply.send({
-        success: true,
-        data: {
-          tradingVolume: Number(trading.rows[0]?.volume ?? 0),
-          tradeCount: Number(trading.rows[0]?.count ?? 0),
-          newUsers: Number(users.rows[0]?.new_users ?? 0),
-          deposits: { count: Number(deposits.rows[0]?.count ?? 0), volume: Number(deposits.rows[0]?.volume ?? 0) },
-          withdrawals: { count: Number(withdrawals.rows[0]?.count ?? 0), volume: Number(withdrawals.rows[0]?.volume ?? 0) },
-          p2pOrders: Number(p2p.rows[0]?.count ?? 0),
-          openAmlAlerts: Number(aml.rows[0]?.count ?? 0),
-        },
-      });
+      const analyticsData = {
+        tradingVolume: Number(trading.rows[0]?.volume ?? 0),
+        tradeCount: Number(trading.rows[0]?.count ?? 0),
+        newUsers: Number(users.rows[0]?.new_users ?? 0),
+        deposits: { count: Number(deposits.rows[0]?.count ?? 0), volume: Number(deposits.rows[0]?.volume ?? 0) },
+        withdrawals: { count: Number(withdrawals.rows[0]?.count ?? 0), volume: Number(withdrawals.rows[0]?.volume ?? 0) },
+        p2pOrders: Number(p2p.rows[0]?.count ?? 0),
+        openAmlAlerts: Number(aml.rows[0]?.count ?? 0),
+      };
+      redis.setJson(cacheKey, analyticsData, 15).catch(() => {});
+      return reply.send({ success: true, data: analyticsData });
     } catch (e) {
       logger.warn('Analytics all error', { error: e instanceof Error ? e.message : 'Unknown' });
       return reply.status(500).send({ success: false, error: 'Analytics failed' });

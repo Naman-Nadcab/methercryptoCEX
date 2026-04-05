@@ -38,6 +38,7 @@ import {
 import { StatCard } from '@/components/dashboard/StatCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { TableSkeleton } from '@/components/ui';
 import { StatusBadge } from '@/components/dashboard/StatusBadge';
 import { exportStandardCsv, exportStandardJson, type StandardExportRow } from '@/lib/export-utils';
 import { useAdminControlEventsWs } from '@/hooks/useAdminControlEventsWs';
@@ -100,9 +101,9 @@ function MetricScore({ label, value }: { label: string; value: number }) {
     ? 'font-semibold text-red-700'
     : isWarning
       ? 'font-medium text-red-600'
-      : 'text-gray-900';
+      : 'text-admin-text';
   return (
-    <div className="flex items-center justify-between rounded border border-admin-border bg-white px-3 py-2">
+    <div className="flex items-center justify-between rounded border border-admin-border bg-admin-card px-3 py-2">
       <span className="text-sm text-admin-muted">{label}</span>
       <span className={`text-sm ${valueClass}`}>{value}</span>
     </div>
@@ -253,67 +254,88 @@ export default function AdminControlPage() {
 
   const { data: statusData } = useQuery({
     queryKey: ['admin', 'control', 'status', token],
+    staleTime: 30_000,
     queryFn: () => getControlStatus(token),
     enabled: !!token,
     refetchInterval: 10000,
   });
   const { data: assetFreezeData } = useQuery({
     queryKey: ['admin', 'control', 'asset-freeze', token],
+    staleTime: 30_000,
     queryFn: () => getControlAssetFreeze(token),
     enabled: !!token,
+    refetchInterval: 15_000,
   });
   const { data: incidentsData } = useQuery({
     queryKey: ['admin', 'control', 'incidents', token],
+    staleTime: 30_000,
     queryFn: () => getControlIncidents(token, { limit: 50 }),
     enabled: !!token,
+    refetchInterval: 20_000,
   });
   const { data: eventsData } = useQuery({
     queryKey: ['admin', 'control', 'events', token],
+    staleTime: 30_000,
     queryFn: () => getControlEvents(token, 30),
     enabled: !!token,
+    refetchInterval: 20_000,
   });
   const { data: healthScoreData } = useQuery({
     queryKey: ['admin', 'control', 'health-score', token],
+    staleTime: 30_000,
     queryFn: () => getControlHealthScore(token),
     enabled: !!token,
     refetchInterval: 15000,
   });
   const { data: healthData } = useQuery({
     queryKey: ['admin', 'control', 'health', token],
+    staleTime: 30_000,
     queryFn: () => getControlHealth(token),
     enabled: !!token,
     refetchInterval: 10_000,
   });
   const { data: freezeHistoryData } = useQuery({
     queryKey: ['admin', 'control', 'asset-freeze-history', token],
+    staleTime: 30_000,
     queryFn: () => getControlAssetFreezeHistory(token, 20),
     enabled: !!token,
+    refetchInterval: 30_000,
   });
   const { data: circuitHistoryData } = useQuery({
     queryKey: ['admin', 'control', 'circuit-history', token],
+    staleTime: 30_000,
     queryFn: () => getControlCircuitHistory(token, 20),
     enabled: !!token,
+    refetchInterval: 30_000,
   });
   const TIMELINE_PAGE_SIZE = 30;
   const { data: timelineData } = useQuery({
     queryKey: ['admin', 'control', 'timeline', token],
+    staleTime: 30_000,
     queryFn: () => getControlTimeline(token, TIMELINE_PAGE_SIZE, 0),
     enabled: !!token,
+    refetchInterval: 30_000,
   });
   const { data: commandHistoryData } = useQuery({
     queryKey: ['admin', 'control', 'commands', 'history', token],
+    staleTime: 30_000,
     queryFn: () => getControlCommandHistory(token, 50),
     enabled: !!token,
+    refetchInterval: 20_000,
   });
   const { data: emergencyLevelData } = useQuery({
     queryKey: ['admin', 'control', 'emergency-level', token],
+    staleTime: 30_000,
     queryFn: () => getControlEmergencyLevel(token),
     enabled: !!token,
+    refetchInterval: 15_000,
   });
   const { data: safetyTriggersData } = useQuery({
     queryKey: ['admin', 'control', 'safety-triggers', token],
+    staleTime: 30_000,
     queryFn: () => getControlSafetyTriggers(token),
     enabled: !!token,
+    refetchInterval: 30_000,
   });
 
   const status = statusData?.data;
@@ -529,10 +551,8 @@ export default function AdminControlPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-gray-900">Exchange master control panel</h1>
-        <p className="mt-1 text-sm text-admin-muted">
-          Control exchange operations, circuit breakers, asset freezes, and emergency actions.
-        </p>
+        <h1 className="text-lg font-semibold text-admin-text">Admin Control</h1>
+        <p className="text-xs text-admin-muted mt-0.5">Control exchange operations, circuit breakers, asset freezes, and emergency actions.</p>
       </div>
 
       {/* Real-time exchange health score */}
@@ -546,11 +566,11 @@ export default function AdminControlPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-baseline gap-2">
-            <span className="text-4xl font-bold text-gray-900">{healthScore?.score ?? '—'}</span>
+            <span className="text-4xl font-bold text-admin-text">{healthScore?.score ?? '—'}</span>
             <span className="text-xl text-admin-muted">/ 100</span>
           </div>
           {healthScore?.metrics && (
-            <div className="rounded-lg border border-admin-border bg-gray-50/50 p-4">
+            <div className="rounded-lg border border-admin-border bg-white/[0.02]/50 p-4">
               <p className="mb-3 text-xs font-medium uppercase tracking-wide text-admin-muted">Metric breakdown</p>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 <MetricScore label="API Latency" value={healthScore.metrics.api_latency} />
@@ -575,7 +595,7 @@ export default function AdminControlPage() {
         <CardContent>
           <div className="overflow-x-auto rounded-xl border border-admin-border">
             <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50">
+              <thead className="bg-white/[0.02]">
                 <tr>
                   <th className="px-4 py-3 font-medium text-admin-muted">Service</th>
                   <th className="px-4 py-3 font-medium text-admin-muted">Status</th>
@@ -672,7 +692,7 @@ export default function AdminControlPage() {
         <CardContent>
           <div className="overflow-x-auto rounded-xl border border-admin-border">
             <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50">
+              <thead className="bg-white/[0.02]">
                 <tr>
                   <th className="px-4 py-3 font-medium text-admin-muted">Asset</th>
                   <th className="px-4 py-3 font-medium text-admin-muted">Deposits</th>
@@ -683,7 +703,9 @@ export default function AdminControlPage() {
               <tbody>
                 {assets.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-4 py-8 text-center text-admin-muted">Loading…</td>
+                    <td colSpan={4} className="p-0">
+                      <TableSkeleton rows={3} cols={4} />
+                    </td>
                   </tr>
                 ) : (
                   assets.map((row) => (
@@ -827,7 +849,7 @@ export default function AdminControlPage() {
           )}
           <div className="overflow-x-auto rounded-xl border border-admin-border">
             <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50">
+              <thead className="bg-white/[0.02]">
                 <tr>
                   <th className="px-4 py-3 font-medium text-admin-muted">Incident ID</th>
                   <th className="px-4 py-3 font-medium text-admin-muted">Type</th>
@@ -926,7 +948,7 @@ export default function AdminControlPage() {
         <CardContent>
           <div className="mb-4 flex flex-wrap items-center gap-3">
             <select
-              className="rounded-lg border border-admin-border bg-white px-3 py-2 text-sm text-gray-900"
+              className="rounded-lg border border-admin-border bg-admin-card px-3 py-2 text-sm text-admin-text"
               value={freezeHistoryAssetFilter}
               onChange={(e) => setFreezeHistoryAssetFilter(e.target.value)}
             >
@@ -935,7 +957,7 @@ export default function AdminControlPage() {
               ))}
             </select>
             <select
-              className="rounded-lg border border-admin-border bg-white px-3 py-2 text-sm text-gray-900"
+              className="rounded-lg border border-admin-border bg-admin-card px-3 py-2 text-sm text-admin-text"
               value={freezeHistoryActionFilter}
               onChange={(e) => setFreezeHistoryActionFilter(e.target.value)}
             >
@@ -945,14 +967,14 @@ export default function AdminControlPage() {
             </select>
             <input
               type="date"
-              className="rounded-lg border border-admin-border px-3 py-2 text-sm text-gray-900"
+              className="rounded-lg border border-admin-border px-3 py-2 text-sm text-admin-text"
               value={freezeHistoryDateStart}
               onChange={(e) => setFreezeHistoryDateStart(e.target.value)}
               title="From date"
             />
             <input
               type="date"
-              className="rounded-lg border border-admin-border px-3 py-2 text-sm text-gray-900"
+              className="rounded-lg border border-admin-border px-3 py-2 text-sm text-admin-text"
               value={freezeHistoryDateEnd}
               onChange={(e) => setFreezeHistoryDateEnd(e.target.value)}
               title="To date"
@@ -960,7 +982,7 @@ export default function AdminControlPage() {
           </div>
           <div className="overflow-x-auto rounded-xl border border-admin-border">
             <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50">
+              <thead className="bg-white/[0.02]">
                 <tr>
                   <th className="px-4 py-3 font-medium text-admin-muted">Asset</th>
                   <th className="px-4 py-3 font-medium text-admin-muted">Action</th>
@@ -1041,7 +1063,7 @@ export default function AdminControlPage() {
         <CardContent>
           <div className="mb-4 flex flex-wrap items-center gap-3">
             <select
-              className="rounded-lg border border-admin-border bg-white px-3 py-2 text-sm text-gray-900"
+              className="rounded-lg border border-admin-border bg-admin-card px-3 py-2 text-sm text-admin-text"
               value={circuitEventTypeFilter}
               onChange={(e) => setCircuitEventTypeFilter(e.target.value)}
             >
@@ -1050,7 +1072,7 @@ export default function AdminControlPage() {
               ))}
             </select>
             <select
-              className="rounded-lg border border-admin-border bg-white px-3 py-2 text-sm text-gray-900"
+              className="rounded-lg border border-admin-border bg-admin-card px-3 py-2 text-sm text-admin-text"
               value={circuitServiceFilter}
               onChange={(e) => setCircuitServiceFilter(e.target.value)}
             >
@@ -1060,14 +1082,14 @@ export default function AdminControlPage() {
             </select>
             <input
               type="date"
-              className="rounded-lg border border-admin-border px-3 py-2 text-sm text-gray-900"
+              className="rounded-lg border border-admin-border px-3 py-2 text-sm text-admin-text"
               value={circuitDateStart}
               onChange={(e) => setCircuitDateStart(e.target.value)}
               title="From date"
             />
             <input
               type="date"
-              className="rounded-lg border border-admin-border px-3 py-2 text-sm text-gray-900"
+              className="rounded-lg border border-admin-border px-3 py-2 text-sm text-admin-text"
               value={circuitDateEnd}
               onChange={(e) => setCircuitDateEnd(e.target.value)}
               title="To date"
@@ -1075,7 +1097,7 @@ export default function AdminControlPage() {
           </div>
           <div className="overflow-x-auto rounded-xl border border-admin-border">
             <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50">
+              <thead className="bg-white/[0.02]">
                 <tr>
                   <th className="px-4 py-3 font-medium text-admin-muted">Event</th>
                   <th className="px-4 py-3 font-medium text-admin-muted">Service</th>
@@ -1258,7 +1280,7 @@ export default function AdminControlPage() {
         <CardContent>
           <div className="overflow-x-auto rounded-xl border border-admin-border">
             <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50">
+              <thead className="bg-white/[0.02]">
                 <tr>
                   <th className="px-4 py-3 font-medium text-admin-muted">Trigger</th>
                   <th className="px-4 py-3 font-medium text-admin-muted">Threshold</th>
@@ -1269,7 +1291,11 @@ export default function AdminControlPage() {
               </thead>
               <tbody>
                 {safetyTriggers.length === 0 ? (
-                  <tr><td colSpan={5} className="px-4 py-8 text-center text-admin-muted">Loading…</td></tr>
+                  <tr>
+                    <td colSpan={5} className="p-0">
+                      <TableSkeleton rows={3} cols={4} />
+                    </td>
+                  </tr>
                 ) : (
                   safetyTriggers.map((t) => (
                     <tr key={t.id} className="border-t border-admin-border">
@@ -1337,7 +1363,7 @@ export default function AdminControlPage() {
             System command execution
           </CardTitle>
           <p className="text-sm text-admin-muted">
-            Run operational commands. All require confirmation. Requires <code className="rounded bg-gray-100 px-1">control:commands</code> permission.
+            Run operational commands. All require confirmation. Requires <code className="rounded bg-white/5 px-1">control:commands</code> permission.
           </p>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -1357,7 +1383,7 @@ export default function AdminControlPage() {
             <p className="text-sm text-amber-600">You do not have permission to run system commands.</p>
           )}
           <div>
-            <h4 className="mb-3 text-sm font-medium text-gray-700">Command history</h4>
+            <h4 className="mb-3 text-sm font-medium text-admin-text">Command history</h4>
             <div className="overflow-x-auto rounded-xl border border-admin-border">
               <table className="w-full text-left text-sm">
                 <thead>
@@ -1446,7 +1472,7 @@ export default function AdminControlPage() {
         <CardContent>
           <div className="mb-4 flex flex-wrap items-center gap-3">
             <select
-              className="rounded-lg border border-admin-border bg-white px-3 py-2 text-sm text-gray-900"
+              className="rounded-lg border border-admin-border bg-admin-card px-3 py-2 text-sm text-admin-text"
               value={eventServiceFilter}
               onChange={(e) => setEventServiceFilter(e.target.value)}
             >
@@ -1455,7 +1481,7 @@ export default function AdminControlPage() {
               ))}
             </select>
             <select
-              className="rounded-lg border border-admin-border bg-white px-3 py-2 text-sm text-gray-900"
+              className="rounded-lg border border-admin-border bg-admin-card px-3 py-2 text-sm text-admin-text"
               value={eventSeverityFilter}
               onChange={(e) => setEventSeverityFilter(e.target.value)}
             >
@@ -1465,14 +1491,14 @@ export default function AdminControlPage() {
             </select>
             <input
               type="date"
-              className="rounded-lg border border-admin-border px-3 py-2 text-sm text-gray-900"
+              className="rounded-lg border border-admin-border px-3 py-2 text-sm text-admin-text"
               value={eventDateStart}
               onChange={(e) => setEventDateStart(e.target.value)}
               title="From date"
             />
             <input
               type="date"
-              className="rounded-lg border border-admin-border px-3 py-2 text-sm text-gray-900"
+              className="rounded-lg border border-admin-border px-3 py-2 text-sm text-admin-text"
               value={eventDateEnd}
               onChange={(e) => setEventDateEnd(e.target.value)}
               title="To date"
@@ -1480,7 +1506,7 @@ export default function AdminControlPage() {
           </div>
           <div className="overflow-x-auto rounded-xl border border-admin-border">
             <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50">
+              <thead className="bg-white/[0.02]">
                 <tr>
                   <th className="px-4 py-3 font-medium text-admin-muted">Event</th>
                   <th className="px-4 py-3 font-medium text-admin-muted">Service</th>
@@ -1516,8 +1542,8 @@ export default function AdminControlPage() {
       {/* Modals */}
       {confirmCircuit && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setConfirmCircuit(null)}>
-          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-gray-900">Confirm circuit action</h3>
+          <div className="w-full max-w-sm rounded-xl bg-admin-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-admin-text">Confirm circuit action</h3>
             <p className="mt-2 text-sm text-admin-muted">Execute: {confirmCircuit.label}. This may affect trading.</p>
             <div className="mt-4 flex gap-2">
               <Button variant="secondary" className="flex-1" onClick={() => setConfirmCircuit(null)}>Cancel</Button>
@@ -1528,26 +1554,26 @@ export default function AdminControlPage() {
       )}
       {createIncidentOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => !createIncidentMutation.isPending && setCreateIncidentOpen(false)}>
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-gray-900">Create incident</h3>
+          <div className="w-full max-w-md rounded-xl bg-admin-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-admin-text">Create incident</h3>
             <p className="mt-1 text-sm text-admin-muted">Manually create an incident. It will be logged in control events.</p>
             <div className="mt-4 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Incident type</label>
+                <label className="block text-sm font-medium text-admin-text">Incident type</label>
                 <input
                   type="text"
                   placeholder="e.g. matching_engine_failure"
                   value={createIncidentForm.type}
                   onChange={(e) => setCreateIncidentForm((f) => ({ ...f, type: e.target.value }))}
-                  className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm text-gray-900 placeholder:text-admin-muted focus:border-admin-primary focus:outline-none focus:ring-1 focus:ring-admin-primary"
+                  className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm text-admin-text placeholder:text-admin-muted focus:border-admin-primary focus:outline-none focus:ring-1 focus:ring-admin-primary"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Severity</label>
+                <label className="block text-sm font-medium text-admin-text">Severity</label>
                 <select
                   value={createIncidentForm.severity}
                   onChange={(e) => setCreateIncidentForm((f) => ({ ...f, severity: e.target.value }))}
-                  className="mt-1 w-full rounded-lg border border-admin-border bg-white px-3 py-2 text-sm text-gray-900"
+                  className="mt-1 w-full rounded-lg border border-admin-border bg-admin-card px-3 py-2 text-sm text-admin-text"
                 >
                   <option value="info">info</option>
                   <option value="warning">warning</option>
@@ -1555,13 +1581,13 @@ export default function AdminControlPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Description</label>
+                <label className="block text-sm font-medium text-admin-text">Description</label>
                 <textarea
                   placeholder="e.g. Matching engine queue stuck"
                   value={createIncidentForm.description}
                   onChange={(e) => setCreateIncidentForm((f) => ({ ...f, description: e.target.value }))}
                   rows={3}
-                  className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm text-gray-900 placeholder:text-admin-muted focus:border-admin-primary focus:outline-none focus:ring-1 focus:ring-admin-primary"
+                  className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm text-admin-text placeholder:text-admin-muted focus:border-admin-primary focus:outline-none focus:ring-1 focus:ring-admin-primary"
                 />
               </div>
             </div>
@@ -1591,8 +1617,8 @@ export default function AdminControlPage() {
       )}
       {confirmCommand && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setConfirmCommand(null)}>
-          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-gray-900">Confirm system command</h3>
+          <div className="w-full max-w-sm rounded-xl bg-admin-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-admin-text">Confirm system command</h3>
             <p className="mt-2 text-sm text-admin-muted">Run: {confirmCommand.label}. This will trigger a restart.</p>
             <div className="mt-4 flex gap-2">
               <Button variant="secondary" className="flex-1" onClick={() => setConfirmCommand(null)}>Cancel</Button>
@@ -1603,8 +1629,8 @@ export default function AdminControlPage() {
       )}
       {confirmLiquidityKill !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setConfirmLiquidityKill(null)}>
-          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-gray-900">Liquidity kill switch</h3>
+          <div className="w-full max-w-sm rounded-xl bg-admin-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-admin-text">Liquidity kill switch</h3>
             <p className="mt-2 text-sm text-admin-muted">
               {confirmLiquidityKill ? 'Activate kill switch? This disables liquidity bot and external providers.' : 'Deactivate kill switch?'}
             </p>
@@ -1619,8 +1645,8 @@ export default function AdminControlPage() {
       )}
       {confirmEmergencyMode !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setConfirmEmergencyMode(null)}>
-          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-gray-900">Exchange emergency mode</h3>
+          <div className="w-full max-w-sm rounded-xl bg-admin-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-admin-text">Exchange emergency mode</h3>
             <p className="mt-2 text-sm text-admin-muted">
               {confirmEmergencyMode ? 'Enable emergency mode? This will pause trading, disable withdrawals and deposits, and enable safe mode.' : 'Disable emergency mode?'}
             </p>
@@ -1636,8 +1662,8 @@ export default function AdminControlPage() {
 
       {confirmEmergencyLevel !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setConfirmEmergencyLevel(null)}>
-          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-gray-900">Confirm emergency level change</h3>
+          <div className="w-full max-w-sm rounded-xl bg-admin-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-admin-text">Confirm emergency level change</h3>
             <p className="mt-2 text-sm text-admin-muted">
               Confirm changing emergency level to Level {confirmEmergencyLevel}?
             </p>
@@ -1653,30 +1679,30 @@ export default function AdminControlPage() {
 
       {editTriggerModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => { if (!editTriggerSaveConfirm) { setEditTriggerModal(null); setEditTriggerSaveConfirm(false); } }}>
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-gray-900">Edit trigger</h3>
+          <div className="w-full max-w-md rounded-xl bg-admin-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-admin-text">Edit trigger</h3>
             <p className="mt-1 text-sm text-amber-600">Incorrect trigger settings may pause trading automatically.</p>
             <div className="mt-4 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Trigger name</label>
+                <label className="block text-sm font-medium text-admin-text">Trigger name</label>
                 <input
                   type="text"
                   readOnly
                   value={editTriggerModal.trigger_type.replace(/_/g, ' ')}
-                  className="mt-1 w-full rounded-lg border border-admin-border bg-gray-50 px-3 py-2 text-sm text-admin-muted"
+                  className="mt-1 w-full rounded-lg border border-admin-border bg-white/[0.02] px-3 py-2 text-sm text-admin-muted"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Metric</label>
+                <label className="block text-sm font-medium text-admin-text">Metric</label>
                 <input
                   type="text"
                   readOnly
                   value={editTriggerModal.trigger_type}
-                  className="mt-1 w-full rounded-lg border border-admin-border bg-gray-50 px-3 py-2 text-sm font-mono text-admin-muted"
+                  className="mt-1 w-full rounded-lg border border-admin-border bg-white/[0.02] px-3 py-2 text-sm font-mono text-admin-muted"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Threshold value</label>
+                <label className="block text-sm font-medium text-admin-text">Threshold value</label>
                 <input
                   type="text"
                   inputMode="numeric"
@@ -1688,7 +1714,7 @@ export default function AdminControlPage() {
                 <p className="mt-0.5 text-xs text-admin-muted">When metric exceeds this value, the action runs (e.g. &gt; 5000).</p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Action</label>
+                <label className="block text-sm font-medium text-admin-text">Action</label>
                 <select
                   value={editTriggerForm.action}
                   onChange={(e) => setEditTriggerForm((f) => ({ ...f, action: e.target.value }))}
@@ -1717,8 +1743,8 @@ export default function AdminControlPage() {
 
       {editTriggerSaveConfirm && editTriggerModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" onClick={() => setEditTriggerSaveConfirm(false)}>
-          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-gray-900">Confirm save</h3>
+          <div className="w-full max-w-sm rounded-xl bg-admin-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-admin-text">Confirm save</h3>
             <p className="mt-2 text-sm text-admin-muted">Save trigger settings? Incorrect trigger settings may pause trading automatically.</p>
             <div className="mt-4 flex gap-2">
               <Button variant="secondary" className="flex-1" onClick={() => setEditTriggerSaveConfirm(false)}>Cancel</Button>
@@ -1753,12 +1779,12 @@ export default function AdminControlPage() {
 
       {addTriggerModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setAddTriggerModalOpen(false)}>
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-gray-900">Create trigger</h3>
+          <div className="w-full max-w-md rounded-xl bg-admin-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-admin-text">Create trigger</h3>
             <p className="mt-1 text-sm text-admin-muted">When the metric exceeds the threshold, the selected action runs. Max 20 triggers.</p>
             <div className="mt-4 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Trigger name</label>
+                <label className="block text-sm font-medium text-admin-text">Trigger name</label>
                 <input
                   type="text"
                   value={addTriggerForm.trigger_name}
@@ -1768,7 +1794,7 @@ export default function AdminControlPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Metric</label>
+                <label className="block text-sm font-medium text-admin-text">Metric</label>
                 <input
                   type="text"
                   value={addTriggerForm.metric}
@@ -1778,7 +1804,7 @@ export default function AdminControlPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Threshold</label>
+                <label className="block text-sm font-medium text-admin-text">Threshold</label>
                 <input
                   type="text"
                   inputMode="numeric"
@@ -1790,7 +1816,7 @@ export default function AdminControlPage() {
                 <p className="mt-0.5 text-xs text-admin-muted">When metric exceeds this value (e.g. &gt; 200 or &gt; 20%).</p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Action</label>
+                <label className="block text-sm font-medium text-admin-text">Action</label>
                 <select
                   value={addTriggerForm.action}
                   onChange={(e) => setAddTriggerForm((f) => ({ ...f, action: e.target.value }))}
@@ -1802,7 +1828,7 @@ export default function AdminControlPage() {
                 </select>
               </div>
               <div className="flex items-center gap-2">
-                <label className="text-sm font-medium text-gray-700">Enabled</label>
+                <label className="text-sm font-medium text-admin-text">Enabled</label>
                 <button
                   type="button"
                   role="switch"
@@ -1810,12 +1836,12 @@ export default function AdminControlPage() {
                   onClick={() => setAddTriggerForm((f) => ({ ...f, enabled: !f.enabled }))}
                   className={cn(
                     'relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-admin-primary focus:ring-offset-2',
-                    addTriggerForm.enabled ? 'bg-admin-primary' : 'bg-gray-200'
+                    addTriggerForm.enabled ? 'bg-admin-primary' : 'bg-white/5'
                   )}
                 >
                   <span
                     className={cn(
-                      'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition',
+                      'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-admin-card shadow ring-0 transition',
                       addTriggerForm.enabled ? 'translate-x-5' : 'translate-x-1'
                     )}
                   />
@@ -1874,8 +1900,8 @@ export default function AdminControlPage() {
 
       {testTriggerModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setTestTriggerModal(null)}>
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-gray-900">Test trigger (simulation)</h3>
+          <div className="w-full max-w-md rounded-xl bg-admin-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-admin-text">Test trigger (simulation)</h3>
             <p className="mt-1 text-sm text-admin-muted">No real system actions are executed. This is a UI-only simulation.</p>
             <dl className="mt-4 space-y-3">
               <div>
@@ -1903,7 +1929,7 @@ export default function AdminControlPage() {
                 <dt className="text-xs font-medium uppercase tracking-wide text-admin-muted">Expected action</dt>
                 <dd className="mt-0.5">{testTriggerModal.action.replace(/_/g, ' ')}</dd>
               </div>
-              <div className="rounded-lg border border-admin-border bg-gray-50 p-3">
+              <div className="rounded-lg border border-admin-border bg-white/[0.02] p-3">
                 <dt className="text-xs font-medium uppercase tracking-wide text-admin-muted">Result</dt>
                 <dd className="mt-1 font-medium">
                   {(() => {

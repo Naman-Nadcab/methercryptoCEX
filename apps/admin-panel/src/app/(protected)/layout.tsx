@@ -3,9 +3,8 @@
 import { useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAdminAuthStore } from '@/store/auth';
-import { Sidebar } from '@/components/layout/Sidebar';
-import { Topbar } from '@/components/layout/Topbar';
-import { useAdminWs } from '@/hooks/useAdminWs';
+import { useRealtime } from '@/hooks/useRealtime';
+import { AppShell } from '@/components/shell';
 
 export default function ProtectedLayout({
   children,
@@ -16,7 +15,8 @@ export default function ProtectedLayout({
   const pathname = usePathname();
   const accessToken = useAdminAuthStore((s) => s.accessToken);
 
-  useAdminWs();
+  // Unified realtime system — singleton WS, global query invalidation + Zustand events
+  useRealtime();
 
   useEffect(() => {
     if (pathname?.startsWith('/login')) return;
@@ -28,18 +28,10 @@ export default function ProtectedLayout({
   if (!accessToken && !pathname?.startsWith('/login')) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-admin-bg">
-        <div className="text-admin-muted">Loading...</div>
+        <div className="text-admin-muted animate-pulse">Loading...</div>
       </div>
     );
   }
 
-  return (
-    <div className="min-h-screen bg-[#F8FAFC]">
-      <Sidebar />
-      <div className="pl-64">
-        <Topbar />
-        <main className="min-h-[calc(100vh-4rem)] p-6">{children}</main>
-      </div>
-    </div>
-  );
+  return <AppShell>{children}</AppShell>;
 }

@@ -22,6 +22,8 @@ import {
   postSystemFeatureDependency,
   patchSystemFeatureDependency,
   deleteSystemFeatureDependency,
+  getOperationalWalletStatus,
+  patchOperationalWalletStatus,
   type FeatureFlagRow,
   type FeatureDependencyRow,
   type ConfigVersionRow,
@@ -156,47 +158,62 @@ export default function SystemSettingsPage() {
 
   const { data: settingsData } = useQuery({
     queryKey: ['admin', 'system', 'settings', token],
+    staleTime: 30_000,
     queryFn: () => getSystemSettings(token),
     enabled: !!token,
   });
   const { data: featuresData } = useQuery({
     queryKey: ['admin', 'system', 'features', token],
+    staleTime: 30_000,
     queryFn: () => getSystemFeatures(token),
     enabled: !!token,
   });
   const { data: riskData } = useQuery({
     queryKey: ['admin', 'risk', 'settings', token],
+    staleTime: 30_000,
     queryFn: () => getRiskSettings(token),
     enabled: !!token,
   });
   const { data: haltData } = useQuery({
     queryKey: ['admin', 'trading-halt', token],
+    staleTime: 30_000,
     queryFn: () => getTradingHalt(token),
     enabled: !!token,
   });
   const { data: historyData } = useQuery({
     queryKey: ['admin', 'system', 'settings', 'history', token],
+    staleTime: 30_000,
     queryFn: () => getSystemSettingsHistory(token),
     enabled: !!token && activeTab === 'version-history',
   });
   const { data: diffData } = useQuery({
     queryKey: ['admin', 'system', 'settings', 'diff', diffModal?.versionId, token],
+    staleTime: 30_000,
     queryFn: () => getSystemSettingsVersionDiff(token, diffModal!.versionId),
     enabled: !!token && !!diffModal?.versionId,
   });
   const { data: profilesData } = useQuery({
     queryKey: ['admin', 'system', 'profiles', token],
+    staleTime: 30_000,
     queryFn: () => getSystemProfiles(token),
     enabled: !!token,
   });
   const { data: safeModeData } = useQuery({
     queryKey: ['admin', 'system', 'safe-mode', token],
+    staleTime: 30_000,
     queryFn: () => getSystemSafeMode(token),
     enabled: !!token,
   });
   const { data: depsData } = useQuery({
     queryKey: ['admin', 'system', 'features', 'dependencies', token],
+    staleTime: 30_000,
     queryFn: () => getSystemFeatureDependencies(token),
+    enabled: !!token,
+  });
+  const { data: walletStatusData } = useQuery({
+    queryKey: ['admin', 'operational', 'wallet-status', token],
+    staleTime: 30_000,
+    queryFn: () => getOperationalWalletStatus(token),
     enabled: !!token,
   });
 
@@ -374,6 +391,9 @@ export default function SystemSettingsPage() {
     onSuccess: (_, { action }) => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'system', 'settings'] });
       if (action === 'pause_trading') queryClient.invalidateQueries({ queryKey: ['admin', 'trading-halt'] });
+      if (action === 'disable_withdrawals' || action === 'disable_deposits') {
+        queryClient.invalidateQueries({ queryKey: ['admin', 'operational', 'wallet-status'] });
+      }
       setEmergencyModal(null);
     },
   });
@@ -397,6 +417,13 @@ export default function SystemSettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['admin', 'system', 'safe-mode'] });
       queryClient.invalidateQueries({ queryKey: ['admin', 'system', 'settings'] });
       queryClient.invalidateQueries({ queryKey: ['admin', 'trading-halt'] });
+    },
+  });
+  const walletStatusMutation = useMutation({
+    mutationFn: (body: { depositPaused?: boolean; withdrawalPaused?: boolean }) =>
+      patchOperationalWalletStatus(token, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'operational', 'wallet-status'] });
     },
   });
   const importSettingsMutation = useMutation({
@@ -478,6 +505,7 @@ export default function SystemSettingsPage() {
 
   const profiles = profilesData?.data?.profiles ?? [];
   const safeMode = safeModeData?.data?.safe_mode ?? false;
+  const walletStatus = walletStatusData?.data ?? { depositPaused: false, withdrawalPaused: false };
   const dependencies = depsData?.data?.dependencies ?? [];
   const dependsOnMap = dependencies.reduce<Record<string, string[]>>((acc, d) => {
     (acc[d.feature_key] = acc[d.feature_key] || []).push(d.requires_feature_key);
@@ -519,7 +547,7 @@ export default function SystemSettingsPage() {
   };
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <Link href="/settings">
@@ -528,8 +556,8 @@ export default function SystemSettingsPage() {
             </Button>
           </Link>
           <div>
-            <h1 className="text-2xl font-semibold text-gray-900">Global configuration & feature flags</h1>
-            <p className="mt-1 text-sm text-admin-muted">
+            <h1 className="text-lg font-semibold text-admin-text">Global configuration & feature flags</h1>
+            <p className="text-xs text-admin-muted mt-0.5">
               Toggle features, trading and risk settings, limits, and emergency controls.
             </p>
           </div>
@@ -560,7 +588,7 @@ export default function SystemSettingsPage() {
             onClick={() => setActiveTab('configuration')}
             className={cn(
               'border-b-2 px-4 py-3 text-sm font-medium transition-colors',
-              activeTab === 'configuration' ? 'border-admin-primary text-admin-primary' : 'border-transparent text-admin-muted hover:text-gray-700'
+              activeTab === 'configuration' ? 'border-admin-primary text-admin-primary' : 'border-transparent text-admin-muted hover:text-admin-text'
             )}
           >
             Configuration
@@ -570,7 +598,7 @@ export default function SystemSettingsPage() {
             onClick={() => setActiveTab('version-history')}
             className={cn(
               'border-b-2 px-4 py-3 text-sm font-medium transition-colors',
-              activeTab === 'version-history' ? 'border-admin-primary text-admin-primary' : 'border-transparent text-admin-muted hover:text-gray-700'
+              activeTab === 'version-history' ? 'border-admin-primary text-admin-primary' : 'border-transparent text-admin-muted hover:text-admin-text'
             )}
           >
             Version history
@@ -590,7 +618,7 @@ export default function SystemSettingsPage() {
           <CardContent>
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
               <div className="flex flex-wrap items-center gap-2">
-                <label className="text-sm font-medium text-gray-700">Start date</label>
+                <label className="text-sm font-medium text-admin-text">Start date</label>
                 <input
                   type="date"
                   value={historyStartDate}
@@ -599,7 +627,7 @@ export default function SystemSettingsPage() {
                 />
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <label className="text-sm font-medium text-gray-700">End date</label>
+                <label className="text-sm font-medium text-admin-text">End date</label>
                 <input
                   type="date"
                   value={historyEndDate}
@@ -608,7 +636,7 @@ export default function SystemSettingsPage() {
                 />
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <label className="text-sm font-medium text-gray-700">Updated by</label>
+                <label className="text-sm font-medium text-admin-text">Updated by</label>
                 <select
                   value={historyUpdatedBy}
                   onChange={(e) => setHistoryUpdatedBy(e.target.value)}
@@ -623,7 +651,7 @@ export default function SystemSettingsPage() {
             </div>
             <div className="overflow-x-auto rounded-xl border border-admin-border">
               <table className="w-full text-left text-sm">
-                <thead className="bg-gray-50">
+                <thead className="bg-white/[0.02]">
                   <tr>
                     <th className="px-4 py-3 font-medium text-admin-muted">Version</th>
                     <th className="px-4 py-3 font-medium text-admin-muted">Updated by</th>
@@ -672,6 +700,12 @@ export default function SystemSettingsPage() {
 
       {activeTab === 'configuration' && (
         <>
+      {/* === SECTION: OPERATIONAL CONTROLS (CRITICAL) === */}
+      <div className="rounded-lg border-l-4 border-red-400 bg-red-50/50 px-4 py-3">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-red-700">Operational Controls — Critical</h2>
+        <p className="text-xs text-red-600/70">These directly affect user-facing deposit, withdrawal, and trading flows in real time.</p>
+      </div>
+
       {/* Safe mode */}
       <Card>
         <CardHeader>
@@ -694,6 +728,52 @@ export default function SystemSettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Shield className="h-5 w-5 text-admin-danger" />
+            Wallet operation controls
+          </CardTitle>
+          <p className="text-sm text-admin-muted">Operator kill-switches for deposit and withdrawal flows.</p>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex items-center justify-between rounded-lg border border-admin-border p-4">
+              <div>
+                <p className="font-medium">Deposits</p>
+                <p className="text-xs text-admin-muted">Status: {walletStatus.depositPaused ? 'Paused' : 'Live'}</p>
+              </div>
+              <Button
+                variant={walletStatus.depositPaused ? 'secondary' : 'primary'}
+                onClick={() => walletStatusMutation.mutate({ depositPaused: !walletStatus.depositPaused })}
+                disabled={walletStatusMutation.isPending}
+              >
+                {walletStatus.depositPaused ? 'Resume' : 'Pause'}
+              </Button>
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-admin-border p-4">
+              <div>
+                <p className="font-medium">Withdrawals</p>
+                <p className="text-xs text-admin-muted">Status: {walletStatus.withdrawalPaused ? 'Paused' : 'Live'}</p>
+              </div>
+              <Button
+                variant={walletStatus.withdrawalPaused ? 'secondary' : 'primary'}
+                onClick={() => walletStatusMutation.mutate({ withdrawalPaused: !walletStatus.withdrawalPaused })}
+                disabled={walletStatusMutation.isPending}
+              >
+                {walletStatus.withdrawalPaused ? 'Resume' : 'Pause'}
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* === SECTION: SYSTEM CONFIGURATION (Non-critical) === */}
+      <div className="rounded-lg border-l-4 border-blue-400 bg-blue-50/50 px-4 py-3">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-blue-700">System Configuration</h2>
+        <p className="text-xs text-blue-600/70">Feature flags, profiles, trading/risk settings, and limits. Changes here do not immediately halt user flows.</p>
+      </div>
 
       {/* Environment profiles */}
       <Card>
@@ -721,11 +801,11 @@ export default function SystemSettingsPage() {
             ))}
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-admin-border pt-4">
-            <label className="text-sm font-medium text-gray-700">Save current settings to:</label>
+            <label className="text-sm font-medium text-admin-text">Save current settings to:</label>
             <select
               value={saveToProfileTarget}
               onChange={(e) => setSaveToProfileTarget(e.target.value)}
-              className="rounded-lg border border-admin-border px-3 py-2 text-sm text-gray-900 focus:border-admin-primary focus:outline-none focus:ring-1 focus:ring-admin-primary"
+              className="rounded-lg border border-admin-border px-3 py-2 text-sm text-admin-text focus:border-admin-primary focus:outline-none focus:ring-1 focus:ring-admin-primary"
             >
               <option value="production">Production</option>
               <option value="staging">Staging</option>
@@ -819,7 +899,7 @@ export default function SystemSettingsPage() {
           )}
           <div className="overflow-x-auto rounded-xl border border-admin-border">
             <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50">
+              <thead className="bg-white/[0.02]">
                 <tr>
                   <th className="w-10 px-2 py-3">
                     <input
@@ -919,7 +999,7 @@ export default function SystemSettingsPage() {
         <CardContent>
           <div className="overflow-x-auto rounded-xl border border-admin-border">
             <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50">
+              <thead className="bg-white/[0.02]">
                 <tr>
                   <th className="px-4 py-3 font-medium text-admin-muted">Feature</th>
                   <th className="px-4 py-3 font-medium text-admin-muted">Depends on</th>
@@ -1004,7 +1084,7 @@ export default function SystemSettingsPage() {
             </div>
             <div className="grid gap-4 sm:grid-cols-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Default maker fee (%)</label>
+                <label className="block text-sm font-medium text-admin-text">Default maker fee (%)</label>
                 <input
                   type="text"
                   value={tradingForm.default_maker_fee}
@@ -1013,7 +1093,7 @@ export default function SystemSettingsPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Default taker fee (%)</label>
+                <label className="block text-sm font-medium text-admin-text">Default taker fee (%)</label>
                 <input
                   type="text"
                   value={tradingForm.default_taker_fee}
@@ -1022,7 +1102,7 @@ export default function SystemSettingsPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Minimum order size</label>
+                <label className="block text-sm font-medium text-admin-text">Minimum order size</label>
                 <input
                   type="text"
                   value={tradingForm.min_order_size}
@@ -1061,7 +1141,7 @@ export default function SystemSettingsPage() {
             className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
           >
             <div>
-              <label className="block text-sm font-medium text-gray-700">Large withdrawal threshold (USD)</label>
+              <label className="block text-sm font-medium text-admin-text">Large withdrawal threshold (USD)</label>
               <input
                 type="number"
                 min={0}
@@ -1071,7 +1151,7 @@ export default function SystemSettingsPage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Whale trade threshold (USD)</label>
+              <label className="block text-sm font-medium text-admin-text">Whale trade threshold (USD)</label>
               <input
                 type="number"
                 min={0}
@@ -1081,7 +1161,7 @@ export default function SystemSettingsPage() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Cancel rate threshold (%)</label>
+              <label className="block text-sm font-medium text-admin-text">Cancel rate threshold (%)</label>
               <input
                 type="number"
                 min={0}
@@ -1108,7 +1188,7 @@ export default function SystemSettingsPage() {
         <CardContent>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700">API rate limit (req/min)</label>
+              <label className="block text-sm font-medium text-admin-text">API rate limit (req/min)</label>
               <input
                 type="text"
                 value={limitsForm.api_rate_limit}
@@ -1123,7 +1203,7 @@ export default function SystemSettingsPage() {
               )}
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Max withdrawal per day (USD)</label>
+              <label className="block text-sm font-medium text-admin-text">Max withdrawal per day (USD)</label>
               <input
                 type="text"
                 value={limitsForm.max_withdrawal_per_day}
@@ -1138,7 +1218,7 @@ export default function SystemSettingsPage() {
               )}
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Max orders per minute</label>
+              <label className="block text-sm font-medium text-admin-text">Max orders per minute</label>
               <input
                 type="text"
                 value={limitsForm.max_orders_per_minute}
@@ -1153,7 +1233,7 @@ export default function SystemSettingsPage() {
               )}
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Max login attempts</label>
+              <label className="block text-sm font-medium text-admin-text">Max login attempts</label>
               <input
                 type="text"
                 value={limitsForm.max_login_attempts}
@@ -1187,7 +1267,7 @@ export default function SystemSettingsPage() {
         <CardContent>
           <div className="overflow-x-auto rounded-xl border border-admin-border">
             <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50">
+              <thead className="bg-white/[0.02]">
                 <tr>
                   <th className="px-4 py-3 font-medium text-admin-muted">Key</th>
                   <th className="px-4 py-3 font-medium text-admin-muted">Value</th>
@@ -1216,50 +1296,63 @@ export default function SystemSettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Emergency controls */}
+      {/* Emergency controls — bidirectional toggles with live state */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-admin-danger" />
             Emergency controls
           </CardTitle>
-          <p className="text-sm text-admin-muted">These actions require confirmation. Use with caution.</p>
+          <p className="text-sm text-admin-muted">Critical kill-switches. Each toggle reads live state from backend and allows ON/OFF switching.</p>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Button
-              variant="secondary"
-              className={cn(tradingHalted && 'border-admin-danger text-admin-danger')}
-              onClick={() => setEmergencyModal({ action: 'pause_trading', label: tradingHalted ? 'Resume all trading' : 'Pause all trading', enabled: !tradingHalted })}
-            >
-              {tradingHalted ? 'Resume trading' : 'Pause all trading'}
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => setEmergencyModal({ action: 'disable_withdrawals', label: 'Toggle withdrawals', enabled: true })}
-            >
-              Disable withdrawals
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => setEmergencyModal({ action: 'disable_deposits', label: 'Toggle deposits', enabled: true })}
-            >
-              Disable deposits
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => setEmergencyModal({ action: 'disable_p2p', label: 'Toggle P2P', enabled: true })}
-            >
-              Disable P2P
-            </Button>
-          </div>
+          {(() => {
+            const emergencyWithdrawals = settings['emergency_disable_withdrawals']?.value === '1' || settings['emergency_disable_withdrawals']?.value === 'true';
+            const emergencyDeposits = settings['emergency_disable_deposits']?.value === '1' || settings['emergency_disable_deposits']?.value === 'true';
+            const emergencyP2P = settings['emergency_disable_p2p']?.value === '1' || settings['emergency_disable_p2p']?.value === 'true';
+            const toggles = [
+              { key: 'pause_trading', label: 'Trading', active: tradingHalted, activeLabel: 'HALTED', inactiveLabel: 'Live' },
+              { key: 'disable_withdrawals', label: 'Withdrawals', active: emergencyWithdrawals, activeLabel: 'DISABLED', inactiveLabel: 'Live' },
+              { key: 'disable_deposits', label: 'Deposits', active: emergencyDeposits, activeLabel: 'DISABLED', inactiveLabel: 'Live' },
+              { key: 'disable_p2p', label: 'P2P Trading', active: emergencyP2P, activeLabel: 'DISABLED', inactiveLabel: 'Live' },
+            ];
+            return (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {toggles.map((t) => (
+                  <div key={t.key} className={cn(
+                    'flex items-center justify-between rounded-lg border p-4',
+                    t.active ? 'border-red-300 bg-red-50' : 'border-admin-border'
+                  )}>
+                    <div>
+                      <p className="font-medium text-admin-text">{t.label}</p>
+                      <p className={cn('text-xs font-semibold', t.active ? 'text-red-600' : 'text-green-600')}>
+                        {t.active ? t.activeLabel : t.inactiveLabel}
+                      </p>
+                    </div>
+                    <Button
+                      variant={t.active ? 'secondary' : 'primary'}
+                      size="sm"
+                      className={cn(t.active && 'border-red-400 text-red-700 hover:bg-red-100')}
+                      onClick={() => setEmergencyModal({
+                        action: t.key,
+                        label: t.active ? `Resume ${t.label.toLowerCase()}` : `Emergency disable ${t.label.toLowerCase()}`,
+                        enabled: !t.active,
+                      })}
+                    >
+                      {t.active ? 'Resume' : 'Disable'}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </CardContent>
       </Card>
 
       {emergencyModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setEmergencyModal(null)}>
-          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-gray-900">Confirm emergency action</h3>
+          <div className="w-full max-w-sm rounded-xl bg-admin-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-admin-text">Confirm emergency action</h3>
             <p className="mt-2 text-sm text-admin-muted">{emergencyModal.label}. This may affect all users.</p>
             <div className="mt-4 flex gap-2">
               <Button variant="secondary" className="flex-1" onClick={() => setEmergencyModal(null)}>
@@ -1282,8 +1375,8 @@ export default function SystemSettingsPage() {
 
       {diffModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setDiffModal(null)}>
-          <div className="w-full max-w-2xl max-h-[80vh] overflow-auto rounded-xl bg-white p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-gray-900">Configuration diff — Version {diffModal.versionNum}</h3>
+          <div className="w-full max-w-2xl max-h-[80vh] overflow-auto rounded-xl bg-admin-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-admin-text">Configuration diff — Version {diffModal.versionNum}</h3>
             <p className="mt-1 text-sm text-admin-muted">Only keys that changed between that version and current.</p>
             {diffData?.data ? (() => {
               const before = diffData.data.before ?? {};
@@ -1295,13 +1388,13 @@ export default function SystemSettingsPage() {
               return (
                 <div className="mt-4">
                   {changedKeys.length === 0 ? (
-                    <p className="rounded-lg border border-admin-border bg-gray-50 px-4 py-6 text-center text-sm text-admin-muted">
+                    <p className="rounded-lg border border-admin-border bg-white/[0.02] px-4 py-6 text-center text-sm text-admin-muted">
                       No configuration differences found.
                     </p>
                   ) : (
                     <div className="overflow-x-auto rounded-xl border border-admin-border">
                       <table className="w-full text-left text-sm">
-                        <thead className="bg-gray-50">
+                        <thead className="bg-white/[0.02]">
                           <tr>
                             <th className="px-4 py-3 font-medium text-admin-muted">Setting key</th>
                             <th className="px-4 py-3 font-medium text-admin-muted">Old value</th>
@@ -1311,7 +1404,7 @@ export default function SystemSettingsPage() {
                         <tbody>
                           {changedKeys.map((k) => (
                             <tr key={k} className="border-t border-admin-border">
-                              <td className="px-4 py-3 font-medium font-mono text-gray-900">{k}</td>
+                              <td className="px-4 py-3 font-medium font-mono text-admin-text">{k}</td>
                               <td className="px-4 py-3 font-mono text-admin-danger">{(before[k] ?? '') || '—'}</td>
                               <td className="px-4 py-3 font-mono text-admin-success">{(after[k] ?? '') || '—'}</td>
                             </tr>
@@ -1323,7 +1416,15 @@ export default function SystemSettingsPage() {
                 </div>
               );
             })() : (
-              <p className="mt-4 text-admin-muted">Loading diff…</p>
+              <div className="mt-4 space-y-2" aria-busy="true" aria-label="Loading diff">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="flex gap-4">
+                    <div className="h-4 w-36 animate-pulse rounded bg-white/5" />
+                    <div className="h-4 min-w-0 flex-1 animate-pulse rounded bg-white/5" />
+                    <div className="h-4 min-w-0 flex-1 animate-pulse rounded bg-white/5" />
+                  </div>
+                ))}
+              </div>
             )}
             <div className="mt-4">
               <Button variant="secondary" onClick={() => setDiffModal(null)}>Close</Button>
@@ -1334,8 +1435,8 @@ export default function SystemSettingsPage() {
 
       {rollbackModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setRollbackModal(null)}>
-          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-gray-900">Rollback to version</h3>
+          <div className="w-full max-w-sm rounded-xl bg-admin-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-admin-text">Rollback to version</h3>
             <p className="mt-2 text-sm text-admin-muted">
               Restore configuration to version {rollbackModal.version} (updated by {rollbackModal.updated_by ?? '—'}).
               Current settings will be replaced. This action is logged.
@@ -1359,8 +1460,8 @@ export default function SystemSettingsPage() {
 
       {bulkConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => !bulkPending && setBulkConfirm(null)}>
-          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-gray-900">Confirm bulk action</h3>
+          <div className="w-full max-w-sm rounded-xl bg-admin-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-admin-text">Confirm bulk action</h3>
             <p className="mt-2 text-sm text-admin-muted">
               You are about to {bulkConfirm.action} {bulkConfirm.count} feature flag{bulkConfirm.count !== 1 ? 's' : ''}. Continue?
             </p>
@@ -1378,8 +1479,8 @@ export default function SystemSettingsPage() {
 
       {saveToProfileConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => !saveToProfilePending && setSaveToProfileConfirm(null)}>
-          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-gray-900">Save to profile</h3>
+          <div className="w-full max-w-sm rounded-xl bg-admin-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-admin-text">Save to profile</h3>
             <p className="mt-2 text-sm text-admin-muted">
               Save current configuration to <strong className="capitalize">{saveToProfileConfirm}</strong>? This will overwrite the existing profile. This action is logged.
             </p>
@@ -1397,14 +1498,14 @@ export default function SystemSettingsPage() {
 
       {dependencyModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => { if (!dependencySaveConfirm) { setDependencyModal(null); setDependencySaveConfirm(false); } }}>
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-gray-900">
+          <div className="w-full max-w-md rounded-xl bg-admin-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-admin-text">
               {dependencyModal === 'add' ? 'Add dependency' : 'Edit dependency'}
             </h3>
             <p className="mt-1 text-sm text-admin-muted">Feature (child) depends on parent. When parent is disabled, behaviour applies.</p>
             <div className="mt-4 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Feature (child)</label>
+                <label className="block text-sm font-medium text-admin-text">Feature (child)</label>
                 <select
                   value={dependencyForm.feature_key}
                   onChange={(e) => setDependencyForm((f) => ({ ...f, feature_key: e.target.value }))}
@@ -1418,7 +1519,7 @@ export default function SystemSettingsPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Parent feature</label>
+                <label className="block text-sm font-medium text-admin-text">Parent feature</label>
                 <select
                   value={dependencyForm.requires_feature_key}
                   onChange={(e) => setDependencyForm((f) => ({ ...f, requires_feature_key: e.target.value }))}
@@ -1432,7 +1533,7 @@ export default function SystemSettingsPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Behaviour</label>
+                <label className="block text-sm font-medium text-admin-text">Behaviour</label>
                 <select
                   value={dependencyForm.behaviour}
                   onChange={(e) => setDependencyForm((f) => ({ ...f, behaviour: e.target.value }))}
@@ -1463,8 +1564,8 @@ export default function SystemSettingsPage() {
 
       {dependencySaveConfirm && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" onClick={() => setDependencySaveConfirm(false)}>
-          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-gray-900">Confirm save</h3>
+          <div className="w-full max-w-sm rounded-xl bg-admin-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-admin-text">Confirm save</h3>
             <p className="mt-2 text-sm text-admin-muted">Save this dependency rule? This action is logged.</p>
             <div className="mt-4 flex gap-2">
               <Button variant="secondary" className="flex-1" onClick={() => setDependencySaveConfirm(false)}>Cancel</Button>
@@ -1497,8 +1598,8 @@ export default function SystemSettingsPage() {
 
       {deleteDependencyTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => !deleteDependencyMutation.isPending && setDeleteDependencyTarget(null)}>
-          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-gray-900">Delete dependency</h3>
+          <div className="w-full max-w-sm rounded-xl bg-admin-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-admin-text">Delete dependency</h3>
             <p className="mt-2 text-sm text-admin-muted">
               Remove rule: <strong>{deleteDependencyTarget.feature_key}</strong> depends on <strong>{deleteDependencyTarget.requires_feature_key}</strong>?
             </p>
@@ -1521,8 +1622,8 @@ export default function SystemSettingsPage() {
 
       {importPreview !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setImportPreview(null)}>
-          <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-gray-900">Import settings</h3>
+          <div className="w-full max-w-lg rounded-xl bg-admin-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-admin-text">Import settings</h3>
             {'error' in importPreview ? (
               <>
                 <p className="mt-2 text-sm text-admin-danger">{importPreview.error}</p>
@@ -1539,8 +1640,8 @@ export default function SystemSettingsPage() {
                   <table className="w-full text-left">
                     <thead>
                       <tr className="border-b border-admin-border">
-                        <th className="pb-2 font-medium text-gray-700">Key</th>
-                        <th className="pb-2 font-medium text-gray-700">Value</th>
+                        <th className="pb-2 font-medium text-admin-text">Key</th>
+                        <th className="pb-2 font-medium text-admin-text">Value</th>
                       </tr>
                     </thead>
                     <tbody>

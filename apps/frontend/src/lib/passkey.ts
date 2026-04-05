@@ -153,7 +153,7 @@ export async function registerPasskey(
       };
     }
 
-    console.log('[Passkey] Starting registration with options:', {
+    if (process.env.NODE_ENV !== 'production') console.log('[Passkey] Starting registration with options:', {
       rpId: options.rp.id,
       rpName: options.rp.name,
       userName: options.user.name,
@@ -164,7 +164,7 @@ export async function registerPasskey(
     // This will trigger the platform authenticator (Touch ID / Face ID)
     const credential = await startRegistration({ optionsJSON: options });
 
-    console.log('[Passkey] Registration successful, credential created');
+    if (process.env.NODE_ENV !== 'production') console.log('[Passkey] Registration successful, credential created');
 
     return {
       success: true,
@@ -210,7 +210,7 @@ export async function authenticateWithPasskey(
       };
     }
 
-    console.log('[Passkey] Starting authentication with options:', {
+    if (process.env.NODE_ENV !== 'production') console.log('[Passkey] Starting authentication with options:', {
       rpId: options.rpId,
       allowCredentials: options.allowCredentials?.length || 0,
       userVerification: options.userVerification,
@@ -219,7 +219,7 @@ export async function authenticateWithPasskey(
     // Start the WebAuthn authentication ceremony
     const credential = await startAuthentication({ optionsJSON: options });
 
-    console.log('[Passkey] Authentication successful, assertion received');
+    if (process.env.NODE_ENV !== 'production') console.log('[Passkey] Authentication successful, assertion received');
 
     return {
       success: true,

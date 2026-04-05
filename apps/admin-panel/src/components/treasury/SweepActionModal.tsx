@@ -41,10 +41,10 @@ export function SweepActionModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
       <div
-        className="w-full max-w-md rounded-xl bg-white p-6 shadow-lg"
+        className="w-full max-w-md rounded-xl bg-admin-card p-6 shadow-lg"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+        <h3 className="text-lg font-semibold text-admin-text">{title}</h3>
         {action === 'retry' && sweep && (
           <p className="mt-1 text-sm text-admin-muted">
             Sweep ID: {String(sweep.id).slice(0, 8)}…

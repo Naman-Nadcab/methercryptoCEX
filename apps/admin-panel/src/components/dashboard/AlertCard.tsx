@@ -22,7 +22,7 @@ export function AlertCard({ title, severity = 'medium', message, time, className
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <p className="font-medium text-gray-900">{title}</p>
+            <p className="font-medium text-admin-text">{title}</p>
             <Badge
               variant={severity === 'high' ? 'danger' : severity === 'medium' ? 'warning' : 'default'}
             >

@@ -6,18 +6,23 @@
 
 import type { FastifyInstance } from 'fastify';
 import { db } from '../lib/database.js';
-import { getAdminFromRequest } from './admin.fastify.js';
+import { getAdminWithPermission } from './admin.fastify.js';
 import { getCircuitHistory } from '../services/circuit-breaker-history.service.js';
 import { getTwoFaPolicy, updateTwoFaPolicy } from '../services/twofa-enforcement.service.js';
 import { listHotWallets } from '../services/hot-wallet.service.js';
 import { getSettlementCircuitOpen } from '../lib/trading-halt.js';
+import { logAuditFromRequest } from '../services/audit-log.service.js';
 import { logger } from '../lib/logger.js';
 
 const OPEN_ORDER_STATUSES = ['OPEN', 'PARTIALLY_FILLED'];
 
 export default async function adminPhase24Routes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
+    const isRead = request.method.toUpperCase() === 'GET';
+    const admin = await getAdminWithPermission(
+      app, request, reply,
+      isRead ? 'settings:view' : 'settings:edit'
+    );
     if (!admin) return;
   });
 
@@ -118,14 +123,23 @@ export default async function adminPhase24Routes(app: FastifyInstance): Promise<
   app.patch<{ Body: { require2faLogin?: boolean; require2faWithdrawal?: boolean; require2faApiTrading?: boolean } }>(
     '/settings/2fa-enforcement',
     async (request, reply) => {
+      const admin = await getAdminWithPermission(app, request, reply, 'settings:edit');
+      if (!admin) return;
       try {
         const body = request.body ?? {};
+        const oldPolicy = await getTwoFaPolicy();
         await updateTwoFaPolicy({
           require2faLogin: body.require2faLogin,
           require2faWithdrawal: body.require2faWithdrawal,
           require2faApiTrading: body.require2faApiTrading,
         });
         const policy = await getTwoFaPolicy();
+        logAuditFromRequest(request, {
+          actorType: 'admin', actorId: admin.adminId,
+          action: '2fa_policy_updated', resourceType: 'system_settings',
+          oldValue: oldPolicy as unknown as Record<string, unknown>,
+          newValue: policy as unknown as Record<string, unknown>,
+        }).catch(() => {});
         return reply.send({ success: true, data: policy });
       } catch (e) {
         logger.warn('2FA policy update error', { error: e instanceof Error ? e.message : 'Unknown' });
@@ -138,6 +152,8 @@ export default async function adminPhase24Routes(app: FastifyInstance): Promise<
 
   // ----- Phase 3: API key admin — revoke (admin) -----
   app.delete<{ Params: { id: string }; Body?: { reason?: string } }>('/api-keys/:id/revoke', async (request, reply) => {
+    const admin = await getAdminWithPermission(app, request, reply, 'settings:edit');
+    if (!admin) return;
     try {
       const id = request.params.id;
       const result = await db.query(
@@ -147,6 +163,10 @@ export default async function adminPhase24Routes(app: FastifyInstance): Promise<
       if (result.rows.length === 0) {
         return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'API key not found' } });
       }
+      logAuditFromRequest(request, {
+        actorType: 'admin', actorId: admin.adminId,
+        action: 'api_key_revoked', resourceType: 'user_api_keys', resourceId: id,
+      }).catch(() => {});
       return reply.send({ success: true, data: { message: 'API key revoked' } });
     } catch (e) {
       logger.warn('API key revoke error', { error: e instanceof Error ? e.message : 'Unknown' });
@@ -177,6 +197,8 @@ export default async function adminPhase24Routes(app: FastifyInstance): Promise<
   app.patch<{ Params: { symbol: string }; Body: { status?: string } }>(
     '/trading/listing-status/:symbol',
     async (request, reply) => {
+      const admin = await getAdminWithPermission(app, request, reply, 'markets:manage');
+      if (!admin) return;
       try {
         const symbol = String(request.params.symbol ?? '').trim();
         const status = (request.body as { status?: string })?.status;
@@ -193,6 +215,11 @@ export default async function adminPhase24Routes(app: FastifyInstance): Promise<
         if (result.rows.length === 0) {
           return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Market not found' } });
         }
+        logAuditFromRequest(request, {
+          actorType: 'admin', actorId: admin.adminId,
+          action: 'market_listing_status_updated', resourceType: 'spot_markets', resourceId: symbol,
+          newValue: { status },
+        }).catch(() => {});
         return reply.send({ success: true, data: result.rows[0] });
       } catch (e) {
         logger.warn('Listing status update error', { error: e instanceof Error ? e.message : 'Unknown' });
@@ -342,6 +369,10 @@ export default async function adminPhase24Routes(app: FastifyInstance): Promise<
   );
 
   // ----- Phase 4: Feature flags with rollout percentage -----
+  // NOTE: These /settings/feature-flags routes are backward-compat aliases.
+  // The canonical CRUD routes live in admin.fastify.ts at /settings/features.
+  // Both route sets read/write the same `feature_toggles` table.
+  // Keep both active for backward compatibility with older frontend builds.
   app.get('/settings/feature-flags', async (_request, reply) => {
     try {
       const rows = await db.query<{ id: string; feature_key: string; name: string; is_enabled: boolean; rollout_percentage: number | null }>(
@@ -419,4 +450,135 @@ export default async function adminPhase24Routes(app: FastifyInstance): Promise<
       }
     }
   );
+
+  // ===== Staking / Earn Products CRUD =====
+
+  const ensureStakingTable = async () => {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS staking_products (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        name TEXT NOT NULL,
+        asset TEXT NOT NULL,
+        apy_pct NUMERIC(8,4) NOT NULL DEFAULT 0,
+        lock_period_days INTEGER NOT NULL DEFAULT 0,
+        min_stake NUMERIC(24,8) NOT NULL DEFAULT 0,
+        total_staked NUMERIC(24,8) NOT NULL DEFAULT 0,
+        stakers INTEGER NOT NULL DEFAULT 0,
+        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+  };
+  let stakingReady = false;
+
+  app.get('/staking/products', async (_request, reply) => {
+    try {
+      if (!stakingReady) { await ensureStakingTable(); stakingReady = true; }
+      const rows = await db.query(
+        `SELECT id, name, asset, apy_pct, lock_period_days, min_stake, total_staked, stakers, enabled, created_at, updated_at
+         FROM staking_products ORDER BY created_at DESC`
+      );
+      return reply.send({ success: true, data: { products: rows.rows } });
+    } catch (e) {
+      logger.warn('Staking list error', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to fetch staking products' } });
+    }
+  });
+
+  app.post<{ Body: { name: string; asset: string; apy_pct: number; lock_period_days: number; min_stake: number } }>('/staking/products', async (request, reply) => {
+    try {
+      if (!stakingReady) { await ensureStakingTable(); stakingReady = true; }
+      const { name, asset, apy_pct, lock_period_days, min_stake } = request.body ?? {} as any;
+      if (!name?.trim() || !asset?.trim()) {
+        return reply.status(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'name and asset are required' } });
+      }
+      const row = await db.query(
+        `INSERT INTO staking_products (name, asset, apy_pct, lock_period_days, min_stake)
+         VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+        [name.trim(), asset.trim().toUpperCase(), apy_pct ?? 0, lock_period_days ?? 0, min_stake ?? 0]
+      );
+      return reply.status(201).send({ success: true, data: { product: row.rows[0] } });
+    } catch (e) {
+      logger.warn('Staking create error', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'CREATE_FAILED', message: 'Failed to create staking product' } });
+    }
+  });
+
+  app.patch<{ Params: { id: string }; Body: { enabled?: boolean; apy_pct?: number; min_stake?: number } }>('/staking/products/:id', async (request, reply) => {
+    try {
+      if (!stakingReady) { await ensureStakingTable(); stakingReady = true; }
+      const { id } = request.params;
+      const body = request.body ?? {};
+      const updates: string[] = [];
+      const values: unknown[] = [];
+      let idx = 1;
+      if (body.enabled !== undefined) { updates.push(`enabled = $${idx++}`); values.push(body.enabled); }
+      if (body.apy_pct !== undefined) { updates.push(`apy_pct = $${idx++}`); values.push(body.apy_pct); }
+      if (body.min_stake !== undefined) { updates.push(`min_stake = $${idx++}`); values.push(body.min_stake); }
+      if (updates.length === 0) {
+        return reply.status(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'No fields to update' } });
+      }
+      values.push(id);
+      const row = await db.query(
+        `UPDATE staking_products SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${idx} RETURNING *`,
+        values
+      );
+      if (row.rows.length === 0) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Product not found' } });
+      }
+      return reply.send({ success: true, data: { product: row.rows[0] } });
+    } catch (e) {
+      logger.warn('Staking update error', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'UPDATE_FAILED', message: 'Failed to update staking product' } });
+    }
+  });
+
+  app.delete<{ Params: { id: string } }>('/staking/products/:id', async (request, reply) => {
+    try {
+      if (!stakingReady) { await ensureStakingTable(); stakingReady = true; }
+      const result = await db.query('DELETE FROM staking_products WHERE id = $1 RETURNING id', [request.params.id]);
+      if (result.rows.length === 0) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Product not found' } });
+      }
+      return reply.send({ success: true, data: { deleted: true } });
+    } catch (e) {
+      logger.warn('Staking delete error', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'DELETE_FAILED', message: 'Failed to delete staking product' } });
+    }
+  });
+
+  // ===== Admin Notification Preferences (uses system_settings) =====
+
+  app.get('/notification-prefs', async (request, reply) => {
+    try {
+      const admin = await getAdminWithPermission(app, request, reply, 'settings:view');
+      if (!admin) return;
+      const key = `admin_notification_prefs:${admin.adminId}`;
+      const row = await db.query<{ value: unknown }>('SELECT value FROM system_settings WHERE key = $1', [key]);
+      const prefs = row.rows[0]?.value ?? {};
+      return reply.send({ success: true, data: { prefs } });
+    } catch (e) {
+      logger.warn('Notification prefs get error', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed' } });
+    }
+  });
+
+  app.put<{ Body: Record<string, unknown> }>('/notification-prefs', async (request, reply) => {
+    try {
+      const admin = await getAdminWithPermission(app, request, reply, 'settings:edit');
+      if (!admin) return;
+      const key = `admin_notification_prefs:${admin.adminId}`;
+      const prefs = request.body ?? {};
+      await db.query(
+        `INSERT INTO system_settings (key, value) VALUES ($1, $2::jsonb)
+         ON CONFLICT (key) DO UPDATE SET value = $2::jsonb`,
+        [key, JSON.stringify(prefs)]
+      );
+      return reply.send({ success: true, data: { prefs } });
+    } catch (e) {
+      logger.warn('Notification prefs save error', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'SAVE_FAILED', message: 'Failed' } });
+    }
+  });
 }

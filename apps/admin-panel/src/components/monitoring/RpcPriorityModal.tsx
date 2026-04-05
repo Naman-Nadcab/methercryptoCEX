@@ -30,15 +30,15 @@ export function RpcPriorityModal({ open, provider, onClose, onSave, isLoading }:
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
       <div
-        className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg"
+        className="w-full max-w-sm rounded-xl bg-admin-card p-6 shadow-lg"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-lg font-semibold text-gray-900">Edit Failover Priority</h3>
+        <h3 className="text-lg font-semibold text-admin-text">Edit Failover Priority</h3>
         <p className="mt-1 text-sm text-admin-muted">
           {provider.provider} — {provider.network}
         </p>
         <form onSubmit={handleSubmit} className="mt-4">
-          <label htmlFor="priority" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="priority" className="block text-sm font-medium text-admin-text">
             Failover Priority (1 = first)
           </label>
           <input

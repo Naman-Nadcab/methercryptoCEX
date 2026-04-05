@@ -46,6 +46,8 @@ interface NavItem {
 
 const SIDEBAR_NAV: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4 shrink-0" />, href: '/admin/dashboard' },
+  { id: 'dashboard-v2', label: 'Dashboard V2', icon: <LayoutDashboard className="w-4 h-4 shrink-0" />, href: '/admin/dashboard-v2' },
+  { id: 'incidents-v2', label: 'Incidents V2', icon: <ShieldAlert className="w-4 h-4 shrink-0" />, href: '/admin/incidents-v2' },
   {
     id: 'users',
     label: 'Users',
@@ -174,7 +176,9 @@ const SIDEBAR_NAV: NavItem[] = [
       { label: 'Feature Flags', href: '/admin/settings/features' },
       { label: 'Operations', href: '/admin/settings/operations' },
       { label: 'Blockchain Config', href: '/admin/settings/blockchain' },
+      { label: 'API Monitoring', href: '/admin/api-monitoring' },
       { label: 'Notifications', href: '/admin/notifications' },
+      { label: 'OTP Delivery', href: '/admin/notifications/delivery' },
       { label: 'Alert Center', href: '/admin/alerts' },
     ],
   },
@@ -240,7 +244,7 @@ export default function AdminV2Sidebar({ isOpen, setIsOpen }: SidebarProps) {
       )}
       <aside
         className={cn(
-          'fixed top-0 left-0 z-50 h-full w-[260px] flex flex-col bg-white border-r border-[var(--admin-card-border)] transition-transform duration-200 lg:translate-x-0 shadow-sm',
+          'fixed top-0 left-0 z-50 h-full w-[260px] flex flex-col bg-[var(--admin-sidebar-bg)] border-r border-[var(--admin-card-border)] transition-transform duration-200 lg:translate-x-0 shadow-sm',
           isOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >

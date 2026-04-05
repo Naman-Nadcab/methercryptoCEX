@@ -6,6 +6,7 @@ import type { WithdrawalRow } from '@/lib/withdrawals-api';
 import { WithdrawalStatusBadge } from './WithdrawalStatusBadge';
 import { WithdrawalRiskBadge } from './WithdrawalRiskBadge';
 import { Button } from '@/components/ui/Button';
+import { ProtectedAction } from '@/components/rbac/ProtectedAction';
 import { Check, X, User } from 'lucide-react';
 
 function formatDate(s: string | undefined): string {
@@ -27,17 +28,16 @@ export interface WithdrawalsTableProps {
   rows: WithdrawalRow[];
   onApprove: (w: WithdrawalRow) => void;
   onReject: (w: WithdrawalRow) => void;
-  canApproveReject?: boolean;
 }
 
-export function WithdrawalsTable({ rows, onApprove, onReject, canApproveReject = true }: WithdrawalsTableProps) {
+export function WithdrawalsTable({ rows, onApprove, onReject }: WithdrawalsTableProps) {
   const router = useRouter();
   const pending = (s: string) => s === 'pending_approval' || s === 'pending';
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-admin-border bg-white">
+    <div className="overflow-x-auto rounded-xl border border-admin-border bg-admin-card">
       <table className="w-full min-w-[900px] border-collapse">
-        <thead className="sticky top-0 z-10 bg-gray-50">
+        <thead className="sticky top-0 z-10 bg-white/[0.02]">
           <tr>
             <th className="border-b border-admin-border px-4 py-3 text-left text-xs font-semibold uppercase text-admin-muted">Withdrawal ID</th>
             <th className="border-b border-admin-border px-4 py-3 text-left text-xs font-semibold uppercase text-admin-muted">User</th>
@@ -61,12 +61,12 @@ export function WithdrawalsTable({ rows, onApprove, onReject, canApproveReject =
             rows.map((w) => (
               <tr
                 key={w.id}
-                className="border-b border-admin-border/60 hover:bg-gray-50 cursor-pointer"
+                className="border-b border-admin-border/60 hover:bg-admin-card/5 cursor-pointer"
                 onClick={() => router.push(`/withdrawals/${w.id}`)}
               >
                 <td className="px-4 py-3 font-mono text-sm">{String(w.id).slice(0, 8)}…</td>
                 <td className="px-4 py-3">
-                  <span className="text-gray-900">{w.email ?? w.username ?? (w.user_id ? String(w.user_id).slice(0, 8) : null) ?? '—'}</span>
+                  <span className="text-admin-text">{w.email ?? w.username ?? (w.user_id ? String(w.user_id).slice(0, 8) : null) ?? '—'}</span>
                 </td>
                 <td className="px-4 py-3">{w.currency_symbol ?? '—'}</td>
                 <td className="px-4 py-3 text-right tabular-nums">{w.amount ?? '—'}</td>
@@ -85,27 +85,29 @@ export function WithdrawalsTable({ rows, onApprove, onReject, canApproveReject =
                         <User className="h-4 w-4" />
                       </Button>
                     </Link>
-                    {canApproveReject && pending(w.status) && (
-                      <>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 px-2 text-admin-success"
-                          title="Approve"
-                          onClick={() => onApprove(w)}
-                        >
-                          <Check className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 px-2 text-admin-danger"
-                          title="Reject"
-                          onClick={() => onReject(w)}
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </>
+                    {pending(w.status) && (
+                      <ProtectedAction permission="withdrawals:approve" fallback="disabled">
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 px-2 text-admin-success"
+                            title="Approve"
+                            onClick={() => onApprove(w)}
+                          >
+                            <Check className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 px-2 text-admin-danger"
+                            title="Reject"
+                            onClick={() => onReject(w)}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </>
+                      </ProtectedAction>
                     )}
                   </div>
                 </td>

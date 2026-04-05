@@ -177,7 +177,7 @@ export function deleteScheduledReport(token: string | null, id: string) {
   });
 }
 
-export type AnalyticsReportType = 'trading' | 'revenue' | 'user-growth';
+export type AnalyticsReportType = 'trading' | 'revenue' | 'user-growth' | 'users' | 'aml-alerts';
 export type AnalyticsExportFormat = 'csv' | 'json' | 'pdf';
 
 export async function downloadAnalyticsExport(

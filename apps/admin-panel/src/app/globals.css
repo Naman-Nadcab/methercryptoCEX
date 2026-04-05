@@ -3,35 +3,74 @@
 @tailwind utilities;
 
 :root {
-  --admin-bg: #F8FAFC;
-  --admin-card: #FFFFFF;
-  --admin-card-radius: 12px;
-  --admin-card-padding: 24px;
+  --admin-bg: #0B0F14;
+  --admin-surface: #111820;
+  --admin-card: #141A21;
+  --admin-card-hover: #1A2230;
+  --admin-card-radius: 10px;
+  --admin-card-padding: 20px;
   --admin-gap: 16px;
   --admin-primary: #6366F1;
+  --admin-primary-hover: #818CF8;
   --admin-success: #10B981;
   --admin-warning: #F59E0B;
   --admin-danger: #EF4444;
-  --admin-muted: #64748B;
-  --admin-border: #E2E8F0;
-  --admin-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.08), 0 1px 2px -1px rgba(0, 0, 0, 0.06);
-  --admin-shadow-hover: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+  --admin-muted: #9BA7B4;
+  --admin-border: #1F2A37;
+  --admin-text: #E6EDF3;
+  --admin-text-secondary: #9BA7B4;
+  --admin-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.3), 0 1px 2px -1px rgba(0, 0, 0, 0.2);
+  --admin-shadow-hover: 0 4px 12px -2px rgba(0, 0, 0, 0.4);
 }
 
 body {
   background: var(--admin-bg);
-  color: #1e293b;
-  font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+  color: var(--admin-text);
+  font-family: var(--font-geist-sans), 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: rgba(99, 102, 241, 0.3);
+  color: #fff;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #2A3441;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3A4451;
 }
 
 .admin-card {
   background: var(--admin-card);
   border-radius: var(--admin-card-radius);
   padding: var(--admin-card-padding);
+  border: 1px solid var(--admin-border);
   box-shadow: var(--admin-shadow);
-  transition: box-shadow 0.2s ease;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
 }
-
 .admin-card:hover {
   box-shadow: var(--admin-shadow-hover);
+  border-color: #2A3441;
+}
+
+input, select, textarea {
+  color-scheme: dark;
+}
+
+.legacy-page-wrapper {
+  color: var(--admin-text);
+}
+.new-page-wrapper {
+  color: var(--admin-text);
 }

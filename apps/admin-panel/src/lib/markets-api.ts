@@ -97,3 +97,85 @@ export function updateMarket(
     body,
   });
 }
+
+/* ---- Settings: Trading Pair CRUD ---- */
+
+export interface TradingPairSettings {
+  id: string;
+  base_currency: string;
+  quote_asset: string;
+  symbol?: string;
+  min_order_size?: string | number;
+  maker_fee?: string | number;
+  taker_fee?: string | number;
+  price_precision?: number;
+  qty_precision?: number;
+  is_active?: boolean;
+  status?: string;
+  created_at?: string;
+}
+
+export function getSettingsTradingPairs(token: string | null) {
+  return adminFetch<{ trading_pairs: TradingPairSettings[] }>('/settings/trading-pairs', { token });
+}
+
+export function createSettingsTradingPair(
+  token: string | null,
+  body: {
+    base_currency: string;
+    quote_asset: string;
+    min_order_size?: number;
+    maker_fee?: number;
+    taker_fee?: number;
+    price_precision?: number;
+    qty_precision?: number;
+    is_active?: boolean;
+  }
+) {
+  return adminFetch<TradingPairSettings>('/settings/trading-pairs', {
+    method: 'POST',
+    token,
+    body,
+  });
+}
+
+export function updateSettingsTradingPair(
+  token: string | null,
+  id: string,
+  body: {
+    min_order_size?: number;
+    maker_fee?: number;
+    taker_fee?: number;
+    price_precision?: number;
+    qty_precision?: number;
+    is_active?: boolean;
+  }
+) {
+  return adminFetch<TradingPairSettings>(`/settings/trading-pairs/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    token,
+    body,
+  });
+}
+
+export function toggleSettingsTradingPair(token: string | null, id: string) {
+  return adminFetch<{ is_active: boolean }>(`/settings/trading-pairs/${encodeURIComponent(id)}/toggle`, {
+    method: 'PATCH',
+    token,
+  });
+}
+
+export function deleteSettingsTradingPair(token: string | null, id: string) {
+  return adminFetch<{ deleted: boolean }>(`/settings/trading-pairs/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    token,
+  });
+}
+
+export function getAvailableBaseCurrencies(token: string | null) {
+  return adminFetch<{ currencies: { symbol: string; name?: string }[] }>('/settings/available-base-currencies', { token });
+}
+
+export function getQuoteAssets(token: string | null) {
+  return adminFetch<{ assets: { symbol: string; name?: string }[] }>('/settings/quote-assets', { token });
+}

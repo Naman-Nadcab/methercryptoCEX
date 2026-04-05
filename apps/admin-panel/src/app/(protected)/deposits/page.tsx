@@ -15,6 +15,7 @@ import { DepositFilters } from '@/components/deposits/DepositFilters';
 import { ManualCreditModal } from '@/components/deposits/ManualCreditModal';
 import { useAdminWs } from '@/hooks/useAdminWs';
 import { ArrowDownToLine, Clock, XCircle, DollarSign } from 'lucide-react';
+import { TableSkeleton } from '@/components/ui';
 
 export default function DepositsPage() {
   const token = useAdminAuthStore((s) => s.accessToken);
@@ -32,6 +33,7 @@ export default function DepositsPage() {
 
   const { data: duplicateData } = useQuery({
     queryKey: ['admin', 'deposit-duplicate', manualCreditDeposit?.tx_hash],
+    staleTime: 30_000,
     queryFn: () => checkDuplicateDeposit(token, (manualCreditDeposit?.tx_hash as string) ?? ''),
     enabled: !!token && !!manualCreditDeposit?.tx_hash?.trim() && !!manualCreditDeposit,
   });
@@ -49,8 +51,10 @@ export default function DepositsPage() {
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['admin', 'deposits', token, page, search, asset, status, dateFrom, dateTo],
+    staleTime: 30_000,
     queryFn: () => getDepositsList(token, queryParams),
     enabled: !!token,
+    refetchInterval: 30_000,
   });
 
   useAdminWs({
@@ -126,10 +130,8 @@ export default function DepositsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-gray-900">Deposits</h1>
-        <p className="mt-1 text-sm text-admin-muted">
-          Monitor incoming deposits and blockchain confirmations.
-        </p>
+        <h1 className="text-lg font-semibold text-admin-text">Deposits</h1>
+        <p className="text-xs text-admin-muted mt-0.5">Monitor incoming deposits and blockchain confirmations.</p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -179,14 +181,14 @@ export default function DepositsPage() {
         }}
       />
 
-      <div className="rounded-[12px] bg-white p-6 shadow-[0_1px_3px_0_rgba(0,0,0,0.08)]">
+      <div className="rounded-xl border border-admin-border bg-admin-card">
         {isError && (
           <p className="mb-4 text-sm text-admin-danger">
             {(error as { message?: string })?.message ?? 'Failed to load deposits'}
           </p>
         )}
         {isLoading ? (
-          <div className="flex justify-center py-12 text-admin-muted">Loading deposits…</div>
+          <TableSkeleton rows={6} cols={6} />
         ) : (
           <>
             <DepositsTable
@@ -204,7 +206,7 @@ export default function DepositsPage() {
                     type="button"
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
                     disabled={page <= 1}
-                    className="rounded-lg border border-admin-border bg-white px-3 py-1.5 text-sm font-medium text-gray-700 disabled:opacity-50"
+                    className="rounded-lg border border-admin-border bg-admin-card px-3 py-1.5 text-sm font-medium text-admin-text disabled:opacity-50"
                   >
                     Previous
                   </button>
@@ -212,7 +214,7 @@ export default function DepositsPage() {
                     type="button"
                     onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                     disabled={page >= totalPages}
-                    className="rounded-lg border border-admin-border bg-white px-3 py-1.5 text-sm font-medium text-gray-700 disabled:opacity-50"
+                    className="rounded-lg border border-admin-border bg-admin-card px-3 py-1.5 text-sm font-medium text-admin-text disabled:opacity-50"
                   >
                     Next
                   </button>

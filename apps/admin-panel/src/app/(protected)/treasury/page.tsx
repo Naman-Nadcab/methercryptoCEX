@@ -13,6 +13,7 @@ import {
   getTreasuryTransactions,
   runTreasurySweep,
   retryTreasurySweep,
+  getHotWallets,
   type SweepRow,
 } from '@/lib/treasury-api';
 import { StatCard } from '@/components/dashboard/StatCard';
@@ -25,6 +26,8 @@ import { SweepsTable } from '@/components/treasury/SweepsTable';
 import { WalletTransactionsTable } from '@/components/treasury/WalletTransactionsTable';
 import { SweepActionModal, type SweepActionType } from '@/components/treasury/SweepActionModal';
 import { Button } from '@/components/ui/Button';
+import { TableSkeleton } from '@/components/ui';
+import { ProtectedAction } from '@/components/rbac/ProtectedAction';
 import { useAdminWs } from '@/hooks/useAdminWs';
 import { Wallet, Flame, Snowflake, Clock, Play, Settings, Activity, Server, Zap, AlertTriangle } from 'lucide-react';
 
@@ -46,28 +49,47 @@ export default function TreasuryPage() {
   const [txPage, setTxPage] = useState(1);
   const [txType, setTxType] = useState<string>('all');
 
-  const { data: statsData } = useQuery({
+  const { data: statsData, isLoading: statsLoading, isError: statsError } = useQuery({
     queryKey: ['admin', 'treasury', 'stats', token],
     queryFn: () => getTreasuryStats(token),
     enabled: !!token,
+    refetchInterval: 30_000,
+    staleTime: 30_000,
+    retry: 1,
   });
 
-  const { data: healthData } = useQuery({
+  const { data: healthData, isLoading: healthLoading, isError: healthError } = useQuery({
     queryKey: ['admin', 'treasury', 'health', token],
     queryFn: () => getTreasuryHealth(token),
     enabled: !!token,
+    refetchInterval: 30_000,
+    staleTime: 30_000,
+    retry: 1,
   });
 
   const { data: hotData, isLoading: hotLoading } = useQuery({
     queryKey: ['admin', 'treasury', 'hot-wallets', token],
     queryFn: () => getTreasuryHotWallets(token),
     enabled: !!token,
+    refetchInterval: 30_000,
+    staleTime: 30_000,
+    retry: 1,
+  });
+
+  const { data: hotWalletsCrud } = useQuery({
+    queryKey: ['admin', 'hot-wallets-crud', token],
+    queryFn: () => getHotWallets(token),
+    enabled: !!token,
+    staleTime: 30_000,
   });
 
   const { data: coldData, isLoading: coldLoading } = useQuery({
     queryKey: ['admin', 'treasury', 'cold-wallets', token],
     queryFn: () => getTreasuryColdWallets(token),
     enabled: !!token,
+    refetchInterval: 30_000,
+    staleTime: 30_000,
+    retry: 1,
   });
 
   const { data: sweepsData, isLoading: sweepsLoading } = useQuery({
@@ -75,6 +97,9 @@ export default function TreasuryPage() {
     queryFn: () =>
       getTreasurySweeps(token, { page: sweepsPage, limit: 20 }),
     enabled: !!token,
+    refetchInterval: 30_000,
+    staleTime: 30_000,
+    retry: 1,
   });
 
   const { data: txData, isLoading: txLoading } = useQuery({
@@ -82,6 +107,9 @@ export default function TreasuryPage() {
     queryFn: () =>
       getTreasuryTransactions(token, { page: txPage, limit: 50, type: txType === 'all' ? undefined : txType }),
     enabled: !!token && activeTab === 'transactions',
+    refetchInterval: 30_000,
+    staleTime: 30_000,
+    retry: 1,
   });
 
   const runSweepMutation = useMutation({
@@ -146,6 +174,7 @@ export default function TreasuryPage() {
   const sweepsPayload = sweepsData?.data;
   const sweeps = (sweepsPayload?.sweeps ?? []) as SweepRow[];
   const pagination = sweepsPayload?.pagination;
+  const hasApiError = statsError || healthError;
 
   const handleSweepConfirm = () => {
     const action = sweepModal?.action;
@@ -157,11 +186,11 @@ export default function TreasuryPage() {
   };
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6">
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Treasury Dashboard</h1>
-          <p className="mt-1 text-sm text-admin-muted">Monitor exchange wallet infrastructure and sweep operations.</p>
+          <h1 className="text-lg font-semibold text-admin-text">Treasury</h1>
+          <p className="text-xs text-admin-muted mt-0.5">Monitor exchange wallet infrastructure and sweep operations.</p>
         </div>
         <Link href="/treasury/settings">
           <Button variant="secondary" size="sm">
@@ -171,61 +200,85 @@ export default function TreasuryPage() {
         </Link>
       </div>
 
+      {hasApiError && (
+        <div className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 p-4">
+          <AlertTriangle className="h-5 w-5 shrink-0 text-red-600" />
+          <div>
+            <p className="text-sm font-semibold text-red-800">Data Unavailable</p>
+            <p className="text-xs text-admin-muted">
+              {statsError && healthError
+                ? 'Treasury stats and health APIs failed to load.'
+                : statsError
+                  ? 'Treasury stats API failed to load.'
+                  : 'Treasury health API failed to load.'}
+              {' '}Some values may show placeholders.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           title="Total Exchange Reserves"
-          value={stats ? formatReserves(stats.total_reserves) : '—'}
+          value={statsLoading ? '...' : stats ? formatReserves(stats.total_reserves) : 'N/A'}
           icon={Wallet}
           iconBg="bg-admin-primary/10 text-admin-primary"
+          className={statsLoading ? 'animate-pulse' : undefined}
         />
         <StatCard
           title="Hot Wallet Balance"
-          value={stats ? formatReserves(stats.hot_balance) : '—'}
+          value={statsLoading ? '...' : stats ? formatReserves(stats.hot_balance) : 'N/A'}
           icon={Flame}
           iconBg="bg-amber-100 text-admin-warning"
+          className={statsLoading ? 'animate-pulse' : undefined}
         />
         <StatCard
           title="Cold Wallet Balance"
-          value={stats ? formatReserves(stats.cold_balance) : '—'}
+          value={statsLoading ? '...' : stats ? formatReserves(stats.cold_balance) : 'N/A'}
           icon={Snowflake}
           iconBg="bg-blue-100 text-blue-700"
+          className={statsLoading ? 'animate-pulse' : undefined}
         />
         <StatCard
           title="Pending Sweeps"
-          value={stats?.pending_sweeps ?? 0}
+          value={statsLoading ? '...' : stats?.pending_sweeps ?? 0}
           icon={Clock}
-          iconBg="bg-gray-100 text-admin-muted"
+          iconBg="bg-white/5 text-admin-muted"
+          className={statsLoading ? 'animate-pulse' : undefined}
         />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           title="Hot Wallet Health"
-          value={health?.hot_wallet_health ?? '—'}
+          value={healthLoading ? '...' : health?.hot_wallet_health ?? 'N/A'}
           icon={Activity}
           iconBg="bg-green-100 text-green-700"
+          className={healthLoading ? 'animate-pulse' : undefined}
         />
         <StatCard
           title="RPC Node Status"
-          value={health?.rpc_node_status ?? '—'}
+          value={healthLoading ? '...' : health?.rpc_node_status ?? 'N/A'}
           icon={Server}
           iconBg="bg-slate-100 text-slate-700"
+          className={healthLoading ? 'animate-pulse' : undefined}
         />
         <StatCard
           title="Sweep Engine Status"
-          value={health?.sweep_engine_status ?? '—'}
+          value={healthLoading ? '...' : health?.sweep_engine_status ?? 'N/A'}
           icon={Zap}
           iconBg="bg-amber-100 text-amber-700"
+          className={healthLoading ? 'animate-pulse' : undefined}
         />
-        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="rounded-xl border border-admin-border bg-admin-card p-4 shadow-sm">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100 text-gray-600">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/5 text-admin-muted">
                 <AlertTriangle className="h-5 w-5" />
               </div>
               <div>
-                <p className="text-sm font-medium text-gray-900">Failed Sweeps (24h)</p>
-                <p className="text-2xl font-semibold text-gray-900">{failedSweeps24h}</p>
+                <p className="text-sm font-medium text-admin-text">Failed Sweeps (24h)</p>
+                <p className="text-2xl font-semibold text-admin-text">{failedSweeps24h}</p>
               </div>
             </div>
             {sweepError && (
@@ -236,21 +289,21 @@ export default function TreasuryPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="rounded-xl border border-admin-border bg-admin-card p-4 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-900">Cold Storage Ratio</p>
-              <p className="text-2xl font-semibold text-gray-900">{stats?.cold_storage_ratio ?? 0}%</p>
+              <p className="text-sm font-medium text-admin-text">Cold Storage Ratio</p>
+              <p className="text-2xl font-semibold text-admin-text">{stats?.cold_storage_ratio ?? 0}%</p>
             </div>
             {(stats?.cold_storage_ratio ?? 0) >= 90 && (
               <Badge variant="success">Best practice</Badge>
             )}
           </div>
         </div>
-        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="rounded-xl border border-admin-border bg-admin-card p-4 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-900">Hot Wallet Liquidity</p>
+              <p className="text-sm font-medium text-admin-text">Hot Wallet Liquidity</p>
               <div className="mt-1">
                 {stats?.liquidity_warning ? (
                   <Badge variant="warning">Low Liquidity</Badge>
@@ -273,10 +326,10 @@ export default function TreasuryPage() {
               {stats.chain_balances.map((c) => (
                 <div
                   key={c.chain_name}
-                  className="rounded-lg border border-gray-100 bg-gray-50/50 p-3"
+                  className="rounded-lg border border-admin-border bg-white/[0.02] p-3"
                 >
-                  <p className="text-sm font-medium text-gray-700">{c.chain_name}</p>
-                  <p className="text-lg font-semibold text-gray-900">{formatReserves(c.balance)}</p>
+                  <p className="text-sm font-medium text-admin-text">{c.chain_name}</p>
+                  <p className="text-lg font-semibold text-admin-text">{formatReserves(c.balance)}</p>
                 </div>
               ))}
             </div>
@@ -284,14 +337,14 @@ export default function TreasuryPage() {
         </Card>
       )}
 
-      <div className="flex gap-2 border-b border-gray-200">
+      <div className="flex gap-2 border-b border-admin-border">
         <button
           type="button"
           onClick={() => setActiveTab('overview')}
           className={`border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
             activeTab === 'overview'
               ? 'border-admin-primary text-admin-primary'
-              : 'border-transparent text-admin-muted hover:text-gray-700'
+              : 'border-transparent text-admin-muted hover:text-admin-text'
           }`}
         >
           Overview
@@ -302,7 +355,7 @@ export default function TreasuryPage() {
           className={`border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
             activeTab === 'transactions'
               ? 'border-admin-primary text-admin-primary'
-              : 'border-transparent text-admin-muted hover:text-gray-700'
+              : 'border-transparent text-admin-muted hover:text-admin-text'
           }`}
         >
           Wallet Transactions
@@ -318,9 +371,12 @@ export default function TreasuryPage() {
         </CardHeader>
         <CardContent>
           {hotLoading ? (
-            <div className="py-8 text-center text-admin-muted">Loading…</div>
+            <TableSkeleton rows={3} cols={5} />
           ) : (
-            <HotWalletsTable rows={hotWallets} />
+            <HotWalletsTable
+              rows={hotWallets}
+              availableFamilies={(hotWalletsCrud as any)?.availableFamilies}
+            />
           )}
         </CardContent>
       </Card>
@@ -331,7 +387,7 @@ export default function TreasuryPage() {
         </CardHeader>
         <CardContent>
           {coldLoading ? (
-            <div className="py-8 text-center text-admin-muted">Loading…</div>
+            <TableSkeleton rows={3} cols={5} />
           ) : (
             <ColdWalletsTable rows={coldWallets} />
           )}
@@ -342,19 +398,21 @@ export default function TreasuryPage() {
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Deposit Sweep Monitor</CardTitle>
           <div className="flex gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setSweepModal({ action: 'run' })}
-            >
-              <Play className="mr-1 h-4 w-4" />
-              Run Sweep
-            </Button>
+            <ProtectedAction permission="treasury:sweep" fallback="disabled">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setSweepModal({ action: 'run' })}
+              >
+                <Play className="mr-1 h-4 w-4" />
+                Run Sweep
+              </Button>
+            </ProtectedAction>
           </div>
         </CardHeader>
         <CardContent>
           {sweepsLoading ? (
-            <div className="py-8 text-center text-admin-muted">Loading…</div>
+            <TableSkeleton rows={3} cols={5} />
           ) : (
             <>
               <SweepsTable
@@ -402,7 +460,7 @@ export default function TreasuryPage() {
               <select
                 value={txType}
                 onChange={(e) => { setTxType(e.target.value); setTxPage(1); }}
-                className="rounded border border-gray-300 bg-white px-2 py-1 text-sm"
+                className="rounded border border-admin-border bg-admin-card px-2 py-1 text-sm"
               >
                 <option value="all">All types</option>
                 <option value="sweep">Sweep</option>
@@ -414,7 +472,7 @@ export default function TreasuryPage() {
           </CardHeader>
           <CardContent>
             {txLoading ? (
-              <div className="py-8 text-center text-admin-muted">Loading…</div>
+              <TableSkeleton rows={3} cols={5} />
             ) : (
               <>
                 <WalletTransactionsTable rows={transactions} />

@@ -5,8 +5,9 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db } from '../lib/database.js';
+import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
-import { getAdminFromRequest, getAdminForWithdrawalApproval } from './admin.fastify.js';
+import { getAdminFromRequest, getAdminWithPermission, getAdminForWithdrawalApproval } from './admin.fastify.js';
 import {
   listRiskRules,
   getRiskRuleById,
@@ -48,75 +49,79 @@ const IP_RULE_TYPES: IpRuleType[] = ['whitelist', 'blacklist'];
 const INTERVAL_24H = `NOW() - INTERVAL '24 hours'`;
 
 export default async function adminSecurityRoutes(app: FastifyInstance): Promise<void> {
+  app.addHook('preHandler', async (request, reply) => {
+    const url = request.url || '';
+    if (url.includes('/security/withdrawals/') && (request.method === 'POST' || request.method === 'PATCH')) {
+      const admin = await getAdminForWithdrawalApproval(app, request, reply);
+      if (!admin) return;
+      return;
+    }
+    const isRead = request.method.toUpperCase() === 'GET';
+    const admin = await getAdminWithPermission(
+      app,
+      request,
+      reply,
+      isRead ? 'monitoring:view' : 'settings:edit'
+    );
+    if (!admin) return;
+  });
+
   /**
    * GET /admin/security/dashboard
    * Returns aggregated security metrics (last 24 hours unless stated).
    */
   app.get('/security/dashboard', async (request: FastifyRequest, reply: FastifyReply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
-    if (!admin) return;
-
     try {
+      const CACHE_KEY = 'admin:cache:security_dashboard';
+      try {
+        const cached = await redis.getJson<Record<string, unknown>>(CACHE_KEY);
+        if (cached) return reply.send({ success: true, data: cached });
+      } catch { /* Redis down */ }
+
+      const safeCount = (sql: string, timeoutMs = 8000): Promise<number> => {
+        const queryP = db.query<{ count: string }>(sql)
+          .then(r => parseInt(r.rows[0]?.count ?? '0', 10))
+          .catch(() => 0);
+        const timer = new Promise<number>((resolve) => setTimeout(() => resolve(0), timeoutMs));
+        return Promise.race([queryP, timer]);
+      };
+      const hasTable = async (name: string): Promise<boolean> => {
+        try {
+          const r = await db.query<{ exists: boolean }>(
+            `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name=$1) AS exists`, [name]
+          );
+          return r.rows[0]?.exists === true;
+        } catch { return false; }
+      };
+
+      const [hasRiskEvents, hasActivityLogs, hasAuditLogs] = await Promise.all([
+        hasTable('security_risk_events'),
+        hasTable('user_activity_logs'),
+        hasTable('audit_logs_immutable'),
+      ]);
+
       const [
-        riskBlock,
-        riskChallenge,
-        accessBlocked,
-        vpnTorDetections,
-        withdrawalsBlocked,
-        withdrawalsPendingApproval,
-        usersLocked,
-        loginFailed24h,
-        newDevice24h,
+        riskBlocks, riskChallenges, accessBlocked, vpnTor,
+        wdBlocked, wdPending, usersLocked, loginFailed, newDevice,
       ] = await Promise.all([
-        db.query<{ count: string }>(
-          `SELECT COUNT(*) AS count FROM security_risk_events WHERE decision = 'block' AND created_at > ${INTERVAL_24H}`
-        ),
-        db.query<{ count: string }>(
-          `SELECT COUNT(*) AS count FROM security_risk_events WHERE decision = 'challenge' AND created_at > ${INTERVAL_24H}`
-        ),
-        db.query<{ count: string }>(
-          `SELECT COUNT(*) AS count FROM user_activity_logs WHERE activity_type = 'access_blocked' AND created_at > ${INTERVAL_24H}`
-        ),
-        db.query<{ count: string }>(
-          `SELECT COUNT(*) AS count FROM audit_logs_immutable WHERE action ILIKE '%vpn%' AND created_at > ${INTERVAL_24H}`
-        ),
-        db.query<{ count: string }>(
-          `SELECT COUNT(*) AS count FROM withdrawals WHERE status = 'blocked'`
-        ),
-        db.query<{ count: string }>(
-          `SELECT COUNT(*) AS count FROM withdrawals WHERE status = 'pending_approval'`
-        ),
-        db.query<{ count: string }>(
-          `SELECT COUNT(*) AS count FROM users WHERE locked_until > NOW() AND deleted_at IS NULL`
-        ),
-        db.query<{ count: string }>(
-          `SELECT COUNT(*) AS count FROM user_activity_logs WHERE activity_type = 'login_failed' AND created_at > ${INTERVAL_24H}`
-        ),
-        db.query<{ count: string }>(
-          `SELECT COUNT(*) AS count FROM user_activity_logs WHERE activity_type = 'new_device_verified' AND created_at > ${INTERVAL_24H}`
-        ),
+        hasRiskEvents ? safeCount(`SELECT COUNT(*) AS count FROM security_risk_events WHERE decision = 'block' AND created_at > ${INTERVAL_24H}`) : 0,
+        hasRiskEvents ? safeCount(`SELECT COUNT(*) AS count FROM security_risk_events WHERE decision = 'challenge' AND created_at > ${INTERVAL_24H}`) : 0,
+        hasActivityLogs ? safeCount(`SELECT COUNT(*) AS count FROM user_activity_logs WHERE activity_type = 'access_blocked' AND created_at > ${INTERVAL_24H}`) : 0,
+        hasAuditLogs ? safeCount(`SELECT COUNT(*) AS count FROM audit_logs_immutable WHERE action ILIKE '%vpn%' AND created_at > ${INTERVAL_24H}`) : 0,
+        safeCount(`SELECT COUNT(*) AS count FROM withdrawals WHERE status = 'blocked'`),
+        safeCount(`SELECT COUNT(*) AS count FROM withdrawals WHERE status = 'pending_approval'`),
+        safeCount(`SELECT COUNT(*) AS count FROM users WHERE locked_until > NOW() AND deleted_at IS NULL`),
+        hasActivityLogs ? safeCount(`SELECT COUNT(*) AS count FROM user_activity_logs WHERE activity_type = 'login_failed' AND created_at > ${INTERVAL_24H}`) : 0,
+        hasActivityLogs ? safeCount(`SELECT COUNT(*) AS count FROM user_activity_logs WHERE activity_type = 'new_device_verified' AND created_at > ${INTERVAL_24H}`) : 0,
       ]);
 
       const data = {
-        risk: {
-          blocksLast24h: parseInt(riskBlock.rows[0]?.count ?? '0', 10),
-          challengesLast24h: parseInt(riskChallenge.rows[0]?.count ?? '0', 10),
-        },
-        access: {
-          accessBlockedLast24h: parseInt(accessBlocked.rows[0]?.count ?? '0', 10),
-          vpnTorDetectionsLast24h: parseInt(vpnTorDetections.rows[0]?.count ?? '0', 10),
-        },
-        withdrawals: {
-          blockedBySecurity: parseInt(withdrawalsBlocked.rows[0]?.count ?? '0', 10),
-          pendingAdminApproval: parseInt(withdrawalsPendingApproval.rows[0]?.count ?? '0', 10),
-        },
-        accounts: {
-          usersCurrentlyLocked: parseInt(usersLocked.rows[0]?.count ?? '0', 10),
-          loginFailedLast24h: parseInt(loginFailed24h.rows[0]?.count ?? '0', 10),
-          newDeviceLoginsLast24h: parseInt(newDevice24h.rows[0]?.count ?? '0', 10),
-        },
+        risk: { blocksLast24h: riskBlocks, challengesLast24h: riskChallenges },
+        access: { accessBlockedLast24h: accessBlocked, vpnTorDetectionsLast24h: vpnTor },
+        withdrawals: { blockedBySecurity: wdBlocked, pendingAdminApproval: wdPending },
+        accounts: { usersCurrentlyLocked: usersLocked, loginFailedLast24h: loginFailed, newDeviceLoginsLast24h: newDevice },
       };
-
+      redis.setJson(CACHE_KEY, data, 15).catch(() => {});
       return reply.send({ success: true, data });
     } catch (error) {
       logger.error('Security dashboard error', {
@@ -124,10 +129,7 @@ export default async function adminSecurityRoutes(app: FastifyInstance): Promise
       });
       return reply.status(500).send({
         success: false,
-        error: {
-          code: 'DASHBOARD_ERROR',
-          message: 'Failed to load security dashboard data',
-        },
+        error: { code: 'DASHBOARD_ERROR', message: 'Failed to load security dashboard data' },
       });
     }
   });
@@ -139,8 +141,6 @@ export default async function adminSecurityRoutes(app: FastifyInstance): Promise
   app.get<{
     Querystring: { scope?: string; enabled?: string; limit?: string; offset?: string };
   }>('/security/risk-rules', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
-    if (!admin) return;
     try {
       const q = request.query;
       const scope = q.scope && VALID_SCOPES.includes(q.scope as RiskScope) ? (q.scope as RiskScope) : undefined;
@@ -159,8 +159,6 @@ export default async function adminSecurityRoutes(app: FastifyInstance): Promise
   });
 
   app.get<{ Params: { id: string } }>('/security/risk-rules/:id', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
-    if (!admin) return;
     const rule = await getRiskRuleById(request.params.id);
     if (!rule) {
       return reply.status(404).send({
@@ -172,8 +170,6 @@ export default async function adminSecurityRoutes(app: FastifyInstance): Promise
   });
 
   app.post<{ Body: CreateRiskRuleInput }>('/security/risk-rules', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
-    if (!admin) return;
     const body = request.body ?? {};
     if (!body.scope || !VALID_SCOPES.includes(body.scope as RiskScope)) {
       return reply.status(400).send({
@@ -207,8 +203,6 @@ export default async function adminSecurityRoutes(app: FastifyInstance): Promise
   });
 
   app.patch<{ Params: { id: string }; Body: UpdateRiskRuleInput }>('/security/risk-rules/:id', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
-    if (!admin) return;
     const body = request.body ?? {};
     if (body.decision != null && !VALID_DECISIONS.includes(body.decision as RiskDecision)) {
       return reply.status(400).send({
@@ -242,8 +236,6 @@ export default async function adminSecurityRoutes(app: FastifyInstance): Promise
   });
 
   app.patch<{ Params: { id: string } }>('/security/risk-rules/:id/enable', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
-    if (!admin) return;
     const rule = await setRiskRuleEnabled(request.params.id, true);
     if (!rule) {
       return reply.status(404).send({
@@ -255,8 +247,6 @@ export default async function adminSecurityRoutes(app: FastifyInstance): Promise
   });
 
   app.patch<{ Params: { id: string } }>('/security/risk-rules/:id/disable', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
-    if (!admin) return;
     const rule = await setRiskRuleEnabled(request.params.id, false);
     if (!rule) {
       return reply.status(404).send({

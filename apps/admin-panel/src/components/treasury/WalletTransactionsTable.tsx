@@ -65,11 +65,11 @@ export function WalletTransactionsTable({ rows }: WalletTransactionsTableProps) 
   });
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-admin-border bg-white">
+    <div className="overflow-x-auto rounded-xl border border-admin-border bg-admin-card">
       <table className="w-full min-w-[700px] text-left text-sm">
         <thead>
           {table.getHeaderGroups().map((hg) => (
-            <tr key={hg.id} className="border-b border-admin-border bg-gray-50">
+            <tr key={hg.id} className="border-b border-admin-border bg-white/[0.02]">
               {hg.headers.map((h) => (
                 <th key={h.id} className="px-4 py-3 font-medium text-admin-muted">
                   {flexRender(h.column.columnDef.header, h.getContext())}
@@ -87,9 +87,9 @@ export function WalletTransactionsTable({ rows }: WalletTransactionsTableProps) 
             </tr>
           ) : (
             table.getRowModel().rows.map((row) => (
-              <tr key={row.id} className="border-b border-admin-border last:border-0 hover:bg-gray-50/50">
+              <tr key={row.id} className="border-b border-admin-border last:border-0 hover:bg-white/[0.03]">
                 {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id} className="px-4 py-3 text-gray-900">
+                  <td key={cell.id} className="px-4 py-3 text-admin-text">
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </td>
                 ))}

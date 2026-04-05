@@ -6,6 +6,7 @@
 
 import type { WebSocket } from 'ws';
 import { logger } from '../lib/logger.js';
+import { eventBus } from '../lib/eventBus.js';
 
 const ADMIN_METRICS_CHANNEL = 'admin:metrics';
 
@@ -90,31 +91,41 @@ export function broadcastAdminMetrics(type: AdminMetricsEventType, data: Record<
 /** Convenience: trade executed */
 export function publishTradeExecuted(trade: { id?: string; market?: string; side?: string; price?: string; quantity?: string; user_id?: string }): void {
   broadcastAdminMetrics('trade_executed', trade);
+  eventBus.publish('trade:new', { ...trade, action: 'trade_executed' }, 'metrics');
+  eventBus.publish('activity:update', { ...trade, action: 'trade_executed' }, 'metrics');
 }
 
 /** Convenience: order created */
 export function publishOrderCreated(order: { id?: string; market?: string; side?: string; type?: string; user_id?: string }): void {
   broadcastAdminMetrics('order_created', order);
+  eventBus.publish('activity:update', { ...order, action: 'order_created' }, 'metrics');
 }
 
 /** Convenience: deposit confirmed */
 export function publishDepositConfirmed(deposit: { id?: string; user_id?: string; amount?: string; currency_id?: string }): void {
   broadcastAdminMetrics('deposit_confirmed', deposit);
+  eventBus.publish('deposit:update', { ...deposit, action: 'deposit_confirmed' }, 'metrics');
+  eventBus.publish('activity:update', { ...deposit, action: 'deposit_confirmed' }, 'metrics');
 }
 
 /** Convenience: withdrawal requested */
 export function publishWithdrawalRequested(withdrawal: { id?: string; user_id?: string; amount?: string; to_address?: string }): void {
   broadcastAdminMetrics('withdrawal_requested', withdrawal);
+  eventBus.publish('withdrawal:update', { ...withdrawal, action: 'withdrawal_requested' }, 'metrics');
+  eventBus.publish('activity:update', { ...withdrawal, action: 'withdrawal_requested' }, 'metrics');
 }
 
 /** Convenience: P2P order created */
 export function publishP2POrderCreated(order: { id?: string; ad_id?: string; buyer_id?: string; seller_id?: string; crypto_amount?: string }): void {
   broadcastAdminMetrics('p2p_order_created', order);
+  eventBus.publish('activity:update', { ...order, action: 'p2p_order_created' }, 'metrics');
 }
 
 /** Convenience: AML alert triggered */
 export function publishAmlAlertTriggered(alert: { id?: string; user_id?: string; alert_type?: string; severity?: string }): void {
   broadcastAdminMetrics('aml_alert_triggered', alert);
+  eventBus.publish('alert:new', { ...alert, action: 'aml_alert_triggered' }, 'metrics');
+  eventBus.publish('activity:update', { ...alert, action: 'aml_alert_triggered' }, 'metrics');
 }
 
 export function getAdminMetricsConnectionCount(): number {

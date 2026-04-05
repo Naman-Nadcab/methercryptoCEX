@@ -23,7 +23,7 @@ export function ExchangeControls() {
   const onToggle = (checked: boolean) => haltMutation.mutate(checked);
 
   return (
-    <div className="rounded-[var(--admin-radius)] border border-[var(--admin-card-border)] bg-white p-4 shadow-[var(--admin-shadow)]">
+    <div className="rounded-[var(--admin-radius)] border border-[var(--admin-card-border)] bg-[var(--admin-card-bg)] p-4 shadow-[var(--admin-shadow)]">
       <h3 className="text-sm font-semibold text-[var(--admin-text)] mb-3">Exchange Controls</h3>
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-4">

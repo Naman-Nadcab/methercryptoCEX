@@ -105,12 +105,7 @@ export default function BlockchainSettingsPage() {
     setToggling(`${id}-${field}`);
     
     try {
-      console.log(`Toggling ${field} for blockchain ${id}`);
-      console.log('Using API URL:', apiUrl);
-      console.log('Token exists:', !!accessToken);
-      
       const url = `${apiUrl}/api/v1/admin/settings/blockchains/${id}/toggle`;
-      console.log('Request URL:', url);
       
       const response = await fetch(url, {
         method: 'PATCH',
@@ -121,16 +116,12 @@ export default function BlockchainSettingsPage() {
         body: JSON.stringify({ field }),
       });
       
-      console.log('Response status:', response.status);
-      
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('Response error:', errorText);
         throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
       
       const result = await response.json();
-      console.log('Toggle result:', result);
       
       if (result.success) {
         // Preserve currencies when updating blockchain
@@ -142,11 +133,9 @@ export default function BlockchainSettingsPage() {
           } : b
         ));
       } else {
-        console.error('Toggle failed:', result.error);
         toast({ title: 'Error', description: result.error?.message || 'Failed to update', variant: 'destructive' });
       }
     } catch (error: any) {
-      console.error('Failed to toggle setting:', error);
       toast({ title: 'Error', description: error.message || 'Network error', variant: 'destructive' });
     } finally {
       setToggling(null);
@@ -158,7 +147,6 @@ export default function BlockchainSettingsPage() {
     setToggling(`${id}-${field}`);
     
     try {
-      console.log(`Toggling ${field} for currency ${id}`);
       const response = await fetch(`${apiUrl}/api/v1/admin/settings/currencies/${id}/toggle`, {
         method: 'PATCH',
         headers: {
@@ -168,7 +156,6 @@ export default function BlockchainSettingsPage() {
         body: JSON.stringify({ field }),
       });
       const result = await response.json();
-      console.log('Currency toggle result:', result);
       
       if (result.success) {
         // Update currency in the blockchain's currencies array

@@ -16,7 +16,7 @@ import { refreshMatchEventsCache } from '../services/matchingEngine.js';
 import { p2pService } from '../services/p2p.service.js';
 import { getClientIp } from '../lib/client-ip.js';
 import { isIpInWhitelist } from '../lib/admin-ip-whitelist.js';
-import { enforceAdminRateLimit } from '../lib/rate-limit-fastify.js';
+import { enforceAdminRateLimit, rateLimitByIp } from '../lib/rate-limit-fastify.js';
 import { registerAdminConnection, unregisterAdminConnection } from '../services/admin-ws.service.js';
 import { registerAdminEventsConnection, unregisterAdminEventsConnection, broadcastAdminControlEvent } from '../services/admin-events-ws.service.js';
 import { applyTierLimitsToUser } from '../services/withdrawal-tier-limits.service.js';
@@ -25,6 +25,8 @@ const ADMIN_CREDIT_IDEMPOTENCY_LOCK_TTL_SECONDS = 30;
 const WITHDRAW_APPROVE_IDEMPOTENCY_TTL = 24 * 60 * 60;
 const WITHDRAW_APPROVE_LOCK_TTL = 30;
 const IDEMPOTENCY_KEY_HEADER = 'idempotency-key';
+const ADMIN_LOGIN_MAX_ATTEMPTS_FALLBACK = 5;
+const ADMIN_LOGIN_LOCK_MINUTES = 15;
 
 function buildAdminManualCreditRequestHash(body: Record<string, unknown>): string {
   const normalized = {
@@ -69,6 +71,37 @@ function generateAdminTokens(app: FastifyInstance, payload: {
     { expiresIn: '7d' }
   );
   return { accessToken, refreshToken };
+}
+
+async function getAdminMaxLoginAttempts(): Promise<number> {
+  try {
+    const row = await db.query<{ value: unknown }>(
+      `SELECT value FROM system_settings WHERE key = 'max_login_attempts' LIMIT 1`
+    );
+    const parsed = Number(row.rows[0]?.value);
+    if (Number.isFinite(parsed) && parsed >= 3 && parsed <= 20) return Math.trunc(parsed);
+  } catch {
+    // fallback below
+  }
+  return ADMIN_LOGIN_MAX_ATTEMPTS_FALLBACK;
+}
+
+async function isAdminSessionValid(sessionId: string, adminId: string): Promise<boolean> {
+  let sessionValid = false;
+  try {
+    const session = await redis.getJson<{ isActive: boolean; adminId?: string }>(`admin:session:${sessionId}`);
+    sessionValid = !!(session && session.isActive && (!session.adminId || session.adminId === adminId));
+  } catch {
+    // Redis unavailable — fallback to DB
+  }
+  if (!sessionValid) {
+    const dbSession = await db.query<{ id: string }>(
+      'SELECT id FROM admin_sessions WHERE id = $1 AND admin_id = $2 AND expires_at > NOW()',
+      [sessionId, adminId]
+    );
+    sessionValid = dbSession.rows.length > 0;
+  }
+  return sessionValid;
 }
 
 /** Get admin from request (JWT + session). Throws reply if unauthorized. */
@@ -158,30 +191,83 @@ export async function getAdminFromRequest(
   return { adminId: session.adminId, role };
 }
 
+/**
+ * Canonical admin role names. The `role` column on `admin_users` is a free-form
+ * VARCHAR — these are the recognized values used by the RBAC layer.
+ */
+export const ADMIN_ROLES = {
+  SUPER_ADMIN: 'super_admin',
+  RISK_MANAGER: 'risk_manager',
+  FINANCE_ADMIN: 'finance_admin',
+  SUPPORT_AGENT: 'support_agent',
+  AUDITOR: 'auditor',
+} as const;
+export type AdminRoleValue = (typeof ADMIN_ROLES)[keyof typeof ADMIN_ROLES];
+
 /** Permission matrix: route scope -> required permission. super_admin and role names (e.g. withdrawal_approver) bypass. */
 export const ADMIN_PERMISSION_MATRIX: Record<string, string[]> = {
   'withdrawals:approve': ['withdrawals:approve', 'all'],
+  'withdrawals:view': ['withdrawals:view', 'withdrawals:approve', 'all'],
   'kyc:review': ['kyc:review', 'all'],
   'deposits:credit': ['deposits:credit', 'manual_credit', 'all'],
+  'deposits:view': ['deposits:view', 'deposits:credit', 'all'],
+  'users:view': ['users:view', 'users:edit', 'all'],
   'users:edit': ['users:edit', 'all'],
   'p2p:disputes': ['p2p:disputes', 'all'],
   'aml:view': ['aml:view', 'all'],
   'aml:escalate': ['aml:escalate', 'aml:view', 'all'],
   'monitoring:view': ['monitoring:view', 'all'],
   'settings:edit': ['settings:edit', 'all'],
+  'settings:view': ['settings:view', 'settings:edit', 'all'],
   'control:commands': ['control:commands', 'all'],
+  'control:trading': ['control:trading', 'control:commands', 'all'],
+  'audit:view': ['audit:view', 'all'],
+  'analytics:view': ['analytics:view', 'all'],
+  'treasury:sweep': ['treasury:sweep', 'all'],
+  'markets:manage': ['markets:manage', 'all'],
+  'risk:export': ['risk:export', 'all'],
 };
 
 /** Roles that imply all permissions (no permission array check). */
 const SUPER_ROLES = ['super_admin', 'super admin', 'Super Admin'];
 
-/** Role names that grant specific permission without needing permissions[] entry. */
+/**
+ * Role → permission mapping. Each role gets a set of implicit permissions
+ * without needing the `permissions[]` column on admin_users.
+ */
+const ROLE_TO_PERMISSIONS: Record<string, string[]> = {
+  super_admin: ['all'],
+  risk_manager: ['monitoring:view', 'aml:view', 'aml:escalate', 'users:view', 'users:edit', 'control:trading', 'markets:manage', 'risk:export', 'analytics:view', 'audit:view'],
+  finance_admin: ['withdrawals:approve', 'withdrawals:view', 'deposits:credit', 'deposits:view', 'users:view', 'monitoring:view', 'markets:manage', 'treasury:sweep', 'analytics:view', 'audit:view'],
+  support_agent: ['users:view', 'users:edit', 'kyc:review', 'deposits:view', 'withdrawals:view', 'p2p:disputes'],
+  auditor: ['audit:view', 'monitoring:view', 'analytics:view', 'users:view', 'withdrawals:view', 'deposits:view', 'settings:view', 'risk:export'],
+  withdrawal_approver: ['withdrawals:approve'],
+  kyc_reviewer: ['kyc:review'],
+  aml_reviewer: ['aml:view'],
+};
+
+/** Legacy compat: single role → single permission mapping (used as fallback) */
 const ROLE_TO_PERMISSION: Record<string, string> = {
   withdrawal_approver: 'withdrawals:approve',
   kyc_reviewer: 'kyc:review',
   aml_reviewer: 'aml:view',
   risk_manager: 'monitoring:view',
 };
+
+function hasPermission(role: string, permission: string): boolean {
+  const normalizedRole = (role || '').toLowerCase().replace(/\s+/g, '_');
+  if (SUPER_ROLES.some((r) => r.toLowerCase().replace(/\s+/g, '_') === normalizedRole)) return true;
+  const perms = ROLE_TO_PERMISSIONS[normalizedRole] || [];
+  return perms.includes('all') || perms.includes(permission);
+}
+
+function requirePermission(admin: { adminId: string; role: string }, permission: string, reply: FastifyReply): boolean {
+  if (!hasPermission(admin.role, permission)) {
+    reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: `Permission '${permission}' required` } });
+    return false;
+  }
+  return true;
+}
 
 /** Get admin and enforce permission. Use for RBAC on sensitive routes. requiredPermission must be a key of ADMIN_PERMISSION_MATRIX. */
 export async function getAdminWithPermission(
@@ -193,8 +279,20 @@ export async function getAdminWithPermission(
   const admin = await getAdminFromRequest(app, request, reply, false);
   if (!admin) return null;
   const role = (admin.role || '').toLowerCase().replace(/\s+/g, '_');
+
+  // 1. Super roles bypass everything
   if (SUPER_ROLES.some((r) => r.toLowerCase().replace(/\s+/g, '_') === role)) return admin;
+
+  // 2. Check expanded role → permissions mapping
+  const rolePerms = ROLE_TO_PERMISSIONS[role];
+  if (rolePerms) {
+    if (rolePerms.includes('all') || rolePerms.includes(requiredPermission)) return admin;
+  }
+
+  // 3. Legacy single-permission role mapping (backward compat)
   if (ROLE_TO_PERMISSION[role] === requiredPermission) return admin;
+
+  // 4. Check admin_users.permissions column
   const allowedPerms = ADMIN_PERMISSION_MATRIX[requiredPermission];
   if (!allowedPerms) return admin;
   const permRow = await db.query<{ permissions: string[] }>(
@@ -212,6 +310,19 @@ export async function getAdminWithPermission(
   return null;
 }
 
+/**
+ * Resolve the full set of effective permissions for an admin, combining
+ * role-based and explicit (DB column) permissions. Used by /auth/me.
+ */
+export function resolveEffectivePermissions(role: string, dbPermissions: string[]): string[] {
+  const normalizedRole = (role || '').toLowerCase().replace(/\s+/g, '_');
+  if (SUPER_ROLES.some((r) => r.toLowerCase().replace(/\s+/g, '_') === normalizedRole)) return ['all'];
+  const rolePerms = ROLE_TO_PERMISSIONS[normalizedRole] ?? [];
+  const explicit = Array.isArray(dbPermissions) ? dbPermissions : [];
+  const set = new Set([...rolePerms, ...explicit]);
+  return Array.from(set).sort();
+}
+
 /** Admin who can approve/reject withdrawals: role withdrawal_approver or super_admin, or permission withdrawals:approve / all. */
 export async function getAdminForWithdrawalApproval(
   app: FastifyInstance,
@@ -223,83 +334,103 @@ export async function getAdminForWithdrawalApproval(
 
 export default async function adminRoutes(app: FastifyInstance) {
 
+  app.addHook('onRequest', rateLimitByIp('admin-api', 200, 60));
+
   /**
    * WebSocket: /api/v1/admin/ws/metrics — real-time admin metrics (trade, order, deposit, withdrawal, p2p, aml).
    * Query: token=<admin_jwt>. Only admin JWTs are accepted.
    */
   app.get('/ws/metrics', { websocket: true }, (socket, req) => {
+    const closeUnauthorized = (message: string) => {
+      socket.send(JSON.stringify({ type: 'error', data: { message }, timestamp: Date.now() }));
+      socket.close(1008, message);
+    };
     const url = new URL(req.url || '', 'http://localhost');
     const token = url.searchParams.get('token');
     if (!token) {
-      socket.send(JSON.stringify({ type: 'error', data: { message: 'Missing token' }, timestamp: Date.now() }));
-      socket.close(1008, 'Missing token');
+      closeUnauthorized('Missing token');
       return;
     }
-    let adminId: string;
+    let decoded: { adminId?: string; type?: string; sessionId?: string };
     try {
-      const decoded = app.jwt.verify(token) as { adminId?: string; type?: string };
-      if (decoded.type !== 'admin' || !decoded.adminId) {
-        socket.send(JSON.stringify({ type: 'error', data: { message: 'Invalid token' }, timestamp: Date.now() }));
-        socket.close(1008, 'Invalid token');
+      decoded = app.jwt.verify(token) as { adminId?: string; type?: string; sessionId?: string };
+      if (decoded.type !== 'admin' || !decoded.adminId || !decoded.sessionId) {
+        closeUnauthorized('Invalid token');
         return;
       }
-      adminId = decoded.adminId;
     } catch {
-      socket.send(JSON.stringify({ type: 'error', data: { message: 'Invalid token' }, timestamp: Date.now() }));
-      socket.close(1008, 'Invalid token');
+      closeUnauthorized('Invalid token');
       return;
     }
-    const connId = registerAdminConnection(socket as any, adminId);
-    socket.on('close', () => unregisterAdminConnection(connId));
-    socket.on('message', (buf: Buffer) => {
-      try {
-        const msg = JSON.parse(buf.toString()) as { type: string };
-        if (msg.type === 'ping') {
-          socket.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
-        }
-      } catch {
-        // ignore
+    void (async () => {
+      const adminId = decoded.adminId!;
+      const sessionId = decoded.sessionId!;
+      const sessionValid = await isAdminSessionValid(sessionId, adminId);
+      if (!sessionValid) {
+        closeUnauthorized('Session expired');
+        return;
       }
-    });
+      const connId = registerAdminConnection(socket as any, adminId);
+      socket.on('close', () => unregisterAdminConnection(connId));
+      socket.on('message', (buf: Buffer) => {
+        try {
+          const msg = JSON.parse(buf.toString()) as { type: string };
+          if (msg.type === 'ping') {
+            socket.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+          }
+        } catch {
+          // ignore
+        }
+      });
+    })();
   });
 
   /**
    * WebSocket: /api/v1/admin/ws/events — control panel real-time events (control_status_changed, emergency_level_changed, incident_created, service_restarted, liquidity_kill_activated).
    */
   app.get('/ws/events', { websocket: true }, (socket, req) => {
+    const closeUnauthorized = (message: string) => {
+      socket.send(JSON.stringify({ event: 'error', payload: { message }, timestamp: Date.now() }));
+      socket.close(1008, message);
+    };
     const url = new URL(req.url || '', 'http://localhost');
     const token = url.searchParams.get('token');
     if (!token) {
-      socket.send(JSON.stringify({ event: 'error', payload: { message: 'Missing token' }, timestamp: Date.now() }));
-      socket.close(1008, 'Missing token');
+      closeUnauthorized('Missing token');
       return;
     }
-    let adminId: string;
+    let decoded: { adminId?: string; type?: string; sessionId?: string };
     try {
-      const decoded = app.jwt.verify(token) as { adminId?: string; type?: string };
-      if (decoded.type !== 'admin' || !decoded.adminId) {
-        socket.send(JSON.stringify({ event: 'error', payload: { message: 'Invalid token' }, timestamp: Date.now() }));
-        socket.close(1008, 'Invalid token');
+      decoded = app.jwt.verify(token) as { adminId?: string; type?: string; sessionId?: string };
+      if (decoded.type !== 'admin' || !decoded.adminId || !decoded.sessionId) {
+        closeUnauthorized('Invalid token');
         return;
       }
-      adminId = decoded.adminId;
     } catch {
-      socket.send(JSON.stringify({ event: 'error', payload: { message: 'Invalid token' }, timestamp: Date.now() }));
-      socket.close(1008, 'Invalid token');
+      closeUnauthorized('Invalid token');
       return;
     }
-    const connId = registerAdminEventsConnection(socket as any, adminId);
-    socket.on('close', () => unregisterAdminEventsConnection(connId));
-    socket.on('message', (buf: Buffer) => {
-      try {
-        const msg = JSON.parse(buf.toString()) as { type: string };
-        if (msg.type === 'ping') {
-          socket.send(JSON.stringify({ event: 'pong', payload: {}, timestamp: Date.now() }));
-        }
-      } catch {
-        // ignore
+    void (async () => {
+      const adminId = decoded.adminId!;
+      const sessionId = decoded.sessionId!;
+      const sessionValid = await isAdminSessionValid(sessionId, adminId);
+      if (!sessionValid) {
+        closeUnauthorized('Session expired');
+        return;
       }
-    });
+      const connId = registerAdminEventsConnection(socket as any, adminId);
+      socket.on('close', () => unregisterAdminEventsConnection(connId));
+      socket.on('message', (buf: Buffer) => {
+        try {
+          const msg = JSON.parse(buf.toString()) as { type: string };
+          if (msg.type === 'ping') {
+            socket.send(JSON.stringify({ event: 'pong', payload: {}, timestamp: Date.now() }));
+          }
+        } catch {
+          // ignore
+        }
+      });
+    })();
   });
 
   /**
@@ -317,6 +448,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         },
       },
     },
+    preHandler: [rateLimitByIp('admin-login', 10, 300)],
   }, async (request, reply) => {
     try {
       const { email, password } = request.body;
@@ -330,8 +462,10 @@ export default async function adminRoutes(app: FastifyInstance) {
         role: string;
         permissions: string[];
         is_active: boolean;
+        failed_login_attempts: number | null;
+        locked_until: Date | null;
       }>(
-        'SELECT id, email, password_hash, name, role, permissions, is_active FROM admin_users WHERE email = $1',
+        'SELECT id, email, password_hash, name, role, permissions, is_active, failed_login_attempts, locked_until FROM admin_users WHERE email = $1',
         [email.toLowerCase()]
       );
 
@@ -344,6 +478,13 @@ export default async function adminRoutes(app: FastifyInstance) {
       }
 
       const admin = result.rows[0]!;
+      const now = new Date();
+      if (admin.locked_until && new Date(admin.locked_until) > now) {
+        return reply.status(423).send({
+          success: false,
+          error: { code: 'ACCOUNT_LOCKED', message: `Account temporarily locked. Try again after ${new Date(admin.locked_until).toISOString()}` },
+        });
+      }
 
       if (!admin.is_active) {
         return reply.status(403).send({
@@ -355,10 +496,69 @@ export default async function adminRoutes(app: FastifyInstance) {
       // Verify password
       const isValid = await bcrypt.compare(password, admin.password_hash);
       if (!isValid) {
+        const maxAttempts = await getAdminMaxLoginAttempts();
+        const nextAttempts = (admin.failed_login_attempts ?? 0) + 1;
+        const lockThisAttempt = nextAttempts >= maxAttempts;
+        await db.query(
+          `UPDATE admin_users
+           SET failed_login_attempts = $2,
+               locked_until = CASE WHEN $3 THEN NOW() + INTERVAL '${ADMIN_LOGIN_LOCK_MINUTES} minutes' ELSE NULL END,
+               updated_at = NOW()
+           WHERE id = $1`,
+          [admin.id, nextAttempts, lockThisAttempt]
+        );
         logger.warn('Admin login failed: invalid password', { email });
+        if (lockThisAttempt) {
+          return reply.status(423).send({
+            success: false,
+            error: { code: 'ACCOUNT_LOCKED', message: `Too many failed attempts. Account locked for ${ADMIN_LOGIN_LOCK_MINUTES} minutes.` },
+          });
+        }
         return reply.status(401).send({
           success: false,
           error: { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' },
+        });
+      }
+
+      // Check if 2FA is enabled and require verification
+      try {
+        const twoFaCheck = await db.query<{ two_factor_enabled: boolean }>(
+          'SELECT two_factor_enabled FROM admin_users WHERE id = $1',
+          [admin.id]
+        );
+        if (twoFaCheck.rows[0]?.two_factor_enabled) {
+          const { twofa_code } = request.body as { twofa_code?: string };
+          if (!twofa_code) {
+            return reply.status(200).send({
+              success: true,
+              data: { requires2FA: true, adminId: admin.id, message: 'Enter your 2FA code to continue' },
+            });
+          }
+          const { admin2FAService } = await import('../services/admin-2fa.service.js');
+          const valid = await admin2FAService.verifyTokenForLogin(admin.id, twofa_code);
+          if (!valid) {
+            const maxAttempts = await getAdminMaxLoginAttempts();
+            const nextAttempts = (admin.failed_login_attempts ?? 0) + 1;
+            const lockThisAttempt = nextAttempts >= maxAttempts;
+            await db.query(
+              `UPDATE admin_users
+               SET failed_login_attempts = $2,
+                   locked_until = CASE WHEN $3 THEN NOW() + INTERVAL '${ADMIN_LOGIN_LOCK_MINUTES} minutes' ELSE NULL END,
+                   updated_at = NOW()
+               WHERE id = $1`,
+              [admin.id, nextAttempts, lockThisAttempt]
+            );
+            return reply.status(401).send({
+              success: false,
+              error: { code: 'INVALID_2FA', message: 'Invalid 2FA code' },
+            });
+          }
+        }
+      } catch (e) {
+        logger.error('2FA check failed (login blocked)', { error: e instanceof Error ? e.message : 'Unknown' });
+        return reply.status(503).send({
+          success: false,
+          error: { code: '2FA_SERVICE_UNAVAILABLE', message: '2FA verification service is unavailable. Please retry shortly.' },
         });
       }
 
@@ -387,7 +587,7 @@ export default async function adminRoutes(app: FastifyInstance) {
 
       // Update last login
       await db.query(
-        'UPDATE admin_users SET last_login_at = NOW() WHERE id = $1',
+        'UPDATE admin_users SET last_login_at = NOW(), failed_login_attempts = 0, locked_until = NULL WHERE id = $1',
         [admin.id]
       );
 
@@ -528,9 +728,12 @@ export default async function adminRoutes(app: FastifyInstance) {
         });
       }
 
+      const adminRow = result.rows[0]!;
+      const effectivePermissions = resolveEffectivePermissions(adminRow.role, adminRow.permissions);
+
       return reply.send({
         success: true,
-        data: result.rows[0],
+        data: { ...adminRow, effectivePermissions },
       });
 
     } catch (error) {
@@ -611,92 +814,116 @@ export default async function adminRoutes(app: FastifyInstance) {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
     try {
-      // Get user stats
-      const userStats = await db.query(`
-        SELECT 
-          COUNT(*) as total_users,
-          COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours') as new_users_24h,
-          COUNT(*) FILTER (WHERE status = 'active') as active_users,
-          COUNT(*) FILTER (WHERE email_verified = true OR phone_verified = true) as verified_users
-        FROM users WHERE deleted_at IS NULL
-      `);
+      const CACHE_KEY = 'admin:cache:dashboard_stats';
+      const CACHE_TTL = 15;
+      try {
+        const cached = await redis.getJson<Record<string, unknown>>(CACHE_KEY);
+        if (cached) return reply.send({ success: true, data: cached });
+      } catch { /* Redis down — query DB */ }
 
-      // Get session stats (active users)
-      const sessionStats = await db.query(`
-        SELECT COUNT(DISTINCT user_id) as active_sessions
-        FROM user_sessions 
-        WHERE is_active = true AND expires_at > NOW()
-      `);
+      const safeCount = (sql: string): Promise<Record<string, string>> =>
+        db.query<Record<string, string>>(sql).then(r => r.rows[0] ?? ({} as Record<string, string>)).catch(() => ({} as Record<string, string>));
 
-      // Get KYC stats
-      const kycStats = await db.query(`
-        SELECT 
-          COUNT(*) FILTER (WHERE status = 'pending') as pending_kyc,
-          COUNT(*) FILTER (WHERE status = 'under_review') as review_kyc,
-          COUNT(*) FILTER (WHERE status = 'approved' AND reviewed_at > NOW() - INTERVAL '24 hours') as approved_today,
-          COUNT(*) FILTER (WHERE status = 'rejected' AND reviewed_at > NOW() - INTERVAL '24 hours') as rejected_today
-        FROM kyc_applications
-      `);
+      const [userRow, sessionRow, kycRow, p2pAdsRow, p2pOrdersRow, disputeRow, referralRow] = await Promise.all([
+        safeCount(`SELECT COUNT(*) as total_users, COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours') as new_users_24h, COUNT(*) FILTER (WHERE status = 'active') as active_users, COUNT(*) FILTER (WHERE email_verified = true OR phone_verified = true) as verified_users FROM users WHERE deleted_at IS NULL`),
+        safeCount(`SELECT COUNT(DISTINCT user_id) as active_sessions FROM user_sessions WHERE is_active = true AND expires_at > NOW()`),
+        safeCount(`SELECT COUNT(*) FILTER (WHERE status = 'pending') as pending_kyc, COUNT(*) FILTER (WHERE status = 'under_review') as review_kyc, COUNT(*) FILTER (WHERE status = 'approved' AND reviewed_at > NOW() - INTERVAL '24 hours') as approved_today, COUNT(*) FILTER (WHERE status = 'rejected' AND reviewed_at > NOW() - INTERVAL '24 hours') as rejected_today FROM kyc_applications`),
+        safeCount(`SELECT COUNT(*) FILTER (WHERE status = 'active') as active_ads FROM p2p_ads`),
+        safeCount(`SELECT COUNT(*) FILTER (WHERE status IN ('pending', 'awaiting_payment', 'payment_sent')) as active_orders FROM p2p_orders`),
+        safeCount(`SELECT COUNT(*) as open_disputes FROM p2p_disputes WHERE status IN ('open', 'under_review')`),
+        safeCount(`SELECT COUNT(*) as total_codes, COUNT(*) FILTER (WHERE is_active = true) as active_codes FROM referral_codes`),
+      ]);
 
-      // Get P2P ads stats
-      const p2pAdsStats = await db.query(`
-        SELECT 
-          COUNT(*) FILTER (WHERE status = 'active') as active_ads
-        FROM p2p_ads
-      `);
-
-      // Get P2P orders stats
-      const p2pOrdersStats = await db.query(`
-        SELECT 
-          COUNT(*) FILTER (WHERE status IN ('pending', 'awaiting_payment', 'payment_sent')) as active_orders
-        FROM p2p_orders
-      `);
-
-      const disputeStats = await db.query(`
-        SELECT COUNT(*) as open_disputes FROM p2p_disputes WHERE status IN ('open', 'under_review')
-      `);
-
-      // Get referral stats  
-      const referralStats = await db.query(`
-        SELECT 
-          COUNT(*) as total_codes,
-          COUNT(*) FILTER (WHERE is_active = true) as active_codes
-        FROM referral_codes
-      `);
-
-      return reply.send({
-        success: true,
-        data: {
-          users: {
-            total: parseInt(userStats.rows[0]?.total_users || '0'),
-            newToday: parseInt(userStats.rows[0]?.new_users_24h || '0'),
-            active: parseInt(sessionStats.rows[0]?.active_sessions || '0'),
-            verified: parseInt(userStats.rows[0]?.verified_users || '0'),
-          },
-          kyc: {
-            pending: parseInt(kycStats.rows[0]?.pending_kyc || '0'),
-            underReview: parseInt(kycStats.rows[0]?.review_kyc || '0'),
-            approvedToday: parseInt(kycStats.rows[0]?.approved_today || '0'),
-            rejectedToday: parseInt(kycStats.rows[0]?.rejected_today || '0'),
-          },
-          p2p: {
-            activeAds: parseInt(p2pAdsStats.rows[0]?.active_ads || '0'),
-            activeOrders: parseInt(p2pOrdersStats.rows[0]?.active_orders || '0'),
-            openDisputes: parseInt(disputeStats.rows[0]?.open_disputes || '0'),
-          },
-          referrals: {
-            totalCodes: parseInt(referralStats.rows[0]?.total_codes || '0'),
-            activeCodes: parseInt(referralStats.rows[0]?.active_codes || '0'),
-          },
+      const data = {
+        users: {
+          total: parseInt(userRow.total_users || '0'),
+          newToday: parseInt(userRow.new_users_24h || '0'),
+          active: parseInt(sessionRow.active_sessions || '0'),
+          verified: parseInt(userRow.verified_users || '0'),
         },
-      });
+        kyc: {
+          pending: parseInt(kycRow.pending_kyc || '0'),
+          underReview: parseInt(kycRow.review_kyc || '0'),
+          approvedToday: parseInt(kycRow.approved_today || '0'),
+          rejectedToday: parseInt(kycRow.rejected_today || '0'),
+        },
+        p2p: {
+          activeAds: parseInt(p2pAdsRow.active_ads || '0'),
+          activeOrders: parseInt(p2pOrdersRow.active_orders || '0'),
+          openDisputes: parseInt(disputeRow.open_disputes || '0'),
+        },
+        referrals: {
+          totalCodes: parseInt(referralRow.total_codes || '0'),
+          activeCodes: parseInt(referralRow.active_codes || '0'),
+        },
+      };
 
+      redis.setJson(CACHE_KEY, data, CACHE_TTL).catch(() => {});
+      return reply.send({ success: true, data });
     } catch (error) {
       logger.error('Dashboard stats error', { error: error instanceof Error ? error.message : 'Unknown' });
       return reply.status(500).send({
         success: false,
         error: { code: 'FETCH_FAILED', message: 'Failed to fetch dashboard stats' },
       });
+    }
+  });
+
+  /**
+   * GET /admin/dashboard-summary
+   * Single aggregated endpoint for the admin dashboard — merges stats, health, halt, analytics, withdrawals, control.
+   * Redis cached 15s. One API call replaces 6 individual queries from the frontend.
+   */
+  app.get('/dashboard-summary', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const CACHE_KEY = 'admin:cache:dashboard_summary';
+      try {
+        const cached = await redis.getJson<Record<string, unknown>>(CACHE_KEY);
+        if (cached) return reply.send({ success: true, data: cached });
+      } catch { /* Redis down */ }
+
+      const safe = <T>(p: Promise<T>, fallback: T): Promise<T> => p.catch(() => fallback);
+      const safeRow = (sql: string): Promise<Record<string, string>> =>
+        db.query<Record<string, string>>(sql).then(r => r.rows[0] ?? ({} as Record<string, string>)).catch(() => ({} as Record<string, string>));
+
+      const [
+        userRow, sessionRow, kycRow, p2pAdsRow, p2pOrdersRow, disputeRow, referralRow,
+        haltedRaw, wdRow, analyticsRow, healthRow,
+      ] = await Promise.all([
+        safeRow(`SELECT COUNT(*) as total_users, COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours') as new_users_24h, COUNT(*) FILTER (WHERE status = 'active') as active_users, COUNT(*) FILTER (WHERE email_verified = true OR phone_verified = true) as verified_users FROM users WHERE deleted_at IS NULL`),
+        safeRow(`SELECT COUNT(DISTINCT user_id) as active_sessions FROM user_sessions WHERE is_active = true AND expires_at > NOW()`),
+        safeRow(`SELECT COUNT(*) FILTER (WHERE status = 'pending') as pending_kyc, COUNT(*) FILTER (WHERE status = 'under_review') as review_kyc, COUNT(*) FILTER (WHERE status = 'approved' AND reviewed_at > NOW() - INTERVAL '24 hours') as approved_today, COUNT(*) FILTER (WHERE status = 'rejected' AND reviewed_at > NOW() - INTERVAL '24 hours') as rejected_today FROM kyc_applications`),
+        safeRow(`SELECT COUNT(*) FILTER (WHERE status = 'active') as active_ads FROM p2p_ads`),
+        safeRow(`SELECT COUNT(*) FILTER (WHERE status IN ('pending', 'awaiting_payment', 'payment_sent')) as active_orders FROM p2p_orders`),
+        safeRow(`SELECT COUNT(*) as open_disputes FROM p2p_disputes WHERE status IN ('open', 'under_review')`),
+        safeRow(`SELECT COUNT(*) as total_codes, COUNT(*) FILTER (WHERE is_active = true) as active_codes FROM referral_codes`),
+        safe(import('../lib/trading-halt.js').then(m => m.getTradingHalted()), false),
+        safeRow(`SELECT COUNT(*) FILTER (WHERE status = 'pending_approval') as pending_approval FROM withdrawals`),
+        safeRow(`SELECT COALESCE(SUM((quantity::numeric * price::numeric)), 0)::text AS volume, COUNT(*)::text AS count FROM spot_trades WHERE created_at > NOW() - INTERVAL '24 hours'`),
+        safe(db.query<Record<string, unknown>>(`SELECT 1`).then(() => ({ db: 'up' })), { db: 'down' }),
+      ]);
+
+      const summary = {
+        stats: {
+          users: { total: parseInt(userRow.total_users || '0'), newToday: parseInt(userRow.new_users_24h || '0'), active: parseInt(sessionRow.active_sessions || '0'), verified: parseInt(userRow.verified_users || '0') },
+          kyc: { pending: parseInt(kycRow.pending_kyc || '0'), underReview: parseInt(kycRow.review_kyc || '0'), approvedToday: parseInt(kycRow.approved_today || '0'), rejectedToday: parseInt(kycRow.rejected_today || '0') },
+          p2p: { activeAds: parseInt(p2pAdsRow.active_ads || '0'), activeOrders: parseInt(p2pOrdersRow.active_orders || '0'), openDisputes: parseInt(disputeRow.open_disputes || '0') },
+          referrals: { totalCodes: parseInt(referralRow.total_codes || '0'), activeCodes: parseInt(referralRow.active_codes || '0') },
+        },
+        halted: haltedRaw,
+        pendingWithdrawals: parseInt(wdRow.pending_approval || '0'),
+        tradingVolume24h: parseFloat(analyticsRow.volume || '0'),
+        tradeCount24h: parseInt(analyticsRow.count || '0'),
+        health: healthRow,
+      };
+
+      redis.setJson(CACHE_KEY, summary, 15).catch(() => {});
+      return reply.send({ success: true, data: summary });
+    } catch (error) {
+      logger.error('Dashboard summary error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Dashboard summary failed' } });
     }
   });
 
@@ -798,21 +1025,37 @@ export default async function adminRoutes(app: FastifyInstance) {
     try {
       const rows: { market: string; volume_24h: number; trades: number; spread_percent: number; liquidity_score: number }[] = [];
       try {
-        const vol = await db.query<{ market: string; vol: string; cnt: string }>(`
-          SELECT COALESCE(market, symbol) AS market, COALESCE(SUM((price * quantity)::numeric), 0)::text AS vol, COUNT(*)::text AS cnt
+        const vol = await db.query<{ market: string; vol: string; cnt: string; avg_price: string; min_price: string; max_price: string }>(`
+          SELECT COALESCE(market, symbol) AS market,
+                 COALESCE(SUM((price * quantity)::numeric), 0)::text AS vol,
+                 COUNT(*)::text AS cnt,
+                 COALESCE(AVG(price::numeric), 0)::text AS avg_price,
+                 COALESCE(MIN(price::numeric), 0)::text AS min_price,
+                 COALESCE(MAX(price::numeric), 0)::text AS max_price
           FROM spot_trades WHERE created_at > NOW() - INTERVAL '24 hours'
           GROUP BY COALESCE(market, symbol)
         `).catch(() => ({ rows: [] }));
         for (const r of vol.rows ?? []) {
+          const volume = parseFloat(r.vol ?? '0');
+          const tradeCount = parseInt(r.cnt ?? '0', 10);
+          const avgPrice = parseFloat(r.avg_price ?? '0');
+          const minPrice = parseFloat(r.min_price ?? '0');
+          const maxPrice = parseFloat(r.max_price ?? '0');
+          const spread = avgPrice > 0 ? ((maxPrice - minPrice) / avgPrice) * 100 : 0.05;
+          const spreadClamped = Math.max(0.001, Math.min(spread, 5));
+          const volScore = Math.min(40, volume > 0 ? Math.log10(volume) * 10 : 0);
+          const tradeScore = Math.min(30, tradeCount > 0 ? Math.log10(tradeCount) * 15 : 0);
+          const spreadPenalty = Math.min(30, spreadClamped * 10);
+          const liquidityScore = Math.max(0, Math.min(100, Math.round(volScore + tradeScore + (30 - spreadPenalty))));
           rows.push({
             market: r.market,
-            volume_24h: parseFloat(r.vol ?? '0'),
-            trades: parseInt(r.cnt ?? '0', 10),
-            spread_percent: 0.04 + Math.random() * 0.08,
-            liquidity_score: 85 + Math.round(Math.random() * 15),
+            volume_24h: volume,
+            trades: tradeCount,
+            spread_percent: Math.round(spreadClamped * 1000) / 1000,
+            liquidity_score: liquidityScore,
           });
         }
-        if (rows.length === 0) rows.push({ market: 'BTC/USDT', volume_24h: 0, trades: 0, spread_percent: 0.04, liquidity_score: 90 });
+        if (rows.length === 0) rows.push({ market: 'BTC/USDT', volume_24h: 0, trades: 0, spread_percent: 0, liquidity_score: 0 });
       } catch (_) { /* */ }
       return reply.send({ success: true, data: { markets: rows } });
     } catch (e) {
@@ -856,15 +1099,15 @@ export default async function adminRoutes(app: FastifyInstance) {
     if (!admin) return;
     const report = (request.query as { report?: string }).report ?? 'trading';
     const format = (request.query as { format?: string }).format ?? 'csv';
-    if (!['trading', 'revenue', 'user-growth'].includes(report)) {
-      return reply.status(400).send({ success: false, error: { code: 'INVALID_REPORT', message: 'report must be trading, revenue, or user-growth' } });
+    if (!['trading', 'revenue', 'user-growth', 'users', 'aml-alerts'].includes(report)) {
+      return reply.status(400).send({ success: false, error: { code: 'INVALID_REPORT', message: 'report must be trading, revenue, user-growth, users, or aml-alerts' } });
     }
     if (!['csv', 'json', 'pdf'].includes(format)) {
       return reply.status(400).send({ success: false, error: { code: 'INVALID_FORMAT', message: 'format must be csv, json, or pdf' } });
     }
     try {
       if (format === 'pdf') {
-        return reply.status(501).send({ success: false, error: { code: 'NOT_IMPLEMENTED', message: 'PDF export not implemented' } });
+        return reply.status(400).send({ success: false, error: { code: 'FORMAT_UNAVAILABLE', message: 'PDF export is not available. Use csv or json format.' } });
       }
       let rows: Record<string, unknown>[] = [];
       if (report === 'trading') {
@@ -873,8 +1116,14 @@ export default async function adminRoutes(app: FastifyInstance) {
       } else if (report === 'revenue') {
         const r = await db.query<Record<string, string>>(`SELECT 'trading_fee' AS type, SUM(fee::numeric)::text AS amount FROM spot_trades WHERE created_at > NOW() - INTERVAL '30 days' UNION ALL SELECT 'withdrawal_fee', COALESCE(SUM(withdrawal_fee::numeric), 0)::text FROM withdrawals WHERE created_at > NOW() - INTERVAL '30 days'`).catch(() => ({ rows: [] }));
         rows = r.rows ?? [];
-      } else {
+      } else if (report === 'user-growth') {
         const r = await db.query<Record<string, string>>(`SELECT date_trunc('day', created_at)::date::text AS date, COUNT(*)::text AS new_users FROM users WHERE deleted_at IS NULL AND created_at > NOW() - INTERVAL '30 days' GROUP BY date_trunc('day', created_at) ORDER BY date`).catch(() => ({ rows: [] }));
+        rows = r.rows ?? [];
+      } else if (report === 'users') {
+        const r = await db.query<Record<string, string>>(`SELECT id::text, email, status::text, email_verified::text, phone::text, created_at::text, last_login_at::text, COALESCE(host(last_login_ip), '')::text AS last_login_ip FROM users WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 5000`).catch(() => ({ rows: [] }));
+        rows = r.rows ?? [];
+      } else {
+        const r = await db.query<Record<string, string>>(`SELECT a.id::text, a.user_id::text, u.email AS user_email, a.alert_type::text, a.severity::text, a.status::text, a.created_at::text FROM aml_alerts a LEFT JOIN users u ON u.id = a.user_id ORDER BY a.created_at DESC LIMIT 5000`).catch(() => ({ rows: [] }));
         rows = r.rows ?? [];
       }
       if (format === 'json') {
@@ -927,18 +1176,44 @@ export default async function adminRoutes(app: FastifyInstance) {
     try {
       const points: { date: string; liquidity_score: number }[] = [];
       try {
-        const pairs = await db.query<{ symbol: string }>('SELECT symbol FROM trading_pairs WHERE (symbol = $1 OR symbol LIKE $2) AND trading_enabled = TRUE LIMIT 1', [market, market.replace('/', '%')]).catch(() => ({ rows: [] }));
-        const sym = pairs.rows?.[0]?.symbol ?? market;
+        const dailyStats = await db.query<{ day: string; vol: string; cnt: string; avg_price: string; min_price: string; max_price: string }>(`
+          SELECT date_trunc('day', created_at)::date::text AS day,
+                 COALESCE(SUM((price * quantity)::numeric), 0)::text AS vol,
+                 COUNT(*)::text AS cnt,
+                 COALESCE(AVG(price::numeric), 0)::text AS avg_price,
+                 COALESCE(MIN(price::numeric), 0)::text AS min_price,
+                 COALESCE(MAX(price::numeric), 0)::text AS max_price
+          FROM spot_trades
+          WHERE created_at > NOW() - INTERVAL '14 days'
+            AND (COALESCE(market, symbol) = $1 OR COALESCE(market, symbol) LIKE $2)
+          GROUP BY date_trunc('day', created_at)
+          ORDER BY day
+        `, [market, market.replace('/', '%')]).catch(() => ({ rows: [] }));
+
+        const dayMap = new Map<string, { vol: number; cnt: number; spread: number }>();
+        for (const r of dailyStats.rows ?? []) {
+          const avgP = parseFloat(r.avg_price ?? '0');
+          const spread = avgP > 0 ? ((parseFloat(r.max_price ?? '0') - parseFloat(r.min_price ?? '0')) / avgP) * 100 : 0;
+          dayMap.set(r.day, { vol: parseFloat(r.vol ?? '0'), cnt: parseInt(r.cnt ?? '0', 10), spread });
+        }
+
         for (let i = 13; i >= 0; i--) {
           const d = new Date(); d.setDate(d.getDate() - i);
           const dateStr = d.toISOString().slice(0, 10);
-          const score = 85 + Math.random() * 12;
+          const stats = dayMap.get(dateStr);
+          let score = 0;
+          if (stats && stats.cnt > 0) {
+            const volScore = Math.min(40, stats.vol > 0 ? Math.log10(stats.vol) * 10 : 0);
+            const tradeScore = Math.min(30, Math.log10(stats.cnt) * 15);
+            const spreadPenalty = Math.min(30, stats.spread * 10);
+            score = Math.max(0, Math.min(100, volScore + tradeScore + (30 - spreadPenalty)));
+          }
           points.push({ date: dateStr, liquidity_score: Math.round(score * 10) / 10 });
         }
       } catch (_) {
         for (let i = 13; i >= 0; i--) {
           const d = new Date(); d.setDate(d.getDate() - i);
-          points.push({ date: d.toISOString().slice(0, 10), liquidity_score: 90 });
+          points.push({ date: d.toISOString().slice(0, 10), liquidity_score: 0 });
         }
       }
       return reply.send({ success: true, data: { market, history: points } });
@@ -1036,23 +1311,34 @@ export default async function adminRoutes(app: FastifyInstance) {
     try {
       const markets: { market: string; price_volatility_24h: number; spread_volatility: number; volume_volatility: number }[] = [];
       try {
-        const vol = await db.query<{ market: string }>(`
-          SELECT DISTINCT COALESCE(market, symbol) AS market FROM spot_trades WHERE created_at > NOW() - INTERVAL '24 hours' LIMIT 20
+        const volData = await db.query<{
+          market: string; stddev_price: string; avg_price: string;
+          stddev_spread: string; stddev_volume: string; avg_volume: string;
+        }>(`
+          SELECT COALESCE(market, symbol) AS market,
+                 COALESCE(STDDEV(price::numeric), 0)::text AS stddev_price,
+                 COALESCE(AVG(price::numeric), 1)::text AS avg_price,
+                 COALESCE(STDDEV((price::numeric) * 0.01), 0)::text AS stddev_spread,
+                 COALESCE(STDDEV((price * quantity)::numeric), 0)::text AS stddev_volume,
+                 COALESCE(AVG((price * quantity)::numeric), 1)::text AS avg_volume
+          FROM spot_trades WHERE created_at > NOW() - INTERVAL '24 hours'
+          GROUP BY COALESCE(market, symbol) LIMIT 20
         `).catch(() => ({ rows: [] }));
-        for (const r of vol.rows ?? []) {
-          const m = r.market ?? 'BTC/USDT';
-          const pv = 2 + Math.random() * 4;
-          const sv = 0.1 + Math.random() * 0.3;
-          const vv = 5 + Math.random() * 15;
+        for (const r of volData.rows ?? []) {
+          const avgP = parseFloat(r.avg_price ?? '1') || 1;
+          const priceVol = (parseFloat(r.stddev_price ?? '0') / avgP) * 100;
+          const spreadVol = parseFloat(r.stddev_spread ?? '0') / avgP * 100;
+          const avgVol = parseFloat(r.avg_volume ?? '1') || 1;
+          const volumeVol = (parseFloat(r.stddev_volume ?? '0') / avgVol) * 100;
           markets.push({
-            market: m,
-            price_volatility_24h: Math.round(pv * 100) / 100,
-            spread_volatility: Math.round(sv * 100) / 100,
-            volume_volatility: Math.round(vv * 100) / 100,
+            market: r.market,
+            price_volatility_24h: Math.round(priceVol * 100) / 100,
+            spread_volatility: Math.round(spreadVol * 100) / 100,
+            volume_volatility: Math.round(volumeVol * 100) / 100,
           });
         }
-        if (markets.length === 0) markets.push({ market: 'BTC/USDT', price_volatility_24h: 4.2, spread_volatility: 0.2, volume_volatility: 12 });
-      } catch (_) { markets.push({ market: 'BTC/USDT', price_volatility_24h: 4.2, spread_volatility: 0.2, volume_volatility: 12 }); }
+        if (markets.length === 0) markets.push({ market: 'BTC/USDT', price_volatility_24h: 0, spread_volatility: 0, volume_volatility: 0 });
+      } catch (_) { markets.push({ market: 'BTC/USDT', price_volatility_24h: 0, spread_volatility: 0, volume_volatility: 0 }); }
       return reply.send({ success: true, data: { volatility: markets } });
     } catch (e) {
       logger.error('Analytics volatility error', { error: e instanceof Error ? e.message : 'Unknown' });
@@ -1175,6 +1461,7 @@ export default async function adminRoutes(app: FastifyInstance) {
   app.patch<{ Body: Record<string, unknown> }>('/system/settings', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
+    if (!requirePermission(admin, 'settings:edit', reply)) return;
     const body = (request.body || {}) as Record<string, unknown>;
     try {
       await db.query(`
@@ -1704,6 +1991,7 @@ export default async function adminRoutes(app: FastifyInstance) {
   app.post<{ Body: { action: string; enabled: boolean } }>('/system/emergency', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
+    if (!requirePermission(admin, 'control:trading', reply)) return;
     const body = (request.body || {}) as { action?: string; enabled?: boolean };
     const action = body.action ?? '';
     const enabled = body.enabled === true;
@@ -1775,6 +2063,94 @@ export default async function adminRoutes(app: FastifyInstance) {
       logger.error('Audit config error', { error: e instanceof Error ? e.message : 'Unknown' });
       return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to load config audit log' } });
     }
+  });
+
+  /**
+   * GET /admin/audit/activity — admin activity logs with filters for the audit page.
+   * Query: adminId, action, dateFrom, dateTo, limit, offset
+   */
+  app.get<{
+    Querystring: { adminId?: string; action?: string; dateFrom?: string; dateTo?: string; limit?: string; offset?: string; search?: string };
+  }>('/audit/activity', async (request, reply) => {
+    const admin = await getAdminWithPermission(app, request, reply, 'audit:view');
+    if (!admin) return;
+    try {
+      const { adminId: filterAdminId, action: filterAction, dateFrom, dateTo, search } = request.query;
+      const limit = Math.min(200, Math.max(1, parseInt(request.query.limit ?? '50', 10) || 50));
+      const offset = Math.max(0, parseInt(request.query.offset ?? '0', 10) || 0);
+
+      const conditions: string[] = [];
+      const params: unknown[] = [];
+      let paramIdx = 1;
+
+      if (filterAdminId) { conditions.push(`a.admin_id = $${paramIdx++}`); params.push(filterAdminId); }
+      if (filterAction) { conditions.push(`a.action ILIKE $${paramIdx++}`); params.push(`%${filterAction}%`); }
+      if (dateFrom) { conditions.push(`a.created_at >= $${paramIdx++}::timestamptz`); params.push(dateFrom); }
+      if (dateTo) { conditions.push(`a.created_at <= $${paramIdx++}::timestamptz`); params.push(dateTo); }
+      if (search) { conditions.push(`(a.action ILIKE $${paramIdx} OR a.details::text ILIKE $${paramIdx})`); params.push(`%${search}%`); paramIdx++; }
+
+      const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+      const countResult = await db.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM admin_activity_logs a ${where}`,
+        params
+      );
+      const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+      params.push(limit);
+      params.push(offset);
+
+      const rows = await db.query<{
+        id: string; admin_id: string; admin_name: string | null; admin_role: string | null;
+        action: string; details: unknown; ip_address: string | null; user_agent: string | null; created_at: string;
+      }>(
+        `SELECT a.id, a.admin_id, u.name AS admin_name, u.role AS admin_role,
+                a.action, a.details, a.ip_address::text, a.user_agent, a.created_at::text
+         FROM admin_activity_logs a
+         LEFT JOIN admin_users u ON u.id = a.admin_id
+         ${where}
+         ORDER BY a.created_at DESC
+         LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
+        params
+      );
+
+      return reply.send({
+        success: true,
+        data: {
+          logs: rows.rows.map((r) => ({
+            id: r.id,
+            adminId: r.admin_id,
+            adminName: r.admin_name ?? 'Unknown',
+            adminRole: r.admin_role ?? 'admin',
+            action: r.action,
+            details: r.details,
+            ipAddress: r.ip_address,
+            userAgent: r.user_agent,
+            createdAt: r.created_at,
+          })),
+          total,
+          limit,
+          offset,
+        },
+      });
+    } catch (e) {
+      logger.error('Audit activity logs error', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to load activity logs' } });
+    }
+  });
+
+  /**
+   * GET /admin/roles — list available admin roles and their permissions.
+   */
+  app.get('/roles', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    const roles = Object.entries(ROLE_TO_PERMISSIONS).map(([role, perms]) => ({
+      role,
+      permissions: perms,
+      isSuperRole: SUPER_ROLES.some((r) => r.toLowerCase().replace(/\s+/g, '_') === role),
+    }));
+    return reply.send({ success: true, data: { roles, permissionMatrix: ADMIN_PERMISSION_MATRIX } });
   });
 
   app.get('/system/profiles', async (request, reply) => {
@@ -1994,6 +2370,7 @@ export default async function adminRoutes(app: FastifyInstance) {
   app.post<{ Body: { action: string } }>('/control/circuit', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
+    if (!requirePermission(admin, 'control:trading', reply)) return;
     const action = (request.body as { action?: string })?.action ?? '';
     const allowed = ['open_trading_circuit', 'close_trading_circuit', 'pause_matching_engine', 'resume_matching_engine'];
     if (!allowed.includes(action)) {
@@ -2202,6 +2579,7 @@ export default async function adminRoutes(app: FastifyInstance) {
   app.post<{ Body: { enabled: boolean } }>('/control/emergency-mode', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
+    if (!requirePermission(admin, 'control:trading', reply)) return;
     const enabled = (request.body as { enabled?: boolean })?.enabled === true;
     try {
       const { setTradingHalt } = await import('../lib/trading-halt.js');
@@ -2891,6 +3269,7 @@ export default async function adminRoutes(app: FastifyInstance) {
   app.post<{ Body: { halted: boolean } }>('/trading-halt', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
+    if (!requirePermission(admin, 'control:trading', reply)) return;
     const halted = request.body?.halted === true;
     const { setTradingHalt } = await import('../lib/trading-halt.js');
     await setTradingHalt(halted);
@@ -3556,8 +3935,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         const hour = 60 * 60 * 1000;
         for (let i = 23; i >= 0; i--) {
           const t = new Date(now - i * hour);
-          const v = metric === 'queue_size' ? Math.floor(Math.random() * 20) : 50 + Math.floor(Math.random() * 150);
-          points.push({ timestamp: t.toISOString(), value: v });
+          points.push({ timestamp: t.toISOString(), value: 0 });
         }
       }
       return reply.send({ success: true, data: { metric, points } });
@@ -3793,7 +4171,7 @@ export default async function adminRoutes(app: FastifyInstance) {
 
   /** POST /admin/mm/emergency-stop/:userId — halt trading for a user (market maker emergency stop). */
   app.post<{ Params: { userId: string } }>('/mm/emergency-stop/:userId', async (request, reply) => {
-    const admin = await getAdminWithPermission(app, request, reply, 'monitoring:view');
+    const admin = await getAdminWithPermission(app, request, reply, 'control:trading');
     if (!admin) return;
     const userId = request.params.userId?.trim();
     if (!userId) {
@@ -4512,6 +4890,7 @@ export default async function adminRoutes(app: FastifyInstance) {
   app.patch('/users/:id/status', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
+    if (!requirePermission(admin, 'users:edit', reply)) return;
     try {
       const { id } = request.params as { id: string };
       const { status, reason } = request.body as { status: string; reason?: string };
@@ -4573,12 +4952,39 @@ export default async function adminRoutes(app: FastifyInstance) {
   });
 
   /**
+   * POST /admin/users/:id/reset-2fa
+   * Reset a user's 2FA (disable TOTP and clear secret).
+   */
+  app.post<{ Params: { id: string } }>('/users/:id/reset-2fa', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    if (!requirePermission(admin, 'users:edit', reply)) return;
+    const { id } = request.params;
+    try {
+      await db.query(`UPDATE users SET two_factor_enabled = false, two_factor_secret = NULL WHERE id = $1`, [id]);
+      await logAdminActivity({
+        adminId: admin.adminId,
+        action: 'user_2fa_reset',
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent'],
+        deviceId: getDeviceIdFromRequest(request.headers as Record<string, string | undefined>),
+        metadata: { target_user_id: id },
+      });
+      reply.send({ success: true });
+    } catch (err) {
+      request.log.error(err, 'reset-2fa failed');
+      reply.code(500).send({ success: false, error: { message: 'Failed to reset 2FA' } });
+    }
+  });
+
+  /**
    * POST /admin/users/bulk-status
    * Bulk update user status (suspend/activate multiple users)
    */
   app.post<{ Body: { user_ids: string[]; status: string; reason?: string } }>('/users/bulk-status', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
+    if (!requirePermission(admin, 'users:edit', reply)) return;
     try {
       const { user_ids, status, reason } = request.body ?? {};
       const allowedStatuses = ['active', 'suspended', 'locked'];
@@ -5013,9 +5419,10 @@ export default async function adminRoutes(app: FastifyInstance) {
 
   /**
    * GET /admin/wallets
-   * Get wallets overview
+   * Overview: blockchains, currencies, aggregate balances, totalWallets.
+   * When query `page` is set: also returns paginated `holdings` (per-user, per-asset balances) for admin tables.
    */
-  app.get('/wallets', async (request, reply) => {
+  app.get<{ Querystring: { page?: string; limit?: string; search?: string } }>('/wallets', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
     try {
@@ -5052,14 +5459,97 @@ export default async function adminRoutes(app: FastifyInstance) {
         SELECT COUNT(*) as total FROM user_wallets WHERE is_active = true
       `);
 
+      const data: Record<string, unknown> = {
+        blockchains: blockchains.rows,
+        currencies: currencies.rows,
+        balances: balances.rows,
+        totalWallets: parseInt(walletsCount.rows[0]?.total || '0'),
+      };
+
+      const { page: pageRaw, limit: limitRaw, search: searchRaw } = request.query;
+      if (pageRaw !== undefined && pageRaw !== '') {
+        const pageNum = Math.max(1, parseInt(String(pageRaw), 10) || 1);
+        const limitNum = Math.min(100, Math.max(1, parseInt(String(limitRaw ?? '20'), 10) || 20));
+        const offset = (pageNum - 1) * limitNum;
+        const search = (searchRaw ?? '').trim();
+
+        const holdingsCte = `
+          SELECT
+            u.id AS user_id,
+            u.email,
+            u.username,
+            c.symbol AS asset,
+            SUM(COALESCE(ub.available_balance, 0))::text AS available,
+            SUM(COALESCE(ub.locked_balance, 0))::text AS locked
+          FROM user_balances ub
+          INNER JOIN users u ON u.id = ub.user_id AND u.deleted_at IS NULL
+          INNER JOIN currencies c ON c.id = ub.currency_id AND c.is_active = true
+          GROUP BY u.id, u.email, u.username, c.symbol
+          HAVING SUM(COALESCE(ub.available_balance, 0) + COALESCE(ub.locked_balance, 0)) > 0
+        `;
+
+        try {
+          const countResult = await db.query<{ count: string }>(
+            `
+            WITH h AS (${holdingsCte})
+            SELECT COUNT(*)::text AS count FROM h
+            WHERE ($1::text = '' OR
+              LOWER(COALESCE(h.email, '')) LIKE LOWER('%' || $1 || '%') OR
+              LOWER(COALESCE(h.username, '')) LIKE LOWER('%' || $1 || '%') OR
+              h.user_id::text = $1 OR
+              h.asset ILIKE '%' || $1 || '%' OR
+              EXISTS (
+                SELECT 1 FROM user_wallets uw
+                WHERE uw.user_id = h.user_id AND uw.is_active = true
+                  AND LOWER(uw.address) LIKE LOWER('%' || $1 || '%')
+              )
+            )
+            `,
+            [search]
+          );
+          const total = parseInt(countResult.rows[0]?.count || '0', 10);
+          const totalPages = Math.max(1, Math.ceil(total / limitNum) || 1);
+
+          const rowsResult = await db.query<{
+            user_id: string;
+            email: string | null;
+            username: string | null;
+            asset: string;
+            available: string;
+            locked: string;
+          }>(
+            `
+            WITH h AS (${holdingsCte})
+            SELECT * FROM h
+            WHERE ($1::text = '' OR
+              LOWER(COALESCE(h.email, '')) LIKE LOWER('%' || $1 || '%') OR
+              LOWER(COALESCE(h.username, '')) LIKE LOWER('%' || $1 || '%') OR
+              h.user_id::text = $1 OR
+              h.asset ILIKE '%' || $1 || '%' OR
+              EXISTS (
+                SELECT 1 FROM user_wallets uw
+                WHERE uw.user_id = h.user_id AND uw.is_active = true
+                  AND LOWER(uw.address) LIKE LOWER('%' || $1 || '%')
+              )
+            )
+            ORDER BY h.email ASC NULLS LAST, h.asset ASC
+            LIMIT $2 OFFSET $3
+            `,
+            [search, limitNum, offset]
+          );
+
+          data.holdings = rowsResult.rows;
+          data.pagination = { page: pageNum, limit: limitNum, total, totalPages };
+        } catch (holdErr) {
+          logger.warn('Get wallets holdings failed', { error: holdErr instanceof Error ? holdErr.message : String(holdErr) });
+          data.holdings = [];
+          data.pagination = { page: pageNum, limit: limitNum, total: 0, totalPages: 1 };
+        }
+      }
+
       return reply.send({
         success: true,
-        data: {
-          blockchains: blockchains.rows,
-          currencies: currencies.rows,
-          balances: balances.rows,
-          totalWallets: parseInt(walletsCount.rows[0]?.total || '0'),
-        },
+        data,
       });
 
     } catch (error) {
@@ -5525,6 +6015,164 @@ export default async function adminRoutes(app: FastifyInstance) {
     }
   });
 
+  /**
+   * POST /admin/users/:id/balance-adjust
+   * General-purpose balance adjustment (credit or debit).
+   * Body: { currency_id: string, amount: string, type: 'credit' | 'debit', reason: string }
+   */
+  app.post<{
+    Params: { id: string };
+    Body: { currency_id: string; amount: string; type: 'credit' | 'debit'; reason: string };
+  }>('/users/:id/balance-adjust', async (request, reply) => {
+    const admin = await getAdminWithPermission(app, request, reply, 'deposits:credit');
+    if (!admin) return;
+    try {
+      const { id: userId } = request.params;
+      const { currency_id: currencyId, amount: amountStr, type: adjustType, reason } = request.body || {};
+
+      if (!currencyId?.trim() || !amountStr?.trim() || !adjustType || !reason?.trim()) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_INPUT', message: 'currency_id, amount, type, and reason are required' },
+        });
+      }
+      if (adjustType !== 'credit' && adjustType !== 'debit') {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_INPUT', message: 'type must be "credit" or "debit"' },
+        });
+      }
+
+      const ROUND_DOWN = 1;
+      const PREC = 8;
+      let amountDec: DecimalInstance;
+      try {
+        amountDec = new Decimal(amountStr.trim()).toDecimalPlaces(PREC, ROUND_DOWN);
+      } catch {
+        amountDec = new Decimal(NaN);
+      }
+      if (!amountDec.isFinite() || amountDec.lte(0)) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_AMOUNT', message: 'amount must be a positive number' },
+        });
+      }
+
+      const userRow = await db.query<{ id: string; email: string }>(
+        `SELECT id, email FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+        [userId]
+      );
+      if (userRow.rows.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'USER_NOT_FOUND', message: 'User not found' },
+        });
+      }
+
+      const currencyRow = await db.query<{ id: string; symbol: string }>(
+        `SELECT id, symbol FROM currencies WHERE id = $1 LIMIT 1`,
+        [currencyId.trim()]
+      );
+      if (currencyRow.rows.length === 0) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_CURRENCY', message: 'Currency not found' },
+        });
+      }
+      const symbol = currencyRow.rows[0]!.symbol;
+
+      await db.transaction(async (client) => {
+        await ensureUserBalanceRow(userId, currencyId.trim(), CHAIN_ID_GLOBAL, 'funding', client);
+        const sel = await client.query<{ available_balance: string }>(
+          `SELECT available_balance::text FROM user_balances
+           WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND COALESCE(account_type::text, 'funding') = 'funding'
+           FOR UPDATE`,
+          [userId, currencyId.trim(), CHAIN_ID_GLOBAL]
+        );
+        if (sel.rows.length === 0) {
+          throw new Error('BALANCE_ROW_NOT_FOUND');
+        }
+        const avBefore = new Decimal(sel.rows[0]!.available_balance);
+
+        if (adjustType === 'debit' && avBefore.lt(amountDec)) {
+          throw new Error('INSUFFICIENT_BALANCE');
+        }
+
+        const delta = adjustType === 'credit' ? amountDec.toString() : amountDec.negated().toString();
+        const upd = await client.query(
+          `UPDATE user_balances SET available_balance = available_balance + $1::numeric, updated_at = NOW()
+           WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND COALESCE(account_type::text, 'funding') = 'funding'
+           RETURNING *`,
+          [delta, userId, currencyId.trim(), CHAIN_ID_GLOBAL]
+        );
+        assertUserBalanceUpdated('admin_balance_adjust', upd, userId, currencyId.trim(), 'funding', CHAIN_ID_GLOBAL);
+        assertBalanceInvariant(upd.rows[0]);
+        const avAfter = new Decimal(upd.rows[0]!.available_balance ?? 0);
+        const refId = uuidv4();
+        await insertBalanceLedger({
+          client,
+          userId,
+          currencyId: currencyId.trim(),
+          accountType: 'funding',
+          debit: adjustType === 'debit' ? amountDec.toString() : '0',
+          credit: adjustType === 'credit' ? amountDec.toString() : '0',
+          balanceBefore: avBefore.toFixed(),
+          balanceAfter: avAfter.toFixed(),
+          referenceType: 'adjustment',
+          referenceId: refId,
+          balanceType: 'available',
+        });
+      });
+
+      try {
+        await logAuditFromRequest(request, {
+          actorType: 'admin',
+          actorId: admin.adminId,
+          action: `admin_balance_${adjustType}`,
+          resourceType: 'user',
+          resourceId: userId,
+          newValue: { currency: symbol, amount: amountDec.toString(), type: adjustType, reason: reason.trim() },
+        });
+      } catch {
+        /* best-effort */
+      }
+
+      logger.info('Admin balance adjustment', {
+        adminId: admin.adminId,
+        userId,
+        currencyId: currencyId.trim(),
+        symbol,
+        amount: amountDec.toString(),
+        type: adjustType,
+        reason: reason.trim(),
+      });
+
+      return reply.send({
+        success: true,
+        data: { userId, email: userRow.rows[0]!.email, currency: symbol, amount: amountDec.toString(), type: adjustType, reason: reason.trim() },
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg === 'BALANCE_ROW_NOT_FOUND') {
+        return reply.status(500).send({
+          success: false,
+          error: { code: 'ADJUST_FAILED', message: 'Balance row not found after ensure' },
+        });
+      }
+      if (msg === 'INSUFFICIENT_BALANCE') {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INSUFFICIENT_BALANCE', message: 'User does not have sufficient available balance for this debit' },
+        });
+      }
+      logger.error('Balance adjustment error', { error: msg });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'ADJUST_FAILED', message: 'Balance adjustment failed' },
+      });
+    }
+  });
+
   // ===============================
   // FUNDS SUMMARY (Solvency / Reconciliation)
   // ===============================
@@ -5545,6 +6193,7 @@ export default async function adminRoutes(app: FastifyInstance) {
           ledger_totals: [],
           on_chain_totals: { user_deposit_addresses: null, hot_wallets: [], cold_wallets: [] },
           reconciliation: { status: 'MATCH' as const },
+          users_with_balance: '0',
         },
       });
 
@@ -5554,24 +6203,17 @@ export default async function adminRoutes(app: FastifyInstance) {
     let blockchainRows: { id: string; chain_name: string; chain_symbol: string }[] = [];
     const decimalsByChainId: Record<string, number> = {};
     let chainMap: Record<string, { name: string; decimals?: number; type?: string }> = {};
+    let usersWithBalance = '0';
 
-    // 1) Ledger totals: null-safe; if user_balances/currencies/blockchains missing or empty → []
-    try {
-      const ledgerResult = await db.query<{
-        chain_id: string;
-        chain_name: string;
-        chain_symbol: string;
-        token_id: string;
-        token_symbol: string;
-        amount: string;
+    // Run all independent DB queries in parallel for performance
+    const [ledgerResult, hotResult, chainsResult, blockResult, uwbResult] = await Promise.all([
+      db.query<{
+        chain_id: string; chain_name: string; chain_symbol: string;
+        token_id: string; token_symbol: string; amount: string;
       }>(`
-        SELECT
-          b.id AS chain_id,
-          b.chain_name,
-          b.chain_symbol,
-          c.id AS token_id,
-          c.symbol AS token_symbol,
-          (SUM(COALESCE(ub.available_balance, 0)) + SUM(COALESCE(ub.locked_balance, 0)))::text AS amount
+        SELECT b.id AS chain_id, b.chain_name, b.chain_symbol,
+               c.id AS token_id, c.symbol AS token_symbol,
+               (SUM(COALESCE(ub.available_balance, 0)) + SUM(COALESCE(ub.locked_balance, 0)))::text AS amount
         FROM user_balances ub
         INNER JOIN currencies c ON ub.currency_id = c.id
         LEFT JOIN blockchains b ON c.blockchain_id = b.id
@@ -5579,71 +6221,61 @@ export default async function adminRoutes(app: FastifyInstance) {
         GROUP BY b.id, b.chain_name, b.chain_symbol, c.id, c.symbol
         HAVING (SUM(COALESCE(ub.available_balance, 0)) + SUM(COALESCE(ub.locked_balance, 0))) > 0
         ORDER BY b.chain_name, c.symbol
-      `);
-      ledgerTotals = Array.isArray(ledgerResult.rows) ? ledgerResult.rows : [];
-    } catch (e) {
-      logger.warn('Funds summary: ledger query failed', { error: e instanceof Error ? e.message : String(e) });
-      ledgerTotals = [];
-    }
+      `).catch((e) => { logger.warn('Funds summary: ledger query failed', { error: e instanceof Error ? e.message : String(e) }); return { rows: [] as any[] }; }),
 
-    // 2) On-chain: hot_wallets/chains may not exist; balance_cache null → '0'. Reconciliation uses ONLY hot_wallet.balance_cache.
-    try {
-      const hotResult = await db.query<{ chain_id: string; balance_cache: string | null }>(
-        'SELECT chain_id, balance_cache FROM hot_wallets WHERE is_active = TRUE ORDER BY chain_id'
-      );
-      try {
-        const chainsResult = await db.query<{ id: string; name: string; decimals: number | null; type: string | null }>(
-          'SELECT id, name, decimals, type FROM chains WHERE is_active = TRUE'
-        );
-        chainMap = Object.fromEntries(
-          (chainsResult.rows || []).map((r: { id: string; name: string; decimals: number | null; type: string | null }) => [
-            r.id,
-            { name: r.name, decimals: r.decimals ?? 18, type: r.type ?? undefined },
-          ])
-        );
-        (chainsResult.rows || []).forEach((r: { id: string; decimals: number | null }) => {
-          const d = r.decimals;
-          decimalsByChainId[r.id] = typeof d === 'number' && !Number.isNaN(d) ? d : 18;
-        });
-      } catch {
-        // chains table may not exist
-      }
-      hotRows = (hotResult.rows || []).map((r) => ({
-        chain_id: String(r.chain_id),
-        chain_name: chainMap[r.chain_id]?.name ?? String(r.chain_id),
-        balance: r.balance_cache != null && String(r.balance_cache).trim() !== '' ? String(r.balance_cache).trim() : '0',
-      }));
-      const coldResult = await db.query<{ chain_id: string; cold_wallet_address: string | null }>(
-        'SELECT chain_id, cold_wallet_address FROM hot_wallets WHERE is_active = TRUE ORDER BY chain_id'
-      );
-      coldRows = (coldResult.rows || []).map((r) => ({
-        chain_id: String(r.chain_id),
-        chain_name: chainMap[r.chain_id]?.name ?? String(r.chain_id),
-        address: r.cold_wallet_address != null ? String(r.cold_wallet_address) : null,
-        balance: null as string | null,
-      }));
-    } catch (e) {
-      logger.warn('Funds summary: hot/cold wallets query failed', { error: e instanceof Error ? e.message : String(e) });
-      hotRows = [];
-      coldRows = [];
-    }
+      db.query<{ chain_id: string; balance_cache: string | null; cold_wallet_address: string | null }>(
+        'SELECT chain_id, balance_cache, cold_wallet_address FROM hot_wallets WHERE is_active = TRUE ORDER BY chain_id'
+      ).catch(() => ({ rows: [] as any[] })),
+
+      db.query<{ id: string; name: string; decimals: number | null; type: string | null }>(
+        'SELECT id, name, decimals, type FROM chains WHERE is_active = TRUE'
+      ).catch(() => ({ rows: [] as any[] })),
+
+      db.query<{ id: string; chain_name: string; chain_symbol: string }>(
+        'SELECT id, chain_name, chain_symbol FROM blockchains WHERE is_active = TRUE'
+      ).catch(() => ({ rows: [] as any[] })),
+
+      db.query<{ n: string }>(
+        `SELECT COUNT(DISTINCT ub.user_id)::text AS n
+         FROM user_balances ub
+         INNER JOIN users u ON u.id = ub.user_id AND u.deleted_at IS NULL
+         WHERE COALESCE(ub.available_balance, 0) + COALESCE(ub.locked_balance, 0) > 0`
+      ).catch(() => ({ rows: [{ n: '0' }] })),
+    ]);
+
+    ledgerTotals = Array.isArray(ledgerResult.rows) ? ledgerResult.rows : [];
+    blockchainRows = Array.isArray(blockResult.rows) ? blockResult.rows : [];
+    usersWithBalance = uwbResult.rows[0]?.n ?? '0';
+
+    // Build chain map from chains table
+    chainMap = Object.fromEntries(
+      (chainsResult.rows || []).map((r: { id: string; name: string; decimals: number | null; type: string | null }) => [
+        r.id, { name: r.name, decimals: r.decimals ?? 18, type: r.type ?? undefined },
+      ])
+    );
+    (chainsResult.rows || []).forEach((r: { id: string; decimals: number | null }) => {
+      const d = r.decimals;
+      decimalsByChainId[r.id] = typeof d === 'number' && !Number.isNaN(d) ? d : 18;
+    });
+
+    // Build hot/cold rows from combined query
+    hotRows = (hotResult.rows || []).map((r) => ({
+      chain_id: String(r.chain_id),
+      chain_name: chainMap[r.chain_id]?.name ?? String(r.chain_id),
+      balance: r.balance_cache != null && String(r.balance_cache).trim() !== '' ? String(r.balance_cache).trim() : '0',
+    }));
+    coldRows = (hotResult.rows || []).map((r) => ({
+      chain_id: String(r.chain_id),
+      chain_name: chainMap[r.chain_id]?.name ?? String(r.chain_id),
+      address: r.cold_wallet_address != null ? String(r.cold_wallet_address) : null,
+      balance: null as string | null,
+    }));
 
     const onChainTotals = {
       user_deposit_addresses: null as { chain_id: string; chain_name: string; token_id: string; token_symbol: string; amount: string }[] | null,
       hot_wallets: hotRows,
       cold_wallets: coldRows,
     };
-
-    // 3) Blockchains: optional for mapping; missing → []
-    try {
-      const blockResult = await db.query<{ id: string; chain_name: string; chain_symbol: string }>(
-        'SELECT id, chain_name, chain_symbol FROM blockchains WHERE is_active = TRUE'
-      );
-      blockchainRows = Array.isArray(blockResult.rows) ? blockResult.rows : [];
-    } catch (e) {
-      logger.warn('Funds summary: blockchains query failed', { error: e instanceof Error ? e.message : String(e) });
-      blockchainRows = [];
-    }
 
     const chainNameToBlockchainId = Object.fromEntries(
       blockchainRows.map((b) => [b.chain_name.toLowerCase().trim(), b.id])
@@ -5654,7 +6286,7 @@ export default async function adminRoutes(app: FastifyInstance) {
       if (bid) chainIdToBlockchainId[r.chain_id] = bid;
     }
 
-    // 4) Reconciliation: uses ONLY hot_wallet.balance_cache. If chain has no sweep (BTC, SOL), add reason; do not throw.
+    // Reconciliation: compare ledger vs on-chain
     const mismatches: { chain_id: string; chain_name: string; token_symbol: string; ledger_amount: string; on_chain_amount: string; difference: string; reason?: string }[] = [];
     for (const h of hotRows) {
       try {
@@ -5665,20 +6297,15 @@ export default async function adminRoutes(app: FastifyInstance) {
         const ledgerNative = ledgerTotals.find((l) => l.chain_id === blockchainId && l.token_symbol === nativeSymbol);
         if (ledgerNative == null) continue;
         const decimals = typeof decimalsByChainId[h.chain_id] === 'number' && !Number.isNaN(decimalsByChainId[h.chain_id])
-          ? (decimalsByChainId[h.chain_id] ?? 18)
-          : 18;
+          ? (decimalsByChainId[h.chain_id] ?? 18) : 18;
         const divisor = Math.pow(10, Math.min(Math.max(decimals, 0), 32)) || 1;
         const rawBalance = (h.balance ?? '0').trim() || '0';
         let onChainHuman: string;
         try {
           if (/^-?\d+$/.test(rawBalance)) {
-            onChainHuman = new Decimal(rawBalance).div(divisor).toDecimalPlaces(Math.min(Math.max(decimals, 0), 8), 1).toString(); // ROUND_DOWN = 1
-          } else {
-            onChainHuman = '0';
-          }
-        } catch {
-          onChainHuman = '0';
-        }
+            onChainHuman = new Decimal(rawBalance).div(divisor).toDecimalPlaces(Math.min(Math.max(decimals, 0), 8), 1).toString();
+          } else { onChainHuman = '0'; }
+        } catch { onChainHuman = '0'; }
         const decimalsClamp = Math.min(Math.max(decimals, 0), 8);
         const ledgerAmount = ledgerNative.amount ?? '0';
         const ledgerDec = new Decimal(ledgerAmount);
@@ -5687,17 +6314,11 @@ export default async function adminRoutes(app: FastifyInstance) {
         const difference = diffDec.toDecimalPlaces(decimalsClamp, 1).toString();
         const oneUnit = new Decimal(1).div(divisor);
         if (diffDec.abs().gt(oneUnit)) {
-          const reason = (chainType === 'bitcoin' || chainType === 'solana')
-            ? 'Deposit sweep not implemented for this chain'
-            : undefined;
+          const reason = (chainType === 'bitcoin' || chainType === 'solana') ? 'Deposit sweep not implemented for this chain' : undefined;
           mismatches.push({
-            chain_id: blockchainId,
-            chain_name: ledgerNative.chain_name ?? h.chain_name,
-            token_symbol: nativeSymbol || 'native',
-            ledger_amount: ledgerAmount,
-            on_chain_amount: onChainHuman,
-            difference,
-            ...(reason ? { reason } : {}),
+            chain_id: blockchainId, chain_name: ledgerNative.chain_name ?? h.chain_name,
+            token_symbol: nativeSymbol || 'native', ledger_amount: ledgerAmount,
+            on_chain_amount: onChainHuman, difference, ...(reason ? { reason } : {}),
           });
         }
       } catch (e) {
@@ -5713,10 +6334,8 @@ export default async function adminRoutes(app: FastifyInstance) {
         data: {
           ledger_totals: ledgerTotals,
           on_chain_totals: onChainTotals,
-          reconciliation: {
-            status,
-            mismatches: mismatches.length > 0 ? mismatches : undefined,
-          },
+          reconciliation: { status, mismatches: mismatches.length > 0 ? mismatches : undefined },
+          users_with_balance: usersWithBalance,
         },
       });
     } catch (error) {
@@ -6366,95 +6985,68 @@ export default async function adminRoutes(app: FastifyInstance) {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
     try {
-      let totalReserves = 0;
-      let hotBalance = 0;
-      let coldBalance = 0;
-      let pendingSweeps = 0;
-
+      const CACHE_KEY = 'admin:cache:treasury_stats';
       try {
-        const ledgerRes = await db.query<{ amount: string }>(
-          `SELECT COALESCE(SUM(ub.available_balance + ub.locked_balance), 0)::text AS amount FROM user_balances ub`
+        const cached = await redis.getJson<Record<string, unknown>>(CACHE_KEY);
+        if (cached) return reply.send({ success: true, data: cached });
+      } catch { /* Redis down */ }
+
+      const safeQ = <T>(sql: string, fallback: T): Promise<T> =>
+        db.query<any>(sql).then(r => (r.rows[0] as T) ?? fallback).catch(() => fallback);
+      const safeRows = <T>(sql: string): Promise<T[]> =>
+        db.query<any>(sql).then(r => r.rows as T[]).catch(() => [] as T[]);
+
+      const [hotRow, pendingRow, failedRow, chainGroupRows, chainsRows, blkRows] = await Promise.all([
+        safeQ<{ balance_cache: string }>('SELECT COALESCE(SUM(balance_cache::numeric), 0)::text AS balance_cache FROM hot_wallets WHERE is_active = TRUE', { balance_cache: '0' }),
+        safeQ<{ count: string }>(`SELECT COUNT(*)::text AS count FROM deposit_sweeps WHERE status = 'pending'`, { count: '0' }),
+        safeQ<{ count: string }>(`SELECT COUNT(*)::text AS count FROM deposit_sweeps WHERE status = 'failed' AND created_at > NOW() - INTERVAL '24 hours'`, { count: '0' }),
+        safeRows<{ chain_id: string; balance: string }>(
+          `SELECT COALESCE(chain_id, blockchain_id::text) AS chain_id, COALESCE(SUM(balance_cache::numeric), 0)::text AS balance FROM hot_wallets WHERE is_active = TRUE GROUP BY COALESCE(chain_id, blockchain_id::text)`
+        ),
+        safeRows<{ id: string; name: string }>('SELECT id, name FROM chains WHERE is_active = TRUE'),
+        safeRows<{ id: string; chain_name: string }>('SELECT id::text AS id, chain_name FROM blockchains WHERE is_active = TRUE'),
+      ]);
+
+      const ledgerRow = { amount: '0' };
+      try {
+        const r = await db.query<{ amount: string }>(
+          `SELECT COALESCE(SUM(available_balance + locked_balance), 0)::text AS amount FROM user_balances`
         );
-        const amt = ledgerRes.rows[0]?.amount ?? '0';
-        totalReserves = parseFloat(amt) || 0;
+        ledgerRow.amount = r.rows[0]?.amount ?? '0';
       } catch {
-        // user_balances may not exist
+        // table missing — use 0
       }
 
-      try {
-        const hotRes = await db.query<{ balance_cache: string }>(
-          'SELECT COALESCE(SUM(balance_cache::numeric), 0)::text AS balance_cache FROM hot_wallets WHERE is_active = TRUE'
-        );
-        hotBalance = parseFloat(hotRes.rows[0]?.balance_cache ?? '0') || 0;
-      } catch {
-        // hot_wallets may not exist
-      }
+      const totalReserves = parseFloat(ledgerRow?.amount ?? '0') || 0;
+      const hotBalance = parseFloat(hotRow?.balance_cache ?? '0') || 0;
+      const pendingSweeps = parseInt(pendingRow?.count ?? '0', 10) || 0;
+      const failedSweeps24h = parseInt(failedRow?.count ?? '0', 10) || 0;
+      const coldBalance = Math.max(0, totalReserves - hotBalance);
 
-      try {
-        const pendingRes = await db.query<{ count: string }>(
-          `SELECT COUNT(*)::text AS count FROM deposit_sweeps WHERE status = 'pending'`
-        );
-        pendingSweeps = parseInt(pendingRes.rows[0]?.count ?? '0', 10) || 0;
-      } catch {
-        // deposit_sweeps may not exist
-      }
+      const chainMap: Record<string, string> = {};
+      chainsRows.forEach((r) => { chainMap[r.id] = r.name; });
+      blkRows.forEach((r) => { chainMap[r.id] = r.chain_name ?? r.id; });
+      const chainBalances = chainGroupRows.map((r) => ({
+        chain_name: chainMap[r.chain_id] ?? r.chain_id,
+        balance: parseFloat(r.balance ?? '0') || 0,
+      }));
 
-      coldBalance = Math.max(0, totalReserves - hotBalance);
-
-      let failedSweeps24h = 0;
-      let chainBalances: Array<{ chain_name: string; balance: number }> = [];
-      try {
-        const failedRes = await db.query<{ count: string }>(
-          `SELECT COUNT(*)::text AS count FROM deposit_sweeps WHERE status = 'failed' AND created_at > NOW() - INTERVAL '24 hours'`
-        );
-        failedSweeps24h = parseInt(failedRes.rows[0]?.count ?? '0', 10) || 0;
-      } catch {
-        //
-      }
-      try {
-        const hasChainId = await db.query(`SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'hot_wallets' AND column_name = 'chain_id' LIMIT 1`);
-        const chainCol = hasChainId.rows.length > 0 ? 'chain_id' : 'blockchain_id::text AS chain_id';
-        const balRows = await db.query<{ chain_id: string; balance: string }>(
-          `SELECT ${chainCol}, COALESCE(SUM(balance_cache::numeric), 0)::text AS balance FROM hot_wallets WHERE is_active = TRUE GROUP BY ${hasChainId.rows.length > 0 ? 'chain_id' : 'blockchain_id'}`
-        );
-        const chainMap: Record<string, string> = {};
-        try {
-          const chains = await db.query<{ id: string; name: string }>('SELECT id, name FROM chains WHERE is_active = TRUE');
-          chains.rows.forEach((r: { id: string; name: string }) => { chainMap[r.id] = r.name; });
-        } catch {
-          //
-        }
-        try {
-          const blk = await db.query<{ id: string; chain_name: string }>('SELECT id::text AS id, chain_name FROM blockchains WHERE is_active = TRUE');
-          blk.rows.forEach((r: { id: string; chain_name: string }) => { chainMap[r.id] = r.chain_name ?? r.id; });
-        } catch {
-          //
-        }
-        chainBalances = balRows.rows.map((r) => ({
-          chain_name: chainMap[r.chain_id] ?? r.chain_id,
-          balance: parseFloat(r.balance ?? '0') || 0,
-        }));
-      } catch {
-        //
-      }
       const coldStorageRatio = totalReserves > 0 ? Math.round((coldBalance / totalReserves) * 100) : 0;
       const withdrawalThreshold = 1e18;
-      const liquidityWarning = hotBalance < withdrawalThreshold;
 
-      return reply.send({
-        success: true,
-        data: {
-          total_reserves: totalReserves,
-          hot_balance: hotBalance,
-          cold_balance: coldBalance,
-          pending_sweeps: pendingSweeps,
-          failed_sweeps_24h: failedSweeps24h,
-          cold_storage_ratio: coldStorageRatio,
-          chain_balances: chainBalances,
-          liquidity_warning: liquidityWarning,
-          withdrawal_threshold: withdrawalThreshold,
-        },
-      });
+      const treasuryData = {
+        total_reserves: totalReserves,
+        hot_balance: hotBalance,
+        cold_balance: coldBalance,
+        pending_sweeps: pendingSweeps,
+        failed_sweeps_24h: failedSweeps24h,
+        cold_storage_ratio: coldStorageRatio,
+        chain_balances: chainBalances,
+        liquidity_warning: hotBalance < withdrawalThreshold,
+        withdrawal_threshold: withdrawalThreshold,
+      };
+      redis.setJson(CACHE_KEY, treasuryData, 20).catch(() => {});
+      return reply.send({ success: true, data: treasuryData });
     } catch (e) {
       logger.error('Get treasury stats error', { error: e instanceof Error ? e.message : 'Unknown' });
       return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to fetch treasury stats' } });
@@ -6682,6 +7274,7 @@ export default async function adminRoutes(app: FastifyInstance) {
   app.post('/treasury/sweeps/run', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
+    if (!requirePermission(admin, 'treasury:sweep', reply)) return;
     try {
       const { runDepositSweep } = await import('../services/deposit-sweep.service.js');
       const result = await runDepositSweep();
@@ -8683,41 +9276,88 @@ export default async function adminRoutes(app: FastifyInstance) {
    * List spot orders for admin (paginated).
    */
   app.get<{
-    Querystring: { page?: string; limit?: string; status?: string };
+    Querystring: { page?: string; limit?: string; status?: string; market?: string; side?: string; q?: string };
   }>('/trading/orders', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
     try {
-      const { page = '1', limit = '20', status } = request.query;
+      const { page = '1', limit = '20', status, market, side, q } = request.query;
       const pageNum = Math.max(1, parseInt(page, 10) || 1);
       const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
       const offset = (pageNum - 1) * limitNum;
-      const hasMarket = await db.query(`SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='spot_orders' AND column_name='market' LIMIT 1`);
-      const useMarket = hasMarket.rows.length > 0;
-      const statusFilterList = status && status !== 'all' ? `AND o.status = $2` : '';
-      const statusFilterCount = status && status !== 'all' ? `AND o.status = $1` : '';
-      const params = status && status !== 'all' ? [limitNum, status, offset] : [limitNum, offset];
-      const limitOffset = status && status !== 'all' ? 'LIMIT $1 OFFSET $3' : 'LIMIT $1 OFFSET $2';
+
+      const colRes = await db.query<{ column_name: string }>(
+        `SELECT column_name FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'spot_orders'
+           AND column_name = ANY($1::text[])`,
+        [['market', 'trading_pair_id', 'type', 'order_type', 'filled_quantity']]
+      );
+      const colSet = new Set(colRes.rows.map((r) => r.column_name));
+      const useMarket = colSet.has('market');
+      const typeExpr = colSet.has('type')
+        ? 'o.type::text AS order_type'
+        : colSet.has('order_type')
+          ? 'o.order_type::text AS order_type'
+          : 'NULL::text AS order_type';
+      const filledExpr = colSet.has('filled_quantity')
+        ? 'o.filled_quantity::text AS filled'
+        : 'NULL::text AS filled';
+
+      const conds: string[] = ['1=1'];
+      const whereParams: unknown[] = [];
+      let p = 1;
+
+      if (status && status !== 'all') {
+        conds.push(`o.status = $${p++}`);
+        whereParams.push(status);
+      }
+      const marketQ = market?.trim();
+      if (marketQ) {
+        if (useMarket) {
+          conds.push(`o.market ILIKE $${p++}`);
+        } else {
+          conds.push(`tp.symbol ILIKE $${p++}`);
+        }
+        whereParams.push(`%${marketQ}%`);
+      }
+      if (side && side !== 'all') {
+        conds.push(`LOWER(o.side::text) = LOWER($${p++})`);
+        whereParams.push(side);
+      }
+      const searchQ = q?.trim();
+      if (searchQ) {
+        conds.push(
+          `(o.id::text ILIKE $${p} OR COALESCE(u.email, '') ILIKE $${p} OR u.id::text ILIKE $${p})`
+        );
+        whereParams.push(`%${searchQ}%`);
+        p += 1;
+      }
+
+      const whereSql = conds.join(' AND ');
+      const fromSql = useMarket
+        ? `FROM spot_orders o JOIN users u ON o.user_id = u.id`
+        : `FROM spot_orders o JOIN users u ON o.user_id = u.id LEFT JOIN trading_pairs tp ON o.trading_pair_id = tp.id`;
+
       const orderBy = 'o.created_at DESC';
+      const limIdx = whereParams.length + 1;
+      const offIdx = whereParams.length + 2;
       const listSql = useMarket
-        ? `SELECT o.id AS order_id, o.user_id, u.email AS user_email, o.market, o.side, o.price::text AS price, o.quantity::text AS amount, o.status, o.created_at
-           FROM spot_orders o
-           JOIN users u ON o.user_id = u.id
-           WHERE 1=1 ${statusFilterList}
+        ? `SELECT o.id AS order_id, o.user_id, u.email AS user_email, o.market, o.side, o.price::text AS price, o.quantity::text AS amount, ${typeExpr}, ${filledExpr}, o.status, o.created_at
+           ${fromSql}
+           WHERE ${whereSql}
            ORDER BY ${orderBy}
-           ${limitOffset}`
-        : `SELECT o.id AS order_id, o.user_id, u.email AS user_email, tp.symbol AS market, o.side, o.price::text AS price, o.quantity::text AS amount, o.status, o.created_at
-           FROM spot_orders o
-           JOIN users u ON o.user_id = u.id
-           LEFT JOIN trading_pairs tp ON o.trading_pair_id = tp.id
-           WHERE 1=1 ${statusFilterList}
+           LIMIT $${limIdx} OFFSET $${offIdx}`
+        : `SELECT o.id AS order_id, o.user_id, u.email AS user_email, tp.symbol AS market, o.side, o.price::text AS price, o.quantity::text AS amount, ${typeExpr}, ${filledExpr}, o.status, o.created_at
+           ${fromSql}
+           WHERE ${whereSql}
            ORDER BY ${orderBy}
-           ${limitOffset}`;
-      const countSql = `SELECT COUNT(*)::int FROM spot_orders o WHERE 1=1 ${statusFilterCount}`;
-      const countParams = status && status !== 'all' ? [status] : [];
+           LIMIT $${limIdx} OFFSET $${offIdx}`;
+
+      const listParams = [...whereParams, limitNum, offset];
+      const countSql = `SELECT COUNT(*)::int AS count ${fromSql} WHERE ${whereSql}`;
       const [listRes, countRes] = await Promise.all([
-        db.query(listSql, params as string[]),
-        db.query(countSql, countParams),
+        db.query(listSql, listParams as string[]),
+        db.query(countSql, whereParams as string[]),
       ]);
       const total = (countRes.rows[0] as { count?: number })?.count ?? 0;
       return reply.send({
@@ -8738,32 +9378,66 @@ export default async function adminRoutes(app: FastifyInstance) {
    * List spot trades for admin (paginated).
    */
   app.get<{
-    Querystring: { page?: string; limit?: string };
+    Querystring: { page?: string; limit?: string; market?: string; side?: string; from?: string; to?: string };
   }>('/trading/trades', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
     try {
-      const { page = '1', limit = '20' } = request.query;
+      const { page = '1', limit = '20', market, side, from, to } = request.query;
       const pageNum = Math.max(1, parseInt(page, 10) || 1);
       const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
       const offset = (pageNum - 1) * limitNum;
       const hasMarket = await db.query(`SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='spot_trades' AND column_name='market' LIMIT 1`);
       const useMarket = hasMarket.rows.length > 0;
+
+      const conds: string[] = ['1=1'];
+      const whereParams: unknown[] = [];
+      let p = 1;
+
+      const marketQ = market?.trim();
+      if (marketQ) {
+        if (useMarket) {
+          conds.push(`t.market ILIKE $${p++}`);
+        } else {
+          conds.push(`tp.symbol ILIKE $${p++}`);
+        }
+        whereParams.push(`%${marketQ}%`);
+      }
+      if (side && side !== 'all') {
+        conds.push(`LOWER(t.side::text) = LOWER($${p++})`);
+        whereParams.push(side);
+      }
+      if (from?.trim()) {
+        conds.push(`t.created_at >= $${p++}::timestamptz`);
+        whereParams.push(from.trim());
+      }
+      if (to?.trim()) {
+        conds.push(`t.created_at <= $${p++}::timestamptz`);
+        whereParams.push(to.trim());
+      }
+
+      const whereSql = conds.join(' AND ');
+      const fromSql = useMarket
+        ? `FROM spot_trades t JOIN users u ON t.user_id = u.id`
+        : `FROM spot_trades t JOIN users u ON t.user_id = u.id LEFT JOIN trading_pairs tp ON t.trading_pair_id = tp.id`;
+      const limIdx = whereParams.length + 1;
+      const offIdx = whereParams.length + 2;
       const listSql = useMarket
         ? `SELECT t.id AS trade_id, t.market, t.side, u.email AS user_email, t.user_id, t.price::text AS price, t.quantity::text AS amount, t.fee::text AS fee, t.fee_asset, t.created_at
-           FROM spot_trades t
-           JOIN users u ON t.user_id = u.id
+           ${fromSql}
+           WHERE ${whereSql}
            ORDER BY t.created_at DESC
-           LIMIT $1 OFFSET $2`
+           LIMIT $${limIdx} OFFSET $${offIdx}`
         : `SELECT t.id AS trade_id, tp.symbol AS market, t.side, u.email AS user_email, t.user_id, t.price::text AS price, t.quantity::text AS amount, t.fee::text AS fee, t.fee_asset, t.created_at
-           FROM spot_trades t
-           JOIN users u ON t.user_id = u.id
-           LEFT JOIN trading_pairs tp ON t.trading_pair_id = tp.id
+           ${fromSql}
+           WHERE ${whereSql}
            ORDER BY t.created_at DESC
-           LIMIT $1 OFFSET $2`;
+           LIMIT $${limIdx} OFFSET $${offIdx}`;
+      const listParams = [...whereParams, limitNum, offset];
+      const countSql = `SELECT COUNT(*)::int AS count ${fromSql} WHERE ${whereSql}`;
       const [listRes, countRes] = await Promise.all([
-        db.query(listSql, [limitNum, offset]),
-        db.query('SELECT COUNT(*)::int FROM spot_trades'),
+        db.query(listSql, listParams as string[]),
+        db.query(countSql, whereParams as string[]),
       ]);
       const total = (countRes.rows[0] as { count?: number })?.count ?? 0;
       const WHALE_THRESHOLD_USD = 100_000;
@@ -9614,6 +10288,141 @@ export default async function adminRoutes(app: FastifyInstance) {
       return reply.status(500).send({
         success: false,
         error: { code: 'FETCH_FAILED', message: 'Failed to fetch P2P orders' },
+      });
+    }
+  });
+
+  // ===============================
+  // P2P MERCHANT APPLICATIONS
+  // ===============================
+
+  /**
+   * GET /admin/p2p/merchants
+   * List merchant applications with filters: status, page, limit.
+   */
+  app.get<{
+    Querystring: { status?: string; page?: string; limit?: string };
+  }>('/p2p/merchants', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const { status, page = '1', limit = '20' } = request.query;
+      const pageNum = Math.max(1, parseInt(page) || 1);
+      const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20));
+      const offset = (pageNum - 1) * limitNum;
+
+      const conditions: string[] = ['1=1'];
+      const params: unknown[] = [];
+      let paramIndex = 1;
+
+      if (status && status !== 'all') {
+        conditions.push(`ma.status = $${paramIndex++}`);
+        params.push(status);
+      }
+
+      const whereClause = conditions.join(' AND ');
+
+      const result = await db.query(
+        `SELECT ma.*,
+                u.email AS user_email, u.username AS user_username,
+                au.email AS reviewer_email
+         FROM p2p_merchant_applications ma
+         JOIN users u ON ma.user_id = u.id
+         LEFT JOIN admin_users au ON ma.reviewed_by = au.id
+         WHERE ${whereClause}
+         ORDER BY ma.created_at DESC
+         LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
+        [...params, limitNum, offset]
+      );
+
+      const countResult = await db.query(
+        `SELECT COUNT(*)::text AS count FROM p2p_merchant_applications ma WHERE ${whereClause}`,
+        params
+      );
+      const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+      return reply.send({
+        success: true,
+        data: {
+          merchants: result.rows,
+          pagination: { page: pageNum, limit: limitNum, total },
+        },
+      });
+    } catch (error) {
+      logger.error('P2P merchants list failed', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'FETCH_FAILED', message: 'Failed to fetch merchant applications' },
+      });
+    }
+  });
+
+  /**
+   * PATCH /admin/p2p/merchants/:id/review
+   * Approve or reject a merchant application.
+   * Body: { status: 'approved' | 'rejected', note?: string }
+   */
+  app.patch<{
+    Params: { id: string };
+    Body: { status: 'approved' | 'rejected'; note?: string };
+  }>('/p2p/merchants/:id/review', async (request, reply) => {
+    const admin = await getAdminWithPermission(app, request, reply, 'p2p:disputes');
+    if (!admin) return;
+    try {
+      const { id } = request.params;
+      const { status: newStatus, note } = request.body || {};
+
+      if (!newStatus || !['approved', 'rejected'].includes(newStatus)) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_INPUT', message: 'status must be "approved" or "rejected"' },
+        });
+      }
+
+      const existing = await db.query<{ id: string; status: string }>(
+        `SELECT id, status FROM p2p_merchant_applications WHERE id = $1 LIMIT 1`,
+        [id]
+      );
+      if (existing.rows.length === 0) {
+        return reply.status(404).send({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Merchant application not found' },
+        });
+      }
+      if (existing.rows[0]!.status !== 'pending') {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'ALREADY_REVIEWED', message: 'Application has already been reviewed' },
+        });
+      }
+
+      const updated = await db.query(
+        `UPDATE p2p_merchant_applications
+         SET status = $1, reviewed_by = $2, reviewed_at = NOW(), review_note = $3, updated_at = NOW()
+         WHERE id = $4
+         RETURNING *`,
+        [newStatus, admin.adminId, note?.trim() || null, id]
+      );
+
+      try {
+        await logAuditFromRequest(request, {
+          actorType: 'admin',
+          actorId: admin.adminId,
+          action: `p2p_merchant_${newStatus}`,
+          resourceType: 'p2p_merchant_application',
+          resourceId: id,
+          newValue: { status: newStatus, note: note?.trim() || null },
+        });
+      } catch {
+        /* best-effort */
+      }
+
+      return reply.send({ success: true, data: { merchant: updated.rows[0] } });
+    } catch (error) {
+      logger.error('P2P merchant review failed', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'REVIEW_FAILED', message: 'Failed to review merchant application' },
       });
     }
   });
@@ -13912,34 +14721,43 @@ export default async function adminRoutes(app: FastifyInstance) {
 
   /**
    * POST /admin/settings/api/:id/test
-   * Test API connection
+   * Real connection test for SMTP, SMS, RPC, KYC providers
    */
   app.post('/settings/api/:id/test', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
     try {
       const { id } = request.params as { id: string };
+      const { dynamicConfig } = await import('../services/dynamic-config.service.js');
 
-      const result = await db.query('SELECT * FROM api_settings WHERE id = $1', [id]);
-
+      const result = await db.query('SELECT category, provider FROM api_settings WHERE id = $1', [id]);
       if (result.rows.length === 0) {
-        return reply.status(404).send({
-          success: false,
-          error: { code: 'NOT_FOUND', message: 'API setting not found' },
-        });
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'API setting not found' } });
       }
 
-      const setting = result.rows[0];
-      
-      // Basic test - for now just return success
-      // In production, you would actually test the connection
+      const { category, provider } = result.rows[0] as { category: string; provider: string };
+      let testResult: { success: boolean; message: string; latencyMs: number; blockNumber?: string };
+
+      switch (category) {
+        case 'email':
+          testResult = await dynamicConfig.testSmtp(id);
+          break;
+        case 'sms':
+          testResult = await dynamicConfig.testSms(id);
+          break;
+        case 'rpc':
+          testResult = await dynamicConfig.testRpc(id);
+          break;
+        case 'kyc':
+          testResult = await dynamicConfig.testKyc(id);
+          break;
+        default:
+          testResult = { success: true, message: `No specific test for category '${category}'. Credentials saved.`, latencyMs: 0 };
+      }
+
       return reply.send({
         success: true,
-        data: { 
-          tested: true, 
-          message: `Connection test for ${setting?.provider ?? 'unknown'} completed`,
-          status: 'ok'
-        },
+        data: { tested: true, provider, category, ...testResult },
       });
     } catch (error) {
       return reply.status(500).send({
@@ -13948,4 +14766,490 @@ export default async function adminRoutes(app: FastifyInstance) {
       });
     }
   });
+
+  /**
+   * POST /admin/settings/api/flush-cache
+   * Flush dynamic config cache after updating api_settings
+   */
+  app.post('/settings/api/flush-cache', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const { category } = request.body as { category?: string };
+      const { dynamicConfig } = await import('../services/dynamic-config.service.js');
+      if (category) {
+        await dynamicConfig.flushCategory(category);
+      } else {
+        await dynamicConfig.flushAll();
+      }
+      return reply.send({ success: true, data: { flushed: category || 'all' } });
+    } catch (error) {
+      return reply.status(500).send({ success: false, error: { code: 'FLUSH_FAILED', message: 'Failed to flush config cache' } });
+    }
+  });
+
+  // =========================================================================
+  // Phase 5: Admin 2FA Routes
+  // =========================================================================
+
+  app.post('/auth/2fa/setup', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const { admin2FAService } = await import('../services/admin-2fa.service.js');
+      const adminRow = await db.query<{ email: string; two_factor_enabled: boolean }>(
+        'SELECT email, two_factor_enabled FROM admin_users WHERE id = $1',
+        [admin.adminId]
+      );
+      if (!adminRow.rows[0]) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Admin not found' } });
+      }
+      if (adminRow.rows[0].two_factor_enabled) {
+        return reply.status(400).send({ success: false, error: { code: '2FA_ALREADY_ENABLED', message: '2FA is already enabled. Disable it first.' } });
+      }
+      const result = await admin2FAService.setup2FA(admin.adminId, adminRow.rows[0].email);
+      return reply.send({ success: true, data: { secret: result.secret, qrUrl: result.qrUrl, backupCodes: result.backupCodes } });
+    } catch (error) {
+      logger.error('2FA setup failed', { error: error instanceof Error ? error.message : 'Unknown', adminId: admin.adminId });
+      return reply.status(500).send({ success: false, error: { code: '2FA_SETUP_FAILED', message: 'Failed to set up 2FA' } });
+    }
+  });
+
+  app.post('/auth/2fa/verify', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const { token } = request.body as { token?: string };
+      if (!token || token.length !== 6) {
+        return reply.status(400).send({ success: false, error: { code: 'INVALID_TOKEN', message: 'Provide a 6-digit TOTP code' } });
+      }
+      const { admin2FAService } = await import('../services/admin-2fa.service.js');
+      const success = await admin2FAService.verify2FASetup(admin.adminId, token);
+      if (!success) {
+        return reply.status(400).send({ success: false, error: { code: 'INVALID_TOKEN', message: 'Invalid TOTP code. Please try again.' } });
+      }
+      return reply.send({ success: true, data: { message: '2FA enabled successfully' } });
+    } catch (error) {
+      logger.error('2FA verify failed', { error: error instanceof Error ? error.message : 'Unknown', adminId: admin.adminId });
+      return reply.status(500).send({ success: false, error: { code: '2FA_VERIFY_FAILED', message: 'Failed to verify 2FA' } });
+    }
+  });
+
+  app.post('/auth/2fa/disable', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const { token } = request.body as { token?: string };
+      if (!token || token.length !== 6) {
+        return reply.status(400).send({ success: false, error: { code: 'INVALID_TOKEN', message: 'Provide your current TOTP code' } });
+      }
+      const { admin2FAService } = await import('../services/admin-2fa.service.js');
+      const success = await admin2FAService.disable2FA(admin.adminId, token);
+      if (!success) {
+        return reply.status(400).send({ success: false, error: { code: 'INVALID_TOKEN', message: 'Invalid TOTP code or 2FA not enabled' } });
+      }
+      return reply.send({ success: true, data: { message: '2FA disabled successfully' } });
+    } catch (error) {
+      logger.error('2FA disable failed', { error: error instanceof Error ? error.message : 'Unknown', adminId: admin.adminId });
+      return reply.status(500).send({ success: false, error: { code: '2FA_DISABLE_FAILED', message: 'Failed to disable 2FA' } });
+    }
+  });
+
+  app.get('/auth/2fa/status', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const { admin2FAService } = await import('../services/admin-2fa.service.js');
+      const status = await admin2FAService.get2FAStatus(admin.adminId);
+      return reply.send({ success: true, data: status });
+    } catch (error) {
+      return reply.status(500).send({ success: false, error: { code: '2FA_STATUS_FAILED', message: 'Failed to get 2FA status' } });
+    }
+  });
+
+  // =========================================================================
+  // Phase 5: Multi-Approval System Routes
+  // =========================================================================
+
+  app.get('/approval-requests', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const { status, limit, offset } = request.query as { status?: string; limit?: string; offset?: string };
+      const { adminApprovalService } = await import('../services/admin-approval.service.js');
+      await adminApprovalService.expireStalePending();
+      const result = await adminApprovalService.listRequests(
+        status,
+        Math.min(parseInt(limit || '50', 10) || 50, 200),
+        parseInt(offset || '0', 10) || 0
+      );
+      return reply.send({ success: true, data: result });
+    } catch (error) {
+      logger.error('List approval requests failed', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'LIST_FAILED', message: 'Failed to list approval requests' } });
+    }
+  });
+
+  app.post('/approval-requests', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const { actionType, actionPayload, requiredApprovals } = request.body as {
+        actionType?: string;
+        actionPayload?: Record<string, unknown>;
+        requiredApprovals?: number;
+      };
+      if (!actionType || !actionPayload) {
+        return reply.status(400).send({ success: false, error: { code: 'INVALID_BODY', message: 'actionType and actionPayload are required' } });
+      }
+      const { adminApprovalService } = await import('../services/admin-approval.service.js');
+      const req = await adminApprovalService.createRequest(
+        actionType as import('../services/admin-approval.service.js').ApprovalActionType,
+        actionPayload,
+        admin.adminId,
+        requiredApprovals
+      );
+      return reply.send({ success: true, data: { request: req } });
+    } catch (error) {
+      logger.error('Create approval request failed', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'CREATE_FAILED', message: 'Failed to create approval request' } });
+    }
+  });
+
+  app.post('/approval-requests/:id/approve', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const { id } = request.params as { id: string };
+      const { adminApprovalService } = await import('../services/admin-approval.service.js');
+      const result = await adminApprovalService.approveRequest(id, admin.adminId);
+      if (!result.success) {
+        return reply.status(400).send({ success: false, error: { code: 'APPROVE_FAILED', message: result.message } });
+      }
+      return reply.send({ success: true, data: { message: result.message, request: result.request } });
+    } catch (error) {
+      logger.error('Approve request failed', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'APPROVE_FAILED', message: 'Failed to approve request' } });
+    }
+  });
+
+  app.post('/approval-requests/:id/reject', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const { id } = request.params as { id: string };
+      const { reason } = request.body as { reason?: string };
+      const { adminApprovalService } = await import('../services/admin-approval.service.js');
+      const result = await adminApprovalService.rejectRequest(id, admin.adminId, reason);
+      if (!result.success) {
+        return reply.status(400).send({ success: false, error: { code: 'REJECT_FAILED', message: result.message } });
+      }
+      return reply.send({ success: true, data: { message: result.message, request: result.request } });
+    } catch (error) {
+      logger.error('Reject request failed', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'REJECT_FAILED', message: 'Failed to reject request' } });
+    }
+  });
+
+  // =========================================================================
+  // Phase 5: OTP Delivery Stats Route
+  // =========================================================================
+
+  app.get('/notifications/delivery-stats', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const { type, status, from, to, limit: limitStr, offset: offsetStr } = request.query as {
+        type?: string;
+        status?: string;
+        from?: string;
+        to?: string;
+        limit?: string;
+        offset?: string;
+      };
+      const limit = Math.min(parseInt(limitStr || '50', 10) || 50, 200);
+      const offset = parseInt(offsetStr || '0', 10) || 0;
+
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      const [summaryRes, recentRes] = await Promise.all([
+        db.query<{
+          total_today: string;
+          verified_today: string;
+          failed_today: string;
+          avg_verify_seconds: string | null;
+        }>(`SELECT
+             COUNT(*)::text AS total_today,
+             COUNT(*) FILTER (WHERE verified_at IS NOT NULL)::text AS verified_today,
+             COUNT(*) FILTER (WHERE verified_at IS NULL AND expires_at < NOW())::text AS failed_today,
+             ROUND(AVG(EXTRACT(EPOCH FROM (verified_at - created_at))) FILTER (WHERE verified_at IS NOT NULL), 1)::text AS avg_verify_seconds
+           FROM otp_verifications
+           WHERE created_at >= $1`, [todayStart]),
+        (() => {
+          const conditions: string[] = [];
+          const params: unknown[] = [];
+          let idx = 1;
+          if (type) { conditions.push(`type = $${idx++}`); params.push(type); }
+          if (status === 'verified') { conditions.push(`verified_at IS NOT NULL`); }
+          else if (status === 'failed') { conditions.push(`verified_at IS NULL AND expires_at < NOW()`); }
+          else if (status === 'pending') { conditions.push(`verified_at IS NULL AND expires_at >= NOW()`); }
+          if (from) { conditions.push(`created_at >= $${idx++}`); params.push(from); }
+          if (to) { conditions.push(`created_at <= $${idx++}`); params.push(to); }
+          const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+          return db.query<{
+            id: string;
+            identifier: string;
+            type: string;
+            attempts: number;
+            max_attempts: number;
+            verified_at: string | null;
+            expires_at: string;
+            created_at: string;
+          }>(
+            `SELECT id, identifier, type, attempts, max_attempts, verified_at, expires_at, created_at
+             FROM otp_verifications ${where}
+             ORDER BY created_at DESC
+             LIMIT $${idx++} OFFSET $${idx++}`,
+            [...params, limit, offset]
+          );
+        })(),
+      ]);
+
+      const summary = summaryRes.rows[0];
+      const totalToday = parseInt(summary?.total_today ?? '0', 10);
+      const verifiedToday = parseInt(summary?.verified_today ?? '0', 10);
+      const successRate = totalToday > 0 ? Math.round((verifiedToday / totalToday) * 100 * 10) / 10 : 0;
+
+      return reply.send({
+        success: true,
+        data: {
+          summary: {
+            totalToday,
+            verifiedToday,
+            failedToday: parseInt(summary?.failed_today ?? '0', 10),
+            successRate,
+            avgVerifySeconds: summary?.avg_verify_seconds ? parseFloat(summary.avg_verify_seconds) : null,
+          },
+          deliveries: recentRes.rows,
+        },
+      });
+    } catch (error) {
+      logger.error('Delivery stats failed', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'STATS_FAILED', message: 'Failed to fetch delivery stats' } });
+    }
+  });
+
+  app.get('/support/tickets/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const { id } = request.params as { id: string };
+      const ticketRes = await db.query<{
+        id: string; user_id: string; user_email: string; subject: string; category: string;
+        priority: string; status: string; assigned_admin_id: string | null; assigned_admin_name: string | null;
+        created_at: string; updated_at: string; resolved_at: string | null; resolution_note: string | null;
+      }>(
+        `SELECT t.*, COALESCE(u.email, 'unknown') AS user_email, a.name AS assigned_admin_name
+         FROM support_tickets t
+         LEFT JOIN users u ON u.id = t.user_id
+         LEFT JOIN admin_users a ON a.id = t.assigned_admin_id
+         WHERE t.id = $1`,
+        [id]
+      );
+
+      if (ticketRes.rows.length === 0) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Ticket not found' } });
+      }
+
+      const messagesRes = await db.query<{
+        id: string; sender_type: string; sender_id: string; sender_name: string | null;
+        message: string; attachments: unknown; created_at: string;
+      }>(
+        `SELECT m.id, m.sender_type, m.sender_id,
+                CASE WHEN m.sender_type = 'admin' THEN a.name ELSE u.email END AS sender_name,
+                m.message, m.attachments, m.created_at
+         FROM support_ticket_messages m
+         LEFT JOIN admin_users a ON m.sender_type = 'admin' AND a.id = m.sender_id
+         LEFT JOIN users u ON m.sender_type = 'user' AND u.id = m.sender_id
+         WHERE m.ticket_id = $1
+         ORDER BY m.created_at ASC`,
+        [id]
+      );
+
+      return reply.send({
+        success: true,
+        data: {
+          ticket: ticketRes.rows[0],
+          messages: messagesRes.rows,
+        },
+      });
+    } catch (error) {
+      logger.error('Get support ticket failed', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'GET_FAILED', message: 'Failed to get ticket' } });
+    }
+  });
+
+  app.post('/support/tickets/:id/reply', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const { id } = request.params as { id: string };
+      const { message } = request.body as { message: string };
+
+      if (!message?.trim()) {
+        return reply.status(400).send({ success: false, error: { code: 'INVALID', message: 'Message is required' } });
+      }
+
+      const ticketCheck = await db.query(`SELECT id FROM support_tickets WHERE id = $1`, [id]);
+      if (ticketCheck.rows.length === 0) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Ticket not found' } });
+      }
+
+      const msgRes = await db.query<{ id: string; created_at: string }>(
+        `INSERT INTO support_ticket_messages (ticket_id, sender_type, sender_id, message)
+         VALUES ($1, 'admin', $2, $3) RETURNING id, created_at`,
+        [id, admin.adminId, message.trim()]
+      );
+
+      await db.query(`UPDATE support_tickets SET updated_at = now() WHERE id = $1`, [id]);
+
+      return reply.send({
+        success: true,
+        data: { id: msgRes.rows[0]?.id, created_at: msgRes.rows[0]?.created_at },
+      });
+    } catch (error) {
+      logger.error('Reply to ticket failed', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'REPLY_FAILED', message: 'Failed to reply' } });
+    }
+  });
+
+  app.patch('/support/tickets/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const { id } = request.params as { id: string };
+      const body = request.body as {
+        status?: string; priority?: string; category?: string;
+        assigned_admin_id?: string | null; resolution_note?: string;
+      };
+
+      const sets: string[] = [];
+      const params: unknown[] = [];
+      let idx = 1;
+
+      if (body.status) {
+        const validStatuses = ['open', 'in_progress', 'waiting_user', 'resolved', 'closed'];
+        if (!validStatuses.includes(body.status)) {
+          return reply.status(400).send({ success: false, error: { code: 'INVALID', message: 'Invalid status' } });
+        }
+        sets.push(`status = $${idx++}`); params.push(body.status);
+        if (body.status === 'resolved' || body.status === 'closed') {
+          sets.push(`resolved_at = COALESCE(resolved_at, now())`);
+        }
+      }
+      if (body.priority) {
+        const validPriorities = ['low', 'medium', 'high', 'urgent'];
+        if (!validPriorities.includes(body.priority)) {
+          return reply.status(400).send({ success: false, error: { code: 'INVALID', message: 'Invalid priority' } });
+        }
+        sets.push(`priority = $${idx++}`); params.push(body.priority);
+      }
+      if (body.category) {
+        sets.push(`category = $${idx++}`); params.push(body.category);
+      }
+      if (body.assigned_admin_id !== undefined) {
+        sets.push(`assigned_admin_id = $${idx++}`); params.push(body.assigned_admin_id);
+      }
+      if (body.resolution_note !== undefined) {
+        sets.push(`resolution_note = $${idx++}`); params.push(body.resolution_note);
+      }
+
+      if (sets.length === 0) {
+        return reply.status(400).send({ success: false, error: { code: 'INVALID', message: 'No fields to update' } });
+      }
+
+      sets.push('updated_at = now()');
+      params.push(id);
+
+      const result = await db.query(
+        `UPDATE support_tickets SET ${sets.join(', ')} WHERE id = $${idx} RETURNING id`,
+        params
+      );
+
+      if (result.rows.length === 0) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Ticket not found' } });
+      }
+
+      return reply.send({ success: true, data: { id } });
+    } catch (error) {
+      logger.error('Update support ticket failed', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'UPDATE_FAILED', message: 'Failed to update ticket' } });
+    }
+  });
+
+  // ============================================
+  // MISSING ROUTE: /support/stats
+  // ============================================
+  app.get('/support/stats', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const [openRes, ipRes, unassRes, avgRes] = await Promise.all([
+        db.query<{ cnt: string }>(`SELECT COUNT(*)::text AS cnt FROM support_tickets WHERE status = 'open'`).catch(() => ({ rows: [{ cnt: '0' }] })),
+        db.query<{ cnt: string }>(`SELECT COUNT(*)::text AS cnt FROM support_tickets WHERE status = 'in_progress'`).catch(() => ({ rows: [{ cnt: '0' }] })),
+        db.query<{ cnt: string }>(`SELECT COUNT(*)::text AS cnt FROM support_tickets WHERE assigned_admin_id IS NULL AND status NOT IN ('resolved','closed')`).catch(() => ({ rows: [{ cnt: '0' }] })),
+        db.query<{ hrs: string }>(`SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (resolved_at - created_at)) / 3600), 0)::text AS hrs FROM support_tickets WHERE resolved_at IS NOT NULL`).catch(() => ({ rows: [{ hrs: '0' }] })),
+      ]);
+      return reply.send({
+        success: true,
+        data: {
+          open: parseInt(openRes.rows[0]?.cnt ?? '0', 10),
+          inProgress: parseInt(ipRes.rows[0]?.cnt ?? '0', 10),
+          unassigned: parseInt(unassRes.rows[0]?.cnt ?? '0', 10),
+          avgResolutionHours: parseFloat(parseFloat(avgRes.rows[0]?.hrs ?? '0').toFixed(1)),
+        },
+      });
+    } catch (error) {
+      logger.error('Support stats failed', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'INTERNAL', message: 'Failed to fetch support stats' } });
+    }
+  });
+
+  // ============================================
+  // MISSING ROUTE: /support/tickets (list)
+  // ============================================
+  app.get('/support/tickets', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const q = request.query as { status?: string; priority?: string; category?: string; search?: string; limit?: string; offset?: string };
+      const limit = Math.min(parseInt(q.limit ?? '20', 10) || 20, 100);
+      const offset = parseInt(q.offset ?? '0', 10) || 0;
+      const wheres: string[] = [];
+      const params: unknown[] = [];
+      let idx = 1;
+      if (q.status && q.status !== 'all') { wheres.push(`t.status = $${idx++}`); params.push(q.status); }
+      if (q.priority) { wheres.push(`t.priority = $${idx++}`); params.push(q.priority); }
+      if (q.category) { wheres.push(`t.category = $${idx++}`); params.push(q.category); }
+      if (q.search?.trim()) { wheres.push(`(t.subject ILIKE $${idx} OR u.email ILIKE $${idx})`); params.push(`%${q.search.trim()}%`); idx++; }
+      const whereClause = wheres.length > 0 ? `WHERE ${wheres.join(' AND ')}` : '';
+      const [ticketsRes, countRes] = await Promise.all([
+        db.query(`SELECT t.id, t.user_id, t.subject, t.status, t.priority, t.category, t.assigned_admin_id, t.created_at, t.updated_at, t.resolved_at, u.email AS user_email, COALESCE(u.username, u.email) AS user_name FROM support_tickets t LEFT JOIN users u ON t.user_id = u.id ${whereClause} ORDER BY t.created_at DESC LIMIT $${idx++} OFFSET $${idx++}`, [...params, limit, offset]),
+        db.query(`SELECT COUNT(*)::text AS total FROM support_tickets t LEFT JOIN users u ON t.user_id = u.id ${whereClause}`, params),
+      ]);
+      return reply.send({
+        success: true,
+        data: {
+          tickets: ticketsRes.rows,
+          total: parseInt(countRes.rows[0]?.total ?? '0', 10),
+        },
+      });
+    } catch (error) {
+      logger.error('Support tickets list failed', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'INTERNAL', message: 'Failed to fetch tickets' } });
+    }
+  });
+
+
 }

@@ -21,6 +21,7 @@ import {
 import { StatCard } from '@/components/dashboard/StatCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { ProtectedAction } from '@/components/rbac/ProtectedAction';
 import { exportStandardCsv, exportStandardJson, type StandardExportRow } from '@/lib/export-utils';
 import { AmlAlertsTable } from '@/components/risk/AmlAlertsTable';
 import { AlertActionModal, type AlertActionType } from '@/components/risk/AlertActionModal';
@@ -41,12 +42,15 @@ export default function RiskPage() {
 
   const { data: dashboardData } = useQuery({
     queryKey: ['admin', 'risk', token],
+    staleTime: 30_000,
     queryFn: () => getRiskDashboard(token),
     enabled: !!token,
+    refetchInterval: 30000,
   });
 
   const { data: suspiciousData } = useQuery({
     queryKey: ['admin', 'risk', 'suspicious', token],
+    staleTime: 30_000,
     queryFn: () => getRiskSuspicious(token),
     enabled: !!token,
   });
@@ -60,16 +64,19 @@ export default function RiskPage() {
         status: alertsStatus === 'all' ? undefined : alertsStatus,
       }),
     enabled: !!token,
+    refetchInterval: 30000,
   });
 
   const { data: highRiskData, isLoading: highRiskLoading } = useQuery({
     queryKey: ['admin', 'risk', 'high-risk-users', token],
+    staleTime: 30_000,
     queryFn: () => getRiskHighRiskUsers(token, { limit: 50 }),
     enabled: !!token,
   });
 
   const { data: sanctionsData, isLoading: sanctionsLoading } = useQuery({
     queryKey: ['admin', 'risk', 'sanctions', token],
+    staleTime: 30_000,
     queryFn: () => getRiskSanctions(token, { limit: 50 }),
     enabled: !!token,
   });
@@ -148,13 +155,11 @@ export default function RiskPage() {
     updateStatusMutation.isPending || escalateMutation.isPending || freezeMutation.isPending;
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Risk & AML</h1>
-          <p className="mt-1 text-sm text-admin-muted">
-            Monitor AML alerts, suspicious trading, and high-risk users. Review and escalate alerts.
-          </p>
+          <h1 className="text-lg font-semibold text-admin-text">Risk & AML</h1>
+          <p className="text-xs text-admin-muted mt-0.5">Monitor AML alerts, suspicious trading, and high-risk users.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link href="/risk/settings">
@@ -176,27 +181,29 @@ export default function RiskPage() {
             </Button>
           </Link>
           <div className="relative">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setExportDropdown((v) => !v)}
-              disabled={exporting}
-            >
-              <Download className="mr-1 h-4 w-4" />
-              Export {exporting ? '…' : ''}
-              <ChevronDown className="ml-1 h-4 w-4" />
-            </Button>
+            <ProtectedAction permission="risk:export" fallback="disabled">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setExportDropdown((v) => !v)}
+                disabled={exporting}
+              >
+                <Download className="mr-1 h-4 w-4" />
+                Export {exporting ? '…' : ''}
+                <ChevronDown className="ml-1 h-4 w-4" />
+              </Button>
+            </ProtectedAction>
             {exportDropdown && (
-              <div className="absolute right-0 top-full z-10 mt-1 w-56 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+              <div className="absolute right-0 top-full z-10 mt-1 w-56 rounded-lg border border-admin-border bg-admin-card py-1 shadow-lg">
                 <p className="px-3 py-1 text-xs font-medium text-admin-muted">AML Alerts</p>
-                <button type="button" onClick={() => handleExport('aml-alerts', 'csv')} className="block w-full px-3 py-1.5 text-left text-sm hover:bg-gray-50">CSV</button>
-                <button type="button" onClick={() => handleExport('aml-alerts', 'json')} className="block w-full px-3 py-1.5 text-left text-sm hover:bg-gray-50">JSON</button>
+                <button type="button" onClick={() => handleExport('aml-alerts', 'csv')} className="block w-full px-3 py-1.5 text-left text-sm hover:bg-white/[0.02]">CSV</button>
+                <button type="button" onClick={() => handleExport('aml-alerts', 'json')} className="block w-full px-3 py-1.5 text-left text-sm hover:bg-white/[0.02]">JSON</button>
                 <p className="mt-2 px-3 py-1 text-xs font-medium text-admin-muted">STR Reports</p>
-                <button type="button" onClick={() => handleExport('str-reports', 'csv')} className="block w-full px-3 py-1.5 text-left text-sm hover:bg-gray-50">CSV</button>
-                <button type="button" onClick={() => handleExport('str-reports', 'json')} className="block w-full px-3 py-1.5 text-left text-sm hover:bg-gray-50">JSON</button>
+                <button type="button" onClick={() => handleExport('str-reports', 'csv')} className="block w-full px-3 py-1.5 text-left text-sm hover:bg-white/[0.02]">CSV</button>
+                <button type="button" onClick={() => handleExport('str-reports', 'json')} className="block w-full px-3 py-1.5 text-left text-sm hover:bg-white/[0.02]">JSON</button>
                 <p className="mt-2 px-3 py-1 text-xs font-medium text-admin-muted">Suspicious Trades</p>
-                <button type="button" onClick={() => handleExport('suspicious-trades', 'csv')} className="block w-full px-3 py-1.5 text-left text-sm hover:bg-gray-50">CSV</button>
-                <button type="button" onClick={() => handleExport('suspicious-trades', 'json')} className="block w-full px-3 py-1.5 text-left text-sm hover:bg-gray-50">JSON</button>
+                <button type="button" onClick={() => handleExport('suspicious-trades', 'csv')} className="block w-full px-3 py-1.5 text-left text-sm hover:bg-white/[0.02]">CSV</button>
+                <button type="button" onClick={() => handleExport('suspicious-trades', 'json')} className="block w-full px-3 py-1.5 text-left text-sm hover:bg-white/[0.02]">JSON</button>
               </div>
             )}
           </div>
@@ -251,21 +258,21 @@ export default function RiskPage() {
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-lg border border-gray-100 bg-gray-50/50 p-4">
-              <p className="text-sm font-medium text-gray-700">Whale Trades (24h)</p>
-              <p className="text-2xl font-semibold text-gray-900">{suspicious?.whale_trades ?? '—'}</p>
+            <div className="rounded-lg border border-admin-border bg-white/[0.02]/50 p-4">
+              <p className="text-sm font-medium text-admin-text">Whale Trades (24h)</p>
+              <p className="text-2xl font-semibold text-admin-text">{suspicious?.whale_trades ?? '—'}</p>
             </div>
-            <div className="rounded-lg border border-gray-100 bg-gray-50/50 p-4">
-              <p className="text-sm font-medium text-gray-700">Rapid Orders (5m)</p>
-              <p className="text-2xl font-semibold text-gray-900">{suspicious?.rapid_orders ?? '—'}</p>
+            <div className="rounded-lg border border-admin-border bg-white/[0.02]/50 p-4">
+              <p className="text-sm font-medium text-admin-text">Rapid Orders (5m)</p>
+              <p className="text-2xl font-semibold text-admin-text">{suspicious?.rapid_orders ?? '—'}</p>
             </div>
-            <div className="rounded-lg border border-gray-100 bg-gray-50/50 p-4">
-              <p className="text-sm font-medium text-gray-700">Order Cancel Rate %</p>
-              <p className="text-2xl font-semibold text-gray-900">{suspicious?.order_cancel_rate ?? '—'}%</p>
+            <div className="rounded-lg border border-admin-border bg-white/[0.02]/50 p-4">
+              <p className="text-sm font-medium text-admin-text">Order Cancel Rate %</p>
+              <p className="text-2xl font-semibold text-admin-text">{suspicious?.order_cancel_rate ?? '—'}%</p>
             </div>
-            <div className="rounded-lg border border-gray-100 bg-gray-50/50 p-4">
-              <p className="text-sm font-medium text-gray-700">Price Manipulation Alerts</p>
-              <p className="text-2xl font-semibold text-gray-900">{suspicious?.price_manipulation_alerts ?? '—'}</p>
+            <div className="rounded-lg border border-admin-border bg-white/[0.02]/50 p-4">
+              <p className="text-sm font-medium text-admin-text">Price Manipulation Alerts</p>
+              <p className="text-2xl font-semibold text-admin-text">{suspicious?.price_manipulation_alerts ?? '—'}</p>
             </div>
           </div>
         </CardContent>
@@ -278,7 +285,7 @@ export default function RiskPage() {
             <select
               value={alertsStatus}
               onChange={(e) => { setAlertsStatus(e.target.value); setAlertsPage(1); }}
-              className="rounded border border-gray-300 bg-white px-2 py-1 text-sm"
+              className="rounded border border-admin-border bg-admin-card px-2 py-1 text-sm"
             >
               <option value="all">All statuses</option>
               <option value="open">Open</option>
@@ -286,38 +293,42 @@ export default function RiskPage() {
               <option value="closed">Closed</option>
               <option value="reported">Reported</option>
             </select>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                const rows: StandardExportRow[] = alerts.map((a) => ({
-                  timestamp: a.created_at ?? '',
-                  type: a.alert_type,
-                  service: 'risk',
-                  admin: '',
-                  details: [a.severity, a.status, typeof a.details === 'string' ? a.details : a.details != null ? JSON.stringify(a.details) : ''].filter(Boolean).join(' '),
-                }));
-                exportStandardCsv(rows, 'risk_alerts');
-              }}
-            >
-              Export CSV
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                const rows: StandardExportRow[] = alerts.map((a) => ({
-                  timestamp: a.created_at ?? '',
-                  type: a.alert_type,
-                  service: 'risk',
-                  admin: '',
-                  details: [a.severity, a.status, typeof a.details === 'string' ? a.details : a.details != null ? JSON.stringify(a.details) : ''].filter(Boolean).join(' '),
-                }));
-                exportStandardJson(rows, 'risk_alerts');
-              }}
-            >
-              Export JSON
-            </Button>
+            <ProtectedAction permission="risk:export" fallback="disabled">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  const rows: StandardExportRow[] = alerts.map((a) => ({
+                    timestamp: a.created_at ?? '',
+                    type: a.alert_type,
+                    service: 'risk',
+                    admin: '',
+                    details: [a.severity, a.status, typeof a.details === 'string' ? a.details : a.details != null ? JSON.stringify(a.details) : ''].filter(Boolean).join(' '),
+                  }));
+                  exportStandardCsv(rows, 'risk_alerts');
+                }}
+              >
+                Export CSV
+              </Button>
+            </ProtectedAction>
+            <ProtectedAction permission="risk:export" fallback="disabled">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  const rows: StandardExportRow[] = alerts.map((a) => ({
+                    timestamp: a.created_at ?? '',
+                    type: a.alert_type,
+                    service: 'risk',
+                    admin: '',
+                    details: [a.severity, a.status, typeof a.details === 'string' ? a.details : a.details != null ? JSON.stringify(a.details) : ''].filter(Boolean).join(' '),
+                  }));
+                  exportStandardJson(rows, 'risk_alerts');
+                }}
+              >
+                Export JSON
+              </Button>
+            </ProtectedAction>
           </div>
         </CardHeader>
         <CardContent>

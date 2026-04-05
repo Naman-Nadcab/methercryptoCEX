@@ -77,6 +77,38 @@ export interface SweepRow {
   completed_at?: string | null;
 }
 
+// ===== Hot Wallet Management CRUD =====
+
+export function getHotWallets(token: string | null) {
+  return adminFetch<unknown>('/hot-wallets', { token });
+}
+
+export function createHotWallet(token: string | null, body: { chainFamily?: string; chainId?: string }) {
+  return adminFetch<{ id: string; address: string; chainId: string }>('/hot-wallets', { method: 'POST', token, body });
+}
+
+export function deleteHotWallet(token: string | null, chainId: string) {
+  return adminFetch<{ deleted: boolean }>(`/hot-wallets/${encodeURIComponent(chainId)}`, { method: 'DELETE', token });
+}
+
+export function replaceHotWallet(token: string | null, chainId: string) {
+  return adminFetch<{ id: string; address: string }>(`/hot-wallets/${encodeURIComponent(chainId)}/replace`, { method: 'POST', token });
+}
+
+export function refreshHotWalletBalance(token: string | null, chainId: string) {
+  return adminFetch<{ balance: string }>(`/hot-wallets/${encodeURIComponent(chainId)}/balance`, { token });
+}
+
+export function patchHotWallet(
+  token: string | null,
+  chainId: string,
+  body: { minBalanceAlert?: string; minHotBalance?: string; coldWalletAddress?: string | null; isActive?: boolean; maxSingleTx?: string; maxDailyOutflow?: string }
+) {
+  return adminFetch<unknown>(`/hot-wallets/${encodeURIComponent(chainId)}`, { method: 'PATCH', token, body });
+}
+
+// ===== Treasury Overview =====
+
 export function getTreasuryStats(token: string | null) {
   return adminFetch<TreasuryStats>('/treasury', { token });
 }

@@ -16,6 +16,8 @@ export interface OrderRow {
   side: string;
   price: string;
   amount: string;
+  order_type?: string | null;
+  filled?: string | null;
   status: string;
   created_at: string;
 }
@@ -55,7 +57,7 @@ export function getTradingOverview(token: string | null) {
 
 export function getTradingOrders(
   token: string | null,
-  params?: { page?: number; limit?: number; status?: string }
+  params?: { page?: number; limit?: number; status?: string; market?: string; side?: string; q?: string }
 ) {
   return adminFetch<{ orders: OrderRow[]; pagination: { page: number; limit: number; total: number; totalPages: number } }>(
     '/trading/orders',
@@ -63,7 +65,10 @@ export function getTradingOrders(
   );
 }
 
-export function getTradingTrades(token: string | null, params?: { page?: number; limit?: number }) {
+export function getTradingTrades(
+  token: string | null,
+  params?: { page?: number; limit?: number; market?: string; side?: string; from?: string; to?: string }
+) {
   return adminFetch<{ trades: TradeRow[]; pagination: { page: number; limit: number; total: number; totalPages: number } }>(
     '/trading/trades',
     { token, params: params as Record<string, string | number | undefined> }

@@ -41,7 +41,7 @@ export function SystemHealthPanel() {
   ];
 
   return (
-    <div className="rounded-[var(--admin-radius)] border border-[var(--admin-card-border)] bg-white p-4 shadow-[var(--admin-shadow)]">
+    <div className="rounded-[var(--admin-radius)] border border-[var(--admin-card-border)] bg-[var(--admin-card-bg)] p-4 shadow-[var(--admin-shadow)]">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-[var(--admin-text)]">Exchange Health</h3>
         <Link href="/admin/trading/engine" className="text-xs font-medium text-[var(--admin-primary)] hover:underline">
@@ -54,7 +54,7 @@ export function SystemHealthPanel() {
             key={label}
             className="flex items-center gap-3 p-3 rounded-lg bg-[var(--admin-hover-bg)] border border-[var(--admin-card-border)]"
           >
-            <div className="w-9 h-9 rounded-lg bg-white border border-[var(--admin-card-border)] flex items-center justify-center text-[var(--admin-text-muted)]">
+            <div className="w-9 h-9 rounded-lg bg-[var(--admin-card-bg)] border border-[var(--admin-card-border)] flex items-center justify-center text-[var(--admin-text-muted)]">
               <Icon className="w-4 h-4" />
             </div>
             <div className="min-w-0 flex-1">

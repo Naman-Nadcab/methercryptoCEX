@@ -14,6 +14,17 @@ export interface AdminApiResponse<T = unknown> {
   error?: { code?: string; message?: string };
 }
 
+export class AdminApiError extends Error {
+  code: string;
+  statusCode?: number;
+  constructor(message: string, code: string, statusCode?: number) {
+    super(message);
+    this.name = 'AdminApiError';
+    this.code = code;
+    this.statusCode = statusCode;
+  }
+}
+
 export async function adminFetch<T = unknown>(
   path: string,
   options: {
@@ -26,7 +37,7 @@ export async function adminFetch<T = unknown>(
 ): Promise<AdminApiResponse<T>> {
   const { method = 'GET', body, token, params, headers: customHeaders } = options;
   if (!token) {
-    return { success: false, error: { code: 'UNAUTHORIZED', message: 'No token' } };
+    throw new AdminApiError('No token', 'UNAUTHORIZED', 401);
   }
   const base = getBaseUrl();
   const pathWithLeading = path.startsWith('/') ? path : `/${path}`;
@@ -51,16 +62,102 @@ export async function adminFetch<T = unknown>(
   });
   const json = (await res.json().catch(() => ({}))) as AdminApiResponse<T>;
   if (!res.ok) {
-    return {
-      success: false,
-      error: json.error ?? { code: 'REQUEST_FAILED', message: res.statusText },
-    };
+    throw new AdminApiError(
+      json.error?.message ?? res.statusText,
+      json.error?.code ?? 'REQUEST_FAILED',
+      res.status,
+    );
+  }
+  if (json.success === false) {
+    throw new AdminApiError(
+      json.error?.message ?? 'Request failed',
+      json.error?.code ?? 'API_ERROR',
+      res.status,
+    );
   }
   return json;
 }
 
 export async function getDashboardStats(token: string | null) {
   return adminFetch<Record<string, unknown>>('/dashboard/stats', { token });
+}
+
+export interface DashboardSummary {
+  stats: {
+    users: { total: number; newToday: number; active: number; verified: number };
+    kyc: { pending: number; underReview: number; approvedToday: number; rejectedToday: number };
+    p2p: { activeAds: number; activeOrders: number; openDisputes: number };
+    referrals: { totalCodes: number; activeCodes: number };
+  };
+  halted: boolean;
+  pendingWithdrawals: number;
+  tradingVolume24h: number;
+  tradeCount24h: number;
+  health: Record<string, unknown>;
+}
+
+export async function getDashboardSummary(token: string | null) {
+  return adminFetch<DashboardSummary>('/dashboard-summary', { token });
+}
+
+/* ---- Audit APIs ---- */
+
+export interface AuditActivityLog {
+  id: string;
+  adminId: string;
+  adminName: string;
+  adminRole: string;
+  action: string;
+  details: Record<string, unknown> | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
+}
+
+export interface AuditActivityResponse {
+  logs: AuditActivityLog[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export async function getAuditActivityLogs(
+  token: string | null,
+  params?: { adminId?: string; action?: string; dateFrom?: string; dateTo?: string; search?: string; limit?: number; offset?: number }
+) {
+  return adminFetch<AuditActivityResponse>('/audit/activity', {
+    token,
+    params: params as Record<string, string | number | undefined>,
+  });
+}
+
+export interface ImmutableAuditLog {
+  id: string;
+  request_id: string | null;
+  actor_type: string;
+  actor_id: string | null;
+  action: string;
+  resource_type: string | null;
+  resource_id: string | null;
+  old_value: string | null;
+  new_value: string | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+}
+
+export async function getImmutableAuditLogs(
+  token: string | null,
+  params?: { actorType?: string; actorId?: string; action?: string; resourceType?: string; limit?: number; offset?: number }
+) {
+  return adminFetch<{ audit_logs: ImmutableAuditLog[]; total: number }>('/security/audit-logs', {
+    token,
+    params: params as Record<string, string | number | undefined>,
+  });
+}
+
+export async function getAdminRoles(token: string | null) {
+  return adminFetch<{ roles: { role: string; permissions: string[]; isSuperRole: boolean }[]; permissionMatrix: Record<string, string[]> }>('/roles', { token });
 }
 
 export async function getSystemHealth(token: string | null) {

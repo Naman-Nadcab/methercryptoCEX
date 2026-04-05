@@ -139,11 +139,11 @@ function MyAdsInner() {
                       </td>
                       <td className="px-3 py-3 font-mono text-[13px] font-semibold text-foreground">{price}</td>
                       <td className="px-3 py-3 text-[12px] text-muted-foreground">
-                        {r.min_amount && <span className="font-mono text-foreground">{String(r.min_amount)}</span>}
-                        {r.min_amount && r.max_amount && <span className="mx-1">–</span>}
-                        {r.max_amount && <span className="font-mono text-foreground">{String(r.max_amount)}</span>}
+                        {r.min_amount ? <span className="font-mono text-foreground">{String(r.min_amount)}</span> : null}
+                        {r.min_amount && r.max_amount ? <span className="mx-1">–</span> : null}
+                        {r.max_amount ? <span className="font-mono text-foreground">{String(r.max_amount)}</span> : null}
                       </td>
-                      <td className="px-3 py-3 font-mono text-[12px] text-foreground">{r.available_amount ?? '—'}</td>
+                      <td className="px-3 py-3 font-mono text-[12px] text-foreground">{String(r.available_amount ?? '—')}</td>
                       <td className="px-3 py-3">
                         <span className={`rounded-md px-2 py-0.5 text-[10px] font-semibold capitalize ${
                           isActive ? 'bg-[#0ecb81]/10 text-[#0ecb81]'
@@ -267,8 +267,8 @@ function MyAdsInner() {
                   </div>
                   <p className="font-mono text-lg font-bold text-foreground mb-2">{price}</p>
                   <div className="flex items-center gap-3 text-[11px] text-muted-foreground mb-2.5">
-                    {r.min_amount && <span>Min: <span className="font-mono text-foreground">{String(r.min_amount)}</span></span>}
-                    {r.max_amount && <span>Max: <span className="font-mono text-foreground">{String(r.max_amount)}</span></span>}
+                    {r.min_amount ? <span>Min: <span className="font-mono text-foreground">{String(r.min_amount)}</span></span> : null}
+                    {r.max_amount ? <span>Max: <span className="font-mono text-foreground">{String(r.max_amount)}</span></span> : null}
                   </div>
                   <div className="flex gap-1.5">
                     <button type="button" onClick={() => {
