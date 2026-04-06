@@ -53,18 +53,20 @@ export default function TreasuryPage() {
     queryKey: ['admin', 'treasury', 'stats', token],
     queryFn: () => getTreasuryStats(token),
     enabled: !!token,
-    refetchInterval: 30_000,
-    staleTime: 30_000,
-    retry: 1,
+    refetchInterval: 60_000,
+    staleTime: 60_000,
+    retry: 3,
+    retryDelay: (attempt) => Math.min(2000 * 2 ** attempt, 15000),
   });
 
   const { data: healthData, isLoading: healthLoading, isError: healthError } = useQuery({
     queryKey: ['admin', 'treasury', 'health', token],
     queryFn: () => getTreasuryHealth(token),
     enabled: !!token,
-    refetchInterval: 30_000,
-    staleTime: 30_000,
-    retry: 1,
+    refetchInterval: 60_000,
+    staleTime: 60_000,
+    retry: 3,
+    retryDelay: (attempt) => Math.min(2000 * 2 ** attempt, 15000),
   });
 
   const { data: hotData, isLoading: hotLoading } = useQuery({
@@ -174,7 +176,7 @@ export default function TreasuryPage() {
   const sweepsPayload = sweepsData?.data;
   const sweeps = (sweepsPayload?.sweeps ?? []) as SweepRow[];
   const pagination = sweepsPayload?.pagination;
-  const hasApiError = statsError || healthError;
+  const hasApiError = statsError && healthError;
 
   const handleSweepConfirm = () => {
     const action = sweepModal?.action;
@@ -305,7 +307,9 @@ export default function TreasuryPage() {
             <div>
               <p className="text-sm font-medium text-admin-text">Hot Wallet Liquidity</p>
               <div className="mt-1">
-                {stats?.liquidity_warning ? (
+                {statsLoading ? (
+                  <Badge variant="default">Loading...</Badge>
+                ) : stats?.liquidity_warning ? (
                   <Badge variant="warning">Low Liquidity</Badge>
                 ) : (
                   <Badge variant="success">OK</Badge>
@@ -386,11 +390,7 @@ export default function TreasuryPage() {
           <CardTitle>Cold Wallets</CardTitle>
         </CardHeader>
         <CardContent>
-          {coldLoading ? (
-            <TableSkeleton rows={3} cols={5} />
-          ) : (
-            <ColdWalletsTable rows={coldWallets} />
-          )}
+          <ColdWalletsTable />
         </CardContent>
       </Card>
 

@@ -765,8 +765,10 @@ export async function getLiveBalanceReadOnly(chainId: string): Promise<{ balance
       setTimeout(() => reject(new Error('RPC timeout')), RPC_BALANCE_TIMEOUT_MS)
     );
     const balance = await Promise.race([balancePromise, timeoutPromise]);
+    try { const { recordRpcCall } = await import('./rpc-metrics.service.js'); await recordRpcCall(chainId, true); } catch { /* best-effort */ }
     return { balanceWei: balance.toString() };
-  } catch {
+  } catch (e) {
+    try { const { recordRpcCall } = await import('./rpc-metrics.service.js'); await recordRpcCall(chainId, false, e instanceof Error ? e.message : 'unknown'); } catch { /* best-effort */ }
     return null;
   }
 }
@@ -805,7 +807,9 @@ export async function refreshBalanceCache(
     );
     const balance = await Promise.race([balancePromise, timeoutPromise]);
     balanceStr = balance.toString();
+    try { const { recordRpcCall } = await import('./rpc-metrics.service.js'); await recordRpcCall(chainId, true); } catch { /* best-effort */ }
   } catch (err) {
+    try { const { recordRpcCall } = await import('./rpc-metrics.service.js'); await recordRpcCall(chainId, false, err instanceof Error ? err.message : 'unknown'); } catch { /* best-effort */ }
     const msg = err instanceof Error ? err.message : 'Unknown';
     if (msg.includes('timeout') || msg.includes('TIMEOUT')) {
       throw new HotWalletServiceError(

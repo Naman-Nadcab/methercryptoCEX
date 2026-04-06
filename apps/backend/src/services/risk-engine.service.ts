@@ -378,7 +378,25 @@ export async function logHighRiskToAudit(params: {
 }
 
 /**
- * Evaluate risk, log event, and optionally log to audit if decision is challenge/block.
+ * Persist user risk score to user_risk_scores table (upsert).
+ */
+export async function upsertUserRiskScore(userId: string, score: number, signals: RiskSignals): Promise<void> {
+  const riskLevel = score >= 80 ? 'critical' : score >= 60 ? 'high' : score >= 30 ? 'medium' : 'low';
+  try {
+    await db.query(
+      `INSERT INTO user_risk_scores (user_id, score, risk_level, signals, last_updated)
+       VALUES ($1, $2, $3, $4::jsonb, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         score = $2, risk_level = $3, signals = $4::jsonb, last_updated = NOW()`,
+      [userId, score, riskLevel, JSON.stringify(signals)]
+    );
+  } catch (e) {
+    logger.warn('upsertUserRiskScore failed (best-effort)', { userId, error: e instanceof Error ? e.message : String(e) });
+  }
+}
+
+/**
+ * Evaluate risk, log event, persist score, and optionally log to audit if decision is challenge/block.
  * Returns the result so the caller can allow/challenge/block.
  */
 export async function evaluateAndLogRisk(params: {
@@ -406,6 +424,9 @@ export async function evaluateAndLogRisk(params: {
     signals: result.signals,
     requestId: params.requestId,
   });
+  if (params.actorId && params.actorType === 'user') {
+    await upsertUserRiskScore(params.actorId, result.score, result.signals);
+  }
   if (result.decision !== 'allow') {
     await logHighRiskToAudit({
       requestId: params.requestId,

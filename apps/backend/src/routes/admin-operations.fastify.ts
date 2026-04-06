@@ -6,7 +6,7 @@
 import type { FastifyInstance } from 'fastify';
 import { db } from '../lib/database.js';
 import { logger } from '../lib/logger.js';
-import { getAdminFromRequest } from './admin.fastify.js';
+import { getAdminWithPermission } from './admin.fastify.js';
 import { getMonitoringCounters } from '../services/exchange-monitoring.service.js';
 
 type Period = '24h' | '7d' | '30d';
@@ -14,7 +14,11 @@ const PERIOD_HOURS: Record<Period, number> = { '24h': 24, '7d': 168, '30d': 720 
 
 export default async function adminOperationsRoutes(app: FastifyInstance) {
   app.addHook('preHandler', async (request, reply) => {
-    const admin = await getAdminFromRequest(app, request, reply, false);
+    const isRead = request.method.toUpperCase() === 'GET';
+    const admin = await getAdminWithPermission(
+      app, request, reply,
+      isRead ? 'monitoring:view' : 'control:commands'
+    );
     if (!admin) return;
   });
 

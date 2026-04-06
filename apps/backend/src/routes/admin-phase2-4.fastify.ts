@@ -376,7 +376,7 @@ export default async function adminPhase24Routes(app: FastifyInstance): Promise<
   app.get('/settings/feature-flags', async (_request, reply) => {
     try {
       const rows = await db.query<{ id: string; feature_key: string; name: string; is_enabled: boolean; rollout_percentage: number | null }>(
-        `SELECT id, feature_key, name, is_enabled, COALESCE(rollout_percentage, 100) AS rollout_percentage FROM feature_toggles ORDER BY feature_key`
+        `SELECT id, feature_key, feature_name as name, is_enabled, COALESCE(rollout_percentage, 100) AS rollout_percentage FROM feature_toggles ORDER BY feature_key`
       );
       const list = (rows.rows ?? []).map((r) => ({
         id: r.id,
@@ -415,7 +415,7 @@ export default async function adminPhase24Routes(app: FastifyInstance): Promise<
         }
         if (updates.length === 0) {
           const row = await db.query(
-            `SELECT id, feature_key, name, is_enabled, COALESCE(rollout_percentage, 100) AS rollout_percentage FROM feature_toggles WHERE feature_key = $1`,
+            `SELECT id, feature_key, feature_name as name, is_enabled, COALESCE(rollout_percentage, 100) AS rollout_percentage FROM feature_toggles WHERE feature_key = $1`,
             [key]
           );
           if (row.rows.length === 0) {

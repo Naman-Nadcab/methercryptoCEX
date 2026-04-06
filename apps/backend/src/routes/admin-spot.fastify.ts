@@ -219,7 +219,7 @@ export default async function adminSpotRoutes(app: FastifyInstance) {
     Querystring: { market?: string; status?: string; user_id?: string; limit?: string; offset?: string };
   }>('/orders', async (request, reply) => {
     const market = (request.query.market || '').trim().toUpperCase().replace(/-/g, '_') || null;
-    const status = (request.query.status || '').trim().toUpperCase() || null;
+    const statusRaw = (request.query.status || '').trim().toLowerCase() || null;
     const user_id = (request.query.user_id || '').trim() || null;
     const limit = Math.min(100, Math.max(1, parseInt(request.query.limit || '50', 10) || 50));
     const offset = Math.max(0, parseInt(request.query.offset || '0', 10) || 0);
@@ -228,12 +228,12 @@ export default async function adminSpotRoutes(app: FastifyInstance) {
       const params: unknown[] = [];
       let i = 1;
       if (market) {
-        conditions.push(`o.market = $${i++}`);
+        conditions.push(`tp.symbol = $${i++}`);
         params.push(market);
       }
-      if (status && ['OPEN', 'PARTIALLY_FILLED', 'FILLED', 'CANCELLED', 'REJECTED'].includes(status)) {
+      if (statusRaw && ['new', 'partially_filled', 'filled', 'cancelled', 'rejected', 'expired'].includes(statusRaw)) {
         conditions.push(`o.status = $${i++}`);
-        params.push(status);
+        params.push(statusRaw);
       }
       if (user_id) {
         conditions.push(`o.user_id = $${i++}`);
@@ -241,14 +241,15 @@ export default async function adminSpotRoutes(app: FastifyInstance) {
       }
       const where = conditions.join(' AND ');
       const countRes = await db.query<{ count: string }>(
-        `SELECT COUNT(*)::text as count FROM spot_orders o WHERE ${where}`,
+        `SELECT COUNT(*)::text as count FROM spot_orders o JOIN trading_pairs tp ON o.trading_pair_id = tp.id WHERE ${where}`,
         params
       );
       const total = parseInt(countRes.rows[0]?.count || '0', 10);
       params.push(limit, offset);
       const result = await db.query(
-        `SELECT o.id, o.user_id, o.market, o.side, o.type, o.price::text, o.quantity::text, o.filled_quantity::text, o.status, o.client_order_id, o.created_at
+        `SELECT o.id, o.user_id, tp.symbol as market, o.side::text, o.order_type::text as type, o.price::text, o.quantity::text, o.filled_quantity::text, o.status::text, o.client_order_id, o.created_at
          FROM spot_orders o
+         JOIN trading_pairs tp ON o.trading_pair_id = tp.id
          WHERE ${where}
          ORDER BY o.created_at DESC
          LIMIT $${i} OFFSET $${i + 1}`,

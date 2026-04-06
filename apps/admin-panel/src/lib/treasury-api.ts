@@ -121,6 +121,91 @@ export function getTreasuryColdWallets(token: string | null) {
   return adminFetch<ColdWalletRow[]>('/treasury/cold-wallets', { token });
 }
 
+export interface ColdWalletFull {
+  id: string;
+  chain: string;
+  address: string;
+  label: string | null;
+  balance: string;
+  is_active: boolean;
+  is_primary: boolean;
+  created_at: string;
+  updated_at?: string;
+}
+
+export function getColdWallets(token: string | null) {
+  return adminFetch<ColdWalletFull[]>('/cold-wallets', { token });
+}
+
+export function createColdWallet(token: string | null, body: { chain: string; address: string; label?: string; is_primary?: boolean }) {
+  return adminFetch<ColdWalletFull>('/cold-wallets', { method: 'POST', token, body });
+}
+
+export function patchColdWallet(token: string | null, id: string, body: { label?: string; is_active?: boolean; is_primary?: boolean; balance?: string }) {
+  return adminFetch<ColdWalletFull>(`/cold-wallets/${encodeURIComponent(id)}`, { method: 'PATCH', token, body });
+}
+
+export function deleteColdWallet(token: string | null, id: string) {
+  return adminFetch<{ deleted: boolean }>(`/cold-wallets/${encodeURIComponent(id)}`, { method: 'DELETE', token });
+}
+
+// Treasury Rules
+export interface TreasuryRule {
+  id: string;
+  rule_key: string;
+  rule_value: unknown;
+  description: string | null;
+  is_active: boolean;
+  updated_at: string;
+  updated_by: string | null;
+}
+
+export function getTreasuryRules(token: string | null) {
+  return adminFetch<TreasuryRule[]>('/treasury/rules', { token });
+}
+
+export function patchTreasuryRule(token: string | null, key: string, body: { rule_value?: unknown; is_active?: boolean }) {
+  return adminFetch<TreasuryRule>(`/treasury/rules/${encodeURIComponent(key)}`, { method: 'PATCH', token, body });
+}
+
+// Cold Wallet Allocations
+export interface ColdWalletAllocation {
+  id: string;
+  chain: string;
+  cold_wallet_id: string;
+  allocation_percent: number;
+  is_active: boolean;
+  wallet_address?: string;
+  wallet_label?: string;
+}
+
+export function getTreasuryAllocations(token: string | null) {
+  return adminFetch<ColdWalletAllocation[]>('/treasury/allocations', { token });
+}
+
+export function createTreasuryAllocation(token: string | null, body: { chain: string; cold_wallet_id: string; allocation_percent: number }) {
+  return adminFetch<ColdWalletAllocation>('/treasury/allocations', { method: 'POST', token, body });
+}
+
+export function deleteTreasuryAllocation(token: string | null, id: string) {
+  return adminFetch<{ deleted: boolean }>(`/treasury/allocations/${encodeURIComponent(id)}`, { method: 'DELETE', token });
+}
+
+// Treasury Audit Logs
+export interface TreasuryAuditLog {
+  id: string;
+  admin_id: string | null;
+  action: string;
+  resource_type: string | null;
+  resource_id: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export function getTreasuryAuditLogs(token: string | null, limit?: number) {
+  return adminFetch<TreasuryAuditLog[]>(`/treasury/audit-logs${limit ? `?limit=${limit}` : ''}`, { token });
+}
+
 export function getTreasurySweeps(
   token: string | null,
   params?: { page?: number; limit?: number; chain_id?: string; status?: string }

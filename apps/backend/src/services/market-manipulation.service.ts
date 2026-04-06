@@ -233,10 +233,15 @@ export async function createManipulationAlerts(
     }
   }
   for (const s of pumpSignals) {
-    logger.warn('Pump signal detected (no user_id for aml_alerts)', {
-      market: s.market,
-      priceChangePct: s.priceChangePct,
-      volumeSpike: s.volumeSpike,
-    });
+    try {
+      await db.query(
+        `INSERT INTO aml_alerts (user_id, alert_type, severity, status, details)
+         VALUES (NULL, 'pump_detection', 'high', 'open', $1::jsonb)`,
+        [JSON.stringify({ market: s.market, priceChangePct: s.priceChangePct, volumeSpike: s.volumeSpike, windowMinutes: s.windowMinutes })]
+      );
+      logger.info('Pump detection alert persisted', { market: s.market });
+    } catch (e) {
+      logger.warn('Failed to create pump detection alert', { market: s.market, error: e instanceof Error ? e.message : String(e) });
+    }
   }
 }

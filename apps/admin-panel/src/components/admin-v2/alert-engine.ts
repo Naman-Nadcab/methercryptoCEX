@@ -53,22 +53,22 @@ const ALERT_RULES: AlertRule[] = [
   {
     id: 'engine-latency',
     source: 'Engine',
-    evaluate: (m) => m.engineLatencyMs > 800 ? 'critical' : m.engineLatencyMs > 200 ? 'warning' : null,
-    message: (m) => `Engine latency ${m.engineLatencyMs > 800 ? 'critical' : 'elevated'}: ${m.engineLatencyMs}ms`,
+    evaluate: (m) => m.engineLatencyMs > 5000 ? 'critical' : m.engineLatencyMs > 3000 ? 'warning' : null,
+    message: (m) => `Engine latency ${m.engineLatencyMs > 5000 ? 'critical' : 'elevated'}: ${m.engineLatencyMs}ms`,
     navTarget: '/monitoring',
   },
   {
     id: 'p99-latency',
     source: 'Engine',
-    evaluate: (m) => m.p99LatencyMs > 2000 ? 'critical' : m.p99LatencyMs > 800 ? 'warning' : null,
-    message: (m) => `P99 latency ${m.p99LatencyMs > 2000 ? 'critical' : 'elevated'}: ${m.p99LatencyMs}ms`,
+    evaluate: (m) => m.p99LatencyMs > 8000 ? 'critical' : m.p99LatencyMs > 5000 ? 'warning' : null,
+    message: (m) => `P99 latency ${m.p99LatencyMs > 8000 ? 'critical' : 'elevated'}: ${m.p99LatencyMs}ms`,
     navTarget: '/monitoring',
   },
   {
     id: 'api-latency',
     source: 'API',
-    evaluate: (m) => m.apiLatencyMs > 800 ? 'critical' : m.apiLatencyMs > 200 ? 'warning' : null,
-    message: (m) => `API latency ${m.apiLatencyMs > 800 ? 'critical' : 'elevated'}: ${m.apiLatencyMs}ms`,
+    evaluate: (m) => m.apiLatencyMs > 3000 ? 'critical' : m.apiLatencyMs > 1500 ? 'warning' : null,
+    message: (m) => `API latency ${m.apiLatencyMs > 3000 ? 'critical' : 'elevated'}: ${m.apiLatencyMs}ms`,
     navTarget: '/monitoring',
   },
   {
@@ -109,7 +109,7 @@ const ALERT_RULES: AlertRule[] = [
   {
     id: 'db-latency',
     source: 'Database',
-    evaluate: (m) => m.dbLatencyMs > 800 ? 'critical' : m.dbLatencyMs > 200 ? 'warning' : null,
+    evaluate: (m) => m.dbLatencyMs > 2000 ? 'critical' : m.dbLatencyMs > 500 ? 'warning' : null,
     message: (m) => `Database latency: ${m.dbLatencyMs}ms`,
     navTarget: '/monitoring',
   },
@@ -168,11 +168,11 @@ export function evaluateAlerts(metrics: ExchangeMetrics): SystemAlert[] {
 export function computeHealthScore(metrics: ExchangeMetrics): number {
   let score = 100;
 
-  if (metrics.engineLatencyMs > 800) score -= 25;
-  else if (metrics.engineLatencyMs > 200) score -= 8;
+  if (metrics.engineLatencyMs > 5000) score -= 25;
+  else if (metrics.engineLatencyMs > 3000) score -= 8;
 
-  if (metrics.apiLatencyMs > 800) score -= 15;
-  else if (metrics.apiLatencyMs > 200) score -= 5;
+  if (metrics.apiLatencyMs > 3000) score -= 15;
+  else if (metrics.apiLatencyMs > 1500) score -= 5;
 
   if (metrics.apiErrorRate > 10) score -= 25;
   else if (metrics.apiErrorRate > 5) score -= 10;
@@ -185,8 +185,8 @@ export function computeHealthScore(metrics: ExchangeMetrics): number {
 
   if (metrics.tradingHalted) score -= 25;
 
-  if (metrics.dbLatencyMs > 800) score -= 10;
-  else if (metrics.dbLatencyMs > 200) score -= 3;
+  if (metrics.dbLatencyMs > 2000) score -= 10;
+  else if (metrics.dbLatencyMs > 500) score -= 3;
 
   if (metrics.settlementPending > 500) score -= 10;
   else if (metrics.settlementPending > 200) score -= 5;

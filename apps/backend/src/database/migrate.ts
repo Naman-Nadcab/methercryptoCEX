@@ -2966,6 +2966,91 @@ const migrations = [
   );`,
   `CREATE INDEX IF NOT EXISTS idx_p2p_merchant_applications_status ON p2p_merchant_applications(status);`,
   `CREATE INDEX IF NOT EXISTS idx_p2p_merchant_applications_user ON p2p_merchant_applications(user_id);`,
+
+  // Cold Wallets — add missing columns to existing table
+  `ALTER TABLE cold_wallets ADD COLUMN IF NOT EXISTS label VARCHAR(100);`,
+  `ALTER TABLE cold_wallets ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;`,
+  `ALTER TABLE cold_wallets ADD COLUMN IF NOT EXISTS is_primary BOOLEAN NOT NULL DEFAULT FALSE;`,
+  `ALTER TABLE cold_wallets ADD COLUMN IF NOT EXISTS balance NUMERIC(36,18) NOT NULL DEFAULT 0;`,
+  `CREATE INDEX IF NOT EXISTS idx_cold_wallets_chain ON cold_wallets(chain_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_cold_wallets_primary ON cold_wallets(is_primary) WHERE is_primary = TRUE;`,
+
+  // Treasury Audit Logs
+  `CREATE TABLE IF NOT EXISTS treasury_audit_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    admin_id UUID,
+    action VARCHAR(100) NOT NULL,
+    resource_type VARCHAR(50),
+    resource_id VARCHAR(255),
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_treasury_audit_created ON treasury_audit_logs(created_at DESC);`,
+  `CREATE INDEX IF NOT EXISTS idx_treasury_audit_action ON treasury_audit_logs(action);`,
+
+  // Treasury Rules (sweep configuration)
+  `CREATE TABLE IF NOT EXISTS treasury_rules (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    rule_key VARCHAR(100) UNIQUE NOT NULL,
+    rule_value JSONB NOT NULL,
+    description TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(255)
+  );`,
+  `INSERT INTO treasury_rules (rule_key, rule_value, description) VALUES
+    ('min_sweep_amount', '"1000000000000000"', 'Minimum amount in wei to trigger sweep'),
+    ('max_gas_fee', '"50000000000"', 'Maximum gas fee in wei'),
+    ('auto_sweep_enabled', 'true', 'Enable automatic deposit sweeping'),
+    ('priority_mode', '"balanced"', 'Gas priority: fast, balanced, cheap'),
+    ('sweep_batch_size', '10', 'Max deposits to sweep per batch'),
+    ('sweep_cooldown_sec', '300', 'Min seconds between sweeps per chain')
+   ON CONFLICT (rule_key) DO NOTHING;`,
+
+  // Cold Wallet Allocations
+  `CREATE TABLE IF NOT EXISTS cold_wallet_allocations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    chain VARCHAR(50) NOT NULL,
+    cold_wallet_id UUID NOT NULL REFERENCES cold_wallets(id) ON DELETE CASCADE,
+    allocation_percent INTEGER NOT NULL CHECK (allocation_percent >= 0 AND allocation_percent <= 100),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_cw_alloc_chain ON cold_wallet_allocations(chain);`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_cw_alloc_unique ON cold_wallet_allocations(chain, cold_wallet_id);`,
+
+  // Allow NULL user_id in aml_alerts for market-wide alerts (pump detection)
+  `DO $$ BEGIN
+     ALTER TABLE aml_alerts ALTER COLUMN user_id DROP NOT NULL;
+     ALTER TABLE aml_alerts DROP CONSTRAINT IF EXISTS aml_alerts_user_id_fkey;
+     ALTER TABLE aml_alerts ADD CONSTRAINT aml_alerts_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+   EXCEPTION WHEN OTHERS THEN NULL;
+   END $$;`,
+
+  // Persistent user risk scores
+  `CREATE TABLE IF NOT EXISTS user_risk_scores (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    score INT NOT NULL DEFAULT 0,
+    risk_level TEXT NOT NULL DEFAULT 'low' CHECK (risk_level IN ('low', 'medium', 'high', 'critical')),
+    signals JSONB DEFAULT '{}',
+    last_updated TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_user_risk_scores_level ON user_risk_scores(risk_level);`,
+  `CREATE INDEX IF NOT EXISTS idx_user_risk_scores_score ON user_risk_scores(score DESC);`,
+
+  // RPC metrics tracking table
+  `CREATE TABLE IF NOT EXISTS rpc_metrics (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    chain TEXT NOT NULL,
+    total_requests INT NOT NULL DEFAULT 0,
+    failed_requests INT NOT NULL DEFAULT 0,
+    last_failure_reason TEXT,
+    window_start TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    window_end TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT (CURRENT_TIMESTAMP + INTERVAL '5 minutes'),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_rpc_metrics_chain_window ON rpc_metrics(chain, window_start DESC);`,
 ];
 
 /** True if this migration SQL touches the legacy "balances" table (not user_balances). Run such steps via raw pool so runtime guard does not block. */

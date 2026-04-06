@@ -59,7 +59,11 @@ async function getMetricFromDb(metricKey: string): Promise<number | null> {
       const r = await db.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM withdrawals WHERE status = 'pending'`);
       return parseInt(r.rows[0]?.n ?? '0', 10) || 0;
     }
-    if (metricKey === 'rpc_failure_percentage' || metricKey === 'matching_engine_latency') {
+    if (metricKey === 'rpc_failure_percentage') {
+      const rpcVal = await redis.get('safety_metrics:rpc_failure_percentage');
+      return rpcVal != null ? (Number(rpcVal) || 0) : 0;
+    }
+    if (metricKey === 'matching_engine_latency') {
       return 0;
     }
     return null;

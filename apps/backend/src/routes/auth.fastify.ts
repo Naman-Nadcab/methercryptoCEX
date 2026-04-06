@@ -2797,9 +2797,14 @@ export default async function authRoutes(app: FastifyInstance) {
 
       logger.info('Password changed', { userId });
 
+      try {
+        const { addCooldown } = await import('../services/security-cooldown.service.js');
+        await addCooldown({ userId, reason: 'password_change', hours: 0.5 });
+      } catch (e) { logger.warn('Failed to set cooldown after password change', { userId, error: e instanceof Error ? e.message : String(e) }); }
+
       return reply.send({
         success: true,
-        data: { message: 'Password changed successfully' },
+        data: { message: 'Password changed successfully. Withdrawals blocked for 30 minutes.' },
       });
 
     } catch (error) {
@@ -2966,9 +2971,14 @@ export default async function authRoutes(app: FastifyInstance) {
 
       logger.info('Email changed', { userId, newEmail });
 
+      try {
+        const { addCooldown } = await import('../services/security-cooldown.service.js');
+        await addCooldown({ userId, reason: 'email_change', hours: 0.5 });
+      } catch (e) { logger.warn('Failed to set cooldown after email change', { userId, error: e instanceof Error ? e.message : String(e) }); }
+
       return reply.send({
         success: true,
-        data: { message: 'Email changed successfully' },
+        data: { message: 'Email changed successfully. Withdrawals blocked for 30 minutes.' },
       });
 
     } catch (error) {
@@ -3036,9 +3046,14 @@ export default async function authRoutes(app: FastifyInstance) {
 
       logger.info('Phone changed', { userId, newPhone: cleanPhone });
 
+      try {
+        const { addCooldown } = await import('../services/security-cooldown.service.js');
+        await addCooldown({ userId, reason: 'phone_change', hours: 0.5 });
+      } catch (e) { logger.warn('Failed to set cooldown after phone change', { userId, error: e instanceof Error ? e.message : String(e) }); }
+
       return reply.send({
         success: true,
-        data: { message: 'Phone number changed successfully' },
+        data: { message: 'Phone number changed successfully. Withdrawals blocked for 30 minutes.' },
       });
 
     } catch (error) {
@@ -3602,9 +3617,14 @@ export default async function authRoutes(app: FastifyInstance) {
 
       logger.info('2FA enabled', { userId });
 
+      try {
+        const { addCooldown } = await import('../services/security-cooldown.service.js');
+        await addCooldown({ userId, reason: '2fa_enable', hours: 0.5 });
+      } catch (e) { logger.warn('Failed to set cooldown after 2FA enable', { userId, error: e instanceof Error ? e.message : String(e) }); }
+
       return reply.send({
         success: true,
-        data: { message: '2FA enabled successfully' },
+        data: { message: '2FA enabled successfully. Withdrawals blocked for 30 minutes.' },
       });
 
     } catch (error) {
@@ -3813,9 +3833,14 @@ export default async function authRoutes(app: FastifyInstance) {
 
       logger.info('2FA disabled', { userId });
 
+      try {
+        const { addCooldown } = await import('../services/security-cooldown.service.js');
+        await addCooldown({ userId, reason: '2fa_disable', hours: 0.5 });
+      } catch (e) { logger.warn('Failed to set cooldown after 2FA disable', { userId, error: e instanceof Error ? e.message : String(e) }); }
+
       return reply.send({
         success: true,
-        data: { message: '2FA disabled successfully' },
+        data: { message: '2FA disabled successfully. Withdrawals blocked for 30 minutes.' },
       });
 
     } catch (error) {

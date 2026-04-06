@@ -332,9 +332,52 @@ export async function getAdminForWithdrawalApproval(
   return getAdminWithPermission(app, request, reply, 'withdrawals:approve');
 }
 
+/**
+ * URL pattern → required permission mapping for the global RBAC preHandler.
+ * Super admins bypass all checks. Routes not matching any pattern fall through to
+ * per-handler getAdminFromRequest (auth-only, backward compatible).
+ */
+const ROUTE_PERMISSION_MAP: Array<{ pattern: RegExp; read: string; write: string }> = [
+  { pattern: /^\/(users|search|kyc)/, read: 'users:view', write: 'users:edit' },
+  { pattern: /^\/(withdrawals|deposits|treasury|funds|hot-wallets|deposit-sweeps|wallets)/, read: 'withdrawals:view', write: 'withdrawals:approve' },
+  { pattern: /^\/(trading|trading-halt|matches|settlement|spot)/, read: 'monitoring:view', write: 'control:trading' },
+  { pattern: /^\/(risk|aml)/, read: 'aml:view', write: 'aml:escalate' },
+  { pattern: /^\/(system|settings|control|safe-mode)/, read: 'settings:view', write: 'settings:edit' },
+  { pattern: /^\/(monitoring|analytics|liquidity-bot|dashboard)/, read: 'analytics:view', write: 'analytics:view' },
+  { pattern: /^\/(audit|security)/, read: 'audit:view', write: 'audit:view' },
+  { pattern: /^\/(fees|staking|markets|announcements|notifications|support|p2p|referral)/, read: 'monitoring:view', write: 'settings:edit' },
+  { pattern: /^\/(admin-users|roles)/, read: 'settings:view', write: 'settings:edit' },
+];
+
 export default async function adminRoutes(app: FastifyInstance) {
 
-  app.addHook('onRequest', rateLimitByIp('admin-api', 200, 60));
+  app.addHook('onRequest', rateLimitByIp('admin-api', 600, 60));
+
+  app.addHook('preHandler', async (request, reply) => {
+    const url = request.url.replace(/^\/api\/v1\/admin/, '').split('?')[0] || '/';
+    if (url.startsWith('/auth/') || url.startsWith('/ws/')) return;
+
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+
+    const role = (admin.role || '').toLowerCase().replace(/\s+/g, '_');
+    if (SUPER_ROLES.some((r) => r.toLowerCase().replace(/\s+/g, '_') === role)) return;
+
+    const isWrite = ['POST', 'PATCH', 'PUT', 'DELETE'].includes(request.method.toUpperCase());
+    for (const rule of ROUTE_PERMISSION_MAP) {
+      if (rule.pattern.test(url)) {
+        const required = isWrite ? rule.write : rule.read;
+        if (!hasPermission(role, required)) {
+          reply.status(403).send({
+            success: false,
+            error: { code: 'FORBIDDEN', message: `Permission '${required}' required for this action.` },
+          });
+          return;
+        }
+        return;
+      }
+    }
+  });
 
   /**
    * WebSocket: /api/v1/admin/ws/metrics — real-time admin metrics (trade, order, deposit, withdrawal, p2p, aml).
@@ -3655,6 +3698,23 @@ export default async function adminRoutes(app: FastifyInstance) {
   // ===============================
 
   /**
+   * GET /admin/monitoring/rpc-metrics
+   * Current RPC call success/failure stats from Redis counters.
+   */
+  app.get('/monitoring/rpc-metrics', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const { getRpcMetrics } = await import('../services/rpc-metrics.service.js');
+      const data = await getRpcMetrics();
+      return reply.send({ success: true, data });
+    } catch (e) {
+      logger.error('Get RPC metrics error', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to load RPC metrics' } });
+    }
+  });
+
+  /**
    * GET /admin/monitoring/health
    * Infrastructure dashboard: API latency, DB health, Redis health, WS connections.
    */
@@ -4553,7 +4613,7 @@ export default async function adminRoutes(app: FastifyInstance) {
           COALESCE(SUM(ub.available_balance + ub.locked_balance), 0) as total_balance,
           k.status as kyc_status,
           k.kyc_level,
-          (SELECT COALESCE(SUM(st.price * st.quantity), 0)::text FROM spot_trades st WHERE st.user_id = u.id AND st.created_at > NOW() - INTERVAL '30 days') as volume_30d,
+          (SELECT COALESCE(SUM(st.price * st.quantity), 0)::text FROM spot_trades st WHERE (st.maker_user_id = u.id OR st.taker_user_id = u.id) AND st.created_at > NOW() - INTERVAL '30 days') as volume_30d,
           (SELECT COUNT(*)::int FROM aml_alerts a WHERE a.user_id = u.id AND a.status IN ('open','reviewing')) as aml_alert_count,
           (SELECT COUNT(*)::int FROM user_activity_logs ua WHERE ua.user_id = u.id AND ua.activity_type = 'login_failed' AND ua.created_at > NOW() - INTERVAL '7 days') as login_fail_7d,
           (SELECT COUNT(*)::int FROM withdrawals w WHERE w.user_id = u.id AND w.created_at > NOW() - INTERVAL '30 days') as withdrawal_count_30d
@@ -6542,11 +6602,11 @@ export default async function adminRoutes(app: FastifyInstance) {
         SELECT 
           COUNT(*)::text as total,
           COUNT(*) FILTER (WHERE status = 'pending_approval')::text as pending_approval,
-          COUNT(*) FILTER (WHERE status = 'pending')::text as pending,
+          COUNT(*) FILTER (WHERE status IN ('pending_email_verify','pending_2fa','pending_blockchain'))::text as pending,
           COUNT(*) FILTER (WHERE status = 'processing')::text as processing,
           COUNT(*) FILTER (WHERE status = 'completed')::text as completed,
           COUNT(*) FILTER (WHERE status = 'failed')::text as failed,
-          COUNT(*) FILTER (WHERE status = 'cancelled')::text as cancelled
+          COUNT(*) FILTER (WHERE status IN ('cancelled','rejected'))::text as cancelled
         FROM withdrawals
       `);
 
@@ -7203,6 +7263,243 @@ export default async function adminRoutes(app: FastifyInstance) {
     }
   });
 
+  // ===============================
+  // COLD WALLETS — standalone CRUD
+  // ===============================
+
+  app.get('/cold-wallets', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const hasTable = await db.query<{ exists: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='cold_wallets') AS exists`
+      ).then(r => r.rows[0]?.exists === true).catch(() => false);
+      if (!hasTable) return reply.send({ success: true, data: [] });
+      const rows = await db.query(
+        `SELECT id, chain_id as chain, address, COALESCE(label, '') as label, COALESCE(balance, 0)::text as balance, COALESCE(is_active, TRUE) as is_active, COALESCE(is_primary, FALSE) as is_primary, created_at, updated_at FROM cold_wallets ORDER BY is_primary DESC NULLS LAST, created_at DESC`
+      );
+      return reply.send({ success: true, data: rows.rows });
+    } catch (e) {
+      logger.error('Cold wallets list error', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to list cold wallets' } });
+    }
+  });
+
+  app.post<{ Body: { chain: string; address: string; label?: string; is_primary?: boolean } }>('/cold-wallets', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, true);
+    if (!admin) return;
+    try {
+      const { chain, address, label, is_primary } = request.body ?? {};
+      if (!chain?.trim() || !address?.trim()) {
+        return reply.status(400).send({ success: false, error: { code: 'INVALID_INPUT', message: 'chain and address are required' } });
+      }
+      if (is_primary) {
+        await db.query(`UPDATE cold_wallets SET is_primary = FALSE WHERE is_primary = TRUE`);
+      }
+      const row = await db.query(
+        `INSERT INTO cold_wallets (chain_id, address, label, is_primary) VALUES ($1, $2, $3, $4) RETURNING id, chain_id as chain, address, label, COALESCE(balance, 0)::text as balance, COALESCE(is_active, TRUE) as is_active, is_primary, created_at`,
+        [chain.trim(), address.trim(), label?.trim() || null, is_primary ?? false]
+      );
+      db.query(
+        `INSERT INTO treasury_audit_logs (admin_id, action, resource_type, resource_id, metadata) VALUES ($1, 'cold_wallet_created', 'cold_wallets', $2, $3::jsonb)`,
+        [admin.adminId, row.rows[0]?.id, JSON.stringify({ chain, address, label, is_primary })]
+      ).catch(() => {});
+      return reply.status(201).send({ success: true, data: row.rows[0] });
+    } catch (e) {
+      logger.error('Cold wallet create error', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'CREATE_FAILED', message: 'Failed to create cold wallet' } });
+    }
+  });
+
+  app.patch<{ Params: { id: string }; Body: { label?: string; is_active?: boolean; is_primary?: boolean; balance?: string } }>('/cold-wallets/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, true);
+    if (!admin) return;
+    try {
+      const { id } = request.params;
+      const { label, is_active, is_primary, balance } = request.body ?? {};
+      if (is_primary === true) {
+        await db.query(`UPDATE cold_wallets SET is_primary = FALSE WHERE is_primary = TRUE AND id != $1`, [id]);
+      }
+      const updates: string[] = ['updated_at = NOW()'];
+      const params: unknown[] = [];
+      let i = 1;
+      if (label !== undefined) { updates.push(`label = $${i++}`); params.push(label); }
+      if (is_active !== undefined) { updates.push(`is_active = $${i++}`); params.push(is_active); }
+      if (is_primary !== undefined) { updates.push(`is_primary = $${i++}`); params.push(is_primary); }
+      if (balance !== undefined) { updates.push(`balance = $${i++}::numeric`); params.push(balance); }
+      params.push(id);
+      const row = await db.query(
+        `UPDATE cold_wallets SET ${updates.join(', ')} WHERE id = $${i} RETURNING id, chain_id as chain, address, label, COALESCE(balance, 0)::text as balance, COALESCE(is_active, TRUE) as is_active, is_primary, created_at, updated_at`,
+        params
+      );
+      if (row.rows.length === 0) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Cold wallet not found' } });
+      }
+      return reply.send({ success: true, data: row.rows[0] });
+    } catch (e) {
+      logger.error('Cold wallet update error', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'UPDATE_FAILED', message: 'Failed to update' } });
+    }
+  });
+
+  app.delete<{ Params: { id: string } }>('/cold-wallets/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, true);
+    if (!admin) return;
+    try {
+      const result = await db.query('DELETE FROM cold_wallets WHERE id = $1 RETURNING id', [request.params.id]);
+      if (result.rows.length === 0) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Cold wallet not found' } });
+      }
+      return reply.send({ success: true, data: { deleted: true } });
+    } catch (e) {
+      logger.error('Cold wallet delete error', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'DELETE_FAILED', message: 'Failed to delete' } });
+    }
+  });
+
+  // ===============================
+  // TREASURY RULES (sweep configuration)
+  // ===============================
+
+  app.get('/treasury/rules', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const hasTable = await db.query<{ exists: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='treasury_rules') AS exists`
+      ).then(r => r.rows[0]?.exists === true).catch(() => false);
+      if (!hasTable) return reply.send({ success: true, data: [] });
+      const rows = await db.query('SELECT id, rule_key, rule_value, description, is_active, updated_at, updated_by FROM treasury_rules ORDER BY rule_key');
+      return reply.send({ success: true, data: rows.rows });
+    } catch (e) {
+      logger.error('Treasury rules list error', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to fetch rules' } });
+    }
+  });
+
+  app.patch<{ Params: { key: string }; Body: { rule_value?: unknown; is_active?: boolean } }>('/treasury/rules/:key', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, true);
+    if (!admin) return;
+    try {
+      const { key } = request.params;
+      const { rule_value, is_active } = request.body ?? {};
+      const updates: string[] = ['updated_at = NOW()', `updated_by = '${admin.adminId}'`];
+      const params: unknown[] = [];
+      let i = 1;
+      if (rule_value !== undefined) { updates.push(`rule_value = $${i++}::jsonb`); params.push(JSON.stringify(rule_value)); }
+      if (is_active !== undefined) { updates.push(`is_active = $${i++}`); params.push(is_active); }
+      params.push(key);
+      const row = await db.query(
+        `UPDATE treasury_rules SET ${updates.join(', ')} WHERE rule_key = $${i} RETURNING *`,
+        params
+      );
+      if (row.rows.length === 0) return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Rule not found' } });
+      await db.query(
+        `INSERT INTO treasury_audit_logs (admin_id, action, resource_type, resource_id, metadata) VALUES ($1, 'rule_updated', 'treasury_rules', $2, $3::jsonb)`,
+        [admin.adminId, key, JSON.stringify({ rule_value, is_active })]
+      ).catch(() => {});
+      return reply.send({ success: true, data: row.rows[0] });
+    } catch (e) {
+      logger.error('Treasury rule update error', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'UPDATE_FAILED', message: 'Failed to update rule' } });
+    }
+  });
+
+  // ===============================
+  // COLD WALLET ALLOCATIONS
+  // ===============================
+
+  app.get('/treasury/allocations', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const hasTable = await db.query<{ exists: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='cold_wallet_allocations') AS exists`
+      ).then(r => r.rows[0]?.exists === true).catch(() => false);
+      if (!hasTable) return reply.send({ success: true, data: [] });
+      const rows = await db.query(
+        `SELECT a.id, a.chain, a.cold_wallet_id, a.allocation_percent, a.is_active, a.created_at, a.updated_at,
+                cw.address as wallet_address, cw.label as wallet_label
+         FROM cold_wallet_allocations a
+         LEFT JOIN cold_wallets cw ON a.cold_wallet_id = cw.id
+         ORDER BY a.chain, a.allocation_percent DESC`
+      );
+      return reply.send({ success: true, data: rows.rows });
+    } catch (e) {
+      logger.error('Allocations list error', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to fetch allocations' } });
+    }
+  });
+
+  app.post<{ Body: { chain: string; cold_wallet_id: string; allocation_percent: number } }>('/treasury/allocations', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, true);
+    if (!admin) return;
+    try {
+      const { chain, cold_wallet_id, allocation_percent } = request.body ?? {};
+      if (!chain || !cold_wallet_id || allocation_percent == null) {
+        return reply.status(400).send({ success: false, error: { code: 'INVALID_INPUT', message: 'chain, cold_wallet_id, allocation_percent required' } });
+      }
+      const row = await db.query(
+        `INSERT INTO cold_wallet_allocations (chain, cold_wallet_id, allocation_percent)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (chain, cold_wallet_id) DO UPDATE SET allocation_percent = $3, updated_at = NOW()
+         RETURNING *`,
+        [chain, cold_wallet_id, Math.max(0, Math.min(100, allocation_percent))]
+      );
+      await db.query(
+        `INSERT INTO treasury_audit_logs (admin_id, action, resource_type, resource_id, metadata) VALUES ($1, 'allocation_set', 'cold_wallet_allocations', $2, $3::jsonb)`,
+        [admin.adminId, cold_wallet_id, JSON.stringify({ chain, allocation_percent })]
+      ).catch(() => {});
+      return reply.send({ success: true, data: row.rows[0] });
+    } catch (e) {
+      logger.error('Allocation create error', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'CREATE_FAILED', message: 'Failed to set allocation' } });
+    }
+  });
+
+  app.delete<{ Params: { id: string } }>('/treasury/allocations/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, true);
+    if (!admin) return;
+    try {
+      const result = await db.query('DELETE FROM cold_wallet_allocations WHERE id = $1 RETURNING id', [request.params.id]);
+      if (result.rows.length === 0) return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Allocation not found' } });
+      await db.query(
+        `INSERT INTO treasury_audit_logs (admin_id, action, resource_type, resource_id, metadata) VALUES ($1, 'allocation_deleted', 'cold_wallet_allocations', $2, '{}')`,
+        [admin.adminId, request.params.id]
+      ).catch(() => {});
+      return reply.send({ success: true, data: { deleted: true } });
+    } catch (e) {
+      return reply.status(500).send({ success: false, error: { code: 'DELETE_FAILED', message: 'Failed to delete' } });
+    }
+  });
+
+  // ===============================
+  // TREASURY AUDIT LOGS
+  // ===============================
+
+  app.get<{ Querystring: { limit?: string; action?: string } }>('/treasury/audit-logs', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const hasTable = await db.query<{ exists: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='treasury_audit_logs') AS exists`
+      ).then(r => r.rows[0]?.exists === true).catch(() => false);
+      if (!hasTable) return reply.send({ success: true, data: [] });
+      const limit = Math.min(100, parseInt(request.query.limit || '50', 10) || 50);
+      const action = request.query.action?.trim() || null;
+      let sql = 'SELECT id, admin_id, action, resource_type, resource_id, metadata, created_at FROM treasury_audit_logs';
+      const params: unknown[] = [];
+      if (action) { sql += ' WHERE action = $1'; params.push(action); }
+      sql += ' ORDER BY created_at DESC LIMIT $' + (params.length + 1);
+      params.push(limit);
+      const rows = await db.query(sql, params);
+      return reply.send({ success: true, data: rows.rows });
+    } catch (e) {
+      logger.error('Treasury audit logs error', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to fetch audit logs' } });
+    }
+  });
+
   /**
    * GET /admin/treasury/sweeps
    * List deposit sweeps (same as GET /admin/deposit-sweeps). Paginated.
@@ -7618,6 +7915,33 @@ export default async function adminRoutes(app: FastifyInstance) {
   });
 
   /**
+   * GET /admin/risk/users/:userId/score
+   * Persistent risk score for a user from user_risk_scores.
+   */
+  app.get<{ Params: { userId: string } }>('/risk/users/:userId/score', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    const userId = (request.params as { userId: string }).userId;
+    try {
+      const row = await db.query<{ score: string; risk_level: string; signals: unknown; last_updated: string }>(
+        `SELECT score::text, risk_level, signals, last_updated::text FROM user_risk_scores WHERE user_id = $1`,
+        [userId]
+      );
+      if (row.rows.length === 0) {
+        return reply.send({ success: true, data: { score: 0, risk_level: 'low', signals: {}, last_updated: null, persisted: false } });
+      }
+      const r = row.rows[0]!;
+      return reply.send({
+        success: true,
+        data: { score: parseInt(r.score, 10), risk_level: r.risk_level, signals: r.signals, last_updated: r.last_updated, persisted: true },
+      });
+    } catch (e) {
+      logger.error('Get user risk score error', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to load risk score' } });
+    }
+  });
+
+  /**
    * GET /admin/risk/automation-rules
    */
   app.get('/risk/automation-rules', async (request, reply) => {
@@ -7657,6 +7981,11 @@ export default async function adminRoutes(app: FastifyInstance) {
       if (typeof body.auto_freeze_risk_threshold === 'number') updates.push({ key: 'auto_freeze_risk_threshold', value: body.auto_freeze_risk_threshold });
       if (typeof body.auto_alert_withdrawal_threshold === 'number') updates.push({ key: 'auto_alert_withdrawal_threshold', value: body.auto_alert_withdrawal_threshold });
       if (typeof body.auto_alert_cancel_rate_threshold === 'number') updates.push({ key: 'auto_alert_cancel_rate_threshold', value: body.auto_alert_cancel_rate_threshold });
+      const oldStored = await db.query<{ key: string; value: unknown }>(
+        `SELECT key, value FROM risk_automation_rules WHERE key IN ($1, $2, $3)`,
+        ['auto_freeze_risk_threshold', 'auto_alert_withdrawal_threshold', 'auto_alert_cancel_rate_threshold']
+      );
+      const oldMap = Object.fromEntries(oldStored.rows.map((r) => [r.key, r.value]));
       for (const u of updates) {
         await db.query(
           'INSERT INTO risk_automation_rules (key, value) VALUES ($1, $2::jsonb) ON CONFLICT (key) DO UPDATE SET value = $2::jsonb',
@@ -7668,6 +7997,17 @@ export default async function adminRoutes(app: FastifyInstance) {
         ['auto_freeze_risk_threshold', 'auto_alert_withdrawal_threshold', 'auto_alert_cancel_rate_threshold']
       );
       const map = Object.fromEntries(stored.rows.map((r) => [r.key, r.value]));
+      try {
+        await logAuditFromRequest(request, {
+          actorType: 'admin',
+          actorId: admin.adminId,
+          action: 'risk_automation_rules_updated',
+          resourceType: 'risk_automation',
+          resourceId: null,
+          oldValue: oldMap as Record<string, unknown>,
+          newValue: map as Record<string, unknown>,
+        });
+      } catch { /* best-effort */ }
       return reply.send({
         success: true,
         data: {
@@ -7901,43 +8241,66 @@ export default async function adminRoutes(app: FastifyInstance) {
     try {
       const limit = Math.min(100, Math.max(1, parseInt((request.query as { limit?: string }).limit ?? '50', 10) || 50));
       const offset = Math.max(0, parseInt((request.query as { offset?: string }).offset ?? '0', 10) || 0);
-      const rows = await db.query<{
-        user_id: string; user_email: string | null; risk_score: string; flags: string[]; total_volume: string; last_activity: string | null;
-      }>(
-        `WITH alert_users AS (
-           SELECT DISTINCT user_id FROM aml_alerts WHERE status IN ('open','reviewing')
-         ),
-         u_vol AS (
-           SELECT user_id, COALESCE(SUM(price * quantity), 0)::text AS total_volume
-           FROM spot_trades WHERE created_at > NOW() - INTERVAL '30 days'
-           GROUP BY user_id
-         )
-         SELECT u.id::text AS user_id, u.email AS user_email,
-                COALESCE((SELECT COUNT(*) FROM aml_alerts a WHERE a.user_id = u.id AND a.status IN ('open','reviewing')), 0)::text AS risk_score,
-                ARRAY_REMOVE(ARRAY_AGG(DISTINCT a.alert_type), NULL) AS flags,
-                COALESCE(uv.total_volume, '0') AS total_volume,
-                u.last_login_at::text AS last_activity
-         FROM alert_users au
-         JOIN users u ON u.id = au.user_id
-         LEFT JOIN aml_alerts a ON a.user_id = u.id AND a.status IN ('open','reviewing')
-         LEFT JOIN u_vol uv ON uv.user_id = u.id
-         GROUP BY u.id, u.email, u.last_login_at, uv.total_volume
-         ORDER BY risk_score DESC
-         LIMIT $1 OFFSET $2`,
-        [limit, offset]
-      );
-      const list = rows.rows.map((r) => ({
-        user_id: r.user_id,
-        user_email: r.user_email ?? null,
-        risk_score: parseInt(r.risk_score, 10),
-        flags: r.flags ?? [],
-        total_volume: r.total_volume ?? '0',
-        last_activity: r.last_activity,
-      }));
-      const countRes = await db.query<{ count: string }>(
-        `SELECT COUNT(DISTINCT user_id)::text AS count FROM aml_alerts WHERE status IN ('open','reviewing')`
-      );
-      const total = parseInt(countRes.rows[0]?.count ?? '0', 10);
+
+      const hasRiskScoresTable = await db.query(`SELECT to_regclass('public.user_risk_scores') AS t`);
+      const usePersistedScores = hasRiskScoresTable.rows[0]?.t != null;
+
+      let list: Array<{ user_id: string; user_email: string | null; risk_score: number; risk_level: string; flags: string[]; total_volume: string; last_activity: string | null }>;
+      let total = 0;
+
+      if (usePersistedScores) {
+        const rows = await db.query<{
+          user_id: string; user_email: string | null; risk_score: string; risk_level: string; flags: string[]; total_volume: string; last_activity: string | null;
+        }>(
+          `SELECT urs.user_id::text, u.email AS user_email, urs.score::text AS risk_score, urs.risk_level,
+                  COALESCE(ARRAY_REMOVE(ARRAY_AGG(DISTINCT a.alert_type), NULL), ARRAY[]::text[]) AS flags,
+                  '0' AS total_volume,
+                  u.last_login_at::text AS last_activity
+           FROM user_risk_scores urs
+           JOIN users u ON u.id = urs.user_id
+           LEFT JOIN aml_alerts a ON a.user_id = urs.user_id AND a.status IN ('open','reviewing')
+           WHERE urs.risk_level IN ('medium','high','critical')
+           GROUP BY urs.user_id, u.email, urs.score, urs.risk_level, u.last_login_at
+           ORDER BY urs.score DESC
+           LIMIT $1 OFFSET $2`,
+          [limit, offset]
+        );
+        list = rows.rows.map((r) => ({
+          user_id: r.user_id, user_email: r.user_email ?? null,
+          risk_score: parseInt(r.risk_score, 10), risk_level: r.risk_level,
+          flags: r.flags ?? [], total_volume: r.total_volume ?? '0', last_activity: r.last_activity,
+        }));
+        const countRes = await db.query<{ count: string }>(
+          `SELECT COUNT(*)::text AS count FROM user_risk_scores WHERE risk_level IN ('medium','high','critical')`
+        );
+        total = parseInt(countRes.rows[0]?.count ?? '0', 10);
+      } else {
+        const rows = await db.query<{
+          user_id: string; user_email: string | null; risk_score: string; flags: string[]; total_volume: string; last_activity: string | null;
+        }>(
+          `WITH alert_users AS (SELECT DISTINCT user_id FROM aml_alerts WHERE status IN ('open','reviewing'))
+           SELECT u.id::text AS user_id, u.email AS user_email,
+                  COALESCE((SELECT COUNT(*) FROM aml_alerts a2 WHERE a2.user_id = u.id AND a2.status IN ('open','reviewing')), 0)::text AS risk_score,
+                  ARRAY_REMOVE(ARRAY_AGG(DISTINCT a.alert_type), NULL) AS flags,
+                  '0' AS total_volume,
+                  u.last_login_at::text AS last_activity
+           FROM alert_users au JOIN users u ON u.id = au.user_id
+           LEFT JOIN aml_alerts a ON a.user_id = u.id AND a.status IN ('open','reviewing')
+           GROUP BY u.id, u.email, u.last_login_at
+           ORDER BY risk_score DESC
+           LIMIT $1 OFFSET $2`,
+          [limit, offset]
+        );
+        list = rows.rows.map((r) => ({
+          user_id: r.user_id, user_email: r.user_email ?? null,
+          risk_score: parseInt(r.risk_score, 10), risk_level: 'unknown',
+          flags: r.flags ?? [], total_volume: r.total_volume ?? '0', last_activity: r.last_activity,
+        }));
+        const countRes = await db.query<{ count: string }>(
+          `SELECT COUNT(DISTINCT user_id)::text AS count FROM aml_alerts WHERE status IN ('open','reviewing')`
+        );
+        total = parseInt(countRes.rows[0]?.count ?? '0', 10);
+      }
       return reply.send({ success: true, data: { users: list, total } });
     } catch (e) {
       logger.error('Get high-risk users error', { error: e instanceof Error ? e.message : 'Unknown' });
@@ -9191,12 +9554,11 @@ export default async function adminRoutes(app: FastifyInstance) {
         ORDER BY tp.symbol
       `);
 
-      // Get orders stats (support both OPEN/PARTIALLY_FILLED and new/partially_filled)
       const orderStats = await db.query(`
         SELECT 
           COUNT(*)::text as total_orders,
-          COUNT(*) FILTER (WHERE status IN ('OPEN', 'PARTIALLY_FILLED', 'new', 'partially_filled'))::text as active_orders,
-          COUNT(*) FILTER (WHERE status IN ('FILLED', 'filled'))::text as filled_orders,
+          COUNT(*) FILTER (WHERE status IN ('new', 'partially_filled'))::text as active_orders,
+          COUNT(*) FILTER (WHERE status = 'filled')::text as filled_orders,
           COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours')::text as orders_24h
         FROM spot_orders
       `);

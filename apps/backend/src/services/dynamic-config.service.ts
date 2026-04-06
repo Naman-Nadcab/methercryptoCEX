@@ -348,17 +348,21 @@ class DynamicConfigService {
       clearTimeout(timeout);
 
       if (!res.ok) {
+        try { const { recordRpcCall } = await import('./rpc-metrics.service.js'); await recordRpcCall(row.provider, false, `HTTP ${res.status}`); } catch { /* best-effort */ }
         return { success: false, message: `RPC returned ${res.status}`, latencyMs: Date.now() - start };
       }
 
       const data = await res.json() as { result?: string; error?: { message?: string } };
       if (data.error) {
+        try { const { recordRpcCall } = await import('./rpc-metrics.service.js'); await recordRpcCall(row.provider, false, data.error.message || 'RPC error'); } catch { /* best-effort */ }
         return { success: false, message: data.error.message || 'RPC error', latencyMs: Date.now() - start };
       }
 
+      try { const { recordRpcCall } = await import('./rpc-metrics.service.js'); await recordRpcCall(row.provider, true); } catch { /* best-effort */ }
       const blockNum = data.result ? parseInt(data.result, 16).toString() : 'unknown';
       return { success: true, message: `Connected. Latest block: ${blockNum}`, latencyMs: Date.now() - start, blockNumber: blockNum };
     } catch (error) {
+      try { const { recordRpcCall } = await import('./rpc-metrics.service.js'); await recordRpcCall('unknown', false, error instanceof Error ? error.message : 'unknown'); } catch { /* best-effort */ }
       return { success: false, message: error instanceof Error ? error.message : 'Unknown error', latencyMs: Date.now() - start };
     }
   }
