@@ -20,6 +20,7 @@ import {
 } from './spot-engine-live-bridge.service.js';
 import { isNatsSpotPipelineConfigured } from './nats.service.js';
 import { recordAndEvaluate } from './aml-transaction-monitor.service.js';
+import { getSpotTradesUseMarketSync, getSpotOrdersUseMarketSync } from '../lib/spot-schema-cache.js';
 
 const SPOT_TRIGGER_LOCK_KEY = 'spot:trigger:run';
 const SPOT_TRIGGER_LOCK_TTL_MS = 60_000;
@@ -29,33 +30,45 @@ export async function processTriggeredStopOrders(): Promise<void> {
   if (!lockValue) return;
 
   try {
-    const lastPrices = await db.query<{ market: string; price: string }>(
-      `SELECT market, (SELECT price::text FROM spot_trades t2 WHERE t2.market = t.market ORDER BY created_at DESC LIMIT 1) as price
-     FROM (SELECT DISTINCT market FROM spot_orders WHERE status = 'PENDING_TRIGGER') t`
-    );
+    const useTradesMarket = getSpotTradesUseMarketSync();
+    const useOrdersMarket = getSpotOrdersUseMarketSync();
+
+    const lastPrices = useOrdersMarket
+      ? await db.query<{ market: string; price: string }>(
+          `SELECT market, (SELECT price::text FROM spot_trades t2 WHERE ${useTradesMarket ? 't2.market = t.market' : 'FALSE'} ORDER BY created_at DESC LIMIT 1) as price
+           FROM (SELECT DISTINCT market FROM spot_orders WHERE status = 'PENDING_TRIGGER') t`
+        )
+      : await db.query<{ market: string; price: string }>(
+          `SELECT tp.symbol AS market,
+            (SELECT st.price::text FROM spot_trades st ${useTradesMarket ? '' : 'INNER JOIN trading_pairs tp2 ON tp2.id = st.trading_pair_id'} WHERE ${useTradesMarket ? 'st.market = tp.symbol' : 'tp2.symbol = tp.symbol'} ORDER BY st.created_at DESC LIMIT 1) AS price
+           FROM (SELECT DISTINCT trading_pair_id FROM spot_orders WHERE status::text = 'pending_trigger') t
+           INNER JOIN trading_pairs tp ON tp.id = t.trading_pair_id`
+        );
     const priceByMarket = new Map<string, string>();
     for (const row of lastPrices.rows) {
       if (row.price) priceByMarket.set(row.market, row.price);
     }
 
-    const pending = await db.query<{
-      id: string;
-      user_id: string;
-      market: string;
-      side: string;
-      type: string;
-      price: string | null;
-      stop_price: string | null;
-      trailing_delta: string | null;
-      trailing_best_price: string | null;
-      quantity: string;
-      filled_quantity: string;
-      status: string;
-    }>(
-      `SELECT id, user_id, market, side, type, price, stop_price, trailing_delta, trailing_best_price, quantity, filled_quantity, status
-     FROM spot_orders
-     WHERE status = 'PENDING_TRIGGER' AND (stop_price IS NOT NULL OR (type = 'trailing_stop_market' AND trailing_delta IS NOT NULL))`
-    );
+    const pending = useOrdersMarket
+      ? await db.query<{
+          id: string; user_id: string; market: string; side: string; type: string;
+          price: string | null; stop_price: string | null; trailing_delta: string | null;
+          trailing_best_price: string | null; quantity: string; filled_quantity: string; status: string;
+        }>(
+          `SELECT id, user_id, market, side, type, price, stop_price, trailing_delta, trailing_best_price, quantity, filled_quantity, status
+           FROM spot_orders
+           WHERE status = 'PENDING_TRIGGER' AND (stop_price IS NOT NULL OR (type = 'trailing_stop_market' AND trailing_delta IS NOT NULL))`
+        )
+      : await db.query<{
+          id: string; user_id: string; market: string; side: string; type: string;
+          price: string | null; stop_price: string | null; trailing_delta: string | null;
+          trailing_best_price: string | null; quantity: string; filled_quantity: string; status: string;
+        }>(
+          `SELECT o.id, o.user_id, tp.symbol AS market, o.side::text, o.order_type::text AS type, o.price, o.stop_price, o.trailing_delta, o.trailing_best_price, o.quantity, o.filled_quantity, o.status::text
+           FROM spot_orders o
+           INNER JOIN trading_pairs tp ON tp.id = o.trading_pair_id
+           WHERE o.status::text = 'pending_trigger' AND (o.stop_price IS NOT NULL OR (o.order_type::text = 'trailing_stop_market' AND o.trailing_delta IS NOT NULL))`
+        );
 
     for (const order of pending.rows) {
       const lastPriceStr = priceByMarket.get(order.market);

@@ -3,6 +3,7 @@
  */
 import { db } from '../lib/database.js';
 import { getSpotTradesUseMarketSync } from '../lib/spot-schema-cache.js';
+import { getSpotTradesShapeSync } from '../lib/spot-trades-shape.js';
 import { redis } from '../lib/redis.js';
 import { config } from '../config/index.js';
 import { getAlphaBenchmarkPrice, computeBlendedMarkMid } from './mm-benchmark-price.service.js';
@@ -118,12 +119,19 @@ export async function fetchMmTrades(
       );
       return mapTradeRows(r.rows);
     }
+    const shape = getSpotTradesShapeSync();
+    const feeSel = shape?.hasFee ? 'COALESCE(st.fee::text, \'0\')' : '\'0\'';
+    const userFilter = shape?.hasUserId
+      ? 'st.user_id = $2::uuid'
+      : shape?.hasMakerUserId
+        ? '(st.maker_user_id = $2::uuid OR st.taker_user_id = $2::uuid)'
+        : 'FALSE';
     const r = await db.query<{ side: string; price: string; qty: string; fee: string | null; created_at: Date }>(
       `SELECT st.side::text, st.price::text, st.quantity::text,
-              COALESCE(st.fee::text, '0') AS fee, st.created_at
+              ${feeSel} AS fee, st.created_at
        FROM spot_trades st
        INNER JOIN trading_pairs tp ON tp.id = st.trading_pair_id
-       WHERE tp.symbol = $1 AND st.user_id = $2::uuid
+       WHERE tp.symbol = $1 AND ${userFilter}
          AND st.created_at > NOW() - ($3::text || ' seconds')::interval
        ORDER BY st.created_at ASC
        LIMIT $4`,

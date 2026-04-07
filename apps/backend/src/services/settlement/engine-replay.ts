@@ -10,6 +10,7 @@ import { db } from '../../lib/database.js';
 import { logger } from '../../lib/logger.js';
 import { placeOrderRust, type RustOrder } from './engine-client.js';
 import { resolvePlaceTargetForMarket } from './matching-engine-shard-router.js';
+import { getSpotOrdersUseMarketSync } from '../../lib/spot-schema-cache.js';
 
 const REPLAY_RETRY_COUNT = 2;
 const REPLAY_RETRY_DELAY_MS = 1_000;
@@ -42,24 +43,31 @@ export async function replayOpenOrdersToRustEngine(): Promise<ReplayResult> {
   }>;
 
   try {
-    const q = await db.query<{
-      id: string;
-      user_id: string;
-      market: string;
-      side: string;
-      type: string;
-      price: string | null;
-      quantity: string;
-      filled_quantity: string;
-      created_at: Date;
-    }>(
-      `SELECT id::text, user_id::text, market, side, type, price::text, quantity::text, filled_quantity::text, created_at
-       FROM spot_orders
-       WHERE status IN ('OPEN', 'PARTIALLY_FILLED')
-         AND type IN ('limit', 'market')
-         AND (quantity - filled_quantity) > 0
-       ORDER BY created_at ASC`
-    );
+    const useMarket = getSpotOrdersUseMarketSync();
+    const q = useMarket
+      ? await db.query<{
+          id: string; user_id: string; market: string; side: string; type: string;
+          price: string | null; quantity: string; filled_quantity: string; created_at: Date;
+        }>(
+          `SELECT id::text, user_id::text, market, side, type, price::text, quantity::text, filled_quantity::text, created_at
+           FROM spot_orders
+           WHERE status IN ('OPEN', 'PARTIALLY_FILLED')
+             AND type IN ('limit', 'market')
+             AND (quantity - filled_quantity) > 0
+           ORDER BY created_at ASC`
+        )
+      : await db.query<{
+          id: string; user_id: string; market: string; side: string; type: string;
+          price: string | null; quantity: string; filled_quantity: string; created_at: Date;
+        }>(
+          `SELECT o.id::text, o.user_id::text, tp.symbol AS market, o.side::text, o.order_type::text AS type, o.price::text, o.quantity::text, o.filled_quantity::text, o.created_at
+           FROM spot_orders o
+           INNER JOIN trading_pairs tp ON tp.id = o.trading_pair_id
+           WHERE o.status::text IN ('new', 'partially_filled')
+             AND o.order_type::text IN ('limit', 'market')
+             AND (o.quantity - o.filled_quantity) > 0
+           ORDER BY o.created_at ASC`
+        );
     rows = q.rows ?? [];
   } catch (e) {
     logger.error('Engine replay: failed to load open orders', {

@@ -3,6 +3,7 @@
  */
 import { db } from '../lib/database.js';
 import { getSpotTradesUseMarketSync } from '../lib/spot-schema-cache.js';
+import { getSpotTradesShapeSync } from '../lib/spot-trades-shape.js';
 import { config } from '../config/index.js';
 
 type Print = { p: number; ts: number };
@@ -101,12 +102,18 @@ export async function getAdverseSelectionCostBps(
       mmRows = mm.rows;
       mktRows = mkt.rows;
     } else {
+      const shape = getSpotTradesShapeSync();
+      const userFilter = shape?.hasUserId
+        ? 'st.user_id = $2::uuid'
+        : shape?.hasMakerUserId
+          ? '(st.maker_user_id = $2::uuid OR st.taker_user_id = $2::uuid)'
+          : 'FALSE';
       const [mm, mkt] = await Promise.all([
         db.query<{ price: string; created_at: Date; side: string }>(
           `SELECT st.price::text, st.created_at, st.side::text
            FROM spot_trades st
            INNER JOIN trading_pairs tp ON tp.id = st.trading_pair_id
-           WHERE tp.symbol = $1 AND st.user_id = $2::uuid
+           WHERE tp.symbol = $1 AND ${userFilter}
              AND st.created_at > NOW() - ($3::text || ' seconds')::interval
            ORDER BY st.created_at ASC
            LIMIT 400`,

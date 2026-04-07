@@ -48,7 +48,7 @@ function StatusTimeline({ status }: { status: string }) {
         return (
           <Fragment key={i}>
             <div className="flex flex-col items-center gap-1">
-              <div className={`flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-bold transition-colors ${
+              <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold transition-colors ${
                 done
                   ? 'bg-[#0ecb81] text-white'
                   : active
@@ -59,7 +59,7 @@ function StatusTimeline({ status }: { status: string }) {
               }`}>
                 {done ? <Check className="h-3.5 w-3.5" /> : <Circle className="h-3 w-3" />}
               </div>
-              <span className={`text-[10px] font-medium whitespace-nowrap ${
+              <span className={`text-xs font-medium whitespace-nowrap ${
                 done || active ? 'text-foreground' : 'text-muted-foreground/50'
               }`}>
                 {step.label}
@@ -182,11 +182,11 @@ function OrderDetailInner() {
     <div className="mx-auto max-w-[1400px] px-4 sm:px-6">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border/20 py-3">
-        <Link href="/p2p/orders" className="inline-flex items-center gap-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground">
+        <Link href="/p2p/orders" className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
           <ArrowLeft className="h-3.5 w-3.5" />
           Orders
         </Link>
-        <span className="font-mono text-[12px] text-muted-foreground">#{orderId.slice(0, 12)}</span>
+        <span className="font-mono text-sm text-muted-foreground">#{orderId.slice(0, 12)}</span>
       </div>
 
       {/* Timer */}

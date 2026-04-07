@@ -4,10 +4,11 @@
 
 @layer base {
   :root {
-    --exchange-buy: 160 84% 39%;
-    --exchange-sell: 353 91% 53%;
-    --price-up: 160 84% 39%;
-    --price-down: 353 91% 53%;
+    /* Softer buy/sell for less visual fatigue (still clearly distinct) */
+    --exchange-buy: 160 68% 36%;
+    --exchange-sell: 352 76% 50%;
+    --price-up: 160 68% 36%;
+    --price-down: 352 76% 50%;
     --panel: 0 0% 98%;
 
     --background: 0 0% 98%;
@@ -33,10 +34,10 @@
   }
 
   .dark {
-    --exchange-buy: 157 87% 43%;
-    --exchange-sell: 352 91% 62%;
-    --price-up: 157 87% 43%;
-    --price-down: 352 91% 62%;
+    --exchange-buy: 158 62% 44%;
+    --exchange-sell: 352 68% 58%;
+    --price-up: 158 62% 44%;
+    --price-down: 352 68% 58%;
     --panel: 228 11% 13%;
 
     --background: 228 14% 11%;
@@ -67,6 +68,14 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  /** Monospace + tabular figures for prices, balances, order book (spot terminal) */
+  .numeric {
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
   }
 }
 
@@ -107,12 +116,13 @@
   @apply text-sell;
 }
 
+/* Use raw hsl — Tailwind @apply cannot resolve bg-buy/12 on nested color tokens */
 .depth-bar-buy {
-  @apply bg-buy/20;
+  background-color: hsl(var(--exchange-buy) / 0.12);
 }
 
 .depth-bar-sell {
-  @apply bg-sell/20;
+  background-color: hsl(var(--exchange-sell) / 0.12);
 }
 
 /* Chart container */

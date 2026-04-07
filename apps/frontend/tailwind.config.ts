@@ -143,6 +143,13 @@ const config: Config = {
         mono: ['var(--font-mono)', 'monospace'],
         display: ['var(--font-orbitron)', 'system-ui', 'sans-serif'],
       },
+      /** Spot / terminal: semantic sizes (min 12px for readability). Use text-book, text-label, text-price, text-mid */
+      fontSize: {
+        book: ['12px', { lineHeight: '17px' }],
+        label: ['12px', { lineHeight: '17px' }],
+        price: ['13px', { lineHeight: '19px' }],
+        mid: ['18px', { lineHeight: '25px' }],
+      },
     },
   },
   plugins: [require('tailwindcss-animate')],

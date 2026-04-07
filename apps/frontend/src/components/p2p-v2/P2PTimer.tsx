@@ -54,7 +54,7 @@ export function P2PTimer({ expiresAtIso, active, onExpire }: Props) {
     }`}>
       <Clock className="h-4 w-4 shrink-0" />
       <span className="font-medium">Payment window</span>
-      <span className="ml-auto font-mono text-[15px] font-bold tabular-nums">
+      <span className="numeric ml-auto text-lg font-bold">
         {leftSec == null ? '—' : `${m}:${s.toString().padStart(2, '0')}`}
       </span>
     </div>

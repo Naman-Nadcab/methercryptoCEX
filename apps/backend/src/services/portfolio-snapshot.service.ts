@@ -22,11 +22,20 @@ async function fetchLatestPrices(): Promise<Record<string, number>> {
   const prices: Record<string, number> = { USDT: 1, USDC: 1, DAI: 1 };
   try {
     const { rows } = await db.query<{ symbol: string; last_price: string }>(
-      `SELECT sm.symbol, COALESCE(tp.last_price, '0') AS last_price
+      `SELECT sm.symbol,
+              COALESCE(mp.price::text, candle.close_price::text, '0') AS last_price
        FROM spot_markets sm
-       LEFT JOIN trading_pairs tp ON tp.symbol = sm.symbol
-       WHERE sm.quote_currency_id = (SELECT id FROM currencies WHERE symbol = 'USDT' LIMIT 1)
-         AND sm.is_active = true`
+       LEFT JOIN LATERAL (
+         SELECT mp2.price FROM market_prices mp2
+         WHERE mp2.base_currency_id = sm.base_currency_id AND mp2.quote_currency_id = sm.quote_currency_id
+         LIMIT 1
+       ) mp ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT oc.close_price FROM ohlcv_candles oc
+         JOIN trading_pairs tp2 ON tp2.id = oc.trading_pair_id
+         WHERE tp2.symbol = sm.symbol ORDER BY oc.open_time DESC LIMIT 1
+       ) candle ON TRUE
+       WHERE sm.status IN ('active', 'maintenance')`
     );
     for (const r of rows) {
       const base = r.symbol.split('_')[0];
@@ -48,7 +57,7 @@ async function takeSnapshotsForActiveUsers(): Promise<number> {
 
   const { rows: users } = await db.query<{ user_id: string }>(
     `SELECT DISTINCT user_id FROM user_balances
-     WHERE (CAST(balance AS NUMERIC) > 0 OR CAST(available_balance AS NUMERIC) > 0)
+     WHERE (CAST(available_balance AS NUMERIC) > 0 OR CAST(locked_balance AS NUMERIC) > 0)
      LIMIT 5000`
   );
 
@@ -56,10 +65,10 @@ async function takeSnapshotsForActiveUsers(): Promise<number> {
   for (const { user_id } of users) {
     try {
       const { rows: balances } = await db.query<{ symbol: string; balance: string; account_type: string }>(
-        `SELECT c.symbol, ub.balance, ub.account_type
+        `SELECT c.symbol, (ub.available_balance + ub.locked_balance)::text AS balance, ub.account_type
          FROM user_balances ub
          JOIN currencies c ON c.id = ub.currency_id
-         WHERE ub.user_id = $1 AND CAST(ub.balance AS NUMERIC) > 0`,
+         WHERE ub.user_id = $1 AND (CAST(ub.available_balance AS NUMERIC) > 0 OR CAST(ub.locked_balance AS NUMERIC) > 0)`,
         [user_id]
       );
 

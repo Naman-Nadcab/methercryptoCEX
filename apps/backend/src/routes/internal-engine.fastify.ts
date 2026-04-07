@@ -7,6 +7,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db } from '../lib/database.js';
 import { config } from '../config/index.js';
 import { logger } from '../lib/logger.js';
+import { getSpotOrdersUseMarketSync } from '../lib/spot-schema-cache.js';
 
 const OPEN_STATUSES = ['OPEN', 'PARTIALLY_FILLED'];
 
@@ -29,24 +30,31 @@ export default async function internalEngineRoutes(app: FastifyInstance): Promis
     if (!authInternalEngine(request, reply)) return;
 
     try {
+      const useMarket = getSpotOrdersUseMarketSync();
+      const ordersQuery = useMarket
+        ? db.query<{
+            id: string; user_id: string; market: string; side: string; type: string;
+            price: string | null; quantity: string; filled_quantity: string; created_at: Date;
+          }>(
+            `SELECT id::text, user_id::text, market, side, type, price::text, quantity::text, filled_quantity::text, created_at
+             FROM spot_orders
+             WHERE status = ANY($1::text[])
+             ORDER BY market, created_at ASC, id::text ASC`,
+            [OPEN_STATUSES]
+          )
+        : db.query<{
+            id: string; user_id: string; market: string; side: string; type: string;
+            price: string | null; quantity: string; filled_quantity: string; created_at: Date;
+          }>(
+            `SELECT o.id::text, o.user_id::text, tp.symbol AS market, o.side::text, o.order_type::text AS type, o.price::text, o.quantity::text, o.filled_quantity::text, o.created_at
+             FROM spot_orders o
+             INNER JOIN trading_pairs tp ON tp.id = o.trading_pair_id
+             WHERE o.status::text = ANY($1::text[])
+             ORDER BY tp.symbol, o.created_at ASC, o.id::text ASC`,
+            [['new', 'partially_filled']]
+          );
       const [ordersRes, cursorRes] = await Promise.all([
-        db.query<{
-          id: string;
-          user_id: string;
-          market: string;
-          side: string;
-          type: string;
-          price: string | null;
-          quantity: string;
-          filled_quantity: string;
-          created_at: Date;
-        }>(
-          `SELECT id::text, user_id::text, market, side, type, price::text, quantity::text, filled_quantity::text, created_at
-           FROM spot_orders
-           WHERE status = ANY($1::text[])
-           ORDER BY market, created_at ASC, id::text ASC`,
-          [OPEN_STATUSES]
-        ),
+        ordersQuery,
         db.query<{ last_engine_event_id: string }>(
           `SELECT COALESCE(last_engine_event_id, 0)::text AS last_engine_event_id FROM settlement_poller_cursor WHERE id = 1`
         ).catch(() => ({ rows: [{ last_engine_event_id: '0' }] })),

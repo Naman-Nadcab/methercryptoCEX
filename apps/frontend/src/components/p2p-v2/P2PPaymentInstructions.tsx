@@ -61,9 +61,9 @@ export function P2PPaymentInstructions({ details, displayName }: Props) {
 
   const Row = ({ label, value, copyKey, mono = true }: { label: string; value: string; copyKey: string; mono?: boolean }) => (
     <div className="flex flex-col gap-1 border-b border-border/15 py-2.5 last:border-b-0">
-      <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">{label}</span>
+      <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
       <div className="flex items-start justify-between gap-2">
-        <span className={`min-w-0 flex-1 break-all text-[13px] text-foreground ${mono ? 'font-mono' : 'font-medium'}`}>
+        <span className={`min-w-0 flex-1 break-all text-sm text-foreground ${mono ? 'numeric font-medium' : 'font-medium'}`}>
           {value || '—'}
         </span>
         {value ? (
@@ -82,11 +82,11 @@ export function P2PPaymentInstructions({ details, displayName }: Props) {
 
   return (
     <div className="space-y-3 rounded-lg border border-amber-500/15 bg-amber-500/[0.03] p-4">
-      <div className="flex gap-2 rounded-md border border-amber-500/15 bg-amber-500/5 px-3 py-2.5 text-[11px] text-amber-500">
-        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-        <div className="space-y-1">
+      <div className="flex gap-2 rounded-md border border-amber-500/15 bg-amber-500/5 px-3 py-3 text-sm text-amber-500">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+        <div className="space-y-1.5">
           <p className="font-semibold">Payment Safety</p>
-          <ul className="list-inside list-disc text-[10px] leading-relaxed opacity-80">
+          <ul className="list-inside list-disc text-xs leading-relaxed opacity-90">
             <li>Do not write &quot;crypto&quot;, &quot;Bitcoin&quot;, or exchange names in the bank transfer note.</li>
             <li>Only release crypto after you confirm the fiat arrived in your account.</li>
           </ul>
@@ -94,9 +94,9 @@ export function P2PPaymentInstructions({ details, displayName }: Props) {
       </div>
 
       <div>
-        <h3 className="mb-2 text-[13px] font-semibold text-foreground">Send Payment To</h3>
+        <h3 className="mb-2 text-base font-semibold tracking-tight text-foreground">Send Payment To</h3>
         {displayName && (
-          <p className="mb-1.5 text-[11px] text-muted-foreground">
+          <p className="mb-1.5 text-sm text-muted-foreground">
             Method: <span className="font-semibold text-foreground">{displayName}</span>
           </p>
         )}
@@ -111,12 +111,12 @@ export function P2PPaymentInstructions({ details, displayName }: Props) {
 
       {extras.length > 0 && (
         <div className="rounded-md border border-border/20 bg-muted/10 px-3.5 py-2.5">
-          <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">Additional Details</p>
-          <dl className="space-y-1 text-[11px]">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Additional Details</p>
+          <dl className="space-y-1.5 text-sm">
             {extras.map(([k, v]) => (
               <div key={k} className="flex justify-between gap-2">
                 <dt className="shrink-0 text-muted-foreground">{formatKeyLabel(k)}</dt>
-                <dd className="min-w-0 break-all font-mono text-foreground">{String(v)}</dd>
+                <dd className="numeric min-w-0 break-all text-foreground">{String(v)}</dd>
               </div>
             ))}
           </dl>

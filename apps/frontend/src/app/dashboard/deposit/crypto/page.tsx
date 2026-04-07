@@ -25,21 +25,8 @@ import {
   Shield,
   Upload,
   Camera,
-  LayoutGrid,
-  Send,
-  ArrowLeftRight,
-  TrendingUp,
-  Clock,
 } from 'lucide-react';
-
-const SIDEBAR_LINKS = [
-  { label: 'Asset Dashboard', href: '/wallet', icon: LayoutGrid },
-  { label: 'Deposit', href: '/wallet/deposit/crypto', icon: TrendingUp, active: true },
-  { label: 'Withdraw', href: '/wallet/withdraw/crypto', icon: Send },
-  { label: 'Transfer', href: '/wallet/transfer', icon: ArrowLeftRight },
-  { label: 'Convert', href: '/wallet/convert', icon: RefreshCw },
-  { label: 'History', href: '/wallet/history', icon: Clock },
-];
+import { WalletOperationsShell } from '@/components/wallet/WalletOperationsShell';
 
 interface Chain {
   id: string;
@@ -380,46 +367,26 @@ export default function DepositCryptoPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="flex">
-        {/* Sidebar */}
-        <aside className="w-60 min-h-screen bg-card border-r border-border">
-          <nav className="p-4 space-y-1">
-            {SIDEBAR_LINKS.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className={`flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl transition-colors ${
-                  link.active
-                    ? 'bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 text-primary border border-blue-100 dark:border-blue-800/30'
-                    : 'text-muted-foreground hover:bg-accent/50'
-                }`}
-              >
-                <link.icon className="w-5 h-5" />
-                {link.label}
-              </Link>
-            ))}
-          </nav>
-        </aside>
-
-        {/* Main Content */}
-        <main className="flex-1 p-6">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-6">
-            <h1 className="text-xl font-semibold text-foreground">Deposit Crypto</h1>
-            <Link
-              href="/dashboard/help#deposit-how-to"
-              className="flex items-center gap-2 px-4 py-2.5 bg-card border border-border text-foreground/80 rounded-xl hover:border-blue-300 dark:hover:border-blue-600 transition-colors text-sm font-medium"
-            >
-              <span className="text-yellow-500">💰</span>
-              Fiat Deposit
-            </Link>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <>
+      <WalletOperationsShell
+        title="Deposit crypto"
+        description="Send assets to your funding wallet from an external wallet. Select coin, network, then copy your deposit address."
+        headerRight={
+          <Link
+            href="/dashboard/help#deposit-how-to"
+            className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:border-primary/35 hover:bg-accent"
+          >
+            <span className="text-amber-500" aria-hidden>
+              💰
+            </span>
+            Fiat deposit
+          </Link>
+        }
+      >
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
             {/* Left Section - Deposit Form */}
             <div className="lg:col-span-2">
-              <div className="bg-card rounded-xl p-6 border border-border">
+              <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
               {/* Step 1: Choose Coin */}
               <div className="mb-6">
                 <div className="flex items-center gap-2 mb-3">
@@ -825,8 +792,7 @@ export default function DepositCryptoPage() {
             </Link>
           )}
         </div>
-        </main>
-      </div>
+      </WalletOperationsShell>
 
       {/* Help Button */}
       <Link href="/dashboard/help" className="fixed bottom-6 right-6 w-12 h-12 bg-primary hover:bg-primary/85 text-white rounded-full shadow-lg flex items-center justify-center transition-colors z-40">
@@ -893,6 +859,6 @@ export default function DepositCryptoPage() {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

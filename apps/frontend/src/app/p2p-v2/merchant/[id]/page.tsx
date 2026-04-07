@@ -34,7 +34,7 @@ export default function P2PV2MerchantProfilePage() {
   return (
     <div className="mx-auto max-w-[1000px] px-4 sm:px-6">
       <div className="flex items-center border-b border-border/20 py-3">
-        <Link href="/p2p" className="inline-flex items-center gap-1.5 text-[13px] font-medium text-muted-foreground hover:text-foreground">
+        <Link href="/p2p" className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-3.5 w-3.5" />
           Marketplace
         </Link>
@@ -63,19 +63,19 @@ export default function P2PV2MerchantProfilePage() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5">
-                <span className="text-[15px] font-semibold text-foreground truncate">{head.username || 'Merchant'}</span>
+                <span className="text-lg font-semibold text-foreground truncate">{head.username || 'Merchant'}</span>
                 {verified && <ShieldCheck className="h-4 w-4 shrink-0 text-[#0ecb81]" />}
               </div>
-              <p className="text-[11px] text-muted-foreground">{orders} orders · {completion} completion</p>
+              <p className="text-xs text-muted-foreground">{orders} orders · {completion} completion</p>
             </div>
           </div>
 
           {/* Ads table */}
-          <h2 className="text-[13px] font-semibold text-foreground">Active Ads</h2>
+          <h2 className="text-sm font-semibold text-foreground">Active Ads</h2>
           <div className="rounded-lg border border-border/30 bg-card overflow-hidden">
             <table className="w-full text-left text-sm">
               <thead>
-                <tr className="border-b border-border/15 text-[11px] text-muted-foreground/60">
+                <tr className="border-b border-border/15 text-xs text-muted-foreground/60">
                   <th className="py-2.5 pl-4 pr-3 font-medium">Asset</th>
                   <th className="px-3 py-2.5 font-medium">Side</th>
                   <th className="px-3 py-2.5 font-medium">Price</th>
@@ -93,26 +93,26 @@ export default function P2PV2MerchantProfilePage() {
                       <td className="py-3 pl-4 pr-3">
                         <span className="flex items-center gap-1.5">
                           <CoinIcon symbol={ad.crypto_symbol || ''} size={16} />
-                          <span className="text-[13px] font-medium text-foreground">{ad.crypto_symbol}</span>
+                          <span className="text-sm font-medium text-foreground">{ad.crypto_symbol}</span>
                         </span>
                       </td>
                       <td className="px-3 py-3">
-                        <span className={`rounded-md px-2 py-0.5 text-[10px] font-semibold ${
+                        <span className={`rounded-md px-2 py-0.5 text-xs font-semibold ${
                           isBuy ? 'bg-[#0ecb81]/10 text-[#0ecb81]' : 'bg-[#f6465d]/10 text-[#f6465d]'
                         }`}>
                           {isBuy ? 'Buy' : 'Sell'}
                         </span>
                       </td>
                       <td className="px-3 py-3">
-                        <span className={`font-mono text-[13px] font-bold ${isBuy ? 'text-[#0ecb81]' : 'text-[#f6465d]'}`}>
+                        <span className={`font-mono text-sm font-bold ${isBuy ? 'text-[#0ecb81]' : 'text-[#f6465d]'}`}>
                           {sym}{p2pAdDisplayPrice(ad)}
                         </span>
                       </td>
-                      <td className="px-3 py-3 text-[12px] font-mono text-foreground">
+                      <td className="px-3 py-3 text-sm font-mono text-foreground">
                         {ad.available_amount} {ad.crypto_symbol}
                       </td>
                       <td className="py-3 pl-3 pr-4 text-right">
-                        <Link href="/p2p" className="text-[12px] font-medium text-primary hover:underline">
+                        <Link href="/p2p" className="text-sm font-medium text-primary hover:underline">
                           Trade
                         </Link>
                       </td>

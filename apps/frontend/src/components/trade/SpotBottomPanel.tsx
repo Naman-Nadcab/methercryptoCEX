@@ -29,7 +29,7 @@ function displayStatus(s: string): string {
 function executionStatusPill(status: string) {
   const u = (status || '').toUpperCase();
   const base =
-    'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide transition-colors duration-300';
+    'inline-flex items-center rounded-full px-2 py-0.5 text-label font-bold uppercase tracking-wide transition-colors duration-300';
   if (u === 'OPEN' || u === 'NEW') {
     return (
       <span
@@ -94,25 +94,25 @@ function OpenOrderRow({
   const filledQtyStr = filled > 0 && qty > 0 ? `${filled.toFixed(4)}/${qty.toFixed(4)}` : (o.quantity ?? '—');
   return (
     <tr
-      className={`min-h-[36px] border-b border-[#2b2f36]/60 transition-[background-color,box-shadow] duration-500 ease-out hover:bg-[#2b2f36]/40 sm:min-h-[30px] ${
-        pulse ? 'bg-[#f0b90b]/8 shadow-[inset_0_0_0_1px_rgba(240,185,11,0.25)]' : ''
+      className={`min-h-[36px] border-b border-border/60 transition-[background-color,box-shadow] duration-500 ease-out hover:bg-muted/50 sm:min-h-[30px] ${
+        pulse ? 'bg-primary/10 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.25)]' : ''
       }`}
     >
       <td className="py-1.5 px-2 align-middle">
         <div className="flex items-center gap-1">
           <CoinIcon symbol={o.market?.split('_')[0] || ''} size={14} />
-          <span className="font-mono text-[11px] tabular-nums text-foreground">{o.market}</span>
+          <span className="numeric text-label text-foreground">{o.market}</span>
         </div>
       </td>
       <td className="py-1.5 px-2 align-middle">
-        <span className="text-[10px] text-muted-foreground">{displayOrderType(o.type)}</span>
+        <span className="text-label text-muted-foreground">{displayOrderType(o.type)}</span>
       </td>
       <td className="py-1.5 px-2 align-middle">
-        <span className={o.side === 'buy' ? 'text-price-up' : 'text-price-down'}>{o.side}</span>
+        <span className={o.side === 'buy' ? 'text-buy' : 'text-sell'}>{o.side}</span>
       </td>
-      <td className="py-1.5 px-2 align-middle font-mono text-[11px] tabular-nums text-muted-foreground">{o.price ?? '—'}</td>
-      <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums text-[11px]">{o.stop_price ?? '—'}</td>
-      <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums text-[11px]">{filledQtyStr}</td>
+      <td className="numeric py-1.5 px-2 align-middle text-label text-muted-foreground">{o.price ?? '—'}</td>
+      <td className="numeric py-1.5 px-2 align-middle text-label text-muted-foreground">{o.stop_price ?? '—'}</td>
+      <td className="numeric py-1.5 px-2 align-middle text-label text-muted-foreground">{filledQtyStr}</td>
       <td className="py-1.5 px-2 align-middle">{executionStatusPill(o.status)}</td>
       <td className="py-1.5 px-2 align-middle">
         {canCancel && (
@@ -120,7 +120,7 @@ function OpenOrderRow({
             type="button"
             disabled={!!cancellingId}
             onClick={() => onCancel(o.id)}
-            className="min-h-[32px] px-2 py-1 text-destructive hover:underline disabled:opacity-50 text-[10px] touch-manipulation rounded"
+            className="min-h-[32px] touch-manipulation rounded px-2 py-1 text-label text-destructive hover:underline disabled:opacity-50"
           >
             {cancellingId === o.id ? <Loader2 className="w-3 h-3 animate-spin inline" /> : 'Cancel'}
           </button>
@@ -226,7 +226,7 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
 
   if (!isAuth) {
     return (
-      <div className="flex min-h-[240px] flex-col items-center justify-center bg-[#1e2026] px-4 py-8 text-[#848e9c] text-sm">
+      <div className="flex min-h-[240px] flex-col items-center justify-center bg-card px-4 py-8 text-sm text-muted-foreground">
         Sign in to view your trading activity.
       </div>
     );
@@ -236,15 +236,15 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
   const canCancelAll = symbol && openOrdersForMarket.length > 0 && !data.cancellingAll;
 
   const tabBtn = (active: boolean) =>
-    `min-h-[40px] flex items-center px-3 py-2 text-[11px] font-semibold border-b-2 -mb-px transition-colors duration-150 touch-manipulation sm:px-4 ${
+    `min-h-[40px] flex touch-manipulation items-center border-b-2 px-3 py-2 text-label font-semibold transition-colors duration-150 -mb-px sm:px-4 ${
       active
-        ? 'border-[#f0b90b] text-[#eaecef]'
-        : 'border-transparent text-[#848e9c] hover:text-[#eaecef]'
+        ? 'border-primary text-foreground'
+        : 'border-transparent text-muted-foreground hover:text-foreground'
     }`;
 
   return (
-    <div className="flex h-[min(50vh,560px)] min-h-[320px] w-full flex-col bg-[#1e2026]">
-      <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 border-b border-[#2b2f36] bg-[#181a20] px-1">
+    <div className="flex h-[min(50vh,560px)] min-h-[320px] w-full flex-col bg-card">
+      <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/40 px-1">
         <div className="flex flex-wrap items-center gap-0.5 sm:gap-1">
           <button type="button" onClick={() => data.setTab('open')} className={tabBtn(data.tab === 'open')}>Open ({data.openOrders.length})</button>
           <button type="button" onClick={() => data.setTab('orders')} className={tabBtn(data.tab === 'orders')}>History</button>
@@ -253,27 +253,27 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
         </div>
         <div className="flex items-center gap-2 pr-2">
           {(data.tab === 'open' || data.tab === 'orders' || data.tab === 'trades') && (
-            <button type="button" onClick={() => setShowAllMarkets((v) => !v)} className="min-h-[36px] px-3 py-1.5 text-[10px] text-[#848e9c] hover:text-[#eaecef] border border-[#2b2f36] rounded touch-manipulation" title={showAllMarkets ? 'Show current pair only' : 'Show all markets'}>
+            <button type="button" onClick={() => setShowAllMarkets((v) => !v)} className="min-h-[36px] touch-manipulation rounded border border-border px-3 py-1.5 text-label text-muted-foreground hover:text-foreground" title={showAllMarkets ? 'Show current pair only' : 'Show all markets'}>
               {showAllMarkets ? 'All' : 'Pair'}
             </button>
           )}
           {data.tab === 'open' && canCancelAll && (
-            <button type="button" onClick={() => data.handleCancelAll?.()} disabled={data.cancellingAll} className="min-h-[36px] px-3 py-1.5 text-[10px] text-destructive hover:bg-destructive/10 border border-destructive/30 rounded flex items-center gap-1 disabled:opacity-50 touch-manipulation" title="Cancel all open orders for this pair">
+            <button type="button" onClick={() => data.handleCancelAll?.()} disabled={data.cancellingAll} className="flex min-h-[36px] touch-manipulation items-center gap-1 rounded border border-destructive/30 px-3 py-1.5 text-label text-destructive hover:bg-destructive/10 disabled:opacity-50" title="Cancel all open orders for this pair">
               {data.cancellingAll ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
               Cancel All
             </button>
           )}
           {data.tab === 'orders' && data.orderHistory.length > 0 && (
-            <button type="button" onClick={() => { const csv = ordersToCsv(data.orderHistory); downloadCsv(`spot-orders-${new Date().toISOString().slice(0,10)}.csv`, csv); }} className="min-h-[36px] px-3 py-1.5 text-[10px] text-[#848e9c] hover:text-[#eaecef] border border-[#2b2f36] rounded flex items-center gap-1 touch-manipulation" title="Export Order History as CSV">
+            <button type="button" onClick={() => { const csv = ordersToCsv(data.orderHistory); downloadCsv(`spot-orders-${new Date().toISOString().slice(0,10)}.csv`, csv); }} className="flex min-h-[36px] touch-manipulation items-center gap-1 rounded border border-border px-3 py-1.5 text-label text-muted-foreground hover:text-foreground" title="Export Order History as CSV">
               <Download className="w-3 h-3" /> Export
             </button>
           )}
           {data.tab === 'trades' && data.trades.length > 0 && (
-            <button type="button" onClick={() => { const csv = tradesToCsv(data.trades); downloadCsv(`spot-trades-${new Date().toISOString().slice(0,10)}.csv`, csv); }} className="min-h-[36px] px-3 py-1.5 text-[10px] text-[#848e9c] hover:text-[#eaecef] border border-[#2b2f36] rounded flex items-center gap-1 touch-manipulation" title="Export Trade History as CSV">
+            <button type="button" onClick={() => { const csv = tradesToCsv(data.trades); downloadCsv(`spot-trades-${new Date().toISOString().slice(0,10)}.csv`, csv); }} className="flex min-h-[36px] touch-manipulation items-center gap-1 rounded border border-border px-3 py-1.5 text-label text-muted-foreground hover:text-foreground" title="Export Trade History as CSV">
               <Download className="w-3 h-3" /> Export
             </button>
           )}
-          <button type="button" onClick={() => { data.tab === 'open' && data.fetchOpen?.(); data.tab === 'orders' && data.fetchOrderHistory?.(null, false); data.tab === 'trades' && data.fetchTrades?.(1, false); }} className="min-h-[36px] min-w-[36px] flex items-center justify-center text-[#848e9c] hover:text-[#eaecef] rounded touch-manipulation" title="Refresh">
+          <button type="button" onClick={() => { data.tab === 'open' && data.fetchOpen?.(); data.tab === 'orders' && data.fetchOrderHistory?.(null, false); data.tab === 'trades' && data.fetchTrades?.(1, false); }} className="flex min-h-[36px] min-w-[36px] touch-manipulation items-center justify-center rounded text-muted-foreground hover:text-foreground" title="Refresh">
             <RefreshCw className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -291,9 +291,9 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
           ) : data.openOrders.length === 0 ? (
             <div className="p-4 text-center text-muted-foreground text-xs">No open orders</div>
           ) : (
-            <table className="w-full text-[11px] table-fixed">
-              <thead className="sticky top-0 z-10 bg-[#181a20]">
-                <tr className="border-b border-[#2b2f36] text-left text-[11px] font-medium text-[#848e9c]">
+            <table className="w-full table-fixed text-label">
+              <thead className="sticky top-0 z-10 bg-muted/80 backdrop-blur-sm">
+                <tr className="border-b border-border text-left font-medium text-muted-foreground">
                   <th className="py-2 px-2 font-medium cursor-pointer w-24" onClick={() => toggleSort('market')}>Market{sortGlyph('market')}</th>
                   <th className="py-2 px-2 font-medium cursor-pointer w-16" onClick={() => toggleSort('type')}>Type{sortGlyph('type')}</th>
                   <th className="py-2 px-2 font-medium cursor-pointer w-12" onClick={() => toggleSort('side')}>Side{sortGlyph('side')}</th>
@@ -323,9 +323,9 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
           ) : data.orderHistory.length === 0 ? (
             <div className="p-4 text-center text-muted-foreground text-xs">No order history</div>
           ) : (
-            <table className="w-full text-[11px] table-fixed">
-              <thead className="sticky top-0 z-10 bg-[#181a20]">
-                <tr className="text-left text-[#848e9c] border-b border-[#2b2f36]">
+            <table className="w-full table-fixed text-label">
+              <thead className="sticky top-0 z-10 bg-muted/80 backdrop-blur-sm">
+                <tr className="border-b border-border text-left text-muted-foreground">
                   <th className="py-2 px-2 font-medium cursor-pointer w-24" onClick={() => toggleSort('market')}>Market{sortGlyph('market')}</th>
                   <th className="py-2 px-2 font-medium cursor-pointer w-16" onClick={() => toggleSort('type')}>Type{sortGlyph('type')}</th>
                   <th className="py-2 px-2 font-medium cursor-pointer w-12" onClick={() => toggleSort('side')}>Side{sortGlyph('side')}</th>
@@ -341,18 +341,20 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
                   const qty = parseFloat(o.quantity ?? '0') || 0;
                   const filledQtyStr = filled > 0 || o.status === 'FILLED' ? `${filled.toFixed(4)}/${qty.toFixed(4)}` : (o.quantity ?? '—');
                   return (
-                    <tr key={o.id} className="border-b border-[#2b2f36]/60 hover:bg-[#2b2f36]/40 min-h-[36px] sm:min-h-[30px] transition-colors duration-150">
+                    <tr key={o.id} className="min-h-[36px] border-b border-border/60 transition-colors duration-150 hover:bg-muted/50 sm:min-h-[30px]">
                       <td className="py-1.5 px-2 align-middle">
                         <div className="flex items-center gap-1">
                           <CoinIcon symbol={o.market?.split('_')[0] || ''} size={14} />
-                          <span className="text-foreground font-mono tabular-nums">{o.market}</span>
+                          <span className="numeric text-foreground">{o.market}</span>
                         </div>
                       </td>
-                      <td className="py-1.5 px-2 align-middle text-muted-foreground text-[10px]">{displayOrderType(o.type)}</td>
-                      <td className="py-1.5 px-2 align-middle"><span className={o.side === 'buy' ? 'text-price-up' : 'text-price-down'}>{o.side}</span></td>
-                      <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums">{o.price ?? '—'}</td>
-                      <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums">{o.stop_price ?? '—'}</td>
-                      <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums">{filledQtyStr}</td>
+                      <td className="py-1.5 px-2 align-middle text-muted-foreground">{displayOrderType(o.type)}</td>
+                      <td className="py-1.5 px-2 align-middle">
+                        <span className={o.side === 'buy' ? 'text-buy' : 'text-sell'}>{o.side}</span>
+                      </td>
+                      <td className="numeric py-1.5 px-2 align-middle text-muted-foreground">{o.price ?? '—'}</td>
+                      <td className="numeric py-1.5 px-2 align-middle text-muted-foreground">{o.stop_price ?? '—'}</td>
+                      <td className="numeric py-1.5 px-2 align-middle text-muted-foreground">{filledQtyStr}</td>
                       <td className="py-1.5 px-2 align-middle">{executionStatusPill(o.status)}</td>
                     </tr>
                   );
@@ -363,7 +365,7 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
         )}
         {data.tab === 'assets' && (
           <div className="p-2">
-            <label className="flex items-center gap-2 mb-2 text-[11px] text-muted-foreground cursor-pointer">
+            <label className="mb-2 flex cursor-pointer items-center gap-2 text-label text-muted-foreground">
               <input
                 type="checkbox"
                 checked={hideSmallBalances}
@@ -377,17 +379,17 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-1">
                 {tradingBalances.map((b) => (
-                  <Link key={b.symbol} href={`/wallet/${b.symbol}`} className="flex justify-between items-center px-2 py-1.5 rounded hover:bg-muted text-[11px]">
+                  <Link key={b.symbol} href={`/wallet/${b.symbol}`} className="flex items-center justify-between rounded px-2 py-1.5 text-label hover:bg-muted">
                     <div className="flex items-center gap-1.5">
                       <CoinIcon symbol={b.symbol} size={16} />
                       <span className="text-foreground">{b.symbol}</span>
                     </div>
-                    <span className="tabular-nums text-muted-foreground">{parseFloat(b.trading ?? '0').toFixed(4)}</span>
+                    <span className="numeric text-muted-foreground">{parseFloat(b.trading ?? '0').toFixed(4)}</span>
                   </Link>
                 ))}
               </div>
             )}
-            <Link href={walletPath.overview} className="mt-2 block text-center text-[11px] font-medium text-primary hover:underline dark:text-primary">
+            <Link href={walletPath.overview} className="mt-2 block text-center text-label font-medium text-primary hover:underline dark:text-primary">
               View all assets →
             </Link>
           </div>
@@ -398,7 +400,7 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
           ) : data.trades.length === 0 ? (
             <div className="p-4 flex flex-col items-center justify-center gap-2 text-muted-foreground text-xs text-center px-3">
               <p className="font-medium text-foreground/90">No trades yet — start trading</p>
-              <p className="text-[10px] max-w-[16rem]">Fills and executions will show here. Place an order from the panel on the right.</p>
+              <p className="max-w-[16rem] text-label">Fills and executions will show here. Place an order from the panel on the right.</p>
               <Link
                 href={SPOT_TRADE_HREF}
                 className="mt-1 inline-flex min-h-10 items-center justify-center rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
@@ -408,9 +410,9 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
             </div>
           ) : (
             <>
-              <table className="w-full text-[11px] table-fixed">
-                <thead className="sticky top-0 z-10 bg-[#181a20]">
-                  <tr className="text-left text-[#848e9c] border-b border-[#2b2f36]">
+              <table className="w-full table-fixed text-label">
+                <thead className="sticky top-0 z-10 bg-muted/80 backdrop-blur-sm">
+                  <tr className="border-b border-border text-left text-muted-foreground">
                     <th className="py-2 px-2 font-medium cursor-pointer w-24" onClick={() => toggleSort('market')}>Market{sortGlyph('market')}</th>
                     <th className="py-2 px-2 font-medium cursor-pointer w-12" onClick={() => toggleSort('side')}>Side{sortGlyph('side')}</th>
                     <th className="py-2 px-2 font-medium cursor-pointer w-20" onClick={() => toggleSort('price')}>Price{sortGlyph('price')}</th>
@@ -421,18 +423,22 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
                 </thead>
                 <tbody>
                   {sortedTrades.map((t) => (
-                    <tr key={t.id} className="border-b border-[#2b2f36]/60 hover:bg-[#2b2f36]/40 min-h-[36px] sm:min-h-[30px] transition-colors duration-150">
+                    <tr key={t.id} className="min-h-[36px] border-b border-border/60 transition-colors duration-150 hover:bg-muted/50 sm:min-h-[30px]">
                       <td className="py-1.5 px-2 align-middle">
                         <div className="flex items-center gap-1">
                           <CoinIcon symbol={t.market?.split('_')[0] || ''} size={14} />
-                          <span className="text-foreground font-mono tabular-nums">{t.market}</span>
+                          <span className="numeric text-foreground">{t.market}</span>
                         </div>
                       </td>
-                      <td className="py-1.5 px-2 align-middle"><span className={t.side === 'buy' ? 'text-price-up' : 'text-price-down'}>{t.side}</span></td>
-                      <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums">{t.price}</td>
-                      <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums">{t.quantity}</td>
-                      <td className="py-1.5 px-2 align-middle text-muted-foreground font-mono tabular-nums text-[10px]">{t.fee ?? '—'}{t.fee_asset ? ` ${t.fee_asset}` : ''}</td>
-                      <td className="py-1.5 px-2 align-middle text-muted-foreground text-[10px]">{t.created_at ? new Date(t.created_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—'}</td>
+                      <td className="py-1.5 px-2 align-middle">
+                        <span className={t.side === 'buy' ? 'text-buy' : 'text-sell'}>{t.side}</span>
+                      </td>
+                      <td className="numeric py-1.5 px-2 align-middle text-muted-foreground">{t.price}</td>
+                      <td className="numeric py-1.5 px-2 align-middle text-muted-foreground">{t.quantity}</td>
+                      <td className="numeric py-1.5 px-2 align-middle text-muted-foreground">{t.fee ?? '—'}{t.fee_asset ? ` ${t.fee_asset}` : ''}</td>
+                      <td className="numeric py-1.5 px-2 align-middle text-muted-foreground">
+                        {t.created_at ? new Date(t.created_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

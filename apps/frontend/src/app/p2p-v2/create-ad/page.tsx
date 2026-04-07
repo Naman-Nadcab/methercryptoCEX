@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMutation } from '@tanstack/react-query';
 import RequireAuth from '@/components/RequireAuth';
@@ -9,10 +10,10 @@ import { createAd, fetchPlatformPaymentMethods, fetchMyPaymentMethods } from '@/
 import { useQuery } from '@tanstack/react-query';
 import {
   TrendingUp, Lightbulb, Shield, Zap, Target, Eye,
-  BarChart3, ArrowUpDown, Clock, CheckCircle2, Sparkles, CreditCard,
+  BarChart3, ArrowUpDown, Clock, CheckCircle2, Sparkles, CreditCard, ShoppingBag,
 } from 'lucide-react';
 import { CoinIcon } from '@/components/ui/CoinIcon';
-import { formatFiatSymbol } from '@/lib/p2p-v2-utils';
+import { formatFiatSymbol, formatP2pFiatPrice } from '@/lib/p2p-v2-utils';
 
 export default function P2PV2CreateAdPage() {
   return (
@@ -21,8 +22,6 @@ export default function P2PV2CreateAdPage() {
     </RequireAuth>
   );
 }
-
-const priceFmt = new Intl.NumberFormat(undefined, { maximumFractionDigits: 4, minimumFractionDigits: 2 });
 
 function CreateAdForm() {
   const router = useRouter();
@@ -132,24 +131,33 @@ function CreateAdForm() {
   }, [displayPrice, marketPrice, selectedPm.length, minAmt, maxAmt, autoRel, remarks, side]);
 
   const inputCls = 'w-full rounded-xl border border-border/40 bg-background px-4 py-3 text-sm text-foreground transition-all duration-200 focus:border-primary/50 focus:ring-2 focus:ring-primary/10 focus:outline-none placeholder:text-muted-foreground/40';
-  const labelCls = 'mb-2 block text-[11px] font-bold uppercase tracking-wider text-muted-foreground';
+  const labelCls = 'mb-2 block text-xs font-semibold uppercase tracking-wide text-muted-foreground';
 
   return (
-    <div className="mx-auto max-w-[1100px]">
-      {/* Page header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-foreground sm:text-3xl">Post New Ad</h1>
-        <p className="mt-1.5 text-sm text-muted-foreground">Create a {side} ad for {crypto}/{fiat}. Your ad will be visible to all traders.</p>
-      </div>
+    <div className="mx-auto max-w-[1200px] px-4 pb-10 sm:px-6">
+      <header className="flex flex-col gap-3 border-b border-border/20 py-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Post new ad</h1>
+          <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">
+            Create a {side} ad for {crypto}/{fiat}. Your ad will be visible to all traders.
+          </p>
+        </div>
+        <Link
+          href="/p2p"
+          className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-border/40 px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+        >
+          Marketplace
+        </Link>
+      </header>
 
-      <div className="grid gap-7 lg:grid-cols-[1fr_340px]">
+      <div className="mt-6 grid gap-7 lg:grid-cols-[1fr_340px]">
         {/* ══════════ LEFT: MAIN FORM ══════════ */}
         <div className="space-y-6">
 
           {/* ─── Section 1: Asset & Side ─── */}
           <div className="rounded-2xl border border-border/40 bg-card p-6 shadow-sm space-y-5">
-            <h2 className="flex items-center gap-2.5 text-[13px] font-bold text-foreground">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-[11px] font-bold text-primary shadow-sm shadow-primary/10">1</span>
+            <h2 className="flex items-center gap-2.5 text-sm font-bold text-foreground">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-xs font-bold text-primary shadow-sm shadow-primary/10">1</span>
               Asset & Type
             </h2>
             <div className="flex gap-2">
@@ -188,8 +196,8 @@ function CreateAdForm() {
 
           {/* ─── Section 2: Pricing ─── */}
           <div className="rounded-2xl border border-border/40 bg-card p-6 shadow-sm space-y-5">
-            <h2 className="flex items-center gap-2.5 text-[13px] font-bold text-foreground">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-[11px] font-bold text-primary shadow-sm shadow-primary/10">2</span>
+            <h2 className="flex items-center gap-2.5 text-sm font-bold text-foreground">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-xs font-bold text-primary shadow-sm shadow-primary/10">2</span>
               Pricing Strategy
             </h2>
             <div className="flex gap-2">
@@ -198,7 +206,7 @@ function CreateAdForm() {
                   key={p}
                   type="button"
                   onClick={() => setPricing(p)}
-                  className={`rounded-full px-5 py-2 text-[12px] font-bold capitalize transition-all duration-200 ${
+                  className={`rounded-full px-5 py-2 text-sm font-bold capitalize transition-all duration-200 ${
                     pricing === p
                       ? 'bg-primary/15 text-primary ring-1 ring-primary/25 shadow-[0_0_12px_hsl(var(--primary)/0.1)]'
                       : 'border border-border/40 text-muted-foreground hover:text-foreground hover:border-border'
@@ -212,7 +220,7 @@ function CreateAdForm() {
             {/* Smart Price Suggestions */}
             {pricing === 'fixed' && priceSuggestions && (
               <div className="rounded-xl border border-primary/10 bg-primary/[0.03] p-4">
-                <p className="mb-3 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-primary">
+                <p className="mb-3 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-primary">
                   <Sparkles className="h-3.5 w-3.5" />
                   Smart Price Suggestions
                 </p>
@@ -228,9 +236,9 @@ function CreateAdForm() {
                       onClick={() => setFixedPrice(val.toFixed(4))}
                       className="group rounded-lg border border-border/30 bg-background/60 px-3 py-2.5 text-left transition-all duration-200 hover:border-primary/30 hover:shadow-sm"
                     >
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground group-hover:text-primary transition-colors">{label}</p>
-                      <p className="font-mono text-[13px] font-bold text-foreground mt-0.5">{sym}{priceFmt.format(val)}</p>
-                      <p className="text-[9px] text-muted-foreground/60">{desc}</p>
+                      <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground group-hover:text-primary transition-colors">{label}</p>
+                      <p className="numeric font-mono text-sm font-semibold tabular-nums text-foreground mt-0.5">{sym}{formatP2pFiatPrice(String(val), fiat)}</p>
+                      <p className="text-xs text-muted-foreground/60">{desc}</p>
                     </button>
                   ))}
                 </div>
@@ -241,7 +249,7 @@ function CreateAdForm() {
               <div className="rounded-xl border border-border/30 bg-muted/20 p-5 space-y-4">
                 <div className="flex items-center justify-between">
                   <p className="text-sm text-muted-foreground">Reference price</p>
-                  <span className="font-mono text-sm font-bold text-foreground">{marketPrice != null ? `${sym}${marketPrice.toFixed(4)}` : '—'}</span>
+                  <span className="numeric font-mono text-sm font-semibold tabular-nums text-foreground">{marketPrice != null ? `${sym}${formatP2pFiatPrice(String(marketPrice), fiat)}` : '—'}</span>
                 </div>
                 <div>
                   <label className={labelCls}>Margin %</label>
@@ -251,9 +259,9 @@ function CreateAdForm() {
                   <div className="flex items-center justify-between rounded-lg bg-background/60 px-4 py-3">
                     <span className="text-xs text-muted-foreground">Your ad price</span>
                     <div className="text-right">
-                      <span className="font-mono text-base font-bold text-foreground">{sym}{computedFloating.toFixed(4)}</span>
+                      <span className="numeric font-mono text-base font-semibold tabular-nums text-foreground">{sym}{formatP2pFiatPrice(String(computedFloating), fiat)}</span>
                       {diffPct != null && (
-                        <span className={`ml-2 rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
+                        <span className={`ml-2 rounded-md px-1.5 py-0.5 text-xs font-bold ${
                           parseFloat(diffPct) >= 0 ? 'bg-[#0ecb81]/10 text-[#0ecb81]' : 'bg-[#f6465d]/10 text-[#f6465d]'
                         }`}>
                           {parseFloat(diffPct) >= 0 ? '+' : ''}{diffPct}%
@@ -268,9 +276,9 @@ function CreateAdForm() {
             {pricing === 'fixed' && (
               <div>
                 <label className={labelCls}>Price ({fiat} per 1 {crypto})</label>
-                <input value={fixedPrice} onChange={(e) => setFixedPrice(e.target.value)} placeholder={marketPrice != null ? `e.g. ${marketPrice.toFixed(2)}` : '0.00'} className={`${inputCls} font-mono text-base`} />
+                <input value={fixedPrice} onChange={(e) => setFixedPrice(e.target.value)} placeholder={marketPrice != null ? `e.g. ${formatP2pFiatPrice(String(marketPrice), fiat)}` : '0.00'} className={`${inputCls} font-mono text-base`} />
                 {displayPrice != null && marketPrice != null && marketPrice > 0 && (
-                  <p className="mt-2 text-[11px] text-muted-foreground">
+                  <p className="mt-2 text-xs text-muted-foreground">
                     {((displayPrice - marketPrice) / marketPrice * 100) >= 0 ? 'Premium' : 'Discount'}:{' '}
                     <span className={`font-bold ${((displayPrice - marketPrice) / marketPrice * 100) >= 0 ? 'text-[#0ecb81]' : 'text-[#f6465d]'}`}>
                       {((displayPrice - marketPrice) / marketPrice * 100).toFixed(2)}%
@@ -284,8 +292,8 @@ function CreateAdForm() {
 
           {/* ─── Section 3: Limits ─── */}
           <div className="rounded-2xl border border-border/40 bg-card p-6 shadow-sm space-y-5">
-            <h2 className="flex items-center gap-2.5 text-[13px] font-bold text-foreground">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-[11px] font-bold text-primary shadow-sm shadow-primary/10">3</span>
+            <h2 className="flex items-center gap-2.5 text-sm font-bold text-foreground">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-xs font-bold text-primary shadow-sm shadow-primary/10">3</span>
               Order Limits
             </h2>
             <div className="grid grid-cols-3 gap-4">
@@ -306,21 +314,21 @@ function CreateAdForm() {
 
           {/* ─── Section 4: Payment ─── */}
           <div className="rounded-2xl border border-border/40 bg-card p-6 shadow-sm space-y-5">
-            <h2 className="flex items-center gap-2.5 text-[13px] font-bold text-foreground">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-[11px] font-bold text-primary shadow-sm shadow-primary/10">4</span>
+            <h2 className="flex items-center gap-2.5 text-sm font-bold text-foreground">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-xs font-bold text-primary shadow-sm shadow-primary/10">4</span>
               Payment Settings
             </h2>
             <div>
               <label className={labelCls}>Payment Window (minutes)</label>
               <input type="number" min={5} max={120} value={timeLimit} onChange={(e) => setTimeLimit(Number(e.target.value))} className={inputCls} />
-              <p className="mt-1.5 text-[10px] text-muted-foreground">Buyer must pay within this time or order expires.</p>
+              <p className="mt-1.5 text-xs text-muted-foreground">Buyer must pay within this time or order expires.</p>
             </div>
             <div>
-              <p className="mb-3 text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <p className="mb-3 text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                 <CreditCard className="h-3.5 w-3.5" />
                 Accepted Methods
                 {selectedPm.length > 0 && (
-                  <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-bold text-primary">{selectedPm.length}</span>
+                  <span className="rounded-full bg-primary/15 px-2 py-0.5 text-xs font-bold text-primary">{selectedPm.length}</span>
                 )}
               </p>
               <div className="max-h-48 space-y-1 overflow-y-auto rounded-xl border border-border/30 bg-muted/10 p-3">
@@ -351,22 +359,22 @@ function CreateAdForm() {
                 })}
               </div>
               {platformPm.length > 0 && (
-                <p className="mt-2 text-[10px] text-muted-foreground">Platform types: {platformPm.map((p) => p.code).filter(Boolean).join(', ')}</p>
+                <p className="mt-2 text-xs text-muted-foreground">Platform types: {platformPm.map((p) => p.code).filter(Boolean).join(', ')}</p>
               )}
             </div>
           </div>
 
           {/* ─── Section 5: Conditions ─── */}
           <div className="rounded-2xl border border-border/40 bg-card p-6 shadow-sm space-y-5">
-            <h2 className="flex items-center gap-2.5 text-[13px] font-bold text-foreground">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-[11px] font-bold text-primary shadow-sm shadow-primary/10">5</span>
+            <h2 className="flex items-center gap-2.5 text-sm font-bold text-foreground">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-xs font-bold text-primary shadow-sm shadow-primary/10">5</span>
               Conditions & Messaging
             </h2>
             <label className="flex items-center gap-3 rounded-xl border border-border/30 bg-muted/10 px-4 py-3.5 text-sm cursor-pointer transition-all duration-200 hover:bg-muted/20">
               <input type="checkbox" checked={autoRel} onChange={(e) => setAutoRel(e.target.checked)} className="rounded border-border accent-primary" />
               <div>
                 <span className="font-medium text-foreground">Auto-release on payment confirmation</span>
-                <p className="text-[10px] text-muted-foreground mt-0.5">Crypto is released automatically when the buyer marks paid.</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Crypto is released automatically when the buyer marks paid.</p>
               </div>
             </label>
             <div>
@@ -391,7 +399,7 @@ function CreateAdForm() {
             type="button"
             disabled={mut.isPending || selectedPm.length === 0}
             onClick={() => { setErr(null); mut.mutate(); }}
-            className="w-full rounded-xl bg-primary py-4 text-sm font-bold text-primary-foreground shadow-md shadow-primary/20 transition-all duration-200 hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/30 disabled:opacity-50 active:scale-[0.99]"
+            className="w-full rounded-xl bg-primary py-4 text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-all duration-200 hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/30 disabled:opacity-50 active:scale-[0.99]"
           >
             {mut.isPending ? 'Publishing…' : 'Publish Ad'}
           </button>
@@ -404,7 +412,7 @@ function CreateAdForm() {
           <div className="relative overflow-hidden rounded-2xl border border-border/40 bg-gradient-to-b from-card via-card to-muted/10 p-5 shadow-sm">
             <div className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-primary/[0.04] blur-[40px]" />
             <div className="relative space-y-4">
-              <div className="flex items-center gap-2 text-[13px] font-bold text-foreground">
+              <div className="flex items-center gap-2 text-sm font-bold text-foreground">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 shadow-sm shadow-primary/10">
                   <BarChart3 className="h-4 w-4 text-primary" />
                 </div>
@@ -412,25 +420,25 @@ function CreateAdForm() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="rounded-xl bg-muted/20 p-3">
-                  <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground/60">Market Price</p>
-                  <p className="font-mono text-lg font-bold text-foreground mt-1">
-                    {marketPrice != null ? `${sym}${priceFmt.format(marketPrice)}` : '—'}
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/60">Market Price</p>
+                  <p className="numeric font-mono text-lg font-semibold tabular-nums text-foreground mt-1">
+                    {marketPrice != null ? `${sym}${formatP2pFiatPrice(String(marketPrice), fiat)}` : '—'}
                   </p>
                 </div>
                 <div className="rounded-xl bg-muted/20 p-3">
-                  <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground/60">Your Price</p>
-                  <p className="font-mono text-lg font-bold text-foreground mt-1">
-                    {displayPrice != null ? `${sym}${priceFmt.format(displayPrice)}` : '—'}
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/60">Your Price</p>
+                  <p className="numeric font-mono text-lg font-semibold tabular-nums text-foreground mt-1">
+                    {displayPrice != null ? `${sym}${formatP2pFiatPrice(String(displayPrice), fiat)}` : '—'}
                   </p>
                 </div>
               </div>
               {displayPrice != null && marketPrice != null && marketPrice > 0 && (
                 <div className="flex items-center justify-between rounded-xl bg-background/60 px-3 py-2.5">
-                  <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <ArrowUpDown className="h-3 w-3" />
                     Spread
                   </span>
-                  <span className={`rounded-md px-2 py-0.5 font-mono text-[12px] font-bold ${
+                  <span className={`numeric rounded-md px-2 py-0.5 font-mono text-sm font-semibold tabular-nums ${
                     ((displayPrice - marketPrice) / marketPrice) >= 0
                       ? 'bg-[#0ecb81]/10 text-[#0ecb81]'
                       : 'bg-[#f6465d]/10 text-[#f6465d]'
@@ -440,13 +448,13 @@ function CreateAdForm() {
                   </span>
                 </div>
               )}
-              <p className="text-[10px] text-muted-foreground">{crypto}/{fiat} · updated every 4s</p>
+              <p className="text-xs text-muted-foreground">{crypto}/{fiat} · updated every 4s</p>
             </div>
           </div>
 
           {/* ─── Live Ad Preview ─── */}
           <div className="rounded-2xl border border-border/40 bg-card p-5 shadow-sm space-y-4">
-            <div className="flex items-center gap-2 text-[13px] font-bold text-foreground">
+            <div className="flex items-center gap-2 text-sm font-bold text-foreground">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10">
                 <Eye className="h-4 w-4 text-blue-500" />
               </div>
@@ -458,31 +466,31 @@ function CreateAdForm() {
                   <CoinIcon symbol={crypto} size={24} />
                   <div>
                     <p className="text-sm font-bold text-foreground">{crypto}/{fiat}</p>
-                    <p className="text-[10px] text-muted-foreground capitalize">{side} ad</p>
+                    <p className="text-xs text-muted-foreground capitalize">{side} ad</p>
                   </div>
                 </div>
-                <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold capitalize ${
+                <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold capitalize ${
                   side === 'sell' ? 'bg-[#f6465d]/10 text-[#f6465d]' : 'bg-[#0ecb81]/10 text-[#0ecb81]'
                 }`}>{side}</span>
               </div>
               <div className="h-px bg-border/30" />
-              <div className="flex justify-between text-[11px]">
+              <div className="flex justify-between text-xs">
                 <span className="text-muted-foreground">Price</span>
-                <span className="font-mono font-bold text-foreground">{displayPrice != null ? `${sym}${priceFmt.format(displayPrice)}` : '—'}</span>
+                <span className="numeric font-mono font-semibold tabular-nums text-foreground">{displayPrice != null ? `${sym}${formatP2pFiatPrice(String(displayPrice), fiat)}` : '—'}</span>
               </div>
-              <div className="flex justify-between text-[11px]">
+              <div className="flex justify-between text-xs">
                 <span className="text-muted-foreground">Limits</span>
                 <span className="font-mono text-foreground">{minAmt || '—'} – {maxAmt || '—'} {fiat}</span>
               </div>
-              <div className="flex justify-between text-[11px]">
+              <div className="flex justify-between text-xs">
                 <span className="text-muted-foreground">Available</span>
                 <span className="font-mono text-foreground">{totalAmt || '—'} {crypto}</span>
               </div>
-              <div className="flex justify-between text-[11px]">
+              <div className="flex justify-between text-xs">
                 <span className="text-muted-foreground">Methods</span>
                 <span className="text-foreground">{selectedPm.length || '0'} selected</span>
               </div>
-              <div className="flex justify-between text-[11px]">
+              <div className="flex justify-between text-xs">
                 <span className="text-muted-foreground">Window</span>
                 <span className="text-foreground">{timeLimit} min</span>
               </div>
@@ -492,7 +500,7 @@ function CreateAdForm() {
           {/* ─── Performance Indicator ─── */}
           {perfIndicators && (
             <div className="rounded-2xl border border-border/40 bg-card p-5 shadow-sm space-y-4">
-              <div className="flex items-center gap-2 text-[13px] font-bold text-foreground">
+              <div className="flex items-center gap-2 text-sm font-bold text-foreground">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#0ecb81]/10">
                   <Target className="h-4 w-4 text-[#0ecb81]" />
                 </div>
@@ -505,11 +513,11 @@ function CreateAdForm() {
               ].map(({ label, value, icon: Icon, color }) => (
                 <div key={label} className="space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                       <Icon className="h-3 w-3" style={{ color }} />
                       {label}
                     </span>
-                    <span className="text-[11px] font-bold tabular-nums text-foreground">{value}%</span>
+                    <span className="text-xs font-bold tabular-nums text-foreground">{value}%</span>
                   </div>
                   <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted/30">
                     <div
@@ -524,13 +532,13 @@ function CreateAdForm() {
 
           {/* ─── Tips ─── */}
           <div className="rounded-2xl border border-border/40 bg-card p-5 shadow-sm space-y-3">
-            <div className="flex items-center gap-2 text-[13px] font-bold text-foreground">
+            <div className="flex items-center gap-2 text-sm font-bold text-foreground">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/10">
                 <Lightbulb className="h-4 w-4 text-amber-500" />
               </div>
               Pro Tips
             </div>
-            <ul className="space-y-2.5 text-[11px] text-muted-foreground leading-relaxed">
+            <ul className="space-y-2.5 text-xs text-muted-foreground leading-relaxed">
               {[
                 'Set competitive prices to attract more orders',
                 'Wider limits increase your visibility to buyers',
@@ -551,22 +559,22 @@ function CreateAdForm() {
             <div className="flex items-center gap-2.5 rounded-xl border border-[#0ecb81]/15 bg-[#0ecb81]/[0.04] px-4 py-3">
               <Shield className="h-4 w-4 text-[#0ecb81]" />
               <div>
-                <p className="text-[11px] font-bold text-foreground">Escrow Protected</p>
-                <p className="text-[10px] text-muted-foreground">Funds locked until confirmed</p>
+                <p className="text-xs font-bold text-foreground">Escrow Protected</p>
+                <p className="text-xs text-muted-foreground">Funds locked until confirmed</p>
               </div>
             </div>
             <div className="flex items-center gap-2.5 rounded-xl border border-blue-500/15 bg-blue-500/[0.04] px-4 py-3">
               <CheckCircle2 className="h-4 w-4 text-blue-500" />
               <div>
-                <p className="text-[11px] font-bold text-foreground">Secure Trade</p>
-                <p className="text-[10px] text-muted-foreground">End-to-end encrypted chat</p>
+                <p className="text-xs font-bold text-foreground">Secure Trade</p>
+                <p className="text-xs text-muted-foreground">End-to-end encrypted chat</p>
               </div>
             </div>
             <div className="flex items-center gap-2.5 rounded-xl border border-primary/15 bg-primary/[0.04] px-4 py-3">
               <Clock className="h-4 w-4 text-primary" />
               <div>
-                <p className="text-[11px] font-bold text-foreground">24/7 Support</p>
-                <p className="text-[10px] text-muted-foreground">Dispute resolution available</p>
+                <p className="text-xs font-bold text-foreground">24/7 Support</p>
+                <p className="text-xs text-muted-foreground">Dispute resolution available</p>
               </div>
             </div>
           </div>

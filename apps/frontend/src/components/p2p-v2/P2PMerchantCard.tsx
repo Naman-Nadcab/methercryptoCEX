@@ -18,7 +18,7 @@ export function P2PMerchantCard({ ad, fiat }: Props) {
   const releaseMin = (ad as { merchant_avg_release_time_minutes?: string | number }).merchant_avg_release_time_minutes;
 
   return (
-    <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+    <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
       {uid ? (
         <Link href={p2pProfilePath(String(uid))} className="font-bold text-primary hover:underline transition-colors duration-150">
           {ad.username || 'Merchant'}
@@ -27,7 +27,7 @@ export function P2PMerchantCard({ ad, fiat }: Props) {
         <span className="font-bold text-foreground">{ad.username || 'Merchant'}</span>
       )}
       {verified && (
-        <span className="inline-flex items-center gap-0.5 rounded-full bg-[#0ecb81]/10 px-2 py-0.5 text-[10px] font-bold text-[#0ecb81]">
+        <span className="inline-flex items-center gap-0.5 rounded-full bg-[#0ecb81]/10 px-2.5 py-1 text-xs font-bold text-[#0ecb81]">
           <ShieldCheck className="h-3 w-3" />
           Verified
         </span>

@@ -74,3 +74,13 @@ input, select, textarea {
 .new-page-wrapper {
   color: var(--admin-text);
 }
+
+/* Admin login: neutral autofill (no browser yellow) */
+.admin-login-shell input:-webkit-autofill,
+.admin-login-shell input:-webkit-autofill:hover,
+.admin-login-shell input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #111827 inset !important;
+  -webkit-text-fill-color: #e5e7eb !important;
+  caret-color: #e5e7eb;
+  transition: background-color 99999s ease-out;
+}

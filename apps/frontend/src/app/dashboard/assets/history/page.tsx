@@ -10,6 +10,8 @@ import { notifyError } from '@/lib/notifyError';
 import { SkeletonTableBody } from '@/components/ui/Skeleton';
 import { CoinIcon } from '@/components/ui/CoinIcon';
 import { useBalancesByAccount } from '@/lib/balances';
+import { WalletOperationsShell } from '@/components/wallet/WalletOperationsShell';
+import { walletPath } from '@/lib/routes';
 import {
   ChevronRight,
   ChevronDown,
@@ -345,70 +347,69 @@ export default function AssetHistoryPage() {
   }, []);
 
   return (
-    <div className="mx-auto max-w-7xl p-4 sm:p-6">
-          <div className="mb-4 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-            <Link href="/wallet/funding" className="transition-colors hover:text-primary">
-              Funding
-            </Link>
-            <ChevronRight className="h-4 w-4 shrink-0" />
-            <span className="font-medium text-foreground">Funding Account History</span>
+    <WalletOperationsShell
+      title="Wallet history"
+      description="Deposits, withdrawals, and internal transfers. Filters and exports apply to the view below."
+      headerRight={
+        <>
+          {(historyTab === 'deposit' || historyTab === 'all') && (
+            <span className="rounded-full border border-border bg-buy-light px-2.5 py-1 text-xs font-medium text-buy">
+              Live
+            </span>
+          )}
+          <button
+            onClick={() => fetchTransactions(false)}
+            disabled={loading}
+            className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:border-primary/40 disabled:opacity-50"
+            title="Refresh now"
+            type="button"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowExportDropdown(!showExportDropdown)}
+              className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:border-primary/40"
+            >
+              <Download className="h-4 w-4" />
+              Export <ChevronDown className={`h-4 w-4 ${showExportDropdown ? 'rotate-180' : ''}`} />
+            </button>
+            {showExportDropdown && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowExportDropdown(false)} aria-hidden />
+                <div className="absolute right-0 top-full z-20 mt-2 min-w-[140px] rounded-xl border border-border bg-card py-1 shadow-lg">
+                  <button
+                    type="button"
+                    onClick={exportCSV}
+                    className="w-full px-4 py-2.5 text-left text-sm text-foreground transition-colors hover:bg-muted"
+                  >
+                    CSV
+                  </button>
+                  <button
+                    type="button"
+                    onClick={exportExcel}
+                    className="w-full px-4 py-2.5 text-left text-sm text-foreground transition-colors hover:bg-muted"
+                  >
+                    Excel
+                  </button>
+                </div>
+              </>
+            )}
           </div>
+        </>
+      }
+    >
+      <div className="mb-6 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+        <Link href={walletPath.funding} className="transition-colors hover:text-primary">
+          Funding
+        </Link>
+        <ChevronRight className="h-4 w-4 shrink-0" />
+        <span className="font-medium text-foreground">History</span>
+      </div>
 
-          <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-xl font-semibold tracking-tight text-foreground">Funding Account History</h1>
-              {(historyTab === 'deposit' || historyTab === 'all') && (
-                <span className="rounded-full border border-border bg-buy-light px-2.5 py-1 text-xs font-medium text-buy">
-                  Live
-                </span>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => fetchTransactions(false)}
-                disabled={loading}
-                className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:border-primary/40 disabled:opacity-50"
-                title="Refresh now"
-                type="button"
-              >
-                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-                Refresh
-              </button>
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowExportDropdown(!showExportDropdown)}
-                  className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:border-primary/40"
-                >
-                  <Download className="h-4 w-4" />
-                  Export <ChevronDown className={`h-4 w-4 ${showExportDropdown ? 'rotate-180' : ''}`} />
-                </button>
-                {showExportDropdown && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setShowExportDropdown(false)} aria-hidden />
-                    <div className="absolute right-0 top-full z-20 mt-2 min-w-[140px] rounded-xl border border-border bg-card py-1 shadow-lg">
-                      <button
-                        type="button"
-                        onClick={exportCSV}
-                        className="w-full px-4 py-2.5 text-left text-sm text-foreground transition-colors hover:bg-muted"
-                      >
-                        CSV
-                      </button>
-                      <button
-                        type="button"
-                        onClick={exportExcel}
-                        className="w-full px-4 py-2.5 text-left text-sm text-foreground transition-colors hover:bg-muted"
-                      >
-                        Excel
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
             <div className="flex border-b border-border">
               <button
                 type="button"
@@ -904,6 +905,6 @@ export default function AssetHistoryPage() {
               </div>
             )}
           </div>
-    </div>
+    </WalletOperationsShell>
   );
 }

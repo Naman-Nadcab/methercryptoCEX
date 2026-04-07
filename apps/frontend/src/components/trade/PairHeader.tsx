@@ -62,10 +62,10 @@ function MiniStat({
       className={`flex min-w-0 max-w-full flex-col items-center justify-center gap-px px-1.5 py-0 sm:px-2 ${className}`}
       title={titleAttr}
     >
-      <span className="w-full truncate text-center text-[8px] font-semibold uppercase leading-none tracking-wide text-[#848e9c]">
+      <span className="w-full truncate text-center text-label font-semibold uppercase leading-tight tracking-wide text-muted-foreground">
         {label}
       </span>
-      <div className="w-full min-w-0 truncate text-center font-mono text-[10px] font-semibold tabular-nums leading-none text-[#eaecef] sm:text-[11px]">
+      <div className="numeric w-full min-w-0 truncate text-center text-book font-semibold leading-tight text-foreground">
         {children}
       </div>
     </div>
@@ -156,16 +156,16 @@ export function PairHeader({
     changeTone === 'none'
       ? 'text-muted-foreground'
       : changeTone === 'up'
-        ? 'text-price-up'
+        ? 'text-buy'
         : changeTone === 'down'
-          ? 'text-price-down'
+          ? 'text-sell'
           : 'text-muted-foreground';
 
   const lastColor =
     priceFlash === 'up'
-      ? 'text-price-up'
+      ? 'text-buy'
       : priceFlash === 'down'
-        ? 'text-price-down'
+        ? 'text-sell'
         : 'text-foreground';
 
   const streamPhaseResolved: SpotWsStreamPhase | null =
@@ -175,7 +175,7 @@ export function PairHeader({
     streamPhaseResolved ?? (wsConnected === false ? 'reconnecting' : 'connecting');
   const streamDotClass =
     phaseForBadge === 'live'
-      ? 'bg-[hsl(var(--price-up))]'
+      ? 'bg-buy'
       : phaseForBadge === 'disconnected'
         ? 'bg-sell'
         : 'animate-pulse bg-amber-500';
@@ -196,17 +196,17 @@ export function PairHeader({
 
   return (
     <header
-      className={`flex h-11 min-h-11 shrink-0 border-b border-[#2b2f36] bg-[#1e2026] ${
+      className={`flex h-11 min-h-11 shrink-0 border-b border-border bg-card ${
         embedded ? 'rounded-t-lg' : ''
       }`}
     >
-      <div className="flex h-full shrink-0 items-center gap-1 border-r border-[#2b2f36] bg-[#181a20]/50 px-1.5 sm:gap-1.5 sm:px-2">
+      <div className="flex h-full shrink-0 items-center gap-1 border-r border-border bg-muted/50 px-1.5 sm:gap-1.5 sm:px-2">
         <CoinIcon symbol={base} size={22} />
         {mkt.length > 1 ? (
           <select
             value={sym}
             onChange={(e) => onChange(e.target.value)}
-            className="h-7 max-w-[7.5rem] min-w-0 shrink cursor-pointer truncate rounded border border-[#2b2f36] bg-[#181a20] py-0 pl-1.5 pr-6 text-[11px] font-bold leading-7 text-[#eaecef] shadow-sm outline-none focus:ring-1 focus:ring-[#f0b90b]/30 sm:max-w-[9.5rem] sm:text-xs"
+            className="numeric h-7 max-w-[7.5rem] min-w-0 shrink cursor-pointer truncate rounded border border-border bg-card py-0 pl-1.5 pr-6 text-book font-bold leading-7 text-foreground shadow-sm outline-none focus:ring-1 focus:ring-primary/30 sm:max-w-[9.5rem]"
           >
             {mkt.map((m) => (
               <option key={m.symbol} value={m.symbol}>
@@ -215,18 +215,18 @@ export function PairHeader({
             ))}
           </select>
         ) : (
-          <span className="max-w-[7.5rem] truncate text-[11px] font-bold leading-none tracking-tight text-[#eaecef] sm:max-w-[9.5rem] sm:text-xs">
+          <span className="numeric max-w-[7.5rem] truncate text-book font-bold leading-tight tracking-tight text-foreground sm:max-w-[9.5rem]">
             {pairLabel}
           </span>
         )}
-        <span className="inline-flex h-5 shrink-0 items-center rounded border border-[#2b2f36] bg-[#2b2f36]/50 px-1 text-[8px] font-bold uppercase text-[#848e9c]">
+        <span className="inline-flex h-5 shrink-0 items-center rounded border border-border bg-muted px-1 text-label font-bold uppercase text-muted-foreground">
           Spot
         </span>
         {onToggleFavorite && sym && (
           <button
             type="button"
             onClick={() => onToggleFavorite(sym)}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-[#848e9c] hover:bg-[#2b2f36]/60 hover:text-[#f0b90b]"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-primary"
             title={isFavorite?.(sym) ? 'Remove from favorites' : 'Add to favorites'}
             aria-label="Toggle favorite"
           >
@@ -235,7 +235,7 @@ export function PairHeader({
         )}
         {tierLevel != null && tierLevel > 0 && (
           <span
-            className="hidden h-5 shrink-0 items-center rounded border border-[#f0b90b]/30 bg-[#f0b90b]/10 px-1 text-[8px] font-bold text-[#f0b90b] sm:inline-flex"
+            className="hidden h-5 shrink-0 items-center rounded border border-primary/30 bg-primary/10 px-1 text-label font-bold text-primary sm:inline-flex"
             title="Withdrawal tier"
           >
             T{tierLevel}
@@ -243,14 +243,14 @@ export function PairHeader({
         )}
         {showStreamBadge && (
           <span
-            className="inline-flex h-5 shrink-0 items-center gap-1 rounded border border-[#2b2f36] bg-[#2b2f36]/50 px-1 text-[8px] font-bold uppercase text-[#848e9c]"
+            className="inline-flex h-5 shrink-0 items-center gap-1 rounded border border-border bg-muted px-1 text-label font-bold uppercase text-muted-foreground"
             title={streamTitle}
           >
             <span className={`h-1 w-1 shrink-0 rounded-full ${streamDotClass}`} aria-hidden />
             <span className="hidden sm:inline">
               {streamLabel}
               {rttSuffix ? (
-                <span className="ml-0.5 font-mono normal-case opacity-80">{rttSuffix}</span>
+                <span className="numeric ml-0.5 normal-case opacity-80">{rttSuffix}</span>
               ) : null}
             </span>
           </span>
@@ -258,7 +258,7 @@ export function PairHeader({
       </div>
 
       {/* Content-sized columns, centered; dividers only between stats */}
-      <div className="flex min-w-0 flex-1 items-stretch justify-evenly divide-x divide-[#2b2f36] px-0.5 sm:px-1">
+      <div className="flex min-w-0 flex-1 items-stretch justify-evenly divide-x divide-border px-0.5 sm:px-1">
         <MiniStat label="Last" title={lastSub ?? TOOLTIP_LAST_PRICE}>
           <span className={`font-bold ${hasLastTrade ? lastColor : 'text-muted-foreground'}`}>{lastDisplay}</span>
         </MiniStat>
@@ -303,9 +303,9 @@ export function PairHeader({
         </MiniStat>
         <MiniStat label="B/A" title={spreadTooltip} className="max-w-[min(100%,9.5rem)]">
           <div className="min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-center">
-            <span className="text-price-up">{formatValueFixedTrim(bid, pricePrecision)}</span>
+            <span className="text-buy">{formatValueFixedTrim(bid, pricePrecision)}</span>
             <span className="text-muted-foreground">/</span>
-            <span className="text-price-down">{formatValueFixedTrim(ask, pricePrecision)}</span>
+            <span className="text-sell">{formatValueFixedTrim(ask, pricePrecision)}</span>
           </div>
         </MiniStat>
       </div>

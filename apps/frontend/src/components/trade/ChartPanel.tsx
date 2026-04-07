@@ -416,9 +416,9 @@ function ChartPanelInner({
     changeTone24h === 'none'
       ? 'text-muted-foreground'
       : changeTone24h === 'up'
-        ? 'text-price-up'
+        ? 'text-buy'
         : changeTone24h === 'down'
-          ? 'text-price-down'
+          ? 'text-sell'
           : 'text-muted-foreground';
 
   return (
@@ -433,32 +433,32 @@ function ChartPanelInner({
           <div className="flex flex-wrap items-start justify-between gap-2 px-2 py-1">
             <div className="flex min-w-0 flex-wrap items-end gap-x-4 gap-y-1">
               <div className="min-w-0">
-                <div className="text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Last</div>
-                <div className={`font-mono text-lg font-bold leading-tight tabular-nums sm:text-xl ${lastColor}`}>
+                <div className="text-label font-bold uppercase tracking-wide text-muted-foreground">Last</div>
+                <div className={`numeric text-mid font-bold leading-snug tracking-wide ${lastColor}`}>
                   {quoteAsset === 'USDT' && lastPrice != null && lastPrice !== ''
                     ? `$${formatValueFixedTrim(lastPrice, pricePrecision)}`
                     : formatValueFixedTrim(lastPrice, pricePrecision)}
                 </div>
                 {quoteAsset === 'USDT' && lastPrice != null && lastPrice !== '' && (
-                  <div className="text-[10px] font-mono tabular-nums text-muted-foreground">
+                  <div className="numeric text-label text-muted-foreground">
                     ≈ {formatValueFixedTrim(lastPrice, pricePrecision)} USD
                   </div>
                 )}
               </div>
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] sm:text-[11px]">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-label">
                 <div
                   className="flex min-w-0 max-w-[11rem] items-baseline gap-1 sm:max-w-none"
                   title={changePct != null ? TOOLTIP_24H_CHANGE : TOOLTIP_CHANGE_UNAVAILABLE}
                 >
                   <span className="shrink-0 font-semibold text-muted-foreground">24h</span>
-                  <span className={`min-w-0 truncate font-mono font-bold tabular-nums transition-colors duration-300 ${changeClass24h}`}>
+                  <span className={`numeric min-w-0 truncate font-bold transition-colors duration-300 ${changeClass24h}`}>
                     {changePct != null ? `${changePct > 0 ? '+' : ''}${changePct.toFixed(2)}%` : '—'}
                   </span>
                 </div>
                 <div className="hidden h-3 w-px bg-border dark:bg-border sm:block" aria-hidden />
                 <div className="flex min-w-0 max-w-[5rem] items-baseline gap-1" title={TOOLTIP_24H_HIGH}>
                   <span className="shrink-0 text-muted-foreground">H</span>
-                  <span className="min-w-0 truncate font-mono font-semibold tabular-nums text-foreground">
+                  <span className="numeric min-w-0 truncate font-semibold text-foreground">
                     {(() => {
                       const s = formatValueFixedTrim(high24h, pricePrecision);
                       return s === '—' ? (hasLastTrade ? NO_ACTIVITY_SHORT : NO_TRADES_TINY) : s;
@@ -467,7 +467,7 @@ function ChartPanelInner({
                 </div>
                 <div className="flex min-w-0 max-w-[5rem] items-baseline gap-1" title={TOOLTIP_24H_LOW}>
                   <span className="shrink-0 text-muted-foreground">L</span>
-                  <span className="min-w-0 truncate font-mono font-semibold tabular-nums text-foreground">
+                  <span className="numeric min-w-0 truncate font-semibold text-foreground">
                     {(() => {
                       const s = formatValueFixedTrim(low24h, pricePrecision);
                       return s === '—' ? (hasLastTrade ? NO_ACTIVITY_SHORT : NO_TRADES_TINY) : s;
@@ -476,7 +476,7 @@ function ChartPanelInner({
                 </div>
                 <div className="hidden min-w-0 max-w-[6rem] items-baseline gap-1 md:flex" title={TOOLTIP_BASE_VOLUME_24H}>
                   <span className="shrink-0 text-muted-foreground">Vol</span>
-                  <span className="min-w-0 truncate font-mono font-semibold tabular-nums text-foreground">
+                  <span className="numeric min-w-0 truncate font-semibold text-foreground">
                     {(() => {
                       const s = formatCompactNumber(volume24h);
                       const body = s === '—' ? (hasLastTrade ? NO_ACTIVITY_SHORT : NO_TRADES_TINY) : s;
@@ -489,7 +489,7 @@ function ChartPanelInner({
                   title={TOOLTIP_QUOTE_VOLUME_24H}
                 >
                   <span className="shrink-0 text-muted-foreground">Turn.</span>
-                  <span className="min-w-0 truncate font-mono font-semibold tabular-nums text-foreground">
+                  <span className="numeric min-w-0 truncate font-semibold text-foreground">
                     {(() => {
                       const s = formatCompactNumber(turnoverQuote24h);
                       const body = s === '—' ? (hasLastTrade ? NO_ACTIVITY_SHORT : NO_TRADES_TINY) : s;
@@ -499,14 +499,14 @@ function ChartPanelInner({
                 </div>
               </div>
             </div>
-            <div className="text-right text-[10px] sm:text-[11px]">
-              <div className="font-mono font-semibold tabular-nums text-foreground">
-                <span className="text-price-up">{formatValueFixedTrim(bid, pricePrecision)}</span>
+            <div className="text-right text-label">
+              <div className="numeric font-semibold text-foreground">
+                <span className="text-buy">{formatValueFixedTrim(bid, pricePrecision)}</span>
                 <span className="mx-1 text-muted-foreground">/</span>
-                <span className="text-price-down">{formatValueFixedTrim(ask, pricePrecision)}</span>
+                <span className="text-sell">{formatValueFixedTrim(ask, pricePrecision)}</span>
               </div>
               {spreadInfo && (
-                <div className="mt-0.5 font-mono text-[10px] tabular-nums text-muted-foreground">
+                <div className="numeric mt-0.5 text-label text-muted-foreground">
                   Spread {formatValueFixedTrim(String(spreadInfo.spread), pricePrecision)} ({spreadInfo.pct.toFixed(3)}%)
                 </div>
               )}
@@ -516,7 +516,7 @@ function ChartPanelInner({
 
         {viewMode === 'chart' && (
           <div
-            className={`px-2 py-1 font-mono text-[10px] leading-snug text-muted-foreground ${
+            className={`px-2 py-1 numeric text-label leading-snug text-muted-foreground ${
               !hideDuplicatePairSummary ? 'border-t border-border' : ''
             }`}
             title="Crosshair or last candle"
@@ -525,7 +525,7 @@ function ChartPanelInner({
             <span className="text-muted-foreground"> · Spot · {intervalLabel}</span>
             <span className="text-muted-foreground"> · Bar {barEta}</span>
             <span className="text-muted-foreground"> · </span>
-            <span className="tabular-nums">{ohlcLegend || '—'}</span>
+            <span className="numeric">{ohlcLegend || '—'}</span>
           </div>
         )}
       </div>
@@ -540,7 +540,7 @@ function ChartPanelInner({
               <button
                 type="button"
                 onClick={() => onViewModeChange('chart')}
-                className={`inline-flex items-center gap-1 px-2 py-1.5 text-[10px] font-bold transition-colors sm:text-[11px] ${
+                className={`inline-flex items-center gap-1 px-2 py-1.5 text-label font-bold transition-colors ${
                   viewMode === 'chart'
                     ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100'
                     : 'text-muted-foreground hover:bg-accent dark:text-muted-foreground dark:hover:bg-accent'
@@ -552,7 +552,7 @@ function ChartPanelInner({
               <button
                 type="button"
                 onClick={() => onViewModeChange('depth')}
-                className={`inline-flex items-center gap-1 border-l border-border px-2 py-1.5 text-[10px] font-bold transition-colors dark:border-border sm:text-[11px] ${
+                className={`inline-flex items-center gap-1 border-l border-border px-2 py-1.5 text-label font-bold transition-colors dark:border-border ${
                   viewMode === 'depth'
                     ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100'
                     : 'text-muted-foreground hover:bg-accent dark:text-muted-foreground dark:hover:bg-accent'
@@ -580,7 +580,7 @@ function ChartPanelInner({
                     key={id}
                     type="button"
                     onClick={() => setChartPriceScale(id)}
-                    className={`px-2 py-1.5 text-[10px] font-bold tabular-nums sm:text-[11px] ${
+                    className={`numeric px-2 py-1.5 text-label font-bold ${
                       i > 0 ? 'border-l border-border' : ''
                     } ${
                       chartPriceScale === id
@@ -595,7 +595,7 @@ function ChartPanelInner({
               <select
                 value={overlayStudy}
                 onChange={(e) => setOverlayStudy(e.target.value as OverlayStudyId)}
-                className="max-w-[11rem] shrink-0 cursor-pointer rounded-md border border-border bg-card px-1.5 py-1 text-[10px] font-semibold text-foreground dark:border-border dark:bg-background dark:text-foreground/90"
+                className="max-w-[11rem] shrink-0 cursor-pointer rounded-md border border-border bg-card px-1.5 py-1 text-label font-semibold text-foreground dark:border-border dark:bg-background dark:text-foreground/90"
                 title="Price overlay (SMA, EMA, VWAP, Bollinger)"
               >
                 {OVERLAY_OPTIONS.map(({ id, label }) => (
@@ -604,7 +604,7 @@ function ChartPanelInner({
                   </option>
                 ))}
               </select>
-              <label className="flex cursor-pointer items-center gap-1 whitespace-nowrap text-[10px] font-semibold text-foreground/80">
+              <label className="flex cursor-pointer items-center gap-1 whitespace-nowrap text-label font-semibold text-foreground/80">
                 <input
                   type="checkbox"
                   checked={showVolumeMa}
@@ -613,7 +613,7 @@ function ChartPanelInner({
                 />
                 Vol SMA 9
               </label>
-              <label className="flex cursor-pointer items-center gap-1 whitespace-nowrap text-[10px] font-semibold text-foreground/80">
+              <label className="flex cursor-pointer items-center gap-1 whitespace-nowrap text-label font-semibold text-foreground/80">
                 <input
                   type="checkbox"
                   checked={showRsi}
@@ -631,7 +631,7 @@ function ChartPanelInner({
                   key={seconds}
                   type="button"
                   onClick={() => onIntervalSecondsChange(seconds)}
-                  className={`shrink-0 rounded px-2 py-1 text-[10px] font-bold tabular-nums transition-colors sm:text-[11px] ${
+                  className={`numeric shrink-0 rounded px-2 py-1 text-label font-bold transition-colors ${
                     intervalSeconds === seconds
                       ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100'
                       : 'text-muted-foreground hover:bg-accent/80 dark:text-muted-foreground dark:hover:bg-accent'
@@ -646,7 +646,7 @@ function ChartPanelInner({
         <div className="flex shrink-0 flex-wrap items-center gap-1 sm:justify-end">
           <button
             type="button"
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold text-muted-foreground hover:bg-accent/80 dark:text-muted-foreground dark:hover:bg-accent"
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-label font-semibold text-muted-foreground hover:bg-accent/80 dark:text-muted-foreground dark:hover:bg-accent"
             title="Indicators (coming soon)"
           >
             <SlidersHorizontal className="h-3.5 w-3.5" />
@@ -655,7 +655,7 @@ function ChartPanelInner({
           <button
             type="button"
             onClick={handleReset}
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold text-muted-foreground hover:bg-accent/80 dark:text-muted-foreground dark:hover:bg-accent"
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-label font-semibold text-muted-foreground hover:bg-accent/80 dark:text-muted-foreground dark:hover:bg-accent"
             title="Fit content"
           >
             <RefreshCw className="h-3.5 w-3.5" />
@@ -664,7 +664,7 @@ function ChartPanelInner({
           <button
             type="button"
             onClick={handleFullscreen}
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold text-muted-foreground hover:bg-accent/80 dark:text-muted-foreground dark:hover:bg-accent"
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-label font-semibold text-muted-foreground hover:bg-accent/80 dark:text-muted-foreground dark:hover:bg-accent"
             title="Fullscreen"
             aria-pressed={isFullscreen}
           >
@@ -673,7 +673,7 @@ function ChartPanelInner({
           <button
             type="button"
             onClick={handleScreenshot}
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold text-muted-foreground hover:bg-accent/80 dark:text-muted-foreground dark:hover:bg-accent"
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-label font-semibold text-muted-foreground hover:bg-accent/80 dark:text-muted-foreground dark:hover:bg-accent"
             title="Download chart as PNG"
           >
             <Camera className="h-3.5 w-3.5" aria-hidden />
@@ -684,11 +684,11 @@ function ChartPanelInner({
           <button
             type="button"
             onClick={() => setExtStackOpen(true)}
-            className="flex w-full min-w-0 items-center justify-between gap-2 rounded border border-dashed border-border/90 bg-card/60 px-2 py-0.5 text-left text-[10px] font-medium text-muted-foreground hover:bg-accent/90 dark:border-border dark:bg-card/50 dark:text-muted-foreground dark:hover:bg-accent/80"
+            className="flex w-full min-w-0 items-center justify-between gap-2 rounded border border-dashed border-border/90 bg-card/60 px-2 py-0.5 text-left text-label font-medium text-muted-foreground hover:bg-accent/90 dark:border-border dark:bg-card/50 dark:text-muted-foreground dark:hover:bg-accent/80"
             title="Multi-EMA, extra VWAP, volume bar toggle, drawing tools"
           >
             <span className="truncate">▸ Multi-EMA · VWAP² · Vol · Draw</span>
-            <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Open</span>
+            <span className="shrink-0 text-label font-semibold uppercase tracking-wide text-muted-foreground">Open</span>
           </button>
         )}
         {viewMode === 'chart' && extStackOpen && (
@@ -697,16 +697,16 @@ function ChartPanelInner({
               <button
                 type="button"
                 onClick={() => setExtStackOpen(false)}
-                className="shrink-0 rounded px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground hover:bg-accent/80 dark:text-muted-foreground dark:hover:bg-accent"
+                className="shrink-0 rounded px-1 py-0.5 text-label font-bold uppercase tracking-wide text-muted-foreground hover:bg-accent/80 dark:text-muted-foreground dark:hover:bg-accent"
                 title="Hide toolbar — more chart height"
               >
                 ▴ Hide
               </button>
-              <span className="shrink-0 text-[9px] font-bold uppercase text-muted-foreground">EMA</span>
+              <span className="shrink-0 text-label font-bold uppercase text-muted-foreground">EMA</span>
               {([7, 20, 50, 200] as const).map((p) => (
                 <label
                   key={p}
-                  className="flex shrink-0 cursor-pointer items-center gap-0.5 whitespace-nowrap text-[10px] font-semibold leading-none text-foreground dark:text-foreground/90"
+                  className="flex shrink-0 cursor-pointer items-center gap-0.5 whitespace-nowrap text-label font-semibold leading-tight text-foreground dark:text-foreground/90"
                 >
                   <input
                     type="checkbox"
@@ -720,7 +720,7 @@ function ChartPanelInner({
                 </label>
               ))}
               <span className="mx-0.5 h-3.5 w-px shrink-0 bg-border dark:bg-border" aria-hidden />
-              <label className="flex shrink-0 cursor-pointer items-center gap-0.5 whitespace-nowrap text-[10px] font-semibold leading-none text-foreground dark:text-foreground/90">
+              <label className="flex shrink-0 cursor-pointer items-center gap-0.5 whitespace-nowrap text-label font-semibold leading-tight text-foreground dark:text-foreground/90">
                 <input
                   type="checkbox"
                   checked={Boolean(extConfig.modularVwap)}
@@ -729,7 +729,7 @@ function ChartPanelInner({
                 />
                 VWAP²
               </label>
-              <label className="flex shrink-0 cursor-pointer items-center gap-0.5 whitespace-nowrap text-[10px] font-semibold leading-none text-foreground dark:text-foreground/90">
+              <label className="flex shrink-0 cursor-pointer items-center gap-0.5 whitespace-nowrap text-label font-semibold leading-tight text-foreground dark:text-foreground/90">
                 <input
                   type="checkbox"
                   checked={extConfig.volumeHistogram !== false}
@@ -740,7 +740,7 @@ function ChartPanelInner({
               </label>
               <span className="mx-0.5 h-3.5 w-px shrink-0 bg-border dark:bg-border" aria-hidden />
               <span
-                className="shrink-0 text-[9px] font-bold uppercase text-muted-foreground"
+                className="shrink-0 text-label font-bold uppercase text-muted-foreground"
                 title="Draw: H / V / ∠ / Fib. Esc: cancel or deselect. Del removes. Drawings save per symbol (this browser)."
               >
                 Draw
@@ -769,7 +769,7 @@ function ChartPanelInner({
                             : 'Fibonacci retracement (2 clicks: swing high/low)'
                   }
                   onClick={() => setDrawTool(id)}
-                  className={`inline-flex shrink-0 rounded border border-transparent px-1.5 py-0.5 text-[10px] font-bold leading-none ${
+                  className={`inline-flex shrink-0 rounded border border-transparent px-1.5 py-0.5 text-label font-bold leading-tight ${
                     drawTool === id
                       ? 'border-border bg-zinc-200 text-zinc-900 dark:border-border dark:bg-zinc-600 dark:text-zinc-100'
                       : 'text-foreground/80 hover:border-border hover:bg-accent dark:text-foreground/80 dark:hover:border-border dark:hover:bg-accent'
@@ -785,7 +785,7 @@ function ChartPanelInner({
                   const ad = adapterRef.current;
                   if (ad instanceof LightweightChartsAdapter) ad.clearDrawings();
                 }}
-                className="inline-flex shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] font-semibold leading-none text-foreground/80 hover:bg-accent dark:border-border dark:text-foreground/80 dark:hover:bg-accent"
+                className="inline-flex shrink-0 rounded border border-border px-1.5 py-0.5 text-label font-semibold leading-tight text-foreground/80 hover:bg-accent dark:border-border dark:text-foreground/80 dark:hover:bg-accent"
               >
                 Clr
               </button>
@@ -842,13 +842,13 @@ function ChartPanelInner({
             />
           </div>
           <div
-            className={`flex flex-shrink-0 items-center justify-between border-t px-2 py-0.5 text-[10px] font-mono ${
+            className={`flex flex-shrink-0 items-center justify-between border-t px-2 py-0.5 text-label numeric ${
               theme === 'dark'
                 ? 'border-border/90 bg-background text-muted-foreground'
                 : 'border-border/90 bg-background text-muted-foreground'
             }`}
           >
-            <span className="flex items-center gap-1 tabular-nums">
+            <span className="flex items-center gap-1">
               <Clock className="h-3 w-3 opacity-70" aria-hidden />
               {utcNow} UTC
             </span>

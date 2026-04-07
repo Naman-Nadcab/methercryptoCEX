@@ -1,7 +1,15 @@
 'use client';
 
 import type { P2PAdRow } from '@/lib/p2pApi';
-import { p2pAdDisplayPrice, p2pAdSide, formatFiatSymbol } from '@/lib/p2p-v2-utils';
+import {
+  p2pAdDisplayPrice,
+  p2pAdSide,
+  formatFiatSymbol,
+  formatP2pFiatPrice,
+  formatP2pCryptoQty,
+  p2pPaymentMethodChipCls,
+} from '@/lib/p2p-v2-utils';
+import { loginWithRedirect, P2P_HREF } from '@/lib/routes';
 import { ShieldCheck, Store, PlusCircle } from 'lucide-react';
 import { CoinIcon } from '@/components/ui/CoinIcon';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -28,19 +36,6 @@ function parsePayments(ad: P2PAdRow): string[] {
   return [String(m)];
 }
 
-const PM_COLORS: Record<string, string> = {
-  bank: 'bg-[#0ecb81]/8 text-[#0ecb81] border-[#0ecb81]/15',
-  upi: 'bg-amber-500/8 text-amber-400 border-amber-500/15',
-  imps: 'bg-blue-500/8 text-blue-400 border-blue-500/15',
-};
-function pmCls(name: string): string {
-  const l = name.toLowerCase();
-  for (const [k, v] of Object.entries(PM_COLORS)) {
-    if (l.includes(k)) return v;
-  }
-  return 'bg-muted/40 text-muted-foreground border-border/20';
-}
-
 /* ── Loading skeleton ── */
 function LoadingSkeleton() {
   return (
@@ -65,8 +60,8 @@ function LoadingSkeleton() {
         ))}
       </div>
       {/* desktop */}
-      <div className="hidden md:block">
-        <div className="divide-y divide-border/10">
+      <div className="hidden md:block overflow-x-auto rounded-xl border border-border/25">
+        <div className="min-w-[720px] divide-y divide-border/10">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="flex items-center gap-4 px-4 py-4">
               <Skeleton className="h-8 w-8 rounded-full shrink-0" />
@@ -136,22 +131,26 @@ export function P2PAdsTable({
 
   if (filtered.length === 0) {
     return (
-      <div className="flex flex-col items-center py-16 text-center">
-        <Store className="h-8 w-8 text-muted-foreground/30 mb-3" />
-        <p className="text-sm font-medium text-foreground">No ads match your filters</p>
-        <p className="mt-1 text-[12px] text-muted-foreground">Try another asset, fiat, or payment method.</p>
-        <div className="mt-4 flex gap-2">
+      <div className="flex flex-col items-center py-20 text-center">
+        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-border/50 bg-muted/30 text-muted-foreground/50">
+          <Store className="h-8 w-8" />
+        </div>
+        <p className="text-base font-semibold tracking-tight text-foreground">No ads match your filters</p>
+        <p className="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">
+          Try another asset, fiat, or payment method.
+        </p>
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
           <Link
             href="/p2p/create-ad"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-1.5 text-[12px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+            className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            <PlusCircle className="h-3.5 w-3.5" /> Post Ad
+            <PlusCircle className="h-4 w-4" /> Post ad
           </Link>
           {onRetry && (
             <button
               type="button"
               onClick={onRetry}
-              className="rounded-lg border border-border/40 px-3.5 py-1.5 text-[12px] text-muted-foreground transition-colors hover:text-foreground hover:bg-muted/30"
+              className="rounded-xl border border-border/40 px-5 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
             >
               Refresh
             </button>
@@ -167,9 +166,13 @@ export function P2PAdsTable({
       <div className="space-y-2 md:hidden">
         {filtered.map((ad) => {
           const side = p2pAdSide(ad);
-          const price = p2pAdDisplayPrice(ad);
+          const rawPrice = p2pAdDisplayPrice(ad);
+          const priceShown = formatP2pFiatPrice(rawPrice, fiat);
           const minA = ad.min_amount ?? '0';
           const maxA = ad.max_amount ?? '0';
+          const minF = formatP2pFiatPrice(minA, fiat);
+          const maxF = formatP2pFiatPrice(maxA, fiat);
+          const avail = formatP2pCryptoQty(String(ad.available_amount ?? ''));
           const payments = parsePayments(ad);
           const verified = Boolean((ad as { verified_merchant?: boolean }).verified_merchant);
           const completion = ad.merchant_completion_rate != null ? `${ad.merchant_completion_rate}%` : '—';
@@ -177,64 +180,78 @@ export function P2PAdsTable({
           const isBuy = side === 'sell';
 
           return (
-            <div key={ad.id} className="rounded-lg border border-border/20 bg-card p-4 transition-colors duration-100 hover:bg-muted/5">
+            <div key={ad.id} className="rounded-xl border border-border/25 bg-card p-4 transition-colors duration-100 hover:bg-muted/[0.04] sm:p-5">
               {/* top: merchant */}
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2.5">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-bold text-primary">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
                     {(ad.username || 'M')[0].toUpperCase()}
                   </div>
                   <div className="min-w-0">
-                    <div className="flex items-center gap-1">
-                      <span className="text-[13px] font-medium text-foreground truncate">{ad.username || 'Merchant'}</span>
-                      {verified && <ShieldCheck className="h-3 w-3 shrink-0 text-[#0ecb81]" />}
+                    <div className="flex items-center gap-1.5">
+                      <span className="truncate text-sm font-semibold text-foreground">{ad.username || 'Merchant'}</span>
+                      {verified && <ShieldCheck className="h-4 w-4 shrink-0 text-[#0ecb81]" />}
                     </div>
-                    <span className="text-[10px] text-muted-foreground">{orders} orders · {completion}</span>
+                    <span className="text-xs text-muted-foreground">{orders} orders · {completion}</span>
                   </div>
                 </div>
-                <CoinIcon symbol={ad.crypto_symbol || ''} size={22} />
+                <CoinIcon symbol={ad.crypto_symbol || ''} size={24} />
               </div>
 
               {/* price */}
-              <div className="mb-2.5">
-                <span className={`font-mono text-[18px] font-bold leading-tight ${isBuy ? 'text-[#0ecb81]' : 'text-[#f6465d]'}`}>
-                  {sym}{price}
+              <div className="mb-3">
+                <span className={`numeric text-xl font-bold tabular-nums leading-tight ${isBuy ? 'text-[#0ecb81]' : 'text-[#f6465d]'}`}>
+                  {sym}{priceShown}
                 </span>
-                <span className="ml-1 text-[11px] text-muted-foreground">/{ad.crypto_symbol}</span>
+                <span className="ml-1 text-xs text-muted-foreground">/{ad.crypto_symbol}</span>
               </div>
 
               {/* stats row */}
-              <div className="mb-3 flex gap-5 text-[11px]">
+              <div className="mb-4 flex gap-6 text-sm">
                 <div>
-                  <span className="block text-muted-foreground/60">Available</span>
-                  <span className="font-mono text-foreground">{ad.available_amount} {ad.crypto_symbol}</span>
+                  <span className="block text-xs font-medium text-muted-foreground">Available</span>
+                  <span className="numeric font-medium tabular-nums text-foreground">
+                    {avail} {ad.crypto_symbol}
+                  </span>
                 </div>
                 <div>
-                  <span className="block text-muted-foreground/60">Limit</span>
-                  <span className="font-mono text-foreground">{sym}{minA} – {sym}{maxA}</span>
+                  <span className="block text-xs font-medium text-muted-foreground">Limit</span>
+                  <span className="numeric font-medium tabular-nums text-foreground">
+                    {sym}{minF} – {sym}{maxF}
+                  </span>
                 </div>
               </div>
 
               {/* bottom: payments + action */}
-              <div className="flex items-center justify-between">
-                <div className="flex flex-wrap gap-1">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-wrap gap-1.5">
                   {payments.map((p, i) => (
-                    <span key={i} className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${pmCls(p)}`}>{p}</span>
+                    <span key={i} className={`rounded-md border px-2 py-1 text-xs font-medium ${p2pPaymentMethodChipCls(p)}`}>{p}</span>
                   ))}
                 </div>
-                <button
-                  type="button"
-                  disabled={!authed}
-                  onClick={() => onTakeAd(ad)}
-                  title={!authed ? 'Log in to trade' : undefined}
-                  className={`shrink-0 rounded-md px-4 py-1.5 text-[12px] font-semibold transition-colors duration-150 disabled:opacity-40 ${
-                    isBuy
-                      ? 'bg-[#0ecb81] text-white hover:bg-[#0ecb81]/85'
-                      : 'bg-[#f6465d] text-white hover:bg-[#f6465d]/85'
-                  }`}
-                >
-                  {isBuy ? 'Buy' : 'Sell'} {ad.crypto_symbol}
-                </button>
+                <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:items-end">
+                  <button
+                    type="button"
+                    disabled={!authed}
+                    onClick={() => onTakeAd(ad)}
+                    title={!authed ? 'Log in to trade' : undefined}
+                    className={`shrink-0 rounded-xl px-5 py-2.5 text-sm font-semibold transition-colors duration-150 disabled:opacity-40 ${
+                      isBuy
+                        ? 'bg-[#0ecb81] text-white hover:bg-[#0ecb81]/85'
+                        : 'bg-[#f6465d] text-white hover:bg-[#f6465d]/85'
+                    }`}
+                  >
+                    {isBuy ? 'Buy' : 'Sell'} {ad.crypto_symbol}
+                  </button>
+                  {!authed && (
+                    <Link
+                      href={loginWithRedirect(P2P_HREF)}
+                      className="text-center text-xs font-semibold text-primary hover:underline sm:text-right"
+                    >
+                      Log in to trade
+                    </Link>
+                  )}
+                </div>
               </div>
             </div>
           );
@@ -242,25 +259,29 @@ export function P2PAdsTable({
       </div>
 
       {/* ── Desktop: Binance-style dense table ── */}
-      <div className="hidden md:block">
-        <table className="w-full text-left text-sm">
+      <div className="hidden md:block overflow-x-auto rounded-xl border border-border/25">
+        <table className="w-full min-w-[860px] text-left text-sm">
           <thead>
-            <tr className="border-b border-border/20 text-[11px] text-muted-foreground/70">
-              <th className="py-3 pl-4 pr-2 font-medium">Advertisers</th>
-              <th className="px-3 py-3 font-medium">Price</th>
-              <th className="px-3 py-3 font-medium">Limit/Available</th>
-              <th className="px-3 py-3 font-medium">Payment</th>
-              <th className="py-3 pl-3 pr-4 text-right font-medium">
-                Trade <span className="text-[10px] text-primary/70">0 Fee</span>
+            <tr className="border-b border-border/25 bg-muted/30 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <th scope="col" className="py-3.5 pl-4 pr-2">Advertisers</th>
+              <th scope="col" className="px-3 py-3.5 text-right">Price</th>
+              <th scope="col" className="px-3 py-3.5">Limit / Available</th>
+              <th scope="col" className="px-3 py-3.5">Payment</th>
+              <th scope="col" className="py-3.5 pl-3 pr-4 text-right">
+                Trade <span className="normal-case text-xs font-semibold text-primary/80">0 fee</span>
               </th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((ad) => {
               const side = p2pAdSide(ad);
-              const price = p2pAdDisplayPrice(ad);
+              const rawPrice = p2pAdDisplayPrice(ad);
+              const priceShown = formatP2pFiatPrice(rawPrice, fiat);
               const minA = ad.min_amount ?? '0';
               const maxA = ad.max_amount ?? '0';
+              const minF = formatP2pFiatPrice(minA, fiat);
+              const maxF = formatP2pFiatPrice(maxA, fiat);
+              const avail = formatP2pCryptoQty(String(ad.available_amount ?? ''));
               const payments = parsePayments(ad);
               const verified = Boolean((ad as { verified_merchant?: boolean }).verified_merchant);
               const completion = ad.merchant_completion_rate != null ? String(ad.merchant_completion_rate) : '—';
@@ -275,25 +296,25 @@ export function P2PAdsTable({
                 >
                   {/* Advertiser */}
                   <td className="py-4 pl-4 pr-2">
-                    <div className="flex items-center gap-2.5">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-bold text-primary">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
                         {(ad.username || 'M')[0].toUpperCase()}
                       </div>
                       <div className="min-w-0">
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1.5">
                           {uid ? (
                             <Link
                               href={p2pProfilePath(String(uid))}
-                              className="text-[13px] font-medium text-foreground transition-colors hover:text-primary"
+                              className="text-sm font-semibold text-foreground transition-colors hover:text-primary"
                             >
                               {ad.username || 'Merchant'}
                             </Link>
                           ) : (
-                            <span className="text-[13px] font-medium text-foreground">{ad.username || 'Merchant'}</span>
+                            <span className="text-sm font-semibold text-foreground">{ad.username || 'Merchant'}</span>
                           )}
-                          {verified && <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-[#0ecb81]" />}
+                          {verified && <ShieldCheck className="h-4 w-4 shrink-0 text-[#0ecb81]" />}
                         </div>
-                        <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                        <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                           <span>{orders} order{orders !== 1 ? 's' : ''}</span>
                           <span className="text-border/40">|</span>
                           <span>{completion}% completion</span>
@@ -303,59 +324,74 @@ export function P2PAdsTable({
                   </td>
 
                   {/* Price */}
-                  <td className="px-3 py-4">
-                    <span className={`font-mono text-[15px] font-bold leading-tight ${isBuy ? 'text-[#0ecb81]' : 'text-[#f6465d]'}`}>
-                      {sym} {price}
+                  <td className="px-3 py-4 text-right align-middle">
+                    <span className={`numeric text-lg font-bold tabular-nums leading-tight ${isBuy ? 'text-[#0ecb81]' : 'text-[#f6465d]'}`}>
+                      {sym}{priceShown}
                     </span>
+                    <span className="mt-0.5 block text-xs font-normal text-muted-foreground">/{ad.crypto_symbol}</span>
                   </td>
 
                   {/* Limit / Available */}
-                  <td className="px-3 py-4">
-                    <div className="space-y-0.5 text-[12px]">
+                  <td className="px-3 py-4 align-middle">
+                    <div className="space-y-1 text-sm">
                       <p>
-                        <span className="text-muted-foreground/60">Available </span>
-                        <span className="font-mono text-foreground">{ad.available_amount} {ad.crypto_symbol}</span>
+                        <span className="text-muted-foreground">Available </span>
+                        <span className="numeric font-medium tabular-nums text-foreground">
+                          {avail} {ad.crypto_symbol}
+                        </span>
                       </p>
                       <p>
-                        <span className="text-muted-foreground/60">Limit </span>
-                        <span className="font-mono text-foreground">{sym}{minA} – {sym}{maxA}</span>
+                        <span className="text-muted-foreground">Limit </span>
+                        <span className="numeric font-medium tabular-nums text-foreground">
+                          {sym}{minF} – {sym}{maxF}
+                        </span>
                       </p>
                     </div>
                   </td>
 
                   {/* Payment */}
                   <td className="px-3 py-4">
-                    <div className="flex flex-wrap gap-1">
+                    <div className="flex flex-wrap gap-1.5">
                       {payments.length > 0 ? (
                         payments.map((p, i) => (
                           <span
                             key={i}
-                            className={`rounded border px-2 py-0.5 text-[10px] font-medium leading-tight ${pmCls(p)}`}
+                            className={`rounded-md border px-2 py-1 text-xs font-medium leading-tight ${p2pPaymentMethodChipCls(p)}`}
                           >
                             {p}
                           </span>
                         ))
                       ) : (
-                        <span className="text-[11px] text-muted-foreground/40">—</span>
+                        <span className="text-xs text-muted-foreground/50">—</span>
                       )}
                     </div>
                   </td>
 
                   {/* Trade */}
-                  <td className="py-4 pl-3 pr-4 text-right">
-                    <button
-                      type="button"
-                      disabled={!authed}
-                      onClick={() => onTakeAd(ad)}
-                      title={!authed ? 'Log in to trade' : undefined}
-                      className={`inline-flex items-center justify-center rounded-md px-5 py-[7px] text-[12px] font-semibold transition-all duration-150 disabled:opacity-40 ${
-                        isBuy
-                          ? 'bg-[#0ecb81] text-white hover:bg-[#0ecb81]/85 active:bg-[#0ecb81]/70'
-                          : 'bg-[#f6465d] text-white hover:bg-[#f6465d]/85 active:bg-[#f6465d]/70'
-                      }`}
-                    >
-                      {isBuy ? 'Buy' : 'Sell'} {ad.crypto_symbol}
-                    </button>
+                  <td className="py-4 pl-3 pr-4 text-right align-middle">
+                    <div className="flex flex-col items-end gap-2">
+                      <button
+                        type="button"
+                        disabled={!authed}
+                        onClick={() => onTakeAd(ad)}
+                        title={!authed ? 'Log in to trade' : undefined}
+                        className={`inline-flex min-h-10 items-center justify-center rounded-xl px-5 py-2 text-sm font-semibold transition-all duration-150 disabled:opacity-40 ${
+                          isBuy
+                            ? 'bg-[#0ecb81] text-white hover:bg-[#0ecb81]/85 active:bg-[#0ecb81]/70'
+                            : 'bg-[#f6465d] text-white hover:bg-[#f6465d]/85 active:bg-[#f6465d]/70'
+                        }`}
+                      >
+                        {isBuy ? 'Buy' : 'Sell'} {ad.crypto_symbol}
+                      </button>
+                      {!authed && (
+                        <Link
+                          href={loginWithRedirect(P2P_HREF)}
+                          className="text-xs font-semibold text-primary transition-colors hover:text-primary/80 hover:underline"
+                        >
+                          Log in to trade
+                        </Link>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );

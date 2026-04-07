@@ -19,6 +19,8 @@ import { api } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
 import { useConvertBalances, type ConvertBalanceRow } from '@/lib/balances';
 import { CoinIcon } from '@/components/ui/CoinIcon';
+import { WalletOperationsShell } from '@/components/wallet/WalletOperationsShell';
+import { walletPath } from '@/lib/routes';
 
 interface Currency {
   id: string;
@@ -376,16 +378,24 @@ export default function ConvertPage() {
   const toDisplayEstimate = quote && !quoteExpired ? quote.toAmount : '—';
 
   return (
-    <div className="min-h-full bg-background p-4 sm:p-6">
-      <div className="mx-auto max-w-md">
-        <div className="mb-6 text-center">
-          <h1 className="text-xl font-semibold text-foreground">Convert</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Instant swap at live rates. Zero trading fees.
-          </p>
-        </div>
-
-        <div className="mb-4 rounded-lg border border-border bg-card p-3">
+    <WalletOperationsShell
+      title="Convert"
+      description="Instant swap at live rates between assets in your selected account. No separate trading fees."
+      headerRight={
+        <button
+          type="button"
+          onClick={() => refetchHistory()}
+          className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:border-primary/35 hover:bg-accent disabled:opacity-50"
+          disabled={historyLoading}
+        >
+          <RefreshCw className={`h-4 w-4 shrink-0 ${historyLoading ? 'animate-spin' : ''}`} />
+          Refresh history
+        </button>
+      }
+    >
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:gap-10">
+        <div className="space-y-4 lg:col-span-5 xl:col-span-4">
+        <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Sparkles className="h-4 w-4 text-primary" />
@@ -415,7 +425,7 @@ export default function ConvertPage() {
           )}
         </div>
 
-        <div className="rounded-xl border border-border bg-card p-4 shadow-sm sm:p-5">
+        <div className="rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-5">
           <div className="mb-4 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Wallet className="h-4 w-4 shrink-0 text-primary" />
@@ -705,25 +715,25 @@ export default function ConvertPage() {
               </div>
 
               <div className="mt-4 flex flex-wrap justify-center gap-x-4 gap-y-1 border-t border-border pt-4 text-center text-xs">
-                <Link href="/dashboard/deposit/crypto" className="font-medium text-primary hover:text-primary/90">
+                <Link href={walletPath.depositCrypto} className="font-medium text-primary hover:text-primary/90">
                   Deposit
                 </Link>
-                <Link href="/dashboard/transfer" className="font-medium text-primary hover:text-primary/90">
+                <Link href={walletPath.transfer} className="font-medium text-primary hover:text-primary/90">
                   Transfer
                 </Link>
               </div>
             </>
           )}
         </div>
-      </div>
-
-      <div className="mx-auto mt-10 max-w-4xl">
-        <div className="mb-4 flex items-center gap-2">
-          <History className="h-5 w-5 text-muted-foreground" />
-          <h2 className="text-lg font-semibold text-foreground">Conversion history</h2>
         </div>
 
-        <div className="overflow-x-auto rounded-xl border border-border bg-card">
+        <div className="min-w-0 lg:col-span-7 xl:col-span-8">
+        <div className="mb-4 flex items-center gap-2">
+          <History className="h-5 w-5 text-muted-foreground" />
+          <h2 className="text-lg font-semibold tracking-tight text-foreground">Conversion history</h2>
+        </div>
+
+        <div className="overflow-x-auto rounded-2xl border border-border bg-card shadow-sm">
           {historyLoading ? (
             <div className="flex justify-center py-16">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -794,7 +804,8 @@ export default function ConvertPage() {
             </table>
           )}
         </div>
+        </div>
       </div>
-    </div>
+    </WalletOperationsShell>
   );
 }

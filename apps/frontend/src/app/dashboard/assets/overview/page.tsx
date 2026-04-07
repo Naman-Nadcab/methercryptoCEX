@@ -1,16 +1,17 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useId } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/auth';
 import { api } from '@/lib/api';
-import { useBalancesSummary, useBalancesFunding, useBalancesSpot, type TokenBalance, type SpotBalanceRow } from '@/lib/balances';
+import { useBalancesSummary, useBalancesFunding, useBalancesSpot } from '@/lib/balances';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
 import Link from 'next/link';
 import {
   Eye, EyeOff, Download, Upload, ArrowLeftRight, RefreshCw, Wallet,
-  TrendingUp, TrendingDown, ArrowRight, FileText, Search,
+  TrendingUp, ArrowRight, FileText, Search,
   BarChart3, Sparkles, ArrowUpRight, ArrowDownRight,
+  Shield, ChevronRight,
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { CoinIcon } from '@/components/ui/CoinIcon';
@@ -22,6 +23,32 @@ interface Transaction {
 }
 type TickerRow = { symbol: string; base_asset?: string; quote_asset?: string; lastPrice?: string; last_price?: string; priceChangePercent?: string; change_pct?: number };
 type PortfolioPoint = { timestamp: string; total_usd: number };
+
+/** Backend `/wallet/transactions/all` uses coin, quantity, date_time, type "withdraw". */
+function normalizeWalletTx(row: Record<string, unknown>): Transaction {
+  const typeRaw = String(row.type || '');
+  const type: Transaction['type'] =
+    typeRaw === 'withdraw' || typeRaw === 'withdrawal' ? 'withdrawal' :
+      typeRaw === 'deposit' ? 'deposit' : 'transfer';
+  const qty = row.quantity ?? row.amount ?? '0';
+  return {
+    id: String(row.id ?? ''),
+    type,
+    symbol: String(row.coin ?? row.symbol ?? ''),
+    amount: typeof qty === 'number' ? String(qty) : String(qty),
+    status: String(row.status ?? ''),
+    created_at: String(row.date_time ?? row.created_at ?? ''),
+  };
+}
+
+/** Shared USD formatter — used as fallback if chart/donut props are missing (HMR / stale bundles). */
+function formatUsdDefault(n: number): string {
+  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function maskStrDefault(s: string): string {
+  return s;
+}
 
 /* ── Coin names ── */
 const COIN_NAMES: Record<string, string> = {
@@ -37,41 +64,109 @@ const COIN_NAMES: Record<string, string> = {
 };
 
 /* ── Mini area chart ── */
-function PortfolioMiniChart({ data, width = 280, height = 60 }: { data: PortfolioPoint[]; width?: number; height?: number }) {
-  if (data.length < 2) return <div className="flex items-center justify-center text-xs text-muted-foreground" style={{ width, height }}>Collecting data…</div>;
+function PortfolioMiniChart({
+  data,
+  width = 360,
+  height = 120,
+  periodLabel,
+  maskStr,
+  formatUsd,
+}: {
+  data: PortfolioPoint[];
+  width?: number;
+  height?: number;
+  periodLabel: string;
+  maskStr?: (s: string) => string;
+  formatUsd?: (n: number) => string;
+}) {
+  const gradId = useId().replace(/:/g, '');
+  const maskFn = typeof maskStr === 'function' ? maskStr : maskStrDefault;
+  const fmtUsdFn = typeof formatUsd === 'function' ? formatUsd : formatUsdDefault;
+  if (data.length < 2) {
+    return (
+      <div className="w-full" style={{ maxWidth: width }}>
+        <div className="flex items-center justify-center rounded-lg border border-border bg-muted/20 text-xs text-muted-foreground" style={{ width, height }}>
+          <div className="text-center px-2">
+            <BarChart3 className="mx-auto mb-1 h-5 w-5 text-muted-foreground/40" />
+            <p>Collecting data…</p>
+            <p className="mt-1 text-xs text-muted-foreground/80">{periodLabel} range</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
   const vals = data.map((d) => d.total_usd);
   const min = Math.min(...vals);
   const max = Math.max(...vals);
   const range = max - min || 1;
   const isUp = vals[vals.length - 1] >= vals[0];
-  const color = isUp ? '#0ecb81' : '#f6465d';
+  const color = isUp ? 'hsl(var(--exchange-buy))' : 'hsl(var(--exchange-sell))';
   const pts = vals.map((v, i) => {
     const x = (i / (vals.length - 1)) * width;
-    const y = height - ((v - min) / range) * (height - 4) - 2;
+    const y = height - ((v - min) / range) * (height - 8) - 4;
     return `${x},${y}`;
   });
   const areaPath = `M0,${height} L${pts.join(' L')} L${width},${height} Z`;
   const linePath = `M${pts.join(' L')}`;
+  const first = vals[0];
+  const last = vals[vals.length - 1];
   return (
-    <svg width={width} height={height} className="shrink-0">
-      <defs>
-        <linearGradient id="pfGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity={0.25} />
-          <stop offset="100%" stopColor={color} stopOpacity={0} />
-        </linearGradient>
-      </defs>
-      <path d={areaPath} fill="url(#pfGrad)" />
-      <path d={linePath} fill="none" stroke={color} strokeWidth={1.5} />
-    </svg>
+    <div className="w-full" style={{ maxWidth: width }}>
+      <svg width={width} height={height} className="shrink-0 rounded-lg w-full max-w-full" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
+        <defs>
+          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity={0.2} />
+            <stop offset="100%" stopColor={color} stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <path d={areaPath} fill={`url(#${gradId})`} />
+        <path d={linePath} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <div className="mt-2 flex justify-between gap-4 border-t border-border/60 pt-2 text-xs text-muted-foreground">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Start</p>
+          <p className="numeric mt-0.5 text-sm font-semibold text-foreground">${maskFn(fmtUsdFn(first))}</p>
+        </div>
+        <div className="text-right">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">End</p>
+          <p className="numeric mt-0.5 text-sm font-semibold text-foreground">${maskFn(fmtUsdFn(last))}</p>
+        </div>
+      </div>
+    </div>
   );
 }
 
+/* Donut slice colors: semantic HSL only (matches tailwind theme tokens). */
+const DONUT_COLORS = [
+  'hsl(var(--exchange-buy))',
+  'hsl(var(--primary))',
+  'hsl(var(--exchange-sell))',
+  'hsl(var(--ring))',
+  'hsl(45 86% 49%)',
+  'hsl(var(--secondary-foreground))',
+  'hsl(var(--muted-foreground))',
+  'hsl(var(--destructive))',
+] as const;
+
 /* ── Allocation donut ── */
-function AllocationDonut({ items, size = 140 }: { items: { symbol: string; value: number; percent: number }[]; size?: number }) {
-  const r = size / 2 - 4;
+function AllocationDonut({
+  items,
+  size = 190,
+  centerUsd,
+  maskStr,
+  formatUsd,
+}: {
+  items: { symbol: string; value: number; percent: number }[];
+  size?: number;
+  centerUsd: number;
+  maskStr?: (s: string) => string;
+  formatUsd?: (n: number) => string;
+}) {
+  const maskFn = typeof maskStr === 'function' ? maskStr : maskStrDefault;
+  const fmtUsdFn = typeof formatUsd === 'function' ? formatUsd : formatUsdDefault;
+  const r = size / 2 - 6;
   const cx = size / 2;
   const cy = size / 2;
-  const COLORS = ['#0ecb81', '#f0b90b', '#3861fb', '#627eea', '#e84142', '#f7931a', '#9945ff', '#e6007a', '#26a17b', '#00c08b'];
   let startAngle = -Math.PI / 2;
   const paths = items.slice(0, 8).map((item, i) => {
     const sweep = (item.percent / 100) * 2 * Math.PI;
@@ -83,20 +178,34 @@ function AllocationDonut({ items, size = 140 }: { items: { symbol: string; value
     const y2 = cy + r * Math.sin(endAngle);
     const d = `M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large} 1 ${x2},${y2} Z`;
     startAngle = endAngle;
-    return { ...item, d, color: COLORS[i % COLORS.length] };
+    return { ...item, d, color: DONUT_COLORS[i % DONUT_COLORS.length] };
   });
+
+  const fmtVal = (n: number) => n < 1 ? `$${n.toFixed(4)}` : `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
   return (
-    <div className="flex items-center gap-4">
-      <svg width={size} height={size} className="shrink-0">
-        {paths.map((p) => <path key={p.symbol} d={p.d} fill={p.color} opacity={0.9} className="transition-opacity hover:opacity-100" />)}
-        <circle cx={cx} cy={cy} r={r * 0.55} className="fill-card" />
-      </svg>
-      <div className="flex flex-col gap-1 min-w-0">
+    <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-start">
+      <div className="relative shrink-0" style={{ width: size, height: size }}>
+        <svg width={size} height={size} className="block">
+          {paths.map((p) => <path key={p.symbol} d={p.d} fill={p.color} opacity={0.88} className="transition-opacity hover:opacity-100" />)}
+          <circle cx={cx} cy={cy} r={r * 0.52} className="fill-card" />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center px-2 text-center pointer-events-none">
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Portfolio</span>
+          <span className="numeric mt-0.5 text-sm font-bold text-foreground sm:text-base">${maskFn(fmtUsdFn(centerUsd))}</span>
+          <span className="mt-0.5 text-xs text-muted-foreground">{items.length} assets</span>
+        </div>
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col gap-3">
         {paths.map((p) => (
-          <div key={p.symbol} className="flex items-center gap-2 text-xs">
-            <CoinIcon symbol={p.symbol} size={16} />
-            <span className="text-foreground font-medium">{p.symbol}</span>
-            <span className="text-muted-foreground tabular-nums">{p.percent.toFixed(1)}%</span>
+          <div key={p.symbol} className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-x-3 gap-y-1">
+            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: p.color }} />
+            <div className="flex min-w-0 items-center gap-2">
+              <CoinIcon symbol={p.symbol} size={20} />
+              <span className="truncate text-sm font-semibold text-foreground">{p.symbol}</span>
+            </div>
+            <span className="numeric text-sm font-medium text-muted-foreground">{p.percent.toFixed(1)}%</span>
+            <span className="numeric text-sm text-foreground">{fmtVal(p.value)}</span>
           </div>
         ))}
       </div>
@@ -122,6 +231,11 @@ export default function AssetsOverviewPage() {
   const [tickers, setTickers] = useState<TickerRow[]>([]);
   const [dustLoading, setDustLoading] = useState(false);
   const [statementLoading, setStatementLoading] = useState(false);
+  const [security, setSecurity] = useState<{ loading: boolean; totp: boolean; hasEmail: boolean }>({
+    loading: true,
+    totp: false,
+    hasEmail: false,
+  });
 
   /* ── Data hooks ── */
   const { data: summary, isLoading: summaryLoading, refetch: refetchSummary } = useBalancesSummary(ready);
@@ -152,13 +266,54 @@ export default function AssetsOverviewPage() {
       .catch(() => {});
   }, [accessToken, chartPeriod]);
 
-  /* ── Fetch recent transactions ── */
+  /* ── Fetch recent transactions (normalize API shape: coin, quantity, date_time, withdraw) ── */
   useEffect(() => {
     if (!accessToken) return;
-    api.get<{ success: boolean; data?: Transaction[] }>('/api/v1/wallet/transactions/all?limit=8', { notifyOnError: false })
-      .then((r) => { if (r.success && Array.isArray(r.data)) setRecentTxs(r.data as Transaction[]); })
+    api.get<{ success: boolean; data?: unknown[] }>('/api/v1/wallet/transactions/all?limit=8', { notifyOnError: false })
+      .then((r) => {
+        if (r.success && Array.isArray(r.data)) {
+          setRecentTxs(r.data.map((row) => normalizeWalletTx(row as Record<string, unknown>)));
+        }
+      })
       .catch(() => {});
   }, [accessToken]);
+
+  /* ── Security snapshot from profile (no fake badges) ── */
+  useEffect(() => {
+    if (!_hasHydrated) return;
+    if (!accessToken) {
+      setSecurity({ loading: false, totp: false, hasEmail: false });
+      return;
+    }
+    setSecurity({ loading: true, totp: false, hasEmail: false });
+    const base = getApiBaseUrl();
+    if (!base) {
+      setSecurity((s) => ({ ...s, loading: false }));
+      return;
+    }
+    let cancelled = false;
+    fetch(`${base}/api/v1/auth/profile`, { headers: { Authorization: `Bearer ${accessToken}` } })
+      .then((res) => res.json())
+      .then((result: { success?: boolean; data?: { user?: { totp_enabled?: boolean; email?: string | null } } }) => {
+        if (cancelled) return;
+        if (result?.success && result.data?.user) {
+          const u = result.data.user;
+          setSecurity({
+            loading: false,
+            totp: !!u.totp_enabled,
+            hasEmail: !!(u.email && String(u.email).trim()),
+          });
+        } else {
+          setSecurity({ loading: false, totp: false, hasEmail: false });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSecurity({ loading: false, totp: false, hasEmail: false });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [_hasHydrated, accessToken]);
 
   /* ── Price map for USD values ── */
   const priceMap = useMemo(() => {
@@ -233,6 +388,23 @@ export default function AssetsOverviewPage() {
       .slice(0, 8).map((a) => ({ symbol: a.symbol, value: a.usd, percent: (a.usd / total) * 100 }));
   }, [allAssets]);
 
+  /* ── Top holdings per account ── */
+  const topFunding = useMemo(() => {
+    return [...fundingBalances]
+      .map((b) => ({ symbol: b.symbol || '', amount: parseFloat(b.total_balance ?? '0'), usd: (parseFloat(b.total_balance ?? '0')) * (priceMap[b.symbol || ''] ?? 0) }))
+      .filter((b) => b.usd > 0)
+      .sort((a, b) => b.usd - a.usd)
+      .slice(0, 4);
+  }, [fundingBalances, priceMap]);
+
+  const topTrading = useMemo(() => {
+    return [...spotBalances]
+      .map((b) => ({ symbol: b.asset || '', amount: parseFloat(b.balance ?? '0'), usd: (parseFloat(b.balance ?? '0')) * (priceMap[b.asset || ''] ?? 0) }))
+      .filter((b) => b.usd > 0)
+      .sort((a, b) => b.usd - a.usd)
+      .slice(0, 4);
+  }, [spotBalances, priceMap]);
+
   /* ── Today's PnL (from portfolio history) ── */
   const todayPnl = useMemo(() => {
     if (portfolioHistory.length < 2) return { amount: 0, percent: 0 };
@@ -240,6 +412,9 @@ export default function AssetsOverviewPage() {
     const last = portfolioHistory[portfolioHistory.length - 1].total_usd;
     return { amount: last - first, percent: first > 0 ? ((last - first) / first) * 100 : 0 };
   }, [portfolioHistory]);
+
+  /* ── Balance distribution ── */
+  const fundingPct = totalUsd > 0 ? (fundingTotal / totalUsd) * 100 : 50;
 
   /* ── Actions ── */
   const handleDustConvert = useCallback(async () => {
@@ -272,110 +447,146 @@ export default function AssetsOverviewPage() {
   };
 
   const isLoading = summaryLoading || fundingLoading;
-  const mask = (v: string) => (showBalance ? v : '****');
+  const mask = (v: string) => (showBalance ? v : '••••••');
   const fmtUsd = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmtBtc = (n: number) => n.toFixed(8);
   const fmtBalance = (n: number) => {
-    if (n === 0) return '0';
+    if (n === 0) return '0.00';
     if (n < 0.0001) return n.toFixed(8);
     if (n < 1) return n.toFixed(6);
     return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
   };
+  const fmtAmount = (n: number) => {
+    if (n === 0) return '0.00';
+    const abs = Math.abs(n);
+    if (abs < 0.01) return n.toFixed(6);
+    return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+  };
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:py-8">
 
         {/* ── Header ── */}
-        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <h1 className="text-xl font-semibold text-foreground">Assets Overview</h1>
-            <button type="button" onClick={() => setShowBalance((v) => !v)} className="rounded-full p-1 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors" aria-label="Toggle balance visibility">
-              {showBalance ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+            <h1 className="text-2xl font-bold text-foreground">Assets Overview</h1>
+            <button type="button" onClick={() => setShowBalance((v) => !v)} className="rounded-full p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors" aria-label="Toggle balance visibility">
+              {showBalance ? <Eye className="h-5 w-5" /> : <EyeOff className="h-5 w-5" />}
             </button>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link href="/dashboard/deposit/crypto" className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
-              <Download className="h-3.5 w-3.5" /> Deposit
+            <Link href="/dashboard/deposit/crypto" className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors">
+              <Download className="h-4 w-4" /> Deposit
             </Link>
-            <Link href="/dashboard/withdraw/crypto" className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3.5 py-2 text-xs font-medium text-foreground hover:bg-muted transition-colors">
-              <Upload className="h-3.5 w-3.5" /> Withdraw
+            <Link href="/dashboard/withdraw/crypto" className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground hover:bg-muted transition-colors">
+              <Upload className="h-4 w-4" /> Withdraw
             </Link>
-            <Link href="/dashboard/transfer" className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3.5 py-2 text-xs font-medium text-foreground hover:bg-muted transition-colors">
-              <ArrowLeftRight className="h-3.5 w-3.5" /> Transfer
+            <Link href="/dashboard/transfer" className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground hover:bg-muted transition-colors">
+              <ArrowLeftRight className="h-4 w-4" /> Transfer
             </Link>
-            <Link href="/dashboard/assets/convert" className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3.5 py-2 text-xs font-medium text-foreground hover:bg-muted transition-colors">
-              <RefreshCw className="h-3.5 w-3.5" /> Convert
+            <Link href="/dashboard/assets/convert" className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground hover:bg-muted transition-colors">
+              <RefreshCw className="h-4 w-4" /> Convert
             </Link>
           </div>
         </div>
 
         {/* ── Balance Card ── */}
-        <div className="mb-6 rounded-xl border border-border bg-card p-5 shadow-sm sm:p-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="flex-1">
-              <p className="mb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">Total Balance</p>
-              {isLoading ? (
-                <Skeleton className="h-10 w-48" />
-              ) : (
-                <div className="flex items-baseline gap-2">
-                  <span className="text-3xl font-bold tabular-nums text-foreground">{mask(fmtUsd(totalUsd))}</span>
-                  <span className="text-sm text-muted-foreground">USD</span>
-                </div>
-              )}
-              <p className="mt-0.5 text-xs text-muted-foreground">≈ {mask(fmtBtc(totalBtc))} BTC</p>
-
-              <div className="mt-3 flex items-center gap-4">
-                <div className="flex items-center gap-1.5">
-                  {todayPnl.amount >= 0 ? (
-                    <ArrowUpRight className="h-3.5 w-3.5 text-buy" />
-                  ) : (
-                    <ArrowDownRight className="h-3.5 w-3.5 text-sell" />
-                  )}
-                  <span className={`text-sm font-semibold tabular-nums ${todayPnl.amount >= 0 ? 'text-buy' : 'text-sell'}`}>
-                    {mask(`${todayPnl.amount >= 0 ? '+' : ''}${fmtUsd(todayPnl.amount)} (${todayPnl.percent >= 0 ? '+' : ''}${todayPnl.percent.toFixed(2)}%)`)}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground">Period P&L</span>
-                </div>
+        <div className="mb-8 rounded-2xl border border-border bg-card p-6 shadow-sm sm:p-8">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex-1 space-y-5">
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">Total Balance</p>
+                {isLoading ? (
+                  <Skeleton className="h-12 w-56" />
+                ) : (
+                  <div className="flex items-baseline gap-3">
+                    <span className="numeric text-4xl font-bold tracking-tight text-foreground sm:text-5xl">{mask(fmtUsd(totalUsd))}</span>
+                    <span className="text-lg font-medium text-muted-foreground">USD</span>
+                  </div>
+                )}
+                <p className="mt-1 text-sm text-muted-foreground">≈ <span className="numeric">{mask(fmtBtc(totalBtc))}</span> BTC</p>
               </div>
 
-              <div className="mt-4 flex gap-3 text-xs">
-                <div className="rounded-lg bg-muted/50 px-3 py-2">
-                  <p className="text-muted-foreground">Funding</p>
-                  <p className="font-semibold tabular-nums text-foreground">{mask(fmtUsd(fundingTotal))}</p>
+              {/* PnL badge */}
+              <div className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 ${todayPnl.amount >= 0 ? 'bg-buy/10' : 'bg-sell/10'}`}>
+                {todayPnl.amount >= 0 ? (
+                  <ArrowUpRight className="h-4 w-4 text-buy" />
+                ) : (
+                  <ArrowDownRight className="h-4 w-4 text-sell" />
+                )}
+                <span className={`numeric text-sm font-semibold ${todayPnl.amount >= 0 ? 'text-buy' : 'text-sell'}`}>
+                  {mask(`${todayPnl.amount >= 0 ? '+' : ''}${fmtUsd(todayPnl.amount)} (${todayPnl.percent >= 0 ? '+' : ''}${todayPnl.percent.toFixed(2)}%)`)}
+                </span>
+                <span className="text-xs text-muted-foreground">{chartPeriod} P&L</span>
+              </div>
+
+              {/* Funding / Trading split */}
+              <div className="space-y-3">
+                <div className="flex gap-4">
+                  <div className="flex-1 rounded-xl border border-border bg-muted/30 p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Wallet className="h-4 w-4 text-primary" />
+                      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Funding</p>
+                    </div>
+                    <p className="numeric text-xl font-bold text-foreground">${mask(fmtUsd(fundingTotal))}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Deposits & P2P</p>
+                  </div>
+                  <div className="flex-1 rounded-xl border border-border bg-muted/30 p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <BarChart3 className="h-4 w-4 text-primary" />
+                      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Spot / Trading</p>
+                    </div>
+                    <p className="numeric text-xl font-bold text-foreground">${mask(fmtUsd(tradingTotal))}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Open orders & trades</p>
+                  </div>
                 </div>
-                <div className="rounded-lg bg-muted/50 px-3 py-2">
-                  <p className="text-muted-foreground">Spot / Trading</p>
-                  <p className="font-semibold tabular-nums text-foreground">{mask(fmtUsd(tradingTotal))}</p>
+                {/* Distribution bar */}
+                <div>
+                  <div className="flex h-2 overflow-hidden rounded-full bg-muted">
+                    <div className="rounded-l-full bg-primary transition-all duration-500" style={{ width: `${fundingPct}%` }} />
+                    <div className="rounded-r-full bg-primary/40 transition-all duration-500" style={{ width: `${100 - fundingPct}%` }} />
+                  </div>
+                  <div className="mt-1 flex justify-between text-xs text-muted-foreground">
+                    <span>Funding {fundingPct.toFixed(0)}%</span>
+                    <span>Trading {(100 - fundingPct).toFixed(0)}%</span>
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* Portfolio value chart */}
-            <div className="flex flex-col items-end gap-2">
-              <div className="flex gap-1">
+            <div className="flex flex-col items-end gap-3 lg:min-w-[380px]">
+              <div className="flex gap-1 rounded-lg bg-muted/50 p-1">
                 {(['24h', '7d', '30d', '90d', '1y'] as const).map((p) => (
                   <button key={p} type="button" onClick={() => setChartPeriod(p)}
-                    className={`rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${chartPeriod === p ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground'}`}
+                    className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${chartPeriod === p ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
                   >
                     {p}
                   </button>
                 ))}
               </div>
-              <PortfolioMiniChart data={portfolioHistory} width={280} height={60} />
-              <p className="text-[10px] text-muted-foreground">Portfolio value over time</p>
+              <PortfolioMiniChart
+                data={portfolioHistory}
+                width={360}
+                height={120}
+                periodLabel={chartPeriod}
+                maskStr={mask}
+                formatUsd={fmtUsd}
+              />
+              <p className="text-xs text-muted-foreground">Portfolio value · {chartPeriod}</p>
             </div>
           </div>
         </div>
 
-        {/* ── Account / Asset tabs + Allocation ── */}
-        <div className="mb-6 grid gap-6 lg:grid-cols-[1fr_320px]">
+        {/* ── Account / Asset tabs + Right sidebar ── */}
+        <div className="mb-8 grid gap-8 lg:grid-cols-[1fr_340px]">
           {/* Left: tabs content */}
           <div>
-            <div className="mb-4 flex items-center gap-4 border-b border-border">
+            <div className="mb-5 flex items-center gap-6 border-b border-border">
               {(['account', 'asset'] as const).map((tab) => (
                 <button key={tab} type="button" onClick={() => setActiveTab(tab)}
-                  className={`border-b-2 px-1 pb-2 text-sm font-medium capitalize transition-colors ${activeTab === tab ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                  className={`border-b-2 px-1 pb-3 text-sm font-semibold capitalize transition-colors ${activeTab === tab ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
                 >
                   {tab}
                 </button>
@@ -383,105 +594,154 @@ export default function AssetsOverviewPage() {
             </div>
 
             {activeTab === 'account' ? (
-              <div className="space-y-3">
-                {/* Funding Account */}
-                <Link href="/dashboard/assets/funding" className="flex items-center justify-between rounded-xl border border-border bg-card p-4 transition-colors hover:bg-muted/50 group">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary"><Wallet className="h-5 w-5" /></div>
-                    <div>
-                      <p className="text-sm font-semibold text-foreground">Funding Account</p>
-                      <p className="text-xs text-muted-foreground">Deposits, P2P payouts, withdrawals</p>
+              <div className="space-y-4">
+                {/* Funding Account — expanded with top holdings */}
+                <Link href="/dashboard/assets/funding" className="block rounded-2xl border border-border bg-card p-5 transition-colors hover:border-primary/30 group">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary"><Wallet className="h-5 w-5" /></div>
+                      <div>
+                        <p className="text-base font-semibold text-foreground">Funding Account</p>
+                        <p className="text-xs text-muted-foreground">Deposits, P2P payouts, withdrawals</p>
+                      </div>
+                    </div>
+                    <div className="text-right flex items-center gap-2">
+                      <div>
+                        <p className="numeric text-lg font-bold text-foreground">{mask(fmtUsd(fundingTotal))}</p>
+                        <p className="text-xs text-muted-foreground">USD</p>
+                      </div>
+                      <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-sm font-semibold tabular-nums text-foreground">{mask(fmtUsd(fundingTotal))} <span className="text-xs text-muted-foreground">USD</span></p>
-                    <ArrowRight className="mt-1 ml-auto h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </div>
+                  {topFunding.length > 0 && (
+                    <div className="rounded-xl bg-muted/30 p-4">
+                      <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Top Holdings</p>
+                      <div className="space-y-2.5">
+                        {topFunding.map((h) => (
+                          <div key={h.symbol} className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3">
+                            <CoinIcon symbol={h.symbol} size={22} />
+                            <div className="min-w-0">
+                              <span className="text-sm font-semibold text-foreground">{h.symbol}</span>
+                              {COIN_NAMES[h.symbol] ? (
+                                <span className="ml-2 text-xs text-muted-foreground">{COIN_NAMES[h.symbol]}</span>
+                              ) : null}
+                            </div>
+                            <span className="numeric text-right text-sm text-foreground">{fmtBalance(h.amount)}</span>
+                            <span className="numeric w-[5.5rem] text-right text-sm font-medium text-muted-foreground">${fmtUsd(h.usd)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </Link>
 
-                {/* Spot/Trading Account */}
-                <Link href="/dashboard/wallet/spot" className="flex items-center justify-between rounded-xl border border-border bg-card p-4 transition-colors hover:bg-muted/50 group">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-500/10 text-amber-500"><BarChart3 className="h-5 w-5" /></div>
-                    <div>
-                      <p className="text-sm font-semibold text-foreground">Spot / Trading Account</p>
-                      <p className="text-xs text-muted-foreground">Used for spot trading orders</p>
+                {/* Spot/Trading Account — expanded with top holdings */}
+                <Link href="/dashboard/wallet/spot" className="block rounded-2xl border border-border bg-card p-5 transition-colors hover:border-primary/30 group">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-500/10 text-amber-500"><BarChart3 className="h-5 w-5" /></div>
+                      <div>
+                        <p className="text-base font-semibold text-foreground">Spot / Trading Account</p>
+                        <p className="text-xs text-muted-foreground">Used for spot trading orders</p>
+                      </div>
+                    </div>
+                    <div className="text-right flex items-center gap-2">
+                      <div>
+                        <p className="numeric text-lg font-bold text-foreground">{mask(fmtUsd(tradingTotal))}</p>
+                        <p className="text-xs text-muted-foreground">USD</p>
+                      </div>
+                      <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-sm font-semibold tabular-nums text-foreground">{mask(fmtUsd(tradingTotal))} <span className="text-xs text-muted-foreground">USD</span></p>
-                    <ArrowRight className="mt-1 ml-auto h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </div>
+                  {topTrading.length > 0 && (
+                    <div className="rounded-xl bg-muted/30 p-4">
+                      <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Top Holdings</p>
+                      <div className="space-y-2.5">
+                        {topTrading.map((h) => (
+                          <div key={h.symbol} className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3">
+                            <CoinIcon symbol={h.symbol} size={22} />
+                            <div className="min-w-0">
+                              <span className="text-sm font-semibold text-foreground">{h.symbol}</span>
+                              {COIN_NAMES[h.symbol] ? (
+                                <span className="ml-2 text-xs text-muted-foreground">{COIN_NAMES[h.symbol]}</span>
+                              ) : null}
+                            </div>
+                            <span className="numeric text-right text-sm text-foreground">{fmtBalance(h.amount)}</span>
+                            <span className="numeric w-[5.5rem] text-right text-sm font-medium text-muted-foreground">${fmtUsd(h.usd)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </Link>
               </div>
             ) : (
               /* ── Asset tab: full table ── */
               <div>
-                <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="relative flex-1 max-w-xs">
-                    <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <input type="text" value={coinSearch} onChange={(e) => setCoinSearch(e.target.value)}
-                      placeholder="Search coin…" className="h-8 w-full rounded-lg border border-border bg-background pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/30" />
+                      placeholder="Search coin…" className="h-10 w-full rounded-lg border border-border bg-background pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30" />
                   </div>
                   <div className="flex items-center gap-3">
-                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
-                      <input type="checkbox" checked={hideSmall} onChange={(e) => setHideSmall(e.target.checked)} className="h-3.5 w-3.5 rounded border-border accent-primary" />
+                    <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
+                      <input type="checkbox" checked={hideSmall} onChange={(e) => setHideSmall(e.target.checked)} className="h-4 w-4 rounded border-border accent-primary" />
                       Hide small balances
                     </label>
                     <button type="button" onClick={handleDustConvert} disabled={dustLoading}
-                      className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2.5 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50 transition-colors"
-                      title="Convert small balances to USDT"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50 transition-colors"
                     >
-                      <Sparkles className="h-3 w-3" /> {dustLoading ? 'Converting…' : 'Convert Small Balances'}
+                      <Sparkles className="h-3.5 w-3.5" /> {dustLoading ? 'Converting…' : 'Convert Dust'}
                     </button>
                   </div>
                 </div>
 
-                <div className="overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
-                  <table className="w-full text-left text-xs">
-                    <thead className="border-b border-border bg-muted/50 text-muted-foreground">
+                <div className="overflow-x-auto rounded-2xl border border-border bg-card shadow-sm">
+                  <table className="w-full text-left text-sm">
+                    <thead className="border-b border-border bg-muted/40">
                       <tr>
-                        <th className="py-2.5 px-3 font-medium cursor-pointer select-none" onClick={() => toggleSort('symbol')}>
+                        <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground cursor-pointer select-none" onClick={() => toggleSort('symbol')}>
                           Coin {sortField === 'symbol' && (sortDir === 'asc' ? '↑' : '↓')}
                         </th>
-                        <th className="py-2.5 px-3 font-medium text-right">Total</th>
-                        <th className="py-2.5 px-3 font-medium text-right">Funding</th>
-                        <th className="py-2.5 px-3 font-medium text-right">Trading</th>
-                        <th className="py-2.5 px-3 font-medium text-right cursor-pointer select-none" onClick={() => toggleSort('usd')}>
+                        <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground text-right">Total</th>
+                        <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground text-right">Funding</th>
+                        <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground text-right">Trading</th>
+                        <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground text-right cursor-pointer select-none" onClick={() => toggleSort('usd')}>
                           USD Value {sortField === 'usd' && (sortDir === 'asc' ? '↑' : '↓')}
                         </th>
-                        <th className="py-2.5 px-3 font-medium text-right cursor-pointer select-none" onClick={() => toggleSort('change')}>
+                        <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground text-right cursor-pointer select-none" onClick={() => toggleSort('change')}>
                           24h {sortField === 'change' && (sortDir === 'asc' ? '↑' : '↓')}
                         </th>
-                        <th className="py-2.5 px-3 font-medium text-right">Action</th>
+                        <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground text-right">Action</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filtered.length === 0 ? (
-                        <tr><td colSpan={7} className="py-8 text-center text-muted-foreground">No assets found</td></tr>
+                        <tr><td colSpan={7} className="py-12 text-center text-sm text-muted-foreground">No assets found</td></tr>
                       ) : filtered.map((a) => (
                         <tr key={a.symbol} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => router.push(`/dashboard/assets/${a.symbol}`)}>
-                          <td className="py-2.5 px-3">
-                            <div className="flex items-center gap-2">
-                              <CoinIcon symbol={a.symbol} size={24} />
+                          <td className="py-3.5 px-4">
+                            <div className="flex items-center gap-3">
+                              <CoinIcon symbol={a.symbol} size={28} />
                               <div>
-                                <span className="font-medium text-foreground">{a.symbol}</span>
-                                <p className="text-[10px] text-muted-foreground">{a.name}</p>
+                                <span className="text-sm font-semibold text-foreground">{a.symbol}</span>
+                                <p className="text-xs text-muted-foreground">{a.name}</p>
                               </div>
                             </div>
                           </td>
-                          <td className="py-2.5 px-3 text-right tabular-nums text-foreground">{mask(fmtBalance(a.total))}</td>
-                          <td className="py-2.5 px-3 text-right tabular-nums text-muted-foreground">{fmtBalance(a.funding)}</td>
-                          <td className="py-2.5 px-3 text-right tabular-nums text-muted-foreground">{fmtBalance(a.trading)}</td>
-                          <td className="py-2.5 px-3 text-right tabular-nums text-foreground">${mask(fmtUsd(a.usd))}</td>
-                          <td className={`py-2.5 px-3 text-right tabular-nums font-medium ${a.change >= 0 ? 'text-buy' : 'text-sell'}`}>
+                          <td className="py-3.5 px-4 text-right numeric text-sm text-foreground">{mask(fmtBalance(a.total))}</td>
+                          <td className="py-3.5 px-4 text-right numeric text-sm text-muted-foreground">{fmtBalance(a.funding)}</td>
+                          <td className="py-3.5 px-4 text-right numeric text-sm text-muted-foreground">{fmtBalance(a.trading)}</td>
+                          <td className="py-3.5 px-4 text-right numeric text-sm font-medium text-foreground">${mask(fmtUsd(a.usd))}</td>
+                          <td className={`py-3.5 px-4 text-right numeric text-sm font-medium ${a.change >= 0 ? 'text-buy' : 'text-sell'}`}>
                             {a.change >= 0 ? '+' : ''}{a.change.toFixed(2)}%
                           </td>
-                          <td className="py-2.5 px-3 text-right">
+                          <td className="py-3.5 px-4 text-right">
                             <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                              <Link href={`/trade/spot?symbol=${a.symbol}_USDT`} className="rounded px-2 py-1 text-[10px] font-medium text-primary hover:bg-primary/10 transition-colors">Trade</Link>
-                              <Link href={`/dashboard/deposit/crypto?coin=${a.symbol}`} className="rounded px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors">Deposit</Link>
-                              <Link href={`/dashboard/withdraw/crypto?coin=${a.symbol}`} className="rounded px-2 py-1 text-[10px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors">Withdraw</Link>
+                              <Link href={`/trade/spot?symbol=${a.symbol}_USDT`} className="rounded-md px-2.5 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors">Trade</Link>
+                              <Link href={`/dashboard/deposit/crypto?coin=${a.symbol}`} className="rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors">Deposit</Link>
+                              <Link href={`/dashboard/withdraw/crypto?coin=${a.symbol}`} className="rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors">Withdraw</Link>
                             </div>
                           </td>
                         </tr>
@@ -493,75 +753,172 @@ export default function AssetsOverviewPage() {
             )}
           </div>
 
-          {/* Right: Portfolio Allocation */}
-          <div className="space-y-5">
-            <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-              <h3 className="mb-3 text-sm font-semibold text-foreground">Portfolio Allocation</h3>
+          {/* Right sidebar */}
+          <div className="space-y-6">
+            {/* Portfolio Allocation */}
+            <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-base font-semibold text-foreground">Portfolio Allocation</h3>
+                <span className="text-xs text-muted-foreground">{allocation.length} assets</span>
+              </div>
               {allocation.length === 0 ? (
-                <p className="py-4 text-center text-xs text-muted-foreground">No assets</p>
+                <div className="py-8 text-center">
+                  <Wallet className="mx-auto mb-2 h-8 w-8 text-muted-foreground/30" />
+                  <p className="text-sm text-muted-foreground">No assets yet</p>
+                  <Link href="/dashboard/deposit/crypto" className="mt-2 inline-block text-sm font-medium text-primary hover:underline">Make your first deposit</Link>
+                </div>
               ) : (
-                <AllocationDonut items={allocation} size={130} />
+                <AllocationDonut
+                  items={allocation}
+                  size={190}
+                  centerUsd={totalUsd}
+                  maskStr={mask}
+                  formatUsd={fmtUsd}
+                />
               )}
             </div>
 
-            {/* Quick tools */}
-            <div className="rounded-xl border border-border bg-card p-4 shadow-sm space-y-2">
-              <h3 className="text-sm font-semibold text-foreground">Quick Tools</h3>
-              <button type="button" onClick={handleDustConvert} disabled={dustLoading}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50">
-                <Sparkles className="h-4 w-4" /> {dustLoading ? 'Converting…' : 'Convert Small Balances to USDT'}
-              </button>
-              <button type="button" onClick={handleExportStatement} disabled={statementLoading}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50">
-                <FileText className="h-4 w-4" /> {statementLoading ? 'Exporting…' : 'Export Transaction Statement'}
-              </button>
-              <Link href="/dashboard/assets/pnl" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
-                <TrendingUp className="h-4 w-4" /> P&L Analysis
-              </Link>
-              <Link href="/dashboard/assets/history" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
-                <FileText className="h-4 w-4" /> Transaction History
+            {/* Quick Tools — card-based */}
+            <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+              <h3 className="mb-4 text-base font-semibold text-foreground">Quick Tools</h3>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3">
+                <button type="button" onClick={handleDustConvert} disabled={dustLoading}
+                  className="flex min-h-[4.5rem] w-full flex-col justify-center gap-1 rounded-xl border border-border bg-muted/20 p-3 text-left transition-colors hover:bg-muted/50 disabled:opacity-50 sm:min-h-[5rem]">
+                  <div className="flex items-start gap-2">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                      <Sparkles className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-foreground">{dustLoading ? 'Converting…' : 'Convert dust'}</p>
+                      <p className="mt-0.5 text-xs leading-snug text-muted-foreground">Small balances → USDT</p>
+                    </div>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  </div>
+                </button>
+                <button type="button" onClick={handleExportStatement} disabled={statementLoading}
+                  className="flex min-h-[4.5rem] w-full flex-col justify-center gap-1 rounded-xl border border-border bg-muted/20 p-3 text-left transition-colors hover:bg-muted/50 disabled:opacity-50 sm:min-h-[5rem]">
+                  <div className="flex items-start gap-2">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                      <FileText className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-foreground">{statementLoading ? 'Exporting…' : 'Statement'}</p>
+                      <p className="mt-0.5 text-xs leading-snug text-muted-foreground">CSV download</p>
+                    </div>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  </div>
+                </button>
+                <Link href="/dashboard/assets/pnl" className="flex min-h-[4.5rem] w-full flex-col justify-center gap-1 rounded-xl border border-border bg-muted/20 p-3 text-left transition-colors hover:bg-muted/50 sm:min-h-[5rem]">
+                  <div className="flex items-start gap-2">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-buy/10">
+                      <TrendingUp className="h-4 w-4 text-buy" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-foreground">P&L</p>
+                      <p className="mt-0.5 text-xs leading-snug text-muted-foreground">Profit & loss</p>
+                    </div>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  </div>
+                </Link>
+                <Link href="/dashboard/assets/history" className="flex min-h-[4.5rem] w-full flex-col justify-center gap-1 rounded-xl border border-border bg-muted/20 p-3 text-left transition-colors hover:bg-muted/50 sm:min-h-[5rem]">
+                  <div className="flex items-start gap-2">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                      <FileText className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-foreground">History</p>
+                      <p className="mt-0.5 text-xs leading-snug text-muted-foreground">All movements</p>
+                    </div>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  </div>
+                </Link>
+              </div>
+            </div>
+
+            {/* Security snapshot (from /auth/profile) */}
+            <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+                  <Shield className="h-4 w-4 text-primary" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">Security</h3>
+                  <p className="text-xs text-muted-foreground">From your account</p>
+                </div>
+              </div>
+              {security.loading ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-10 w-full rounded-lg" />
+                  <Skeleton className="h-10 w-full rounded-lg" />
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between rounded-lg bg-muted/30 px-3 py-2.5">
+                    <span className="text-sm text-foreground">Authenticator (2FA)</span>
+                    <span className={`rounded-md px-2 py-0.5 text-xs font-medium ${security.totp ? 'bg-buy/10 text-buy' : 'bg-muted text-muted-foreground'}`}>
+                      {security.totp ? 'On' : 'Off'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between rounded-lg bg-muted/30 px-3 py-2.5">
+                    <span className="text-sm text-foreground">Email on file</span>
+                    <span className={`rounded-md px-2 py-0.5 text-xs font-medium ${security.hasEmail ? 'bg-buy/10 text-buy' : 'bg-sell/10 text-sell'}`}>
+                      {security.hasEmail ? 'Yes' : 'Add'}
+                    </span>
+                  </div>
+                </div>
+              )}
+              <Link href="/dashboard/security" className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
+                Manage security <ChevronRight className="h-3 w-3" />
               </Link>
             </div>
           </div>
         </div>
 
         {/* ── Recent Activity ── */}
-        <div className="rounded-xl border border-border bg-card shadow-sm">
-          <div className="flex items-center justify-between border-b border-border px-4 py-3 sm:px-5">
-            <h3 className="text-sm font-semibold text-foreground">Recent Activity</h3>
-            <Link href="/dashboard/assets/history" className="flex items-center gap-1 text-xs font-medium text-primary hover:text-primary/80">
-              All <ArrowRight className="h-3 w-3" />
+        <div className="rounded-2xl border border-border bg-card shadow-sm">
+          <div className="flex items-center justify-between border-b border-border px-5 py-4 sm:px-6">
+            <h3 className="text-base font-semibold text-foreground">Recent Activity</h3>
+            <Link href="/dashboard/assets/history" className="flex items-center gap-1.5 text-sm font-medium text-primary hover:text-primary/80">
+              View all <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
           <div className="divide-y divide-border">
             {recentTxs.length === 0 ? (
-              <div className="px-5 py-8 text-center text-xs text-muted-foreground">No recent activity</div>
+              <div className="px-6 py-12 text-center">
+                <FileText className="mx-auto mb-2 h-8 w-8 text-muted-foreground/30" />
+                <p className="text-sm font-medium text-foreground">No recent activity</p>
+                <p className="mt-1 text-xs text-muted-foreground">Your deposits, withdrawals, and transfers will appear here.</p>
+              </div>
             ) : recentTxs.slice(0, 6).map((tx) => {
               const isDeposit = tx.type === 'deposit';
               const isWithdraw = tx.type === 'withdrawal';
               const amt = parseFloat(tx.amount) || 0;
               return (
-                <div key={tx.id} className="flex items-center justify-between px-4 py-3 sm:px-5 hover:bg-muted/30 transition-colors">
+                <div key={tx.id} className="flex items-center justify-between gap-4 px-5 py-4 sm:px-6 hover:bg-muted/20 transition-colors">
                   <div className="flex items-center gap-3">
-                    <CoinIcon symbol={tx.symbol || ''} size={32} />
+                    <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${isDeposit ? 'bg-buy/10' : isWithdraw ? 'bg-sell/10' : 'bg-muted'}`}>
+                      {isDeposit ? <Download className="h-4 w-4 text-buy" /> : isWithdraw ? <Upload className="h-4 w-4 text-sell" /> : <ArrowLeftRight className="h-4 w-4 text-muted-foreground" />}
+                    </div>
                     <div>
                       <p className="text-sm font-medium text-foreground capitalize">{tx.type}</p>
-                      <p className="text-[10px] text-muted-foreground">{tx.symbol}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {tx.symbol} · {tx.created_at ? new Date(tx.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                      </p>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className={`text-sm font-medium tabular-nums ${isDeposit ? 'text-buy' : isWithdraw ? 'text-sell' : 'text-foreground'}`}>
-                      {isDeposit ? '+' : isWithdraw ? '-' : ''}{Math.abs(amt).toFixed(8)}
+                  <div className="flex items-center gap-4">
+                    <p className={`numeric text-sm font-semibold ${isDeposit ? 'text-buy' : isWithdraw ? 'text-sell' : 'text-foreground'}`}>
+                      <span>{isDeposit ? '+' : isWithdraw ? '-' : ''}{fmtAmount(Math.abs(amt))}</span>
+                      {tx.symbol ? <span className="ml-1 text-xs font-medium text-muted-foreground">{tx.symbol}</span> : null}
                     </p>
-                    <p className="text-[10px] text-muted-foreground">{tx.created_at ? new Date(tx.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : ''}</p>
+                    <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                      tx.status === 'completed' || tx.status === 'confirmed' ? 'bg-buy/10 text-buy' :
+                      tx.status === 'pending' ? 'bg-amber-500/10 text-amber-500' :
+                      tx.status === 'failed' ? 'bg-sell/10 text-sell' : 'bg-muted text-muted-foreground'
+                    }`}>
+                      {tx.status}
+                    </span>
                   </div>
-                  <span className={`ml-3 rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                    tx.status === 'completed' || tx.status === 'confirmed' ? 'bg-buy/10 text-buy' :
-                    tx.status === 'pending' ? 'bg-amber-500/10 text-amber-500' :
-                    tx.status === 'failed' ? 'bg-sell/10 text-sell' : 'bg-muted text-muted-foreground'
-                  }`}>
-                    {tx.status}
-                  </span>
                 </div>
               );
             })}

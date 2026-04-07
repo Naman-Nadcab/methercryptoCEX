@@ -113,6 +113,10 @@ const envSchema = z.object({
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(100),
   // Tier 1 default: when true, critical rate limits (OTP, withdrawal, spot order) fail-closed on Redis error (return 503)
   RATE_LIMIT_FAIL_CLOSED: z.string().transform(v => v === 'true' || v === '1').default('true'),
+  /** Max POST /api/v1/admin/auth/login per IP per window (Redis). Override for busy NAT or local testing. */
+  ADMIN_LOGIN_RATE_LIMIT_MAX: z.coerce.number().min(1).max(50_000).optional(),
+  /** Window in seconds for admin login IP limit (default 300 = 5 min). */
+  ADMIN_LOGIN_RATE_LIMIT_WINDOW_SEC: z.coerce.number().min(30).max(86_400).optional(),
 
   // Security
   CORS_ORIGINS: z.string().default('http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001,http://localhost:4000,http://127.0.0.1:4000'),
@@ -785,6 +789,10 @@ export const config = {
     windowMs: parsed.data.RATE_LIMIT_WINDOW_MS,
     maxRequests: parsed.data.RATE_LIMIT_MAX_REQUESTS,
     failClosed: parsed.data.RATE_LIMIT_FAIL_CLOSED,
+    adminLoginMax:
+      parsed.data.ADMIN_LOGIN_RATE_LIMIT_MAX ??
+      (parsed.data.NODE_ENV === 'development' ? 120 : 30),
+    adminLoginWindowSec: parsed.data.ADMIN_LOGIN_RATE_LIMIT_WINDOW_SEC ?? 300,
   },
 
   security: {

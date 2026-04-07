@@ -17,17 +17,15 @@ import {
   Search,
   RefreshCw,
   Wallet,
-  Send,
-  ArrowLeftRight,
-  TrendingUp,
   Clock,
+  TrendingUp,
   ChevronRight,
   ExternalLink,
   AlertCircle,
   QrCode,
   CreditCard,
-  LayoutGrid,
 } from 'lucide-react';
+import { WalletOperationsShell } from '@/components/wallet/WalletOperationsShell';
 import { toast } from '@/components/ui/toaster';
 
 interface Chain {
@@ -120,15 +118,6 @@ const FAQ_LINKS = [
   { title: 'View the Deposit/Withdrawal Status of All Coins', href: '/wallet/history' },
   { title: 'How to Change Your Withdrawal Limit', href: '/dashboard/security/withdrawal-limits' },
   { title: 'How to Manage Your Withdrawal Address Book', href: '/dashboard/address-book' },
-];
-
-const SIDEBAR_LINKS = [
-  { label: 'Asset Dashboard', href: '/wallet', icon: LayoutGrid },
-  { label: 'Deposit', href: '/wallet/deposit/crypto', icon: TrendingUp },
-  { label: 'Withdraw', href: '/wallet/withdraw/crypto', icon: Send, active: true },
-  { label: 'Transfer', href: '/wallet/transfer', icon: ArrowLeftRight },
-  { label: 'Convert', href: '/wallet/convert', icon: RefreshCw },
-  { label: 'History', href: '/wallet/history', icon: Clock },
 ];
 
 export default function WithdrawCryptoPage() {
@@ -604,55 +593,32 @@ export default function WithdrawCryptoPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="flex">
-        {/* Sidebar */}
-        <aside className="w-60 min-h-screen bg-card border-r border-border">
-          <nav className="p-4 space-y-1">
-            {SIDEBAR_LINKS.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className={`flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl transition-colors ${
-                  link.active
-                    ? 'bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 text-primary border border-blue-100 dark:border-blue-800/30'
-                    : 'text-muted-foreground hover:bg-accent/50'
-                }`}
-              >
-                <link.icon className="w-5 h-5" />
-                {link.label}
-              </Link>
-            ))}
-          </nav>
-        </aside>
-
-        {/* Main Content */}
-        <main className="flex-1 p-6">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-4">
-            <h1 className="text-xl font-semibold text-foreground">Withdraw</h1>
-            <Link
-              href="/wallet/withdraw/fiat"
-              className="flex items-center gap-2 px-4 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-xl border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
-            >
-              <CreditCard className="w-4 h-4" />
-              Fiat Withdrawal
-            </Link>
-          </div>
-
-          {/* Withdrawal Warning */}
-          <div className="mb-6 flex items-start gap-3 p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50">
+    <>
+      <WalletOperationsShell
+        title="Withdraw crypto"
+        description="Send assets to an external wallet. Double-check the address and network — on-chain transfers are irreversible."
+        headerRight={
+          <Link
+            href="/wallet/withdraw/fiat"
+            className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:border-primary/35 hover:bg-accent"
+          >
+            <CreditCard className="h-4 w-4 shrink-0" />
+            Fiat withdrawal
+          </Link>
+        }
+      >
+        <div className="mb-6 flex items-start gap-3 rounded-2xl border border-amber-200/80 bg-amber-50/90 p-4 dark:border-amber-800/40 dark:bg-amber-950/25">
             <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
             <div>
               <p className="text-sm font-medium text-amber-800 dark:text-amber-200">On-chain withdrawals cannot be reversed</p>
               <p className="text-xs text-amber-700 dark:text-amber-300/90 mt-1">Verify the address and network before submitting. Wrong address or network will result in permanent loss of funds.</p>
             </div>
-          </div>
+        </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
             {/* Withdrawal Form */}
             <div className="lg:col-span-2">
-              <div className="bg-card rounded-xl border border-border overflow-hidden">
+              <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
                 {/* Form Content */}
                 <div className="p-6">
                   {/* Select Coin */}
@@ -1312,13 +1278,14 @@ export default function WithdrawCryptoPage() {
               )}
             </div>
           </div>
-        </main>
-      </div>
+      </WalletOperationsShell>
 
-      {/* Help Button */}
-      <button className="fixed bottom-6 right-6 w-12 h-12 bg-primary hover:bg-primary/85 text-white rounded-full shadow-lg shadow-blue-500/25 flex items-center justify-center transition-colors z-40">
-        <HelpCircle className="w-6 h-6" />
+      <button
+        type="button"
+        className="fixed bottom-6 right-6 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/20 transition-colors hover:bg-primary/90"
+      >
+        <HelpCircle className="h-6 w-6" />
       </button>
-    </div>
+    </>
   );
 }

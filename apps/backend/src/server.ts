@@ -123,12 +123,13 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   await app.register(rateLimit, {
-    max: 100,
+    max: 1000,
     timeWindow: '1 minute',
-    // Probes and observability must not compete with the global API quota (load tests, k8s health checks).
     allowList: (request: FastifyRequest) => {
       const path = (request.url as string)?.split('?')[0] ?? '';
-      return path === '/health' || path === '/metrics' || path.startsWith('/metrics/');
+      if (path === '/health' || path === '/metrics' || path.startsWith('/metrics/')) return true;
+      if (path.startsWith('/api/v1/admin/auth/')) return true;
+      return false;
     },
   });
 

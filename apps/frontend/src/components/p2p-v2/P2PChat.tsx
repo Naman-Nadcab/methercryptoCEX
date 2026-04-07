@@ -115,12 +115,12 @@ export function P2PChat({ orderId, enabled }: Props) {
   return (
     <div className="flex flex-col rounded-lg border border-border/30 bg-card overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border/20 px-4 py-2.5">
-        <span className="flex items-center gap-1.5 text-[13px] font-semibold text-foreground">
-          <MessageCircle className="h-3.5 w-3.5 text-primary" />
+      <div className="flex items-center justify-between border-b border-border/20 px-4 py-3">
+        <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+          <MessageCircle className="h-4 w-4 text-primary" />
           Chat
         </span>
-        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
           wsConnected ? 'bg-[#0ecb81]/10 text-[#0ecb81]' : 'bg-amber-500/10 text-amber-500'
         }`}>
           {wsConnected ? 'Live' : 'Reconnecting…'}
@@ -140,7 +140,7 @@ export function P2PChat({ orderId, enabled }: Props) {
         {!isLoading && messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center py-12">
             <MessageCircle className="h-7 w-7 text-muted-foreground/15 mb-2" />
-            <p className="text-[12px] text-muted-foreground">No messages yet</p>
+            <p className="text-sm text-muted-foreground">No messages yet</p>
           </div>
         )}
 
@@ -152,7 +152,7 @@ export function P2PChat({ orderId, enabled }: Props) {
             if (isSystem) {
               return (
                 <div key={m.id} className="flex justify-center py-1">
-                  <span className="rounded-full bg-muted/30 px-3 py-1 text-[10px] text-muted-foreground">
+                  <span className="rounded-full bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground">
                     {m.message}
                   </span>
                 </div>
@@ -167,12 +167,12 @@ export function P2PChat({ orderId, enabled }: Props) {
                     : 'bg-muted/20 border border-border/15'
                 }`}>
                   {!isMe && (
-                    <p className="text-[10px] font-semibold text-primary mb-0.5">
+                    <p className="mb-0.5 text-xs font-semibold text-primary">
                       {m.senderUsername ?? m.senderId.slice(0, 8)}
                     </p>
                   )}
-                  <p className="text-[13px] text-foreground whitespace-pre-wrap leading-relaxed">{m.message}</p>
-                  <time className="block mt-0.5 text-[9px] text-muted-foreground/60 text-right" dateTime={m.createdAt}>
+                  <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">{m.message}</p>
+                  <time className="mt-0.5 block text-right text-xs text-muted-foreground/70" dateTime={m.createdAt}>
                     {new Date(m.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
                   </time>
                 </div>
@@ -191,18 +191,18 @@ export function P2PChat({ orderId, enabled }: Props) {
           onChange={(e) => onChangeText(e.target.value)}
           maxLength={2000}
           placeholder="Type a message…"
-          className="min-w-0 flex-1 rounded-lg border border-border/40 bg-background px-3 py-2 text-[13px] text-foreground transition-colors focus:border-primary/40 focus:outline-none"
+          className="min-w-0 flex-1 rounded-lg border border-border/40 bg-background px-3 py-2.5 text-sm text-foreground transition-colors focus:border-primary/40 focus:outline-none"
         />
         <button
           type="submit"
           disabled={sendMut.isPending || !text.trim()}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
         >
           <Send className="h-4 w-4" />
         </button>
       </form>
       {sendMut.isError && (
-        <p className="px-3 pb-2 text-[11px] text-[#f6465d]">Failed to send. Try again.</p>
+        <p className="px-3 pb-2 text-xs text-[#f6465d]">Failed to send. Try again.</p>
       )}
     </div>
   );

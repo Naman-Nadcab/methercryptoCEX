@@ -83,19 +83,19 @@ function PaymentProofViewer({ orderId, paymentProofUrl }: { orderId: string; pay
           type="button"
           onClick={() => void loadSecure()}
           disabled={loading}
-          className="inline-flex items-center gap-1.5 text-[12px] font-medium text-primary hover:underline disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline disabled:opacity-50"
         >
           {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
           {blobUrl ? 'Reload proof' : 'View payment proof'}
         </button>
-        {err && <p className="text-[11px] text-[#f6465d]">{err}</p>}
+        {err && <p className="text-xs text-[#f6465d]">{err}</p>}
         {blobUrl && <img src={blobUrl} alt="Payment proof" className="max-h-48 max-w-full rounded-lg border border-border/30" />}
       </div>
     );
   }
 
   return (
-    <a href={legacyHref} target="_blank" rel="noopener noreferrer" className="text-[12px] font-medium text-primary hover:underline">
+    <a href={legacyHref} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-primary hover:underline">
       Open image
     </a>
   );
@@ -115,45 +115,45 @@ export function P2POrderSummary({ order, isBuyer }: Props) {
     <div className="rounded-lg border border-border/30 bg-card">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/20 px-4 py-3">
-        <h2 className="text-[13px] font-semibold text-foreground">Order Details</h2>
-        <div className="flex items-center gap-1.5">
-          <span className={`rounded-md px-2.5 py-1 text-[10px] font-semibold ${sCls}`}>
+        <h2 className="text-base font-semibold tracking-tight text-foreground">Order Details</h2>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${sCls}`}>
             {statusLabel(order.status)}
           </span>
           {vBadge && (
-            <span className={`rounded-md px-2.5 py-1 text-[10px] font-semibold ${vBadge.cls}`}>{vBadge.label}</span>
+            <span className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${vBadge.cls}`}>{vBadge.label}</span>
           )}
         </div>
       </div>
 
       {isSeller && order.status === 'payment_confirmed' && order.payment_verification_status === 'pending' && (
-        <p className="mx-4 mt-3 rounded-md bg-amber-500/5 border border-amber-500/15 px-3 py-2 text-[11px] text-amber-500">
+        <p className="mx-4 mt-3 rounded-md border border-amber-500/15 bg-amber-500/5 px-3 py-2 text-sm text-amber-500">
           Confirm the fiat arrived in your account before releasing. Use &quot;Verify payment received&quot; after checking.
         </p>
       )}
 
       {/* Info grid */}
-      <div className="grid grid-cols-2 gap-px bg-border/10 p-px m-3 rounded-md overflow-hidden">
-        <div className="bg-card p-3">
-          <p className="text-[10px] text-muted-foreground/60 mb-0.5">Role</p>
-          <p className="text-[13px] font-semibold text-foreground">{isBuyer ? 'Buyer' : 'Seller'}</p>
+      <div className="m-3 grid grid-cols-2 gap-px overflow-hidden rounded-lg bg-border/10 p-px">
+        <div className="bg-card p-3.5">
+          <p className="mb-1 text-xs font-medium text-muted-foreground">Role</p>
+          <p className="text-sm font-semibold text-foreground">{isBuyer ? 'Buyer' : 'Seller'}</p>
         </div>
-        <div className="bg-card p-3">
-          <p className="text-[10px] text-muted-foreground/60 mb-0.5">Counterparty</p>
-          <p className="text-[13px] font-medium text-foreground truncate">
+        <div className="bg-card p-3.5">
+          <p className="mb-1 text-xs font-medium text-muted-foreground">Counterparty</p>
+          <p className="truncate text-sm font-medium text-foreground">
             {isBuyer ? order.seller_username ?? '—' : order.buyer_username ?? '—'}
           </p>
         </div>
-        <div className="bg-card p-3">
-          <p className="text-[10px] text-muted-foreground/60 mb-0.5">Crypto</p>
-          <p className="flex items-center gap-1.5 text-[13px] font-semibold text-foreground">
-            {order.crypto_symbol && <CoinIcon symbol={order.crypto_symbol} size={16} />}
-            <span className="font-mono">{order.quantity}</span> {order.crypto_symbol ?? ''}
+        <div className="bg-card p-3.5">
+          <p className="mb-1 text-xs font-medium text-muted-foreground">Crypto</p>
+          <p className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+            {order.crypto_symbol && <CoinIcon symbol={order.crypto_symbol} size={18} />}
+            <span className="numeric">{order.quantity}</span> {order.crypto_symbol ?? ''}
           </p>
         </div>
-        <div className="bg-card p-3">
-          <p className="text-[10px] text-muted-foreground/60 mb-0.5">Fiat</p>
-          <p className="text-[13px] font-mono font-semibold text-foreground">
+        <div className="bg-card p-3.5">
+          <p className="mb-1 text-xs font-medium text-muted-foreground">Fiat</p>
+          <p className="numeric text-sm font-semibold text-foreground">
             {sym}{order.fiat_amount ?? '—'} {fiat}
           </p>
         </div>
@@ -162,13 +162,13 @@ export function P2POrderSummary({ order, isBuyer }: Props) {
       {/* Transaction reference & proof */}
       {!isBuyer && order.status === 'payment_confirmed' && order.transaction_reference && (
         <div className="mx-4 mb-3 rounded-md bg-muted/10 border border-border/15 px-3 py-2.5">
-          <p className="text-[10px] text-muted-foreground/60 mb-0.5">Buyer Transaction Reference</p>
-          <p className="break-all font-mono text-[12px] text-foreground">{order.transaction_reference}</p>
+          <p className="mb-1 text-xs font-medium text-muted-foreground">Buyer Transaction Reference</p>
+          <p className="numeric break-all text-sm text-foreground">{order.transaction_reference}</p>
         </div>
       )}
       {!isBuyer && order.status === 'payment_confirmed' && order.payment_proof_url && (
         <div className="mx-4 mb-3 rounded-md bg-muted/10 border border-border/15 px-3 py-2.5">
-          <p className="text-[10px] text-muted-foreground/60 mb-1">Payment Proof</p>
+          <p className="mb-1 text-xs font-medium text-muted-foreground">Payment Proof</p>
           <PaymentProofViewer orderId={order.id} paymentProofUrl={order.payment_proof_url} />
         </div>
       )}

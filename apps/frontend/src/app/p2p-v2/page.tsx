@@ -15,7 +15,12 @@ import {
 import { api } from '@/lib/api';
 import { P2PFilters, type P2PFiltersValue } from '@/components/p2p-v2/P2PFilters';
 import { P2PAdsTable } from '@/components/p2p-v2/P2PAdsTable';
-import { p2pAdDisplayPrice, p2pAdSide, formatFiatSymbol } from '@/lib/p2p-v2-utils';
+import {
+  p2pAdDisplayPrice,
+  p2pAdSide,
+  formatFiatSymbol,
+  formatP2pFiatPrice,
+} from '@/lib/p2p-v2-utils';
 import {
   X, Shield, TrendingUp, TrendingDown,
   BadgeCheck, Timer, Crown,
@@ -56,7 +61,8 @@ function TakeOrderModal({
 }) {
   const sym = formatFiatSymbol(fiat);
   const side = p2pAdSide(ad);
-  const price = p2pAdDisplayPrice(ad);
+  const rawPrice = p2pAdDisplayPrice(ad);
+  const priceFmtModal = formatP2pFiatPrice(rawPrice, fiat);
   const min = ad.min_amount ?? '0';
   const max = ad.max_amount ?? '0';
   const accepted = (ad.accepted_platform_method_ids as string[] | undefined) ?? [];
@@ -107,20 +113,24 @@ function TakeOrderModal({
             <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="mb-5 rounded-lg bg-muted/15 border border-border/20 px-4 py-3 text-sm text-muted-foreground">
-          <span className="font-mono text-[15px] font-bold text-foreground">{sym}{price}</span> / {ad.crypto_symbol}
+        <div className="mb-5 rounded-lg border border-border/20 bg-muted/15 px-4 py-3 text-sm text-muted-foreground">
+          <span className="numeric text-lg font-bold tabular-nums text-foreground">{sym}{priceFmtModal}</span>
+          <span className="text-muted-foreground"> / {ad.crypto_symbol}</span>
           <span className="mx-2 text-border/40">·</span>
-          Limits <span className="font-mono font-semibold text-foreground">{min}–{max}</span> {fiat}
+          Limits{' '}
+          <span className="numeric font-semibold tabular-nums text-foreground">
+            {sym}{formatP2pFiatPrice(min, fiat)} – {sym}{formatP2pFiatPrice(max, fiat)}
+          </span>
         </div>
 
-        <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">Amount ({ad.crypto_symbol})</label>
+        <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Amount ({ad.crypto_symbol})</label>
         <input
           value={qty}
           onChange={(e) => setQty(e.target.value)}
           className="mb-5 w-full rounded-lg border border-border/40 bg-background px-3.5 py-2.5 font-mono text-sm text-foreground transition-colors focus:border-primary/40 focus:outline-none"
         />
 
-        <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">Payment method</label>
+        <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Payment method</label>
         {pmLoading ? (
           <div className="mb-5 space-y-2">
             <Skeleton className="h-10 w-full rounded-lg" />
@@ -138,7 +148,7 @@ function TakeOrderModal({
           >
             <option value="">Select…</option>
             {selectable.map((m: P2PPaymentMethodRow) => (
-              <option key={m.id} value={m.id}>{m.display_name || m.method_name} ({m.method_code})</option>
+              <option key={m.id} value={m.id}>{m.display_name || m.method_name}</option>
             ))}
           </select>
         )}
@@ -270,27 +280,27 @@ export default function P2PV2MarketplacePage() {
     <div className="mx-auto max-w-[1200px] px-4 sm:px-6">
 
       {/* ── Header strip ── */}
-      <div className="flex items-center justify-between py-3 border-b border-border/20">
-        <div className="flex items-center gap-3">
-          <h1 className="text-[15px] font-bold text-foreground">P2P Trading</h1>
-          <span className="hidden items-center gap-1 rounded-md bg-[#0ecb81]/8 px-2 py-0.5 text-[10px] font-semibold text-[#0ecb81] sm:inline-flex">
-            <Shield className="h-3 w-3" />
+      <div className="flex flex-col gap-3 border-b border-border/20 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">P2P Trading</h1>
+          <span className="inline-flex items-center gap-1.5 rounded-lg bg-[#0ecb81]/10 px-2.5 py-1 text-xs font-semibold text-[#0ecb81] ring-1 ring-[#0ecb81]/20 sm:inline-flex">
+            <Shield className="h-3.5 w-3.5 shrink-0" />
             Escrow
           </span>
         </div>
 
         {/* Inline tickers */}
-        <div className="hidden items-center gap-4 sm:flex">
+        <div className="hidden flex-wrap items-center gap-4 sm:flex sm:justify-end">
           {tickerCoins.map(({ symbol, price, chg }) => {
             const up = chg != null && chg >= 0;
             return (
-              <div key={symbol} className="flex items-center gap-1.5 text-[11px]">
-                <CoinIcon symbol={symbol} size={16} />
-                <span className="font-medium text-foreground">{symbol}</span>
-                <span className="font-mono font-semibold text-foreground">{price != null ? fmtUsd(price) : '—'}</span>
+              <div key={symbol} className="flex items-center gap-2 text-sm">
+                <CoinIcon symbol={symbol} size={20} />
+                <span className="font-semibold text-foreground">{symbol}</span>
+                <span className="numeric font-semibold text-foreground">{price != null ? fmtUsd(price) : '—'}</span>
                 {chg != null && (
-                  <span className={`flex items-center gap-0.5 font-mono font-semibold tabular-nums ${up ? 'text-[#0ecb81]' : 'text-[#f6465d]'}`}>
-                    {up ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
+                  <span className={`numeric flex items-center gap-0.5 text-sm font-semibold ${up ? 'text-[#0ecb81]' : 'text-[#f6465d]'}`}>
+                    {up ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
                     {chg > 0 ? '+' : ''}{chg.toFixed(2)}%
                   </span>
                 )}
@@ -301,46 +311,51 @@ export default function P2PV2MarketplacePage() {
       </div>
 
       {/* ── Compact filters ── */}
-      <div className="border-b border-border/10 py-3">
+      <div className="border-b border-border/10 py-4">
         <P2PFilters value={filters} onChange={setFilters} onRefresh={() => void refetch()} />
       </div>
 
       {/* ── Sub-bar: quick chips + reference prices ── */}
-      <div className="flex flex-wrap items-center justify-between gap-2 py-2.5 border-b border-border/10">
-        <div className="flex items-center gap-1.5">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/10 py-3">
+        <div className="flex flex-wrap items-center gap-2">
           {quickChips.map(({ id, label, icon: Icon }) => {
             const on = activeChips.has(id);
             return (
               <button
                 key={id}
                 type="button"
+                aria-pressed={on}
                 onClick={() => toggleChip(id)}
-                className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-all duration-150 ${
+                className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-150 ${
                   on
-                    ? 'bg-primary/15 text-primary'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
+                    ? 'bg-primary/15 text-primary ring-1 ring-primary/20'
+                    : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground'
                 }`}
               >
-                <Icon className="h-3 w-3" />
+                <Icon className="h-4 w-4 shrink-0 opacity-90" />
                 {label}
               </button>
             );
           })}
         </div>
 
-        <div className="flex items-center gap-4 text-[11px] text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
           {spotPrice != null && (
             <span>
-              Spot <span className="font-mono font-semibold text-foreground">{sym}{priceFmt.format(spotPrice)}</span>
+              Spot{' '}
+              <span className="numeric font-semibold text-foreground">{sym}{priceFmt.format(spotPrice)}</span>
             </span>
           )}
           {p2pAvg != null && (
             <span>
-              P2P Avg <span className="font-mono font-semibold text-foreground">{sym}{priceFmt.format(p2pAvg)}</span>
+              P2P Avg{' '}
+              <span className="numeric font-semibold text-foreground">{sym}{priceFmt.format(p2pAvg)}</span>
             </span>
           )}
           {!isLoading && (
-            <span className="tabular-nums">{chipFilteredAds.length} ad{chipFilteredAds.length !== 1 ? 's' : ''}</span>
+            <span className="numeric rounded-lg bg-muted/40 px-2.5 py-1 text-xs font-semibold text-foreground">
+              {chipFilteredAds.length} ad{chipFilteredAds.length !== 1 ? 's' : ''}
+            </span>
           )}
         </div>
       </div>

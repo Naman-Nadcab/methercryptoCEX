@@ -47,6 +47,7 @@ interface AdminManualCreditIdempotencyCache {
 interface AdminLoginBody {
   email: string;
   password: string;
+  twofa_code?: string;
 }
 
 interface AdminUser {
@@ -351,7 +352,11 @@ const ROUTE_PERMISSION_MAP: Array<{ pattern: RegExp; read: string; write: string
 
 export default async function adminRoutes(app: FastifyInstance) {
 
-  app.addHook('onRequest', rateLimitByIp('admin-api', 600, 60));
+  app.addHook('onRequest', async (request, reply) => {
+    const url = request.url.replace(/^\/api\/v1\/admin/, '').split('?')[0] || '/';
+    if (url.startsWith('/auth/')) return;
+    return rateLimitByIp('admin-api', 600, 60)(request, reply);
+  });
 
   app.addHook('preHandler', async (request, reply) => {
     const url = request.url.replace(/^\/api\/v1\/admin/, '').split('?')[0] || '/';
@@ -481,20 +486,28 @@ export default async function adminRoutes(app: FastifyInstance) {
    * Admin login
    */
   app.post<{ Body: AdminLoginBody }>('/auth/login', {
-    schema: {
-      body: {
-        type: 'object',
-        required: ['email', 'password'],
-        properties: {
-          email: { type: 'string', format: 'email' },
-          password: { type: 'string', minLength: 6 },
-        },
-      },
-    },
-    preHandler: [rateLimitByIp('admin-login', 10, 300)],
+    config: { rateLimit: false },
+    preHandler: [
+      rateLimitByIp('admin-login', config.rateLimit.adminLoginMax, config.rateLimit.adminLoginWindowSec),
+    ],
   }, async (request, reply) => {
     try {
-      const { email, password } = request.body;
+      const body = request.body ?? {} as AdminLoginBody;
+      const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+      const password = typeof body.password === 'string' ? body.password : '';
+
+      if (!email || !email.includes('@')) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'A valid email address is required' },
+        });
+      }
+      if (password.length < 6) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'Password must be at least 6 characters' },
+        });
+      }
 
       // Find admin user
       const result = await db.query<{

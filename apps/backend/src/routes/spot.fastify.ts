@@ -539,28 +539,29 @@ export default async function spotRoutes(app: FastifyInstance) {
       const symbol = request.params.symbol?.toUpperCase().replace(/-/g, '_') || '';
       const limRaw = request.query.limit ?? '50';
       const limit = Math.min(100, Math.max(5, parseInt(String(limRaw), 10) || 50));
-      const market = await db.query(
+      const marketCheck = await db.query(
         `SELECT 1 FROM spot_markets WHERE symbol = $1 AND status IN ('active', 'maintenance')`,
         [symbol]
       );
-      if (market.rows.length === 0) {
+      if (marketCheck.rows.length === 0) {
         const tp = await db.query(`SELECT 1 FROM trading_pairs WHERE symbol = $1 AND trading_enabled = TRUE`, [symbol]);
         if (tp.rows.length === 0) {
           return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Market not found' } });
         }
       }
-      const r = await db.query<{
-        id: string;
-        order_id: string;
-        market: string;
-        side: string;
-        price: string;
-        quantity: string;
-        created_at: Date;
-      }>(
-        `SELECT id, order_id, market, side, price::text, quantity::text, created_at FROM spot_trades WHERE market = $1 ORDER BY created_at DESC LIMIT $2`,
-        [symbol, limit]
-      );
+      const useMarket = await getSpotTradesUseMarket();
+      const r = useMarket
+        ? await db.query<{ id: string; order_id: string; market: string; side: string; price: string; quantity: string; created_at: Date }>(
+            `SELECT id, order_id, market, side, price::text, quantity::text, created_at FROM spot_trades WHERE market = $1 ORDER BY created_at DESC LIMIT $2`,
+            [symbol, limit]
+          )
+        : await db.query<{ id: string; order_id: string; market: string; side: string; price: string; quantity: string; created_at: Date }>(
+            `SELECT st.id, NULL::uuid AS order_id, tp.symbol AS market, st.side::text AS side, st.price::text, st.quantity::text, st.created_at
+             FROM spot_trades st
+             INNER JOIN trading_pairs tp ON tp.id = st.trading_pair_id
+             WHERE tp.symbol = $1 ORDER BY st.created_at DESC LIMIT $2`,
+            [symbol, limit]
+          );
       const rows = r.rows.map((row) => ({
         id: row.id,
         order_id: row.order_id,

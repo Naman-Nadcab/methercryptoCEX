@@ -69,12 +69,28 @@ const config: Config = {
           '0%': { opacity: '0', transform: 'translateX(16px)' },
           '100%': { opacity: '1', transform: 'translateX(0)' },
         },
+        'login-drift': {
+          '0%, 100%': { transform: 'translate(0, 0) scale(1)' },
+          '33%': { transform: 'translate(8%, -4%) scale(1.05)' },
+          '66%': { transform: 'translate(-6%, 6%) scale(0.95)' },
+        },
+        'login-drift-slow': {
+          '0%, 100%': { transform: 'translate(0, 0)' },
+          '50%': { transform: 'translate(-12px, 20px)' },
+        },
+        'login-pulse-soft': {
+          '0%, 100%': { opacity: '0.35' },
+          '50%': { opacity: '0.55' },
+        },
       },
       animation: {
         shimmer: 'shimmer 1.5s ease-in-out infinite',
         'fade-in': 'fade-in 200ms ease-out',
         'scale-in': 'scale-in 200ms ease-out',
         'slide-in-right': 'slide-in-right 200ms ease-out',
+        'login-drift': 'login-drift 22s ease-in-out infinite',
+        'login-drift-slow': 'login-drift-slow 28s ease-in-out infinite',
+        'login-pulse-soft': 'login-pulse-soft 6s ease-in-out infinite',
       },
     },
   },

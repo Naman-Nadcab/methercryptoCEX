@@ -23,7 +23,11 @@ import {
   Banknote,
   ChevronsUpDown,
   X,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
+
+const PAGE_SIZE = 25;
 
 const COIN_NAMES: Record<string, string> = {
   BTC: 'Bitcoin', ETH: 'Ethereum', BNB: 'BNB', SOL: 'Solana',
@@ -47,10 +51,10 @@ function formatCrypto(v: number | string, decimals = 8): string {
 }
 
 function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
-  if (!active) return <ChevronsUpDown className="w-3 h-3 opacity-40" />;
+  if (!active) return <ChevronsUpDown className="h-3.5 w-3.5 opacity-50" />;
   return dir === 'asc'
-    ? <ChevronUp className="w-3 h-3 text-primary" />
-    : <ChevronDown className="w-3 h-3 text-primary" />;
+    ? <ChevronUp className="h-3.5 w-3.5 text-primary" />
+    : <ChevronDown className="h-3.5 w-3.5 text-primary" />;
 }
 
 function ActionDropdown({ symbol }: { symbol: string }) {
@@ -67,40 +71,46 @@ function ActionDropdown({ symbol }: { symbol: string }) {
   }, [open]);
 
   return (
-    <div ref={ref} className="relative inline-flex items-center gap-1">
+    <div ref={ref} className="relative flex flex-wrap items-center justify-end gap-1.5">
       <Link
         href={`/dashboard/deposit/crypto?coin=${symbol}`}
-        className="px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/5 rounded-md transition-colors"
+        className="inline-flex items-center rounded-lg border border-border bg-muted/40 px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
       >
         Deposit
       </Link>
       <Link
         href={`/dashboard/withdraw/crypto?coin=${symbol}`}
-        className="px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/5 rounded-md transition-colors"
+        className="inline-flex items-center rounded-lg border border-border bg-muted/40 px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
       >
         Withdraw
       </Link>
       <button
+        type="button"
         onClick={() => setOpen(o => !o)}
-        className="px-2 py-1.5 text-xs font-medium text-primary hover:bg-primary/5 rounded-md transition-colors flex items-center gap-0.5"
+        className="inline-flex items-center gap-0.5 rounded-lg border border-border bg-muted/40 px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        aria-expanded={open}
+        aria-haspopup="menu"
       >
-        More <ChevronDown className="w-3 h-3" />
+        More <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 w-40 bg-card border border-border rounded-xl shadow-xl z-50 py-1 animate-in fade-in slide-in-from-top-1 duration-150">
+        <div
+          role="menu"
+          className="absolute right-0 top-full z-[100] mt-1.5 w-44 rounded-xl border border-border bg-popover py-1 shadow-lg ring-1 ring-border/50"
+        >
           <Link
             href="/dashboard/transfer"
-            className="flex items-center gap-2 px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors"
+            className="flex items-center gap-2.5 px-3 py-2.5 text-sm text-foreground transition-colors hover:bg-accent"
             onClick={() => setOpen(false)}
           >
-            <ArrowLeftRight className="w-3.5 h-3.5 text-muted-foreground" /> Transfer
+            <ArrowLeftRight className="h-4 w-4 shrink-0 text-muted-foreground" /> Transfer
           </Link>
           <Link
             href={`/trade/spot?symbol=${symbol}_USDT`}
-            className="flex items-center gap-2 px-4 py-2.5 text-sm text-foreground hover:bg-accent transition-colors"
+            className="flex items-center gap-2.5 px-3 py-2.5 text-sm text-foreground transition-colors hover:bg-accent"
             onClick={() => setOpen(false)}
           >
-            <BarChart3 className="w-3.5 h-3.5 text-muted-foreground" /> Trade
+            <BarChart3 className="h-4 w-4 shrink-0 text-muted-foreground" /> Trade
           </Link>
         </div>
       )}
@@ -113,11 +123,12 @@ export default function FundingAccountPage() {
 
   const [showBalance, setShowBalance] = useState(true);
   const [activeTab, setActiveTab] = useState<'crypto' | 'fiat'>('crypto');
-  const [hideZero, setHideZero] = useState(false);
+  const [hideZero, setHideZero] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('value');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [refreshing, setRefreshing] = useState(false);
+  const [page, setPage] = useState(1);
 
   const { data: fundingData, isLoading, refetch } = useBalancesFunding(!!_hasHydrated && !!accessToken);
   const balances = fundingData?.balances ?? [];
@@ -167,130 +178,162 @@ export default function FundingAccountPage() {
       });
   }, [balances, hideZero, searchQuery, sortKey, sortDir]);
 
+  const totalFiltered = filteredBalances.length;
+  const pageCount = Math.max(1, Math.ceil(totalFiltered / PAGE_SIZE));
+  const paginatedBalances = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return filteredBalances.slice(start, start + PAGE_SIZE);
+  }, [filteredBalances, page]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, hideZero, sortKey, sortDir]);
+
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
+
+  const rangeStart = totalFiltered === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const rangeEnd = Math.min(page * PAGE_SIZE, totalFiltered);
+
   const mask = (v: string) => (showBalance ? v : '••••••');
   const maskNum = (v: string, dec?: number) => (showBalance ? formatCrypto(v, dec) : '••••••');
 
   return (
-    <div className="p-6 max-w-[1400px] mx-auto">
+    <div className="mx-auto min-h-screen max-w-[1400px] bg-background px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
       {/* ── Page header ── */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <h1 className="text-xl font-semibold text-foreground tracking-tight">Funding Account</h1>
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Funding Account</h1>
+          <span className="hidden text-sm text-muted-foreground sm:inline">Wallet balances for deposits &amp; withdrawals</span>
           <button
+            type="button"
             onClick={() => setShowBalance(s => !s)}
-            className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg transition-colors"
+            className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             title={showBalance ? 'Hide balances' : 'Show balances'}
           >
-            {showBalance ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
+            {showBalance ? <Eye className="h-5 w-5" /> : <EyeOff className="h-5 w-5" />}
           </button>
           <button
+            type="button"
             onClick={handleRefresh}
             disabled={refreshing}
-            className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg transition-colors disabled:opacity-50"
+            className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
             title="Refresh balances"
           >
-            <RefreshCw className={`w-4.5 h-4.5 ${refreshing ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`h-5 w-5 ${refreshing ? 'animate-spin' : ''}`} />
           </button>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Link
             href="/dashboard/deposit/crypto"
-            className="flex items-center gap-2 px-5 py-2 bg-primary hover:bg-primary/90 text-primary-foreground font-medium text-sm rounded-lg transition-colors"
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
           >
-            <Download className="w-4 h-4" /> Deposit
+            <Download className="h-4 w-4" /> Deposit
           </Link>
           <Link
             href="/dashboard/withdraw/crypto"
-            className="flex items-center gap-2 px-5 py-2 bg-card text-foreground font-medium text-sm rounded-lg border border-border hover:bg-accent transition-colors"
+            className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
           >
-            <Upload className="w-4 h-4" /> Withdraw
+            <Upload className="h-4 w-4" /> Withdraw
           </Link>
           <Link
             href="/dashboard/transfer"
-            className="flex items-center gap-2 px-5 py-2 bg-card text-foreground font-medium text-sm rounded-lg border border-border hover:bg-accent transition-colors"
+            className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
           >
-            <ArrowLeftRight className="w-4 h-4" /> Transfer
+            <ArrowLeftRight className="h-4 w-4" /> Transfer
           </Link>
         </div>
       </div>
 
       {/* ── Session error ── */}
       {sessionError && (
-        <div className="mb-6 p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 flex flex-wrap items-center justify-between gap-4">
-          <p className="text-sm text-amber-800 dark:text-amber-200">{sessionError}</p>
-          <Link href="/login" className="px-4 py-2 text-sm font-medium rounded-lg bg-amber-600 text-white hover:bg-amber-700 transition-colors">
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-warning/30 bg-warning/10 p-4">
+          <p className="text-sm text-foreground">{sessionError}</p>
+          <Link href="/login" className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">
             Log in again
           </Link>
         </div>
       )}
 
       {/* ── Equity summary cards ── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div className="bg-card rounded-xl p-5 border border-border">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
-              <Wallet className="w-4.5 h-4.5 text-white" />
+      <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-5">
+        <div className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
+          <div className="mb-4 flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <Wallet className="h-5 w-5" />
             </div>
-            <span className="text-sm font-medium text-muted-foreground">Total Equity</span>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Total equity</p>
+              <p className="text-xs text-muted-foreground/90">Funding wallet (USD)</p>
+            </div>
           </div>
-          <p className="text-2xl font-bold text-foreground tabular-nums">
+          <p className="numeric text-3xl font-bold tracking-tight text-foreground">
             {showBalance ? `$${formatUsd(totalEquity.usd)}` : '••••••'}
           </p>
-          <p className="text-xs text-muted-foreground mt-1 tabular-nums">
+          <p className="numeric mt-2 text-sm text-muted-foreground">
             ≈ {showBalance ? `${formatCrypto(totalEquity.btc, 8)} BTC` : '••••••••'}
           </p>
         </div>
-        <div className="bg-card rounded-xl p-5 border border-border">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center">
-              <ArrowUpRight className="w-4.5 h-4.5 text-white" />
+        <div className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
+          <div className="mb-4 flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-buy/10 text-buy">
+              <ArrowUpRight className="h-5 w-5" />
             </div>
-            <span className="text-sm font-medium text-muted-foreground">Available Balance</span>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Available</p>
+              <p className="text-xs text-muted-foreground/90">Ready to trade or withdraw</p>
+            </div>
           </div>
-          <p className="text-2xl font-bold text-foreground tabular-nums">
+          <p className="numeric text-3xl font-bold tracking-tight text-foreground">
             {showBalance ? `$${formatUsd(availableBalance.usd)}` : '••••••'}
           </p>
-          <p className="text-xs text-muted-foreground mt-1 tabular-nums">
+          <p className="numeric mt-2 text-sm text-muted-foreground">
             ≈ {showBalance ? `${formatCrypto(availableBalance.btc, 8)} BTC` : '••••••••'}
           </p>
         </div>
-        <div className="bg-card rounded-xl p-5 border border-border">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
-              <Clock className="w-4.5 h-4.5 text-white" />
+        <div className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6 sm:col-span-2 lg:col-span-1">
+          <div className="mb-4 flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-warning/15 text-warning">
+              <Clock className="h-5 w-5" />
             </div>
-            <span className="text-sm font-medium text-muted-foreground">In Use / Locked</span>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">In use</p>
+              <p className="text-xs text-muted-foreground/90">Locked in orders or pending</p>
+            </div>
           </div>
-          <p className="text-2xl font-bold text-foreground tabular-nums">
+          <p className="numeric text-3xl font-bold tracking-tight text-foreground">
             {showBalance ? `$${formatUsd(inUse.usd)}` : '••••••'}
           </p>
-          <p className="text-xs text-muted-foreground mt-1 tabular-nums">
+          <p className="numeric mt-2 text-sm text-muted-foreground">
             ≈ {showBalance ? `${formatCrypto(inUse.btc, 8)} BTC` : '••••••••'}
           </p>
         </div>
       </div>
 
-      {/* ── Crypto / Fiat tabs + table ── */}
-      <div className="bg-card rounded-xl border border-border overflow-hidden">
+      {/* ── Crypto / Fiat tabs + table (no overflow-hidden — action menus need to escape) ── */}
+      <div className="rounded-2xl border border-border bg-card shadow-sm">
         {/* Tab bar + controls */}
-        <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
-          <div className="flex items-center gap-1 bg-muted p-1 rounded-lg">
+        <div className="flex flex-col gap-4 border-b border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:py-5">
+          <div className="inline-flex w-fit rounded-xl bg-muted/80 p-1">
             <button
+              type="button"
               onClick={() => setActiveTab('crypto')}
-              className={`px-5 py-2 text-sm font-medium rounded-md transition-all ${
+              className={`rounded-lg px-5 py-2.5 text-sm font-semibold transition-all ${
                 activeTab === 'crypto'
-                  ? 'bg-card text-primary shadow-sm'
+                  ? 'bg-card text-foreground shadow-sm ring-1 ring-border/60'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               Crypto
             </button>
             <button
+              type="button"
               onClick={() => setActiveTab('fiat')}
-              className={`px-5 py-2 text-sm font-medium rounded-md transition-all ${
+              className={`rounded-lg px-5 py-2.5 text-sm font-semibold transition-all ${
                 activeTab === 'fiat'
-                  ? 'bg-card text-primary shadow-sm'
+                  ? 'bg-card text-foreground shadow-sm ring-1 ring-border/60'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
@@ -299,123 +342,130 @@ export default function FundingAccountPage() {
           </div>
 
           {activeTab === 'crypto' && (
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+              <div className="relative min-w-[200px] max-w-xs flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="text"
-                  placeholder="Search coin..."
+                  placeholder="Search coin…"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9 pr-8 py-2 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 w-56 transition-shadow"
+                  className="h-10 w-full rounded-lg border border-border bg-background py-2 pl-10 pr-9 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
                 />
-                {searchQuery && (
-                  <button onClick={() => setSearchQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                    <X className="w-3.5 h-3.5" />
+                {searchQuery ? (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    aria-label="Clear search"
+                  >
+                    <X className="h-4 w-4" />
                   </button>
-                )}
+                ) : null}
               </div>
-              <label className="flex items-center gap-2 cursor-pointer select-none text-sm text-muted-foreground hover:text-foreground transition-colors">
+              <label className="flex cursor-pointer select-none items-center gap-2.5 text-sm text-muted-foreground transition-colors hover:text-foreground">
                 <input
                   type="checkbox"
                   checked={hideZero}
                   onChange={(e) => setHideZero(e.target.checked)}
-                  className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/40 accent-primary"
+                  className="h-4 w-4 rounded border-border accent-primary"
                 />
                 Hide zero balances
               </label>
+              {!isLoading && totalFiltered > 0 ? (
+                <span className="text-xs text-muted-foreground sm:ml-1">
+                  {totalFiltered} asset{totalFiltered !== 1 ? 's' : ''}
+                </span>
+              ) : null}
             </div>
           )}
         </div>
 
         {/* ── Fiat coming-soon ── */}
         {activeTab === 'fiat' && (
-          <div className="flex flex-col items-center justify-center py-24 px-6">
-            <div className="w-16 h-16 rounded-2xl bg-muted flex items-center justify-center mb-5">
-              <Banknote className="w-8 h-8 text-muted-foreground" />
+          <div className="flex flex-col items-center justify-center px-6 py-20 sm:py-24">
+            <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-muted">
+              <Banknote className="h-8 w-8 text-muted-foreground" />
             </div>
-            <h3 className="text-lg font-semibold text-foreground mb-1">Fiat Balances Coming Soon</h3>
-            <p className="text-sm text-muted-foreground max-w-md text-center">
-              We&apos;re working on fiat currency support. You&apos;ll be able to deposit and withdraw USD, EUR, and other fiat currencies here.
+            <h3 className="mb-2 text-lg font-semibold text-foreground">Fiat balances</h3>
+            <p className="max-w-md text-center text-sm leading-relaxed text-muted-foreground">
+              Fiat deposit and withdrawal support is coming soon. You&apos;ll manage USD, EUR, and other currencies here.
             </p>
           </div>
         )}
 
         {/* ── Crypto table ── */}
         {activeTab === 'crypto' && (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[800px]">
-              <thead>
-                <tr className="bg-muted/50">
+          <>
+          <div className="overflow-x-auto rounded-b-2xl">
+            <table className="w-full min-w-[880px] border-collapse">
+              <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-muted/95 [&_th]:shadow-[0_1px_0_0_hsl(var(--border))] [&_th]:backdrop-blur-sm">
+                <tr className="border-b border-border">
                   {([
                     ['symbol', 'Coin', 'left'],
-                    ['balance', 'Total Balance', 'right'],
+                    ['balance', 'Total balance', 'right'],
                     [null, 'Available', 'right'],
-                    [null, 'In Use / Locked', 'right'],
-                    ['value', 'USD Value', 'right'],
-                    [null, 'Action', 'right'],
+                    [null, 'In use', 'right'],
+                    ['value', 'USD value', 'right'],
+                    [null, 'Actions', 'right'],
                   ] as const).map(([key, label, align], i) => {
                     const sortable = key !== null;
                     return (
                       <th
                         key={i}
-                        className={`px-5 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground ${
+                        scope="col"
+                        className={`whitespace-nowrap px-5 py-3.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground first:pl-6 last:pr-6 ${
                           align === 'right' ? 'text-right' : 'text-left'
-                        } ${sortable ? 'cursor-pointer select-none hover:text-foreground transition-colors' : ''}`}
+                        } ${sortable ? 'cursor-pointer select-none transition-colors hover:text-foreground' : ''}`}
                         onClick={sortable ? () => cycleSort(key) : undefined}
                       >
-                        <span className="inline-flex items-center gap-1">
+                        <span className={`inline-flex items-center gap-1.5 ${align === 'right' ? 'justify-end' : ''}`}>
                           {label}
-                          {sortable && <SortIcon active={sortKey === key} dir={sortDir} />}
+                          {sortable ? <SortIcon active={sortKey === key} dir={sortDir} /> : null}
                         </span>
                       </th>
                     );
                   })}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border">
+              <tbody>
                 {isLoading ? (
                   <SkeletonTableBody rows={8} columns={6} />
                 ) : filteredBalances.length > 0 ? (
-                  filteredBalances.map((b: TokenBalance) => {
+                  paginatedBalances.map((b: TokenBalance) => {
                     const fullName = COIN_NAMES[b.symbol] ?? b.name ?? b.symbol;
                     const usdVal = parseFloat(b.usd_value || '0');
                     const lockedVal = parseFloat(b.locked_balance || '0');
 
                     return (
-                      <tr key={b.token_id} className="group hover:bg-accent/40 transition-colors">
-                        {/* Coin */}
-                        <td className="px-5 py-3.5">
+                      <tr
+                        key={b.token_id}
+                        className="group border-b border-border/80 transition-colors last:border-0 hover:bg-muted/35"
+                      >
+                        <td className="px-5 py-4 pl-6 align-middle">
                           <div className="flex items-center gap-3">
-                            <CoinIcon symbol={b.symbol} size={32} />
+                            <CoinIcon symbol={b.symbol} size={36} />
                             <div className="min-w-0">
-                              <span className="font-semibold text-sm text-foreground">{b.symbol}</span>
-                              <p className="text-xs text-muted-foreground truncate">{fullName}</p>
+                              <span className="text-sm font-semibold text-foreground">{b.symbol}</span>
+                              <p className="truncate text-xs leading-snug text-muted-foreground">{fullName}</p>
                             </div>
                           </div>
                         </td>
-                        {/* Total */}
-                        <td className="px-5 py-3.5 text-right font-mono text-sm text-foreground tabular-nums">
+                        <td className="numeric px-5 py-4 text-right align-middle text-sm text-foreground">
                           {maskNum(b.total_balance)}
                         </td>
-                        {/* Available */}
-                        <td className="px-5 py-3.5 text-right font-mono text-sm text-foreground tabular-nums">
+                        <td className="numeric px-5 py-4 text-right align-middle text-sm text-foreground">
                           {maskNum(b.available_balance)}
                         </td>
-                        {/* Locked */}
-                        <td className="px-5 py-3.5 text-right font-mono text-sm tabular-nums">
-                          <span className={lockedVal > 0 ? 'text-orange-500' : 'text-muted-foreground'}>
+                        <td className="numeric px-5 py-4 text-right align-middle text-sm">
+                          <span className={lockedVal > 0 ? 'font-medium text-warning' : 'text-muted-foreground'}>
                             {maskNum(b.locked_balance)}
                           </span>
                         </td>
-                        {/* USD Value */}
-                        <td className="px-5 py-3.5 text-right">
-                          <span className="font-mono text-sm text-foreground tabular-nums">
-                            {showBalance ? `$${formatUsd(usdVal)}` : '••••••'}
-                          </span>
+                        <td className="numeric px-5 py-4 text-right align-middle text-sm font-medium text-foreground">
+                          {showBalance ? `$${formatUsd(usdVal)}` : '••••••'}
                         </td>
-                        {/* Actions */}
-                        <td className="px-5 py-3.5 text-right">
+                        <td className="px-4 py-3 pr-6 text-right align-middle">
                           <ActionDropdown symbol={b.symbol} />
                         </td>
                       </tr>
@@ -423,23 +473,27 @@ export default function FundingAccountPage() {
                   })
                 ) : (
                   <tr>
-                    <td colSpan={6} className="py-20 text-center">
+                    <td colSpan={6} className="px-6 py-16 text-center sm:py-20">
                       <div className="flex flex-col items-center">
-                        <div className="w-16 h-16 bg-muted rounded-2xl flex items-center justify-center mb-4">
-                          <Wallet className="w-8 h-8 text-muted-foreground" />
+                        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-muted">
+                          <Wallet className="h-8 w-8 text-muted-foreground" />
                         </div>
-                        <p className="text-foreground font-medium">No assets found</p>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          {searchQuery ? 'Try a different search term' : 'Deposit funds to get started'}
+                        <p className="font-medium text-foreground">No assets found</p>
+                        <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">
+                          {searchQuery
+                            ? 'Try a different search term or clear filters.'
+                            : hideZero && balances.length > 0
+                              ? 'All rows are hidden while “Hide zero balances” is on. Turn it off to see every asset.'
+                              : 'Deposit crypto to see balances here.'}
                         </p>
-                        {!searchQuery && (
+                        {!searchQuery && !(hideZero && balances.length > 0) ? (
                           <Link
                             href="/dashboard/deposit/crypto"
-                            className="mt-4 px-6 py-2.5 bg-primary hover:bg-primary/90 text-primary-foreground font-medium text-sm rounded-lg transition-colors"
+                            className="mt-5 inline-flex items-center rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
                           >
-                            Deposit Now
+                            Deposit
                           </Link>
-                        )}
+                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -447,6 +501,42 @@ export default function FundingAccountPage() {
               </tbody>
             </table>
           </div>
+          {!isLoading && totalFiltered > 0 ? (
+            <div className="flex flex-col gap-3 border-t border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-muted-foreground">
+                Showing{' '}
+                <span className="numeric font-medium text-foreground">{rangeStart}</span>
+                {'–'}
+                <span className="numeric font-medium text-foreground">{rangeEnd}</span>
+                {' of '}
+                <span className="numeric font-medium text-foreground">{totalFiltered}</span>
+              </p>
+              {pageCount > 1 ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={page <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+                  >
+                    <ChevronLeft className="h-4 w-4" /> Previous
+                  </button>
+                  <span className="numeric px-2 text-sm text-muted-foreground">
+                    Page {page} / {pageCount}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={page >= pageCount}
+                    onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                    className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+                  >
+                    Next <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          </>
         )}
       </div>
     </div>

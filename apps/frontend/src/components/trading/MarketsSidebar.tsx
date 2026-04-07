@@ -71,15 +71,15 @@ export function MarketsSidebar({
     <div
       className={
         isTerminal
-          ? 'exchange-ui flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#1e2026]'
-          : 'exchange-ui flex h-full min-h-0 flex-col border-r border-border bg-card min-w-0'
+          ? 'exchange-ui flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-card'
+          : 'exchange-ui flex h-full min-h-0 min-w-0 flex-col border-r border-border bg-card'
       }
     >
       {/* Tabs + search: fixed to top of section; list scrolls independently below (Binance-style). */}
       <div
         className={
           isTerminal
-            ? 'sticky top-0 z-20 shrink-0 border-b border-[#2b2f36] bg-[#1e2026]'
+            ? 'sticky top-0 z-20 shrink-0 border-b border-border bg-card'
             : 'shrink-0 border-b border-border'
         }
       >
@@ -91,13 +91,13 @@ export function MarketsSidebar({
               onClick={() => setTab(t.id)}
               className={
                 isTerminal
-                  ? `flex-1 py-1.5 text-[11px] font-semibold transition-colors ${
+                  ? `flex-1 py-2 text-label font-semibold tracking-wide transition-colors ${
                       tab === t.id
-                        ? 'border-b-2 border-[#f0b90b] text-[#eaecef]'
-                        : 'border-b-2 border-transparent text-[#848e9c] hover:text-[#eaecef]'
+                        ? 'border-b-2 border-primary text-foreground'
+                        : 'border-b-2 border-transparent text-muted-foreground hover:text-foreground'
                     }`
                   : `flex-1 py-2.5 text-small font-medium transition-colors ${
-                      tab === t.id ? 'border-b-2 border-[#16C784] text-[#EAECEF]' : 'text-[#848E9C] hover:text-[#EAECEF]'
+                      tab === t.id ? 'border-b-2 border-buy text-foreground' : 'text-muted-foreground hover:text-foreground'
                     }`
               }
             >
@@ -105,10 +105,10 @@ export function MarketsSidebar({
             </button>
           ))}
         </div>
-        <div className={isTerminal ? 'border-t border-[#2b2f36] px-1.5 py-1' : 'border-b border-border p-2'}>
+        <div className={isTerminal ? 'border-t border-border px-2 py-1.5' : 'border-b border-border p-2'}>
           <div className="relative">
             <Search
-              className={`absolute top-1/2 -translate-y-1/2 text-[#848e9c] ${isTerminal ? 'left-2 h-3.5 w-3.5' : 'left-2.5 h-4 w-4'}`}
+              className={`absolute top-1/2 -translate-y-1/2 text-muted-foreground ${isTerminal ? 'left-2 h-3.5 w-3.5' : 'left-2.5 h-4 w-4'}`}
             />
             <input
               type="text"
@@ -117,44 +117,44 @@ export function MarketsSidebar({
               onChange={(e) => setSearch(e.target.value)}
               className={
                 isTerminal
-                  ? 'h-7 w-full rounded border border-[#2b2f36] bg-[#2b2f36]/40 pl-7 pr-2 text-[11px] text-[#eaecef] placeholder:text-[#5e6673] focus:border-[#f0b90b]/50 focus:outline-none focus:ring-0'
-                  : 'h-8 w-full rounded border border-border bg-background pl-8 pr-3 text-[#EAECEF] text-small placeholder:text-[#848E9C] focus:border-border focus:outline-none focus:ring-1 focus:ring-[#16C784]/30'
+                  ? 'h-8 w-full rounded-md border border-border bg-muted/50 pl-7 pr-2 text-label text-foreground placeholder:text-muted-foreground/55 focus:border-primary/40 focus:outline-none focus:ring-0'
+                  : 'h-8 w-full rounded border border-border bg-background pl-8 pr-3 text-foreground text-small placeholder:text-muted-foreground/60 focus:border-border focus:outline-none focus:ring-1 focus:ring-buy/25'
               }
             />
           </div>
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-auto [scrollbar-gutter:stable]">
-        <table className={`w-full ${isTerminal ? 'text-[11px]' : 'text-small'}`}>
+        <table className={`w-full ${isTerminal ? 'text-label' : 'text-small'}`}>
           <thead
             className={
               isTerminal
-                ? 'sticky top-0 z-10 border-b border-[#2b2f36] bg-[#1e2026]'
+                ? 'sticky top-0 z-10 border-b border-border bg-card/95 backdrop-blur-sm'
                 : 'sticky top-0 z-10 bg-card'
             }
           >
-            <tr className={`font-medium ${isTerminal ? 'text-[#848e9c]' : 'text-[#848E9C]'}`}>
-              <th className={`text-left ${isTerminal ? 'px-2 py-1' : 'px-2 py-2'}`}>Pair</th>
-              <th className={`text-right ${isTerminal ? 'px-2 py-1' : 'px-2 py-2'}`}>Last</th>
-              <th className={`text-right ${isTerminal ? 'px-2 py-1' : 'px-2 py-2'}`}>24h%</th>
-              <th className={`text-right ${isTerminal ? 'px-2 py-1' : 'px-2 py-2'}`}>Vol</th>
+            <tr className="font-medium text-muted-foreground">
+              <th className={`text-left ${isTerminal ? 'px-2 py-1.5' : 'px-2 py-2'}`}>Pair</th>
+              <th className={`text-right ${isTerminal ? 'px-2 py-1.5' : 'px-2 py-2'}`}>Last</th>
+              <th className={`text-right ${isTerminal ? 'px-2 py-1.5' : 'px-2 py-2'}`}>24h%</th>
+              <th className={`text-right ${isTerminal ? 'px-2 py-1.5' : 'px-2 py-2'}`}>Vol</th>
               <th className="w-6" />
             </tr>
           </thead>
           <tbody>
             {loading ? (
               Array.from({ length: 10 }).map((_, i) => (
-                <tr key={i} className={isTerminal ? 'border-b border-[#2b2f36]/50' : 'border-b border-border/50'}>
-                  <td className={isTerminal ? 'px-2 py-1' : 'px-2 py-1.5'}>
+                <tr key={i} className="border-b border-border/50">
+                  <td className="px-2 py-1.5">
                     <Skeleton className="h-4 w-20 bg-accent" />
                   </td>
-                  <td className={isTerminal ? 'px-2 py-1 text-right' : 'px-2 py-1.5 text-right'}>
+                  <td className="px-2 py-1.5 text-right">
                     <Skeleton className="ml-auto h-4 w-14 bg-accent" />
                   </td>
-                  <td className={isTerminal ? 'px-2 py-1 text-right' : 'px-2 py-1.5 text-right'}>
+                  <td className="px-2 py-1.5 text-right">
                     <Skeleton className="ml-auto h-4 w-10 bg-accent" />
                   </td>
-                  <td className={isTerminal ? 'px-2 py-1 text-right' : 'px-2 py-1.5 text-right'}>
+                  <td className="px-2 py-1.5 text-right">
                     <Skeleton className="ml-auto h-4 w-12 bg-accent" />
                   </td>
                   <td className="w-6" />
@@ -168,7 +168,7 @@ export function MarketsSidebar({
                     <button
                       type="button"
                       onClick={onRetry}
-                      className="rounded-lg bg-buy px-4 py-2 text-sm font-medium text-background min-h-[44px]"
+                      className="min-h-[44px] rounded-lg bg-buy/90 px-4 py-2 text-sm font-medium tracking-wide text-neutral-950 hover:bg-buy active:scale-[0.99]"
                     >
                       Retry
                     </button>
@@ -181,8 +181,8 @@ export function MarketsSidebar({
                   colSpan={5}
                   className={
                     isTerminal
-                      ? 'px-2 py-6 text-center text-[11px] text-[#848e9c]'
-                      : 'px-3 py-8 text-center text-sm text-[#848E9C]'
+                      ? 'px-2 py-6 text-center text-label text-muted-foreground'
+                      : 'px-3 py-8 text-center text-sm text-muted-foreground'
                   }
                 >
                   No markets match your filters.
@@ -194,16 +194,15 @@ export function MarketsSidebar({
                 const isSelected = m.symbol === selectedSymbol;
                 const change = m.change_24h;
                 const isUp = change != null && change >= 0;
-                const rowBorder = isTerminal ? 'border-b border-[#2b2f36]/50' : 'border-b border-border/50';
-                const rowHover = isTerminal ? 'hover:bg-[#2b2f36]/40' : 'hover:bg-card/5';
-                const cellY = isTerminal ? 'py-1' : 'py-1.5';
-                const starHover = isTerminal ? 'hover:text-[#f0b90b]' : 'hover:text-[#16C784]';
-                const starFill = isTerminal && favorites.includes(m.symbol) ? '#f0b90b' : favorites.includes(m.symbol) ? '#16C784' : 'transparent';
+                const rowBorder = 'border-b border-border/50';
+                const rowHover = isTerminal ? 'hover:bg-muted/45' : 'hover:bg-muted/30';
+                const cellY = isTerminal ? 'py-1.5' : 'py-1.5';
+                const starHover = 'hover:text-primary';
                 return (
                   <tr
                     key={m.symbol}
                     className={`cursor-pointer transition-colors ${rowBorder} ${rowHover} ${
-                      isSelected ? (isTerminal ? 'bg-[#2b2f36]/55' : 'bg-buy/10') : ''
+                      isSelected ? (isTerminal ? 'bg-muted/60' : 'bg-buy/10') : ''
                     }`}
                     onClick={() => onSelectSymbol(m.symbol)}
                   >
@@ -216,27 +215,27 @@ export function MarketsSidebar({
                               e.stopPropagation();
                               onToggleFavorite(m.symbol);
                             }}
-                            className={`rounded p-0.5 text-[#848e9c] ${starHover}`}
+                            className={`rounded p-0.5 text-muted-foreground transition-colors ${starHover}`}
                             aria-label={favorites.includes(m.symbol) ? 'Remove favorite' : 'Add favorite'}
                           >
-                            <Star className="h-3 w-3" fill={starFill} />
+                            <Star
+                              className={`h-3 w-3 ${favorites.includes(m.symbol) ? 'fill-primary text-primary' : ''}`}
+                            />
                           </button>
                         )}
                         <CoinIcon symbol={m.base_asset} size={isTerminal ? 15 : 18} />
-                        <span className={`truncate font-medium ${isTerminal ? 'text-[#eaecef]' : 'text-[#EAECEF]'}`}>{pair}</span>
+                        <span className="truncate font-medium text-foreground">{pair}</span>
                       </div>
                     </td>
-                    <td className={`px-2 text-right font-mono tabular-nums ${cellY} ${isTerminal ? 'text-[#eaecef]' : 'text-[#EAECEF]'}`}>
+                    <td className={`numeric px-2 text-right ${cellY} text-foreground`}>
                       {m.last_price != null ? formatValueFixedTrim(m.last_price, 4) : '—'}
                     </td>
                     <td
-                      className={`px-2 text-right font-mono tabular-nums ${cellY} ${
-                        isUp ? (isTerminal ? 'text-[#0ecb81]' : 'text-buy') : isTerminal ? 'text-[#f6465d]' : 'text-sell'
-                      }`}
+                      className={`numeric px-2 text-right ${cellY} ${isUp ? 'text-buy' : 'text-sell'}`}
                     >
                       {change != null && Number.isFinite(change) ? `${change >= 0 ? '+' : ''}${change.toFixed(2)}%` : '—'}
                     </td>
-                    <td className={`px-2 text-right font-mono tabular-nums text-[#848e9c] ${cellY}`}>
+                    <td className={`numeric px-2 text-right text-muted-foreground ${cellY}`}>
                       {m.volume_24h != null ? formatCompactNumber(m.volume_24h) : '—'}
                     </td>
                     <td className="w-6" />

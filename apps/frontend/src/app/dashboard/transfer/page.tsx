@@ -16,13 +16,13 @@ import {
   Wallet,
   TrendingUp,
   Clock,
-  LayoutGrid,
-  Send,
   ChevronRight,
   HelpCircle,
   ArrowRight,
   RefreshCw,
+  Send,
 } from 'lucide-react';
+import { WalletOperationsShell } from '@/components/wallet/WalletOperationsShell';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
 
 interface TransferHistory {
@@ -34,15 +34,6 @@ interface TransferHistory {
   status: string;
   created_at: string;
 }
-
-const SIDEBAR_LINKS = [
-  { label: 'Asset Dashboard', href: '/wallet', icon: LayoutGrid },
-  { label: 'Deposit', href: '/wallet/deposit/crypto', icon: TrendingUp },
-  { label: 'Withdraw', href: '/wallet/withdraw/crypto', icon: Send },
-  { label: 'Transfer', href: '/wallet/transfer', icon: ArrowLeftRight, active: true },
-  { label: 'Convert', href: '/wallet/convert', icon: RefreshCw },
-  { label: 'History', href: '/wallet/history', icon: Clock },
-];
 
 export default function TransferPage() {
   const queryClient = useQueryClient();
@@ -187,49 +178,24 @@ export default function TransferPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="flex">
-        {/* Sidebar */}
-        <aside className="w-60 min-h-screen bg-card border-r border-border">
-          <nav className="p-4 space-y-1">
-            {SIDEBAR_LINKS.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className={`flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-xl transition-colors ${
-                  link.active
-                    ? 'bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 text-primary border border-blue-100 dark:border-blue-800/30'
-                    : 'text-muted-foreground hover:bg-accent/50'
-                }`}
-              >
-                <link.icon className="w-5 h-5" />
-                {link.label}
-              </Link>
-            ))}
-          </nav>
-        </aside>
-
-        {/* Main Content */}
-        <main className="flex-1 p-6">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h1 className="text-xl font-semibold text-foreground">Internal Transfer</h1>
-              <p className="text-sm text-muted-foreground mt-1">Transfer assets between your accounts instantly and free</p>
-            </div>
-            <Link
-              href="/wallet/history?tab=transfer"
-              className="flex items-center gap-2 px-4 py-2.5 bg-card text-foreground/80 font-medium text-sm rounded-xl border border-border hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
-            >
-              <Clock className="w-4 h-4" />
-              Transfer History
-            </Link>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <>
+    <WalletOperationsShell
+      title="Internal transfer"
+      description="Move assets between your funding and trading wallets instantly. No network fees."
+      headerRight={
+        <Link
+          href="/wallet/history?tab=transfer"
+          className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:border-primary/35 hover:bg-accent"
+        >
+          <Clock className="h-4 w-4 shrink-0" />
+          Transfer history
+        </Link>
+      }
+    >
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
             {/* Transfer Form */}
             <div className="lg:col-span-2">
-              <div className="bg-card rounded-xl border border-border p-6">
+              <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
                 {/* From/To Selection */}
                 <div className="mb-6">
                   <div className="flex items-center gap-4">
@@ -636,13 +602,14 @@ export default function TransferPage() {
               </div>
             </div>
           )}
-        </main>
-      </div>
+    </WalletOperationsShell>
 
-      {/* Help Button */}
-      <button className="fixed bottom-6 right-6 w-12 h-12 bg-primary hover:bg-primary/85 text-primary-foreground rounded-full shadow-lg shadow-blue-500/25 flex items-center justify-center transition-colors z-40">
-        <HelpCircle className="w-6 h-6" />
+      <button
+        type="button"
+        className="fixed bottom-6 right-6 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/20 transition-colors hover:bg-primary/90"
+      >
+        <HelpCircle className="h-6 w-6" />
       </button>
-    </div>
+    </>
   );
 }

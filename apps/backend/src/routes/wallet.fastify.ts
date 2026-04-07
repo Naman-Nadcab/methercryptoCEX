@@ -4253,21 +4253,30 @@ export async function registerAdvancedWalletRoutes(app: FastifyInstance): Promis
         const { rows: balances } = await db.query<{
           currency_id: string; symbol: string; balance: string; account_type: string;
         }>(
-          `SELECT ub.currency_id, c.symbol, ub.balance, ub.account_type
+          `SELECT ub.currency_id, c.symbol, (ub.available_balance + ub.locked_balance)::text AS balance, ub.account_type
            FROM user_balances ub
            JOIN currencies c ON c.id = ub.currency_id
            WHERE ub.user_id = $1 AND ub.account_type = 'funding'
-             AND CAST(ub.balance AS NUMERIC) > 0
+             AND (CAST(ub.available_balance AS NUMERIC) > 0 OR CAST(ub.locked_balance AS NUMERIC) > 0)
              AND c.symbol NOT IN ('USDT', 'USDC', 'DAI')`,
           [userId]
         );
 
-        // Get prices to determine USD value
         const { rows: tickers } = await db.query<{ symbol: string; last_price: string }>(
-          `SELECT sm.symbol, COALESCE(tp.last_price, '0') AS last_price
+          `SELECT sm.symbol,
+                  COALESCE(mp.price::text, candle.close_price::text, '0') AS last_price
            FROM spot_markets sm
-           LEFT JOIN trading_pairs tp ON tp.symbol = sm.symbol
-           WHERE sm.is_active = true`
+           LEFT JOIN LATERAL (
+             SELECT mp2.price FROM market_prices mp2
+             WHERE mp2.base_currency_id = sm.base_currency_id AND mp2.quote_currency_id = sm.quote_currency_id
+             LIMIT 1
+           ) mp ON TRUE
+           LEFT JOIN LATERAL (
+             SELECT oc.close_price FROM ohlcv_candles oc
+             JOIN trading_pairs tp2 ON tp2.id = oc.trading_pair_id
+             WHERE tp2.symbol = sm.symbol ORDER BY oc.open_time DESC LIMIT 1
+           ) candle ON TRUE
+           WHERE sm.status IN ('active', 'maintenance')`
         );
         const priceMap: Record<string, number> = {};
         for (const t of tickers) {
@@ -4292,10 +4301,8 @@ export async function registerAdvancedWalletRoutes(app: FastifyInstance): Promis
               if (parseFloat(usdtAmount) <= 0) continue;
 
               await db.transaction(async (client) => {
-                // Deduct from source
                 const deductResult = await client.query(
-                  `UPDATE user_balances SET balance = (CAST(balance AS NUMERIC) - $1)::TEXT,
-                   available_balance = (CAST(available_balance AS NUMERIC) - $1)::TEXT,
+                  `UPDATE user_balances SET available_balance = (CAST(available_balance AS NUMERIC) - $1)::TEXT,
                    updated_at = NOW()
                    WHERE user_id = $2 AND currency_id = $3 AND account_type = 'funding'
                      AND CAST(available_balance AS NUMERIC) >= $1
@@ -4307,8 +4314,7 @@ export async function registerAdvancedWalletRoutes(app: FastifyInstance): Promis
                 // Credit USDT
                 await ensureUserBalanceRow(userId, usdtCurrencyId, 'funding');
                 await client.query(
-                  `UPDATE user_balances SET balance = (CAST(balance AS NUMERIC) + $1)::TEXT,
-                   available_balance = (CAST(available_balance AS NUMERIC) + $1)::TEXT,
+                  `UPDATE user_balances SET available_balance = (CAST(available_balance AS NUMERIC) + $1)::TEXT,
                    updated_at = NOW()
                    WHERE user_id = $2 AND currency_id = $3 AND account_type = 'funding'`,
                   [usdtAmount, userId, usdtCurrencyId]
