@@ -79,3 +79,85 @@ export function getTradingChartColors(): TradingChartColors {
     downVolume: rgba(downRgb, 0.45),
   };
 }
+
+function tripletToRgbOrNull(raw: string | null | undefined): { r: number; g: number; b: number } | null {
+  if (raw == null || raw.trim() === '') return null;
+  if (!/^[\d.]+\s+[\d.]+%\s+[\d.]+%$/.test(raw.trim())) return null;
+  return hslTripletToRgb(raw);
+}
+
+/** Options passed to lightweight-charts `layout` / `grid` / scales — rgba only (library limitation). */
+export type DomChartThemeOptions = {
+  layout: { background: { color: string }; textColor: string };
+  grid: { vertLines: { color: string }; horzLines: { color: string } };
+  rightPriceScale: { borderColor: string };
+  timeScale: { borderColor: string };
+};
+
+const FALLBACK_DOM_CHART: Record<'dark' | 'light', DomChartThemeOptions> = {
+  dark: {
+    layout: { background: { color: '#0b0e11' }, textColor: '#9ca3af' },
+    grid: {
+      vertLines: { color: 'rgba(255,255,255,0.06)' },
+      horzLines: { color: 'rgba(255,255,255,0.06)' },
+    },
+    rightPriceScale: { borderColor: 'rgba(255,255,255,0.1)' },
+    timeScale: { borderColor: 'rgba(255,255,255,0.1)' },
+  },
+  light: {
+    layout: { background: { color: '#fafafa' }, textColor: '#4b5563' },
+    grid: {
+      vertLines: { color: 'rgba(0,0,0,0.06)' },
+      horzLines: { color: 'rgba(0,0,0,0.06)' },
+    },
+    rightPriceScale: { borderColor: 'rgba(0,0,0,0.08)' },
+    timeScale: { borderColor: 'rgba(0,0,0,0.08)' },
+  },
+};
+
+/**
+ * Chart canvas chrome from `globals.css` tokens (`--card`, `--muted-foreground`, `--border`)
+ * so the graph matches the spot shell. Falls back to previous hex if variables are missing.
+ */
+export function getDomChartThemeOptions(theme: 'dark' | 'light'): DomChartThemeOptions {
+  if (typeof document === 'undefined') return FALLBACK_DOM_CHART[theme];
+  const root = document.documentElement;
+  const read = (name: string) => getComputedStyle(root).getPropertyValue(name).trim();
+  const cardRaw = read('--card');
+  const mutedRaw = read('--muted-foreground');
+  const borderRaw = read('--border');
+  const bgRgb = tripletToRgbOrNull(cardRaw);
+  const textRgb = tripletToRgbOrNull(mutedRaw);
+  const borderRgb = tripletToRgbOrNull(borderRaw);
+  if (!bgRgb || !textRgb || !borderRgb) return FALLBACK_DOM_CHART[theme];
+
+  return {
+    layout: {
+      background: { color: rgba(bgRgb, 1) },
+      textColor: rgba(textRgb, 1),
+    },
+    grid: {
+      vertLines: { color: rgba(borderRgb, 0.2) },
+      horzLines: { color: rgba(borderRgb, 0.2) },
+    },
+    rightPriceScale: { borderColor: rgba(borderRgb, 0.55) },
+    timeScale: { borderColor: rgba(borderRgb, 0.55) },
+  };
+}
+
+const FALLBACK_CROSSHAIR = {
+  line: 'rgba(96, 165, 250, 0.45)',
+  labelBg: 'rgba(37, 99, 235, 0.92)',
+} as const;
+
+/** Crosshair line + label pill from `--primary` (matches focus ring / app accent). */
+export function getDomChartCrosshairColors(): { line: string; labelBg: string } {
+  if (typeof document === 'undefined') return { ...FALLBACK_CROSSHAIR };
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim();
+  const rgb = tripletToRgbOrNull(raw);
+  if (!rgb) return { ...FALLBACK_CROSSHAIR };
+  return {
+    line: rgba(rgb, 0.42),
+    labelBg: rgba(rgb, 0.92),
+  };
+}

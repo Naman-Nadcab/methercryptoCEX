@@ -1,7 +1,18 @@
 'use client';
 
-import { Component, memo, useMemo, useState, type ErrorInfo, type ReactNode } from 'react';
-import { AlertCircle, Loader2, Info, TrendingUp } from 'lucide-react';
+import {
+  Component,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ErrorInfo,
+  type ReactNode,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
+import { AlertCircle, ChevronDown, ChevronUp, Loader2, Info, TrendingUp } from 'lucide-react';
 import { CoinIcon } from '@/components/ui/CoinIcon';
 import Link from 'next/link';
 import { SPOT_TRADE_HREF, loginWithRedirect } from '@/lib/routes';
@@ -12,7 +23,7 @@ import { ChartErrorBoundary } from './chart/ChartErrorBoundary';
 import { SpotOrderbookPanel } from './SpotOrderbookPanel';
 import { SpotBottomPanel } from './SpotBottomPanel';
 import { MarketsSidebar, type MarketRow } from '@/components/trading/MarketsSidebar';
-import { formatValueFixedTrim } from './terminalFormat';
+import { formatFixedTrim, formatValueFixedTrim } from './terminalFormat';
 import {
   useSpotMarketOrderbook,
   useSpotMarketTicker,
@@ -87,6 +98,85 @@ function useDayChangePct24h(ticker: ReturnType<typeof useSpotMarketTicker>['tick
   }, [ticker?.last_price, ticker?.open_24h, ticker?.low_24h]);
 }
 
+const SPOT_CHART_SPLIT_STORAGE_KEY = 'spotTerminal.chartSplitChartGrowPct';
+
+function clampChartSplitPct(n: number): number {
+  if (!Number.isFinite(n)) return 75;
+  return Math.min(82, Math.max(38, n));
+}
+
+/** Vertical split between chart and order form; persisted in sessionStorage. */
+function useChartOrderVerticalSplit() {
+  const [chartGrowPct, setChartGrowPct] = useState(75);
+  const chartGrowRef = useRef(75);
+  const splitRootRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ startY: number; startPct: number; height: number } | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(SPOT_CHART_SPLIT_STORAGE_KEY);
+      if (raw != null) {
+        const pct = clampChartSplitPct(parseFloat(raw));
+        setChartGrowPct(pct);
+        chartGrowRef.current = pct;
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    chartGrowRef.current = chartGrowPct;
+  }, [chartGrowPct]);
+
+  const onSplitPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    const el = splitRootRef.current;
+    if (!el) return;
+    const h = el.getBoundingClientRect().height;
+    dragRef.current = {
+      startY: e.clientY,
+      startPct: chartGrowRef.current,
+      height: Math.max(h, 1),
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  }, []);
+
+  const onSplitPointerMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const dy = e.clientY - d.startY;
+    const delta = (-dy / d.height) * 100;
+    setChartGrowPct(clampChartSplitPct(d.startPct + delta));
+  }, []);
+
+  const onSplitPointerUp = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    if (dragRef.current == null) return;
+    dragRef.current = null;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+    try {
+      sessionStorage.setItem(SPOT_CHART_SPLIT_STORAGE_KEY, String(chartGrowRef.current));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  return {
+    chartGrowPct,
+    splitRootRef,
+    splitBarProps: {
+      onPointerDown: onSplitPointerDown,
+      onPointerMove: onSplitPointerMove,
+      onPointerUp: onSplitPointerUp,
+      onPointerCancel: onSplitPointerUp,
+    } as const,
+  };
+}
+
 function SpotChartSection({
   symbol,
   baseAsset,
@@ -113,6 +203,9 @@ function SpotChartSection({
   const { orderbook } = useSpotMarketOrderbook();
   const dayChangePct24h = useDayChangePct24h(ticker);
 
+  const tapeLast = recentTrades[0]?.price?.trim() || null;
+  const displayLastPrice = tapeLast || ticker?.last_price || null;
+
   return (
     <ChartErrorBoundary resetKey={`${symbol}-${chartIntervalSeconds}-${chartViewMode}`}>
       <ChartPanel
@@ -122,16 +215,16 @@ function SpotChartSection({
         pricePrecision={pricePrecision}
         intervalSeconds={chartIntervalSeconds}
         theme={chartTheme}
-        lastPrice={ticker?.last_price ?? null}
-        bid={ticker?.bid ?? null}
-        ask={ticker?.ask ?? null}
+        lastPrice={displayLastPrice}
+        bid={ticker?.bid ?? orderbook?.bids?.[0]?.price ?? null}
+        ask={ticker?.ask ?? orderbook?.asks?.[0]?.price ?? null}
         high24h={ticker?.high_24h ?? null}
         low24h={ticker?.low_24h ?? null}
         volume24h={ticker?.base_volume_24h ?? null}
         turnoverQuote24h={ticker?.volume_24h ?? null}
         dayChangePct24h={dayChangePct24h}
         onIntervalSecondsChange={onIntervalSecondsChange}
-        livePrice={ticker?.last_price ?? null}
+        livePrice={displayLastPrice}
         liveTrades={recentTrades}
         viewMode={chartViewMode}
         onViewModeChange={onViewModeChange}
@@ -168,14 +261,18 @@ function SpotPairHeaderSection({
 }) {
   const { ticker } = useSpotMarketTicker();
   const { orderbook } = useSpotMarketOrderbook();
+  const { recentTrades } = useSpotMarketTrades();
   const { streamPhase, lastRttMs } = useSpotMarketStream();
   const dayChangePct24h = useDayChangePct24h(ticker);
 
+  /** Prefer public tape (same as chart trade marks); then WS ticker; then book mid — avoids stale oracle vs candle close. */
+  const tapeLast = recentTrades[0]?.price?.trim() || null;
   const lastPrice =
-    ticker?.last_price ??
-    (orderbook?.bids?.[0] && orderbook?.asks?.[0]
-      ? String((parseFloat(orderbook.bids[0].price) + parseFloat(orderbook.asks[0].price)) / 2)
-      : orderbook?.asks?.[0]?.price ?? orderbook?.bids?.[0]?.price ?? null);
+    tapeLast ||
+    (ticker?.last_price ??
+      (orderbook?.bids?.[0] && orderbook?.asks?.[0]
+        ? String((parseFloat(orderbook.bids[0].price) + parseFloat(orderbook.asks[0].price)) / 2)
+        : orderbook?.asks?.[0]?.price ?? orderbook?.bids?.[0]?.price ?? null));
 
   return (
     <PairHeader
@@ -256,26 +353,32 @@ const RecentTradesPanel = memo(function RecentTradesPanel({
   const isInitialLoading = topTrades.length === 0 && streamPhase !== 'live';
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <div className="flex shrink-0 items-center gap-3 border-b border-border px-2 py-1">
-        <span className="text-label font-semibold text-foreground">Market Trades</span>
+    <div className="exchange-ui flex h-full min-h-0 flex-col overflow-hidden antialiased">
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
+        <span className="text-label font-semibold tracking-tight text-foreground">Market Trades</span>
       </div>
-      <div className="flex shrink-0 items-center border-b border-border px-2 py-0.5">
-        <span className="flex-1 text-label font-medium text-muted-foreground">Price({quoteAsset})</span>
-        <span className="flex-1 text-right text-label font-medium text-muted-foreground">Amount({baseAsset})</span>
-        <span className="w-[52px] shrink-0 text-right text-label font-medium text-muted-foreground">Time</span>
+      <div className="flex shrink-0 items-center border-b border-border/90 px-3 py-1.5">
+        <span className="flex-1 text-label font-semibold uppercase tracking-wider text-muted-foreground">
+          Price({quoteAsset})
+        </span>
+        <span className="flex-1 text-right text-label font-semibold uppercase tracking-wider text-muted-foreground">
+          Amount({baseAsset})
+        </span>
+        <span className="w-[52px] shrink-0 text-right text-label font-semibold uppercase tracking-wider text-muted-foreground">
+          Time
+        </span>
       </div>
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]">
+      <div className="spot-rail-scroll flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden pr-0.5">
         {isInitialLoading ? (
           Array.from({ length: 12 }).map((_, i) => (
-            <div key={`sk-${i}`} className="flex shrink-0 items-center px-2 py-1">
+            <div key={`sk-${i}`} className="flex shrink-0 items-center px-3 py-1.5">
               <span className="h-2.5 flex-1 rounded bg-muted" />
               <span className="ml-2 h-2.5 w-14 rounded bg-muted" />
               <span className="ml-2 h-2.5 w-10 rounded bg-muted" />
             </div>
           ))
         ) : topTrades.length === 0 ? (
-          <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-2 py-4 text-center text-label text-muted-foreground">
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-3 py-6 text-center text-label leading-relaxed text-muted-foreground">
             No trades yet
           </div>
         ) : (
@@ -292,15 +395,15 @@ const RecentTradesPanel = memo(function RecentTradesPanel({
             return (
               <div
                 key={`${t.time}-${i}`}
-                className="flex shrink-0 items-center px-2 py-0.5 text-label numeric hover:bg-muted/60"
+                className="flex shrink-0 items-center px-3 py-1.5 text-label numeric hover:bg-muted/50"
               >
                 <span className={`min-w-0 flex-1 truncate font-semibold ${isBuy ? 'text-buy' : 'text-sell'}`}>
                   {formatValueFixedTrim(t.price, pricePrecision)}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-right text-foreground/90">
+                <span className="min-w-0 flex-1 truncate text-right font-medium text-foreground/90">
                   {formatValueFixedTrim(t.quantity, qtyPrecision)}
                 </span>
-                <span className="w-[52px] shrink-0 text-right text-muted-foreground">{time}</span>
+                <span className="w-[52px] shrink-0 text-right font-medium text-muted-foreground">{time}</span>
               </div>
             );
           })
@@ -341,6 +444,7 @@ function RightMarketListSection({
         last_price: price,
         change_24h: change,
         volume_24h: vol,
+        price_precision: m.price_precision,
       };
     });
   }, [sortedMarkets, symbol, ticker]);
@@ -366,10 +470,14 @@ function TopMoversSection({
   sortedMarkets,
   symbol,
   onSymbolChange,
+  expanded,
+  onToggleExpand,
 }: {
   sortedMarkets: Market[];
   symbol: string;
   onSymbolChange: (s: string) => void;
+  expanded: boolean;
+  onToggleExpand: () => void;
 }) {
   const { ticker } = useSpotMarketTicker();
 
@@ -394,41 +502,78 @@ function TopMoversSection({
       .slice(0, 12);
   }, [sortedMarkets, symbol, ticker]);
 
+  const top = movers[0];
+
+  const renderRow = (m: (typeof movers)[0], compact: boolean) => {
+    const isUp = m.change != null && m.change >= 0;
+    const isActive = m.symbol === symbol;
+    return (
+      <button
+        key={m.symbol}
+        type="button"
+        onClick={() => onSymbolChange(m.symbol)}
+        className={`flex w-full items-center justify-between gap-2 px-3 text-left text-label transition-colors hover:bg-muted/50 ${
+          compact ? 'py-1.5' : 'py-2'
+        } ${isActive ? 'bg-muted/45' : ''}`}
+      >
+        <div className="flex min-w-0 items-center gap-1.5">
+          <CoinIcon symbol={m.base} size={compact ? 13 : 14} />
+          <span className="truncate font-semibold tracking-tight text-foreground">{m.base}</span>
+          <span className="shrink-0 font-medium text-muted-foreground">/{m.quote}</span>
+        </div>
+        <span
+          className={`shrink-0 numeric text-label font-semibold ${
+            m.change != null ? (isUp ? 'text-buy' : 'text-sell') : 'text-muted-foreground'
+          }`}
+        >
+          {m.change != null ? `${m.change >= 0 ? '+' : ''}${m.change.toFixed(2)}%` : '—'}
+        </span>
+      </button>
+    );
+  };
+
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <div className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1">
-        <TrendingUp className="h-3 w-3 shrink-0 text-primary" />
-        <span className="text-label font-semibold uppercase tracking-wide text-muted-foreground">Top movers</span>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-        {movers.map((m) => {
-          const isUp = m.change != null && m.change >= 0;
-          const isActive = m.symbol === symbol;
-          return (
-            <button
-              key={m.symbol}
-              type="button"
-              onClick={() => onSymbolChange(m.symbol)}
-              className={`flex w-full items-center justify-between gap-1 px-2 py-0.5 text-left text-label transition-colors hover:bg-muted/60 ${
-                isActive ? 'bg-muted/40' : ''
-              }`}
-            >
-              <div className="flex min-w-0 items-center gap-1">
-                <CoinIcon symbol={m.base} size={12} />
-                <span className="truncate font-medium text-foreground">{m.base}</span>
-                <span className="shrink-0 text-label text-muted-foreground">/{m.quote}</span>
-              </div>
-              <span
-                className={`shrink-0 numeric font-semibold ${
-                  m.change != null ? (isUp ? 'text-buy' : 'text-sell') : 'text-muted-foreground'
-                }`}
-              >
-                {m.change != null ? `${m.change >= 0 ? '+' : ''}${m.change.toFixed(2)}%` : '—'}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+    <div className="exchange-ui flex h-full min-h-0 flex-col overflow-hidden antialiased">
+      <button
+        type="button"
+        onClick={onToggleExpand}
+        aria-expanded={expanded}
+        aria-controls="spot-top-movers-list"
+        id="spot-top-movers-heading"
+        className="flex w-full shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2 text-left transition-colors hover:bg-muted/35"
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          <TrendingUp className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
+          <span className="text-label font-semibold uppercase tracking-wider text-muted-foreground">Top movers</span>
+        </span>
+        {expanded ? (
+          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+        ) : (
+          <ChevronUp className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+        )}
+      </button>
+      {expanded ? (
+        <div
+          id="spot-top-movers-list"
+          role="region"
+          aria-labelledby="spot-top-movers-heading"
+          className="spot-rail-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-0.5"
+        >
+          {movers.length === 0 ? (
+            <div className="px-3 py-2 text-label text-muted-foreground">No data</div>
+          ) : (
+            movers.map((m) => renderRow(m, false))
+          )}
+        </div>
+      ) : (
+        <div id="spot-top-movers-list" className="shrink-0" role="region" aria-labelledby="spot-top-movers-heading">
+          {top ? (
+            renderRow(top, true)
+          ) : (
+            <div className="px-3 py-2 text-label text-muted-foreground">No data</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -445,10 +590,10 @@ const SLIDER_PCTS = [0, 25, 50, 75, 100];
 
 function BinanceInsetField({ label, suffix, children }: { label: string; suffix: string; children: React.ReactNode }) {
   return (
-    <div className="flex min-h-9 items-center gap-1 rounded-md border border-border bg-muted/40 px-2.5 py-1 transition-colors hover:border-primary/35 hover:bg-muted/55">
-      <span className="shrink-0 text-label font-medium text-muted-foreground">{label}</span>
-      <div className="flex min-w-0 flex-1 items-center justify-end">{children}</div>
-      <span className="ml-1 shrink-0 text-label font-medium text-muted-foreground">{suffix}</span>
+    <div className="flex min-h-[2.625rem] items-center gap-2 rounded-lg border border-border/90 bg-muted/45 px-3 py-2.5 transition-colors hover:border-primary/35 hover:bg-muted/55 dark:border-border dark:bg-card/85 dark:hover:bg-muted/45">
+      <span className="shrink-0 text-label font-medium uppercase tracking-wide text-muted-foreground">{label}</span>
+      <div className="flex min-w-0 flex-1 items-center justify-end gap-2">{children}</div>
+      <span className="shrink-0 pl-0.5 text-label font-semibold text-muted-foreground">{suffix}</span>
     </div>
   );
 }
@@ -505,16 +650,23 @@ function BinanceOrderEntrySection({
   const showStopPrice = orderType === 'stop_loss' || orderType === 'stop_limit';
   const showTrailing = orderType === 'trailing_stop_market';
 
+  /** Quote-side display (balance, total, placeholder): max 0.01 step; submission still uses full `price` / qty strings. */
+  const quoteFormDisplayDp = Math.min(2, Math.max(0, pricePrecision));
+  const lastPxNum = lastPrice != null && String(lastPrice).trim() !== '' ? parseFloat(String(lastPrice)) : NaN;
+  const pricePlaceholder = Number.isFinite(lastPxNum) ? formatFixedTrim(lastPxNum, quoteFormDisplayDp) : '';
+
   const buyQtyNum = parseFloat(buyQty) || 0;
   const sellQtyNum = parseFloat(sellQty) || 0;
-  const buyTotal = priceNum > 0 ? (priceNum * buyQtyNum).toFixed(pricePrecision) : '';
-  const sellTotal = priceNum > 0 ? (priceNum * sellQtyNum).toFixed(pricePrecision) : '';
+  const buyTotal =
+    priceNum > 0 && buyQtyNum > 0 ? formatFixedTrim(priceNum * buyQtyNum, quoteFormDisplayDp) : '';
+  const sellTotal =
+    priceNum > 0 && sellQtyNum > 0 ? formatFixedTrim(priceNum * sellQtyNum, quoteFormDisplayDp) : '';
 
   const quoteBal = parseFloat(quoteBalance) || 0;
   const baseBal = parseFloat(baseBalance) || 0;
 
   const inputCls =
-    'numeric min-w-0 flex-1 border-0 bg-transparent p-0 text-right text-book font-semibold text-foreground outline-none focus:ring-0 placeholder:text-muted-foreground/70';
+    'numeric min-w-0 flex-1 border-0 bg-transparent p-0 text-right text-price font-semibold tabular-nums tracking-tight text-foreground outline-none focus:ring-0 placeholder:text-muted-foreground/50';
 
   const handleBuySlider = (pct: number) => {
     setBuySlider(pct);
@@ -551,18 +703,23 @@ function BinanceOrderEntrySection({
   const isPrimaryType = orderType === 'limit' || orderType === 'market';
 
   return (
-    <div id="spot-order-entry-panel" className="flex h-full min-h-0 flex-col overflow-hidden text-foreground">
-      {/* Product + Order type tabs — compact single bar */}
-      <div className="flex h-8 shrink-0 items-center border-b border-border px-2">
-        <span className="mr-3 text-label font-bold text-primary">Spot</span>
-        <span className="mx-2 h-3 w-px bg-border" />
+    <div
+      id="spot-order-entry-panel"
+      className="exchange-ui flex h-full min-h-0 flex-col overflow-hidden antialiased text-foreground"
+    >
+      {/* Product + order type — Binance-style underline on active */}
+      <div className="flex h-10 shrink-0 items-end gap-0 border-b border-border px-2">
+        <span className="mr-2 pb-2.5 text-label font-bold tracking-wide text-primary">Spot</span>
+        <span className="mb-2.5 h-3 w-px shrink-0 bg-border" aria-hidden />
         {(['limit', 'market'] as const).map((t) => (
           <button
             key={t}
             type="button"
             onClick={() => setOrderType(t)}
-            className={`px-1.5 text-label font-medium transition-colors ${
-              orderType === t ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
+            className={`relative px-2.5 pb-2.5 pt-1.5 text-label font-semibold transition-colors ${
+              orderType === t
+                ? 'text-foreground after:absolute after:bottom-0 after:left-1 after:right-1 after:h-0.5 after:rounded-sm after:bg-primary'
+                : 'text-muted-foreground hover:text-foreground'
             }`}
           >
             {ORDER_TYPE_LABELS[t]}
@@ -573,24 +730,36 @@ function BinanceOrderEntrySection({
           onChange={(e) => {
             if (e.target.value) setOrderType(e.target.value as typeof orderType);
           }}
-          className="ml-1 cursor-pointer appearance-none border-0 bg-transparent text-label font-medium text-muted-foreground outline-none hover:text-foreground"
+          className="ml-0.5 cursor-pointer appearance-none border-0 bg-transparent pb-2.5 pl-1 pr-0 pt-1.5 text-label font-semibold text-muted-foreground outline-none hover:text-foreground"
         >
           <option value="" hidden={!isPrimaryType}>▾</option>
           {advancedTypes.map((t) => (<option key={t} value={t}>{ORDER_TYPE_LABELS[t]}</option>))}
         </select>
       </div>
 
-      {/* Side-by-side Buy / Sell — compact layout */}
-      <div className="grid min-h-0 flex-1 grid-cols-2 gap-3 overflow-y-auto p-2.5">
+      {/* Side-by-side Buy / Sell */}
+      <div className="grid min-h-0 flex-1 grid-cols-2 gap-3 overflow-y-auto p-3 sm:gap-4 sm:px-3.5 sm:py-3.5">
         {/* BUY */}
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center justify-between">
-            <span className="text-label font-semibold text-foreground">Buy {baseAsset}</span>
+        <div className="flex flex-col gap-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-price font-semibold tracking-tight text-foreground">Buy {baseAsset}</span>
             <span className="numeric text-label text-muted-foreground">
-              {formatValueFixedTrim(quoteBalance, pricePrecision)} {quoteAsset}
+              {formatValueFixedTrim(quoteBalance, quoteFormDisplayDp)} {quoteAsset}
             </span>
           </div>
-          {showPrice && <BinanceInsetField label="Price" suffix={quoteAsset}><input id="spot-price" type="text" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} className={inputCls} placeholder={lastPrice ? parseFloat(lastPrice).toFixed(pricePrecision) : '0'} /></BinanceInsetField>}
+          {showPrice && (
+            <BinanceInsetField label="Price" suffix={quoteAsset}>
+              <input
+                id="spot-price"
+                type="text"
+                inputMode="decimal"
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+                className={inputCls}
+                placeholder={pricePlaceholder || '0'}
+              />
+            </BinanceInsetField>
+          )}
           {showStopPrice && <BinanceInsetField label="Stop" suffix={quoteAsset}><input type="text" inputMode="decimal" value={stopPrice} onChange={(e) => setStopPrice(e.target.value)} className={inputCls} placeholder="0" /></BinanceInsetField>}
           {showTrailing && <BinanceInsetField label="Delta" suffix="%"><input type="text" inputMode="decimal" value={trailingDelta} onChange={(e) => setTrailingDelta(e.target.value)} className={inputCls} placeholder="1.0" /></BinanceInsetField>}
           <BinanceInsetField label="Amt" suffix={baseAsset}><input id="spot-quantity" type="text" inputMode="decimal" value={buyQty} onChange={(e) => setBuyQty(e.target.value)} className={inputCls} placeholder="0" /></BinanceInsetField>
@@ -614,7 +783,7 @@ function BinanceOrderEntrySection({
           {!isAuth ? (
             <Link
               href={loginWithRedirect(SPOT_TRADE_HREF)}
-              className="flex h-9 items-center justify-center rounded-md bg-buy/90 text-price font-medium tracking-wide text-neutral-950 shadow-sm transition-all hover:bg-buy active:scale-[0.99] active:brightness-95"
+              className="flex h-10 min-h-[40px] items-center justify-center rounded-lg bg-buy/90 text-price font-semibold tracking-wide text-neutral-950 shadow-sm transition-all hover:bg-buy active:scale-[0.99] active:brightness-95"
             >
               Log In
             </Link>
@@ -624,7 +793,7 @@ function BinanceOrderEntrySection({
               data-spot-place-order
               disabled={submitting || !buyQty.trim()}
               onClick={doBuy}
-              className="flex h-9 items-center justify-center gap-1 rounded-md bg-buy/90 text-price font-medium tracking-wide text-neutral-950 shadow-sm transition-all hover:bg-buy active:scale-[0.99] active:brightness-95 disabled:pointer-events-none disabled:opacity-40"
+              className="flex h-10 min-h-[40px] items-center justify-center gap-1.5 rounded-lg bg-buy/90 text-price font-semibold tracking-wide text-neutral-950 shadow-sm transition-all hover:bg-buy active:scale-[0.99] active:brightness-95 disabled:pointer-events-none disabled:opacity-40"
             >
               {submitting && side === 'buy' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Buy {baseAsset}
             </button>
@@ -632,25 +801,45 @@ function BinanceOrderEntrySection({
         </div>
 
         {/* SELL */}
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center justify-between">
-            <span className="text-label font-semibold text-foreground">Sell {baseAsset}</span>
+        <div className="flex flex-col gap-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-price font-semibold tracking-tight text-foreground">Sell {baseAsset}</span>
             <span className="numeric text-label text-muted-foreground">
               {formatValueFixedTrim(baseBalance, qtyPrecision)} {baseAsset}
             </span>
           </div>
-          {showPrice && <BinanceInsetField label="Price" suffix={quoteAsset}><input type="text" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} className={inputCls} placeholder={lastPrice ? parseFloat(lastPrice).toFixed(pricePrecision) : '0'} /></BinanceInsetField>}
+          {showPrice && (
+            <BinanceInsetField label="Price" suffix={quoteAsset}>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+                className={inputCls}
+                placeholder={pricePlaceholder || '0'}
+              />
+            </BinanceInsetField>
+          )}
           {showStopPrice && <BinanceInsetField label="Stop" suffix={quoteAsset}><input type="text" inputMode="decimal" value={stopPrice} onChange={(e) => setStopPrice(e.target.value)} className={inputCls} placeholder="0" /></BinanceInsetField>}
           {showTrailing && <BinanceInsetField label="Delta" suffix="%"><input type="text" inputMode="decimal" value={trailingDelta} onChange={(e) => setTrailingDelta(e.target.value)} className={inputCls} placeholder="1.0" /></BinanceInsetField>}
-          <BinanceInsetField label="Amt" suffix={baseAsset}><input type="text" inputMode="decimal" value={sellQty} onChange={(e) => setSellQty(e.target.value)} className={inputCls} placeholder="0" /></BinanceInsetField>
-          <div className="flex items-center gap-1 py-0.5">
+          <BinanceInsetField label="Amt" suffix={baseAsset}>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={sellQty}
+              onChange={(e) => setSellQty(e.target.value)}
+              className={inputCls}
+              placeholder="0"
+            />
+          </BinanceInsetField>
+          <div className="flex items-center gap-1.5 py-0.5">
             {SLIDER_PCTS.filter(Boolean).map((p) => (
               <button
                 key={p}
                 type="button"
                 onClick={() => handleSellSlider(p)}
-                className={`flex-1 rounded-sm py-1 text-center text-label font-medium tracking-wide transition-colors active:scale-[0.98] ${
-                  sellSlider >= p ? 'bg-sell/12 text-sell' : 'bg-muted/80 text-muted-foreground hover:bg-muted hover:text-foreground'
+                className={`flex-1 rounded-md py-1.5 text-center text-label font-semibold tracking-wide transition-colors active:scale-[0.98] ${
+                  sellSlider >= p ? 'bg-sell/14 text-sell' : 'bg-muted/85 text-muted-foreground hover:bg-muted hover:text-foreground'
                 }`}
               >
                 {p}%
@@ -663,7 +852,7 @@ function BinanceOrderEntrySection({
           {!isAuth ? (
             <Link
               href={loginWithRedirect(SPOT_TRADE_HREF)}
-              className="flex h-9 items-center justify-center rounded-md bg-sell/90 text-price font-medium tracking-wide text-neutral-950 shadow-sm transition-all hover:bg-sell active:scale-[0.99] active:brightness-95"
+              className="flex h-10 min-h-[40px] items-center justify-center rounded-lg bg-sell/90 text-price font-semibold tracking-wide text-neutral-950 shadow-sm transition-all hover:bg-sell active:scale-[0.99] active:brightness-95"
             >
               Log In
             </Link>
@@ -673,7 +862,7 @@ function BinanceOrderEntrySection({
               data-spot-place-order
               disabled={submitting || !sellQty.trim()}
               onClick={doSell}
-              className="flex h-9 items-center justify-center gap-1 rounded-md bg-sell/90 text-price font-medium tracking-wide text-neutral-950 shadow-sm transition-all hover:bg-sell active:scale-[0.99] active:brightness-95 disabled:pointer-events-none disabled:opacity-40"
+              className="flex h-10 min-h-[40px] items-center justify-center gap-1.5 rounded-lg bg-sell/90 text-price font-semibold tracking-wide text-neutral-950 shadow-sm transition-all hover:bg-sell active:scale-[0.99] active:brightness-95 disabled:pointer-events-none disabled:opacity-40"
             >
               {submitting && side === 'sell' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}Sell {baseAsset}
             </button>
@@ -768,6 +957,8 @@ export function SpotTradingGridTerminal(props: SpotTradingGridTerminalProps) {
   } = props;
 
   const { reconnectAttempt, streamPhase } = useSpotMarketStream();
+  const { chartGrowPct, splitRootRef, splitBarProps } = useChartOrderVerticalSplit();
+  const [topMoversExpanded, setTopMoversExpanded] = useState(false);
 
   const selectedMarket = useMemo(() => markets.find((m) => m.symbol === symbol), [markets, symbol]);
   const baseAsset = selectedMarket?.base_asset ?? '';
@@ -786,8 +977,8 @@ export function SpotTradingGridTerminal(props: SpotTradingGridTerminalProps) {
           className="box-border min-h-0 w-full flex-1"
           style={{
             display: 'grid',
-            gridTemplateColumns: '260px 1fr 260px',
-            gridTemplateRows: '60px 60px minmax(0, 1fr)',
+            gridTemplateColumns: 'var(--spot-terminal-rail-width) 1fr var(--spot-terminal-rail-width)',
+            gridTemplateRows: '60px auto minmax(0, 1fr)',
           }}
         >
           {/* HEADER */}
@@ -800,7 +991,7 @@ export function SpotTradingGridTerminal(props: SpotTradingGridTerminalProps) {
 
           {/* PAIR HEADER (orderbook + center only; sidebar aligns to full main height) */}
           <div
-            className="overflow-hidden border-b border-r border-solid border-border bg-card"
+            className="flex min-h-0 min-w-0 items-stretch overflow-hidden border-b border-r border-solid border-border bg-card"
             style={{ gridColumn: '1 / 3', gridRow: '2' }}
           >
             <SpotPairHeaderSection
@@ -816,7 +1007,9 @@ export function SpotTradingGridTerminal(props: SpotTradingGridTerminalProps) {
             style={{
               gridColumn: '3',
               gridRow: '2 / 4',
-              gridTemplateRows: '2.2fr 1.5fr 0.8fr',
+              gridTemplateRows: topMoversExpanded
+                ? 'minmax(0, 1.85fr) minmax(0, 1.05fr) minmax(0, 2.55fr)'
+                : 'minmax(0, 2.45fr) minmax(0, 1.65fr) auto',
             }}
           >
             <div className="flex min-h-0 min-w-0 flex-col overflow-hidden border-b border-solid border-border">
@@ -829,7 +1022,13 @@ export function SpotTradingGridTerminal(props: SpotTradingGridTerminalProps) {
               <RecentTradesPanel baseAsset={baseAsset} quoteAsset={quoteAsset} pricePrecision={pricePrecision} qtyPrecision={qtyPrecision} />
             </div>
             <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-              <TopMoversSection sortedMarkets={sortedMarkets} symbol={symbol} onSymbolChange={setSymbolAndUrl} />
+              <TopMoversSection
+                sortedMarkets={sortedMarkets}
+                symbol={symbol}
+                onSymbolChange={setSymbolAndUrl}
+                expanded={topMoversExpanded}
+                onToggleExpand={() => setTopMoversExpanded((v) => !v)}
+              />
             </div>
           </div>
 
@@ -843,23 +1042,43 @@ export function SpotTradingGridTerminal(props: SpotTradingGridTerminalProps) {
             </PanelErrorBoundary>
           </div>
 
-          {/* CENTER: chart 60% / order form 40% (percent of main row height) */}
+          {/* CENTER: resizable vertical split — chart vs order form (ratio persisted per session) */}
           <div
-            className="grid min-h-0 min-w-0 overflow-hidden border-b border-solid border-border bg-card"
-            style={{
-              gridColumn: '2',
-              gridRow: '3',
-              gridTemplateRows: '60% 40%',
-            }}
+            ref={splitRootRef}
+            className="flex min-h-0 min-w-0 flex-col overflow-hidden border-b border-solid border-border bg-card"
+            style={{ gridColumn: '2', gridRow: '3' }}
           >
-            <div className="relative flex min-h-0 min-w-0 flex-col overflow-hidden border-b border-border">
+            <div
+              className="relative flex min-h-0 min-w-0 flex-col overflow-hidden border-b border-border"
+              style={{
+                flexGrow: chartGrowPct,
+                flexShrink: 1,
+                flexBasis: 0,
+                minHeight: 120,
+              }}
+            >
               <SpotChartSection
                 symbol={symbol} baseAsset={baseAsset} quoteAsset={quoteAsset} pricePrecision={pricePrecision}
                 chartIntervalSeconds={chartIntervalSeconds} chartTheme={chartTheme} chartViewMode={chartViewMode}
                 onIntervalSecondsChange={setChartIntervalSeconds} onViewModeChange={setChartViewMode}
               />
             </div>
-            <div className="flex min-h-0 flex-col overflow-hidden border-t-2 border-border bg-card">
+            <div
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="Resize chart and order form"
+              className="relative z-[1] h-2 shrink-0 cursor-row-resize touch-none border-y border-border bg-muted/35 hover:bg-muted/60"
+              {...splitBarProps}
+            />
+            <div
+              className="flex min-h-0 flex-col overflow-hidden border-t border-border bg-card"
+              style={{
+                flexGrow: 100 - chartGrowPct,
+                flexShrink: 1,
+                flexBasis: 0,
+                minHeight: 248,
+              }}
+            >
               <PanelErrorBoundary name="Order Form" resetKey={symbol}>
               <BinanceOrderEntrySection
                 orderType={orderType} setOrderType={setOrderType} timeInForce={timeInForce} setTimeInForce={setTimeInForce}
@@ -877,7 +1096,8 @@ export function SpotTradingGridTerminal(props: SpotTradingGridTerminalProps) {
 
         {/* Stream status — anchored to above-fold chart band */}
         {streamPhase !== 'live' && (
-          <div className={`pointer-events-none absolute left-[260px] right-[260px] top-[120px] z-10 flex items-center gap-2 px-3 py-1 text-label font-medium ${
+          <div
+            className={`pointer-events-none absolute left-[var(--spot-terminal-rail-width)] right-[var(--spot-terminal-rail-width)] top-[calc(60px+2.75rem)] z-10 flex items-center gap-2 px-3 py-1 text-label font-medium ${
             streamPhase === 'disconnected' ? 'bg-red-950/90 text-red-200' : 'bg-amber-950/90 text-amber-200'
           }`}>
             <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${streamPhase === 'disconnected' ? 'bg-sell' : 'animate-pulse bg-amber-500'}`} />
@@ -889,7 +1109,7 @@ export function SpotTradingGridTerminal(props: SpotTradingGridTerminalProps) {
 
         {/* Error banner — bottom of above-fold main area */}
         {submitError && (
-          <div className="pointer-events-auto absolute inset-x-0 bottom-0 z-20 flex max-h-16 items-center gap-2 border-t border-sell/30 bg-sell/15 px-4 py-2 text-label text-sell md:left-[260px] md:right-[260px]">
+          <div className="pointer-events-auto absolute inset-x-0 bottom-0 z-20 flex max-h-16 items-center gap-2 border-t border-sell/30 bg-sell/15 px-4 py-2 text-label text-sell md:left-[var(--spot-terminal-rail-width)] md:right-[var(--spot-terminal-rail-width)]">
             <AlertCircle className="h-3.5 w-3.5 shrink-0" />
             <span className="flex-1 truncate">{submitError}</span>
             <button type="button" onClick={() => setSubmitError(null)} className="shrink-0 font-semibold underline">Dismiss</button>
@@ -900,7 +1120,17 @@ export function SpotTradingGridTerminal(props: SpotTradingGridTerminalProps) {
       {/* ── BELOW THE FOLD: order history — page scrolls here ── */}
       <section className="w-full border-t border-border bg-card" aria-label="Order history and trading activity">
         <PanelErrorBoundary name="Order History" resetKey={symbol}>
-          <SpotBottomPanel symbol={symbol} isAuth={isAuth} ordersVersion={ordersVersion} tradesVersion={tradesVersion} />
+          <SpotBottomPanel
+            symbol={symbol}
+            isAuth={isAuth}
+            ordersVersion={ordersVersion}
+            tradesVersion={tradesVersion}
+            markets={markets.map((m) => ({
+              symbol: m.symbol,
+              price_precision: m.price_precision,
+              qty_precision: m.qty_precision,
+            }))}
+          />
         </PanelErrorBoundary>
       </section>
     </div>

@@ -65,7 +65,7 @@ function MiniStat({
       <span className="w-full truncate text-center text-label font-semibold uppercase leading-tight tracking-wide text-muted-foreground">
         {label}
       </span>
-      <div className="numeric w-full min-w-0 truncate text-center text-book font-semibold leading-tight text-foreground">
+      <div className="numeric w-full min-w-0 truncate text-center text-price font-semibold leading-tight text-foreground">
         {children}
       </div>
     </div>
@@ -196,11 +196,11 @@ export function PairHeader({
 
   return (
     <header
-      className={`flex h-11 min-h-11 shrink-0 border-b border-border bg-card ${
+      className={`flex h-full min-h-11 w-full min-w-0 shrink-0 border-b border-border bg-card ${
         embedded ? 'rounded-t-lg' : ''
       }`}
     >
-      <div className="flex h-full shrink-0 items-center gap-1 border-r border-border bg-muted/50 px-1.5 sm:gap-1.5 sm:px-2">
+      <div className="flex h-full shrink-0 items-center gap-1 border-r border-border bg-muted/40 px-1.5 dark:bg-muted/30 sm:gap-1.5 sm:px-2">
         <CoinIcon symbol={base} size={22} />
         {mkt.length > 1 ? (
           <select

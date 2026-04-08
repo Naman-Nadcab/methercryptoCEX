@@ -58,6 +58,18 @@ const DEPTH_OPTIONS = [15, 20, 30] as const;
 const MIN_ORDERBOOK_ROWS = 15;
 const TICK_PRESETS = [2, 4, 6, 8] as const;
 
+function tickOptionsForInstrument(pricePrecision: number): number[] {
+  const maxP = Math.min(8, Math.max(2, pricePrecision));
+  return [...TICK_PRESETS.filter((p) => p <= maxP)];
+}
+
+/** Default dropdown: 0.01 (2 dp). Falls back to coarsest allowed option if 2 is unavailable. */
+function defaultDisplayPricePrecision(pricePrecision: number): number {
+  const opts = tickOptionsForInstrument(pricePrecision);
+  if (opts.includes(2)) return 2;
+  return opts[0] ?? 2;
+}
+
 /** Price (left); qty & total — numeric columns right-aligned, monospace */
 const COL_GRID =
   'grid grid-cols-[minmax(0,1.1fr)_minmax(0,0.95fr)_minmax(0,0.95fr)] gap-x-1';
@@ -92,14 +104,14 @@ function formatTradeTime(iso: string): string {
 }
 
 const BOOK_ROW =
-  'relative flex min-h-[26px] w-full items-center overflow-hidden px-2 py-1 text-book numeric leading-snug';
+  'relative flex min-h-[24px] w-full items-center overflow-hidden px-2 py-0.5 text-label numeric leading-snug';
 
 const depthGradientStyle = (side: 'buy' | 'sell', w: number, variant: 'book' | 'ladder'): React.CSSProperties => {
   const token = side === 'buy' ? 'var(--exchange-buy)' : 'var(--exchange-sell)';
   const grad =
     variant === 'book'
-      ? `linear-gradient(to left, hsl(${token} / 0.26), hsl(${token} / 0.08), transparent 94%)`
-      : `linear-gradient(to left, hsl(${token} / 0.22), hsl(${token} / 0.05), transparent)`;
+      ? `linear-gradient(to left, hsl(${token} / 0.32), hsl(${token} / 0.1), transparent 94%)`
+      : `linear-gradient(to left, hsl(${token} / 0.26), hsl(${token} / 0.06), transparent)`;
   return { width: `${w}%`, background: grad };
 };
 
@@ -134,7 +146,7 @@ const LevelRow = memo(function LevelRow({
   const priceCls = side === 'buy' ? 'text-buy' : 'text-sell';
   const rowSize =
     variant === 'ladder'
-      ? 'min-h-[38px] py-2 text-price numeric leading-snug'
+      ? 'min-h-[38px] py-2 text-label numeric leading-snug'
       : BOOK_ROW;
 
   return (
@@ -294,12 +306,20 @@ export function SpotOrderbookPanel({
   const [tab, setTab] = useState<'orderbook' | 'ladder' | 'trades'>('orderbook');
   const [bookView, setBookView] = useState<'both' | 'asks' | 'bids'>('both');
   const [flipVertical, setFlipVertical] = useState(false);
-  const [displayPricePrecision, setDisplayPricePrecision] = useState(pricePrecision);
+  const [displayPricePrecision, setDisplayPricePrecision] = useState(() =>
+    defaultDisplayPricePrecision(pricePrecision)
+  );
   const [depthLimit, setDepthLimit] = useState<(typeof DEPTH_OPTIONS)[number]>(20);
   const [lastMove, setLastMove] = useState<'up' | 'down' | null>(null);
   const prevLastRef = useRef<string | null>(null);
 
-  useEffect(() => setDisplayPricePrecision(pricePrecision), [pricePrecision]);
+  useEffect(() => {
+    setDisplayPricePrecision((prev) => {
+      const opts = tickOptionsForInstrument(pricePrecision);
+      if (opts.includes(prev)) return prev;
+      return defaultDisplayPricePrecision(pricePrecision);
+    });
+  }, [pricePrecision]);
 
   useEffect(() => {
     const cur = lastPrice ?? null;
@@ -318,7 +338,6 @@ export function SpotOrderbookPanel({
   }, [lastPrice]);
 
   const effectivePricePrecision = Math.min(10, Math.max(0, displayPricePrecision));
-  const totalPrecision = Math.min(10, Math.max(2, effectivePricePrecision));
 
   /** Single derived snapshot avoids TDZ / hook-order issues and keeps paddings in sync. */
   const {
@@ -389,16 +408,13 @@ export function SpotOrderbookPanel({
     lastPrice ??
     (bestBid && bestAsk && Number.isFinite(mid) && mid > 0 ? String(mid) : null);
 
-  const tickOptions = useMemo(() => {
-    const maxP = Math.min(8, Math.max(2, pricePrecision));
-    return TICK_PRESETS.filter((p) => p <= maxP);
-  }, [pricePrecision]);
+  const tickOptions = useMemo(() => tickOptionsForInstrument(pricePrecision), [pricePrecision]);
 
   const tickLabel = (p: number) =>
     p === 2 ? '0.01' : p === 4 ? '0.0001' : p === 6 ? '0.000001' : '0.00000001';
 
   const tabBtn = (active: boolean) =>
-    `min-h-9 flex-1 px-2 py-2.5 text-label font-semibold tracking-wide transition-colors ${
+    `min-h-8 flex-1 px-1.5 py-2 text-label font-semibold tracking-wide transition-colors ${
       active
         ? 'border-b-2 border-primary text-foreground'
         : 'border-b-2 border-transparent text-muted-foreground hover:text-foreground'
@@ -438,7 +454,7 @@ export function SpotOrderbookPanel({
               price={formatValueFixedTrim(row.price, effectivePricePrecision)}
               quantity={formatValueFixedTrim(row.quantity, qtyPrecision)}
               side="sell"
-              total={tot > 0 ? formatFixedTrim(tot, totalPrecision) : '—'}
+              total={tot > 0 ? formatFixedTrim(tot, effectivePricePrecision) : '—'}
               emphasize={i === askRows.length - 1}
               depthPct={depthPctAsk(ascIndex)}
               quoteAsset={quoteAsset}
@@ -451,17 +467,19 @@ export function SpotOrderbookPanel({
     ) : null;
 
   const midContent = (
-    <div className="flex flex-col items-center gap-1 py-1">
-      <div className={`flex items-center justify-center gap-1 text-mid font-bold numeric leading-snug tracking-wide ${midPriceClass}`}>
+    <div className="flex flex-col items-center gap-0.5 py-0.5">
+      <div
+        className={`flex items-center justify-center gap-1 text-lg font-bold leading-tight tracking-tight numeric sm:text-xl ${midPriceClass}`}
+      >
         {lastMove === 'up' && <ChevronUp className="h-4 w-4 shrink-0 text-buy" strokeWidth={2.5} aria-hidden />}
         {lastMove === 'down' && <ChevronDown className="h-4 w-4 shrink-0 text-sell" strokeWidth={2.5} aria-hidden />}
         <span>{formatValueFixedTrim(lastDisplay, effectivePricePrecision)}</span>
-        <span className="text-label font-medium text-muted-foreground">{quoteAsset}</span>
+        <span className="text-sm font-semibold text-muted-foreground sm:text-base">{quoteAsset}</span>
       </div>
       {(spreadAbs > 0 || spreadBps > 0) && (
-        <p className="text-center text-label numeric text-muted-foreground">
-          <span className="font-medium text-muted-foreground/90">Spread</span>{' '}
-          <span className="font-semibold text-foreground/90">
+        <p className="text-center text-[11px] leading-tight numeric text-muted-foreground sm:text-label">
+          <span className="font-medium text-muted-foreground/85">Spread</span>{' '}
+          <span className="font-semibold text-foreground/85">
             {spreadAbs > 0 ? formatFixedTrim(spreadAbs, Math.min(6, effectivePricePrecision)) : '—'}
             {spreadPctMid > 0 ? ` · ${spreadPctMid >= 0.0001 ? spreadPctMid.toFixed(3) : '<0.001'}%` : ''}
             {spreadBps >= 0.01 ? ` · ${spreadBps.toFixed(1)} bps` : ''}
@@ -472,7 +490,7 @@ export function SpotOrderbookPanel({
   );
 
   const renderMid = () => (
-    <div className="shrink-0 border-y border-solid border-border bg-muted/70 px-2 py-1.5 dark:bg-muted/45">
+    <div className="shrink-0 border-y border-solid border-border bg-muted/80 px-2 py-1 dark:bg-muted/55">
       {onPriceClick && lastDisplay ? (
         <button
           type="button"
@@ -498,7 +516,7 @@ export function SpotOrderbookPanel({
             price={formatValueFixedTrim(row.price, effectivePricePrecision)}
             quantity={formatValueFixedTrim(row.quantity, qtyPrecision)}
             side="buy"
-            total={(bidTotals[i] ?? 0) > 0 ? formatFixedTrim(bidTotals[i] ?? 0, totalPrecision) : '—'}
+            total={(bidTotals[i] ?? 0) > 0 ? formatFixedTrim(bidTotals[i] ?? 0, effectivePricePrecision) : '—'}
             emphasize={i === 0}
             depthPct={depthPctBid(i)}
             quoteAsset={quoteAsset}
@@ -523,7 +541,7 @@ export function SpotOrderbookPanel({
             price={formatValueFixedTrim(row.price, effectivePricePrecision)}
             quantity={formatValueFixedTrim(row.quantity, qtyPrecision)}
             side="sell"
-            total={tot > 0 ? formatFixedTrim(tot, totalPrecision) : '—'}
+            total={tot > 0 ? formatFixedTrim(tot, effectivePricePrecision) : '—'}
             emphasize={askRowsAsc.length > 0 && i === bestAskRowIndex}
             depthPct={ascIndex >= 0 ? depthPctAsk(ascIndex) : 0}
             quoteAsset={quoteAsset}
@@ -547,7 +565,7 @@ export function SpotOrderbookPanel({
             price={formatValueFixedTrim(row.price, effectivePricePrecision)}
             quantity={formatValueFixedTrim(row.quantity, qtyPrecision)}
             side="buy"
-            total={tot > 0 ? formatFixedTrim(tot, totalPrecision) : '—'}
+            total={tot > 0 ? formatFixedTrim(tot, effectivePricePrecision) : '—'}
             emphasize={bidRows.length > 0 && i === 0}
             depthPct={depthPctBid(i)}
             quoteAsset={quoteAsset}
@@ -653,7 +671,7 @@ export function SpotOrderbookPanel({
       </div>
 
       {tab === 'ladder' && (
-        <div className="flex flex-shrink-0 items-center justify-between gap-2 border-b border-border px-2 py-1.5">
+        <div className="flex flex-shrink-0 items-center justify-between gap-2 border-b border-border px-2 py-1">
           <p className="text-label font-semibold uppercase tracking-wide text-muted-foreground">
             DOM · click row to set price
           </p>
@@ -673,7 +691,7 @@ export function SpotOrderbookPanel({
       )}
 
       {tab === 'orderbook' && (
-        <div className="flex flex-shrink-0 items-center gap-2 border-b border-border px-2 py-1.5">
+        <div className="flex flex-shrink-0 items-center gap-2 border-b border-border px-2 py-1">
           <div className="flex items-center gap-1" role="group" aria-label="Order book view">
             <button
               type="button"
@@ -739,10 +757,10 @@ export function SpotOrderbookPanel({
 
       {tab === 'ladder' ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="border-b border-border bg-muted/50 px-2 py-1">
-            <div className={`${COL_GRID} numeric text-label font-bold uppercase tracking-wide text-muted-foreground`}>
+          <div className="border-b border-border bg-muted/60 px-2 py-0.5 dark:bg-muted/40">
+            <div className={`${COL_GRID} numeric text-[11px] font-bold uppercase tracking-wide text-muted-foreground sm:text-label`}>
               <span className="text-left">Asks ↑ · Price({quoteAsset})</span>
-              <span className="text-right">Qty({baseAsset})</span>
+              <span className="text-right">Amount({baseAsset})</span>
               <span className="text-right">Σ {quoteAsset}</span>
             </div>
           </div>
@@ -765,10 +783,10 @@ export function SpotOrderbookPanel({
         </div>
       ) : tab === 'trades' ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="border-b border-border bg-muted/50 px-2 py-1">
-            <div className={`${COL_GRID} numeric text-label font-bold uppercase tracking-wide text-muted-foreground`}>
+          <div className="border-b border-border bg-muted/60 px-2 py-0.5 dark:bg-muted/40">
+            <div className={`${COL_GRID} numeric text-[11px] font-bold uppercase tracking-wide text-muted-foreground sm:text-label`}>
               <span className="text-left">Price({quoteAsset})</span>
-              <span className="text-right">Qty({baseAsset})</span>
+              <span className="text-right">Amount({baseAsset})</span>
               <span className="text-right">Time</span>
             </div>
           </div>
@@ -787,7 +805,7 @@ export function SpotOrderbookPanel({
                   >
                     <span
                       className={`min-w-0 truncate text-left font-semibold ${priceCls}`}
-                      title={val > 0 ? `${formatFixedTrim(val, totalPrecision)} ${quoteAsset}` : undefined}
+                      title={val > 0 ? `${formatFixedTrim(val, effectivePricePrecision)} ${quoteAsset}` : undefined}
                     >
                       {formatValueFixedTrim(t.price, effectivePricePrecision)}
                     </span>
@@ -815,19 +833,16 @@ export function SpotOrderbookPanel({
         </div>
       ) : (
         <>
-          <div className="border-b border-border bg-muted/50 px-2 py-1">
-            <div className={`${COL_GRID} items-center numeric text-label font-bold uppercase tracking-wide text-muted-foreground`}>
+          <div className="border-b border-border bg-muted/60 px-2 py-0.5 dark:bg-muted/40">
+            <div className={`${COL_GRID} items-center numeric text-[11px] font-bold uppercase tracking-wide text-muted-foreground sm:text-label`}>
               <span className="text-left">Price({quoteAsset})</span>
-              <span className="text-right">Qty({baseAsset})</span>
-              <span className="inline-flex items-center justify-end gap-0.5 text-right">
-                Total({quoteAsset})
-                <ChevronDown className="h-3 w-3 opacity-60" aria-hidden />
-              </span>
+              <span className="text-right">Amount({baseAsset})</span>
+              <span className="text-right">Total({quoteAsset})</span>
             </div>
           </div>
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             {orderBookGrid}
-            <div className="shrink-0 border-t border-solid border-border px-2 py-1.5">
+            <div className="shrink-0 border-t border-solid border-border px-2 py-1">
               <SentimentFooter
                 buyPct={buyPct}
                 sellPct={sellPct}

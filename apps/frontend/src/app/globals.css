@@ -4,6 +4,9 @@
 
 @layer base {
   :root {
+    /* Spot terminal: order book (left) + markets rail (right); keep in sync with SpotTradingGridTerminal overlays */
+    --spot-terminal-rail-width: 273px;
+
     /* Softer buy/sell for less visual fatigue (still clearly distinct) */
     --exchange-buy: 160 68% 36%;
     --exchange-sell: 352 76% 50%;
@@ -33,32 +36,33 @@
     --radius: 0.5rem;
   }
 
+  /* Binance-adjacent dark terminal: deeper shell, elevated panels, readable muted labels */
   .dark {
-    --exchange-buy: 158 62% 44%;
-    --exchange-sell: 352 68% 58%;
-    --price-up: 158 62% 44%;
-    --price-down: 352 68% 58%;
-    --panel: 228 11% 13%;
+    --exchange-buy: 158 64% 46%;
+    --exchange-sell: 352 72% 58%;
+    --price-up: 158 64% 46%;
+    --price-down: 352 72% 58%;
+    --panel: 218 11% 12%;
 
-    --background: 228 14% 11%;
-    --foreground: 216 15% 93%;
-    --card: 228 11% 13%;
-    --card-foreground: 216 15% 93%;
-    --popover: 222 12% 19%;
-    --popover-foreground: 216 15% 93%;
-    --primary: 46 93% 49%;
+    --background: 216 14% 7%;
+    --foreground: 210 20% 96%;
+    --card: 218 11% 11%;
+    --card-foreground: 210 20% 96%;
+    --popover: 218 11% 14%;
+    --popover-foreground: 210 20% 96%;
+    --primary: 45 93% 48%;
     --primary-foreground: 0 0% 7%;
-    --secondary: 222 12% 19%;
-    --secondary-foreground: 216 15% 93%;
-    --muted: 222 12% 19%;
-    --muted-foreground: 215 11% 57%;
-    --accent: 222 12% 19%;
-    --accent-foreground: 216 15% 93%;
-    --destructive: 352 91% 62%;
+    --secondary: 218 10% 16%;
+    --secondary-foreground: 210 20% 96%;
+    --muted: 218 10% 15%;
+    --muted-foreground: 215 10% 54%;
+    --accent: 218 10% 17%;
+    --accent-foreground: 210 20% 96%;
+    --destructive: 352 88% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 222 12% 19%;
-    --input: 222 12% 19%;
-    --ring: 46 93% 49%;
+    --border: 218 10% 19%;
+    --input: 218 10% 16%;
+    --ring: 45 93% 48%;
   }
 }
 
@@ -76,7 +80,36 @@
   .numeric {
     font-family: var(--font-mono), ui-monospace, monospace;
     font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1, 'lnum' 1;
   }
+}
+
+/**
+ * Spot terminal right rail (markets list, trades, movers): thinner scrollbar than global 8px
+ * so “Last / 24h% / Vol” stay legible next to the gutter.
+ */
+.spot-rail-scroll {
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.28) transparent;
+}
+
+.spot-rail-scroll::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.spot-rail-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.spot-rail-scroll::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.3);
+  border-radius: 9999px;
+}
+
+.spot-rail-scroll::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.48);
 }
 
 /* Custom scrollbar */
@@ -118,11 +151,11 @@
 
 /* Use raw hsl — Tailwind @apply cannot resolve bg-buy/12 on nested color tokens */
 .depth-bar-buy {
-  background-color: hsl(var(--exchange-buy) / 0.12);
+  background-color: hsl(var(--exchange-buy) / 0.14);
 }
 
 .depth-bar-sell {
-  background-color: hsl(var(--exchange-sell) / 0.12);
+  background-color: hsl(var(--exchange-sell) / 0.14);
 }
 
 /* Chart container */
@@ -149,7 +182,7 @@ input[type="number"] {
 /* Trading panel layout */
 .trading-layout {
   display: grid;
-  grid-template-columns: 260px 1fr 260px;
+  grid-template-columns: var(--spot-terminal-rail-width) 1fr var(--spot-terminal-rail-width);
   grid-template-rows: auto 1fr auto;
   gap: 1px;
   height: calc(100vh - 64px);

@@ -54,6 +54,13 @@ const INTERVALS: { label: string; seconds: number }[] = [
   { label: '1D', seconds: 86400 },
 ];
 
+/** Toolbar segmented control — app tokens (aligned with markets tabs / primary). */
+const TB_SEG_ON = 'bg-primary text-primary-foreground shadow-sm';
+const TB_SEG_OFF = 'text-muted-foreground hover:bg-accent hover:text-accent-foreground';
+/** Compact toggles (Vol SMA / RSI / studies) — no native checkbox paint. */
+const TB_TOGGLE_ON = 'border-primary/50 bg-primary/15 text-foreground';
+const TB_TOGGLE_OFF = 'border-border text-muted-foreground hover:bg-accent hover:text-foreground/90';
+
 interface ChartPanelProps {
   symbol?: string;
   intervalSeconds?: number;
@@ -134,7 +141,7 @@ function ChartPanelInner({
     volumeHistogram: true,
   });
   const [drawTool, setDrawTool] = useState<DrawingToolMode>('none');
-  /** Collapsed by default so chart keeps vertical space; expand for EMA / VWAP² / draw. */
+  /** Collapsed by default so the candle canvas gets vertical space; use Studies to expand. */
   const [extStackOpen, setExtStackOpen] = useState(false);
   const drawOverlayRef = useRef<HTMLDivElement | null>(null);
 
@@ -426,10 +433,9 @@ function ChartPanelInner({
       ref={rootRef}
       className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden bg-card"
     >
-      {/* Tier-1 market strip — optional when pair header is outside; OHLC row only in chart mode */}
-      {(!hideDuplicatePairSummary || viewMode === 'chart') && (
+      {/* Full market strip only when chart is standalone; terminal mode inlines OHLC into toolbar (Option A). */}
+      {!hideDuplicatePairSummary && (
       <div className="flex-shrink-0 border-b border-border/90 bg-muted/95 dark:border-border/90 dark:bg-card/95">
-        {!hideDuplicatePairSummary && (
           <div className="flex flex-wrap items-start justify-between gap-2 px-2 py-1">
             <div className="flex min-w-0 flex-wrap items-end gap-x-4 gap-y-1">
               <div className="min-w-0">
@@ -512,38 +518,48 @@ function ChartPanelInner({
               )}
             </div>
           </div>
-        )}
 
         {viewMode === 'chart' && (
           <div
-            className={`px-2 py-1 numeric text-label leading-snug text-muted-foreground ${
-              !hideDuplicatePairSummary ? 'border-t border-border' : ''
-            }`}
+            className="px-2 py-1.5 numeric text-xs leading-tight text-muted-foreground sm:text-sm sm:leading-snug border-t border-border"
             title="Crosshair or last candle"
           >
-            <span className="font-semibold text-foreground/80">{pairLabel}</span>
+            <span className="font-semibold text-foreground">{pairLabel}</span>
             <span className="text-muted-foreground"> · Spot · {intervalLabel}</span>
             <span className="text-muted-foreground"> · Bar {barEta}</span>
             <span className="text-muted-foreground"> · </span>
-            <span className="numeric">{ohlcLegend || '—'}</span>
+            <span className="numeric font-medium text-foreground/95">{ohlcLegend || '—'}</span>
           </div>
         )}
       </div>
       )}
 
-      {/* Toolbar: row 1 = modes + overlay/indicators + intervals; row 2 = optional compact stack (collapsed by default) */}
-      <div className="flex flex-shrink-0 flex-col gap-0.5 border-b border-border/90 bg-background/80 px-2 py-0.5 dark:border-border/90 dark:bg-card/40">
-        <div className="flex w-full min-w-0 flex-col gap-1 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+      {/* Single scroll row + fixed actions (Option A); studies row only when expanded */}
+      <div className="flex flex-shrink-0 flex-col gap-0.5 border-b border-border bg-card">
+        <div className="flex w-full min-w-0 flex-row items-center gap-1 px-1.5 py-0.5">
+        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden [-ms-overflow-style:none] [scrollbar-width:thin] py-0.5 [&::-webkit-scrollbar]:h-1">
+          {hideDuplicatePairSummary && viewMode === 'chart' && (
+            <>
+              <span
+                className="shrink-0 max-w-[min(42vw,320px)] truncate text-label leading-tight text-muted-foreground"
+                title={`${pairLabel} · ${intervalLabel} · Bar ${barEta} · ${ohlcLegend || '—'}`}
+              >
+                <span className="font-semibold text-foreground">{pairLabel}</span>
+                <span className="text-muted-foreground"> · {intervalLabel}</span>
+                <span className="text-muted-foreground"> · {barEta}</span>
+                <span className="text-muted-foreground"> · </span>
+                <span className="numeric font-medium text-foreground/90">{ohlcLegend || '—'}</span>
+              </span>
+              <span className="h-4 w-px shrink-0 bg-border/80" aria-hidden />
+            </>
+          )}
           {onViewModeChange && (
             <div className="flex shrink-0 overflow-hidden rounded-md border border-border">
               <button
                 type="button"
                 onClick={() => onViewModeChange('chart')}
-                className={`inline-flex items-center gap-1 px-2 py-1.5 text-label font-bold transition-colors ${
-                  viewMode === 'chart'
-                    ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100'
-                    : 'text-muted-foreground hover:bg-accent dark:text-muted-foreground dark:hover:bg-accent'
+                className={`inline-flex items-center gap-1 px-2 py-1 text-price font-bold transition-colors ${
+                  viewMode === 'chart' ? TB_SEG_ON : TB_SEG_OFF
                 }`}
               >
                 <CandlestickChart className="h-3.5 w-3.5" />
@@ -552,10 +568,8 @@ function ChartPanelInner({
               <button
                 type="button"
                 onClick={() => onViewModeChange('depth')}
-                className={`inline-flex items-center gap-1 border-l border-border px-2 py-1.5 text-label font-bold transition-colors dark:border-border ${
-                  viewMode === 'depth'
-                    ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100'
-                    : 'text-muted-foreground hover:bg-accent dark:text-muted-foreground dark:hover:bg-accent'
+                className={`inline-flex items-center gap-1 border-l border-border px-2 py-1 text-price font-bold transition-colors ${
+                  viewMode === 'depth' ? TB_SEG_ON : TB_SEG_OFF
                 }`}
               >
                 <BarChart3 className="h-3.5 w-3.5" />
@@ -580,13 +594,9 @@ function ChartPanelInner({
                     key={id}
                     type="button"
                     onClick={() => setChartPriceScale(id)}
-                    className={`numeric px-2 py-1.5 text-label font-bold ${
+                    className={`numeric px-1.5 py-1 text-price font-bold ${
                       i > 0 ? 'border-l border-border' : ''
-                    } ${
-                      chartPriceScale === id
-                        ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100'
-                        : 'text-muted-foreground hover:bg-accent dark:text-muted-foreground dark:hover:bg-accent/80'
-                    }`}
+                    } ${chartPriceScale === id ? TB_SEG_ON : TB_SEG_OFF}`}
                   >
                     {label}
                   </button>
@@ -595,7 +605,7 @@ function ChartPanelInner({
               <select
                 value={overlayStudy}
                 onChange={(e) => setOverlayStudy(e.target.value as OverlayStudyId)}
-                className="max-w-[11rem] shrink-0 cursor-pointer rounded-md border border-border bg-card px-1.5 py-1 text-label font-semibold text-foreground dark:border-border dark:bg-background dark:text-foreground/90"
+                className="max-w-[11rem] shrink-0 cursor-pointer rounded-md border border-border bg-card px-1.5 py-1 text-price font-semibold text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 title="Price overlay (SMA, EMA, VWAP, Bollinger)"
               >
                 {OVERLAY_OPTIONS.map(({ id, label }) => (
@@ -604,58 +614,72 @@ function ChartPanelInner({
                   </option>
                 ))}
               </select>
-              <label className="flex cursor-pointer items-center gap-1 whitespace-nowrap text-label font-semibold text-foreground/80">
-                <input
-                  type="checkbox"
-                  checked={showVolumeMa}
-                  onChange={(e) => setShowVolumeMa(e.target.checked)}
-                  className="h-3.5 w-3.5 rounded border-border accent-amber-600 dark:border-border"
-                />
+              <button
+                type="button"
+                aria-pressed={showVolumeMa}
+                onClick={() => setShowVolumeMa((v) => !v)}
+                className={`shrink-0 rounded-md border px-2 py-0.5 text-price font-semibold transition-colors ${
+                  showVolumeMa ? TB_TOGGLE_ON : TB_TOGGLE_OFF
+                }`}
+                title="Volume pane SMA(9)"
+              >
                 Vol SMA 9
-              </label>
-              <label className="flex cursor-pointer items-center gap-1 whitespace-nowrap text-label font-semibold text-foreground/80">
-                <input
-                  type="checkbox"
-                  checked={showRsi}
-                  onChange={(e) => setShowRsi(e.target.checked)}
-                  className="h-3.5 w-3.5 rounded border-border accent-blue-600 dark:border-border"
-                />
+              </button>
+              <button
+                type="button"
+                aria-pressed={showRsi}
+                onClick={() => setShowRsi((v) => !v)}
+                className={`shrink-0 rounded-md border px-2 py-0.5 text-price font-semibold transition-colors ${
+                  showRsi ? TB_TOGGLE_ON : TB_TOGGLE_OFF
+                }`}
+                title="RSI(14) pane"
+              >
                 RSI(14)
-              </label>
+              </button>
             </>
           )}
           {viewMode === 'chart' && onIntervalSecondsChange && (
-            <div className="flex min-w-0 max-w-full flex-1 items-center gap-0.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:max-w-[min(100%,52rem)]">
+            <>
+              <span className="h-4 w-px shrink-0 bg-border/60" aria-hidden />
               {INTERVALS.map(({ label, seconds }) => (
                 <button
                   key={seconds}
                   type="button"
                   onClick={() => onIntervalSecondsChange(seconds)}
-                  className={`numeric shrink-0 rounded px-2 py-1 text-label font-bold transition-colors ${
-                    intervalSeconds === seconds
-                      ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100'
-                      : 'text-muted-foreground hover:bg-accent/80 dark:text-muted-foreground dark:hover:bg-accent'
+                  className={`numeric shrink-0 rounded px-2 py-1 text-price font-bold transition-colors ${
+                    intervalSeconds === seconds ? TB_SEG_ON : TB_SEG_OFF
                   }`}
                 >
                   {label}
                 </button>
               ))}
-            </div>
+            </>
           )}
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-1 sm:justify-end">
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-label font-semibold text-muted-foreground hover:bg-accent/80 dark:text-muted-foreground dark:hover:bg-accent"
-            title="Indicators (coming soon)"
-          >
-            <SlidersHorizontal className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Indicators</span>
-          </button>
+        <div className="flex shrink-0 items-center gap-0.5 border-l border-border/60 pl-1.5">
+          {viewMode === 'chart' && (
+            <button
+              type="button"
+              onClick={() => setExtStackOpen((v) => !v)}
+              aria-pressed={extStackOpen}
+              aria-expanded={extStackOpen}
+              className={`inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-price font-semibold transition-colors ${
+                extStackOpen ? TB_SEG_ON : TB_SEG_OFF
+              }`}
+              title={
+                extStackOpen
+                  ? 'Hide studies row (EMA stack, VWAP², volume bars, drawings). Overlays & RSI stay in toolbar.'
+                  : 'Show studies row: multi-EMA, VWAP², volume bars, drawing tools. Overlay menu = SMA/EMA/VWAP/Bollinger.'
+              }
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              <span className="hidden sm:inline">Studies</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={handleReset}
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-label font-semibold text-muted-foreground hover:bg-accent/80 dark:text-muted-foreground dark:hover:bg-accent"
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-price font-semibold text-muted-foreground hover:bg-accent/80 dark:text-muted-foreground dark:hover:bg-accent"
             title="Fit content"
           >
             <RefreshCw className="h-3.5 w-3.5" />
@@ -664,7 +688,7 @@ function ChartPanelInner({
           <button
             type="button"
             onClick={handleFullscreen}
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-label font-semibold text-muted-foreground hover:bg-accent/80 dark:text-muted-foreground dark:hover:bg-accent"
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-price font-semibold text-muted-foreground hover:bg-accent/80 dark:text-muted-foreground dark:hover:bg-accent"
             title="Fullscreen"
             aria-pressed={isFullscreen}
           >
@@ -673,72 +697,68 @@ function ChartPanelInner({
           <button
             type="button"
             onClick={handleScreenshot}
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-label font-semibold text-muted-foreground hover:bg-accent/80 dark:text-muted-foreground dark:hover:bg-accent"
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-price font-semibold text-muted-foreground hover:bg-accent/80 dark:text-muted-foreground dark:hover:bg-accent"
             title="Download chart as PNG"
           >
             <Camera className="h-3.5 w-3.5" aria-hidden />
           </button>
         </div>
         </div>
-        {viewMode === 'chart' && !extStackOpen && (
-          <button
-            type="button"
-            onClick={() => setExtStackOpen(true)}
-            className="flex w-full min-w-0 items-center justify-between gap-2 rounded border border-dashed border-border/90 bg-card/60 px-2 py-0.5 text-left text-label font-medium text-muted-foreground hover:bg-accent/90 dark:border-border dark:bg-card/50 dark:text-muted-foreground dark:hover:bg-accent/80"
-            title="Multi-EMA, extra VWAP, volume bar toggle, drawing tools"
-          >
-            <span className="truncate">▸ Multi-EMA · VWAP² · Vol · Draw</span>
-            <span className="shrink-0 text-label font-semibold uppercase tracking-wide text-muted-foreground">Open</span>
-          </button>
-        )}
         {viewMode === 'chart' && extStackOpen && (
-          <div className="w-full min-w-0 rounded border border-border/90 bg-card/80 px-1.5 py-1 dark:border-border/80 dark:bg-card/55">
+          <div className="w-full min-w-0 rounded border border-border bg-muted/30 px-1.5 py-1">
             <div className="flex min-h-0 w-full min-w-0 flex-nowrap items-center gap-x-2 gap-y-0.5 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1">
               <button
                 type="button"
                 onClick={() => setExtStackOpen(false)}
-                className="shrink-0 rounded px-1 py-0.5 text-label font-bold uppercase tracking-wide text-muted-foreground hover:bg-accent/80 dark:text-muted-foreground dark:hover:bg-accent"
+                className="shrink-0 rounded px-1 py-0.5 text-label font-bold uppercase tracking-wide text-muted-foreground hover:bg-accent"
                 title="Hide toolbar — more chart height"
               >
                 ▴ Hide
               </button>
               <span className="shrink-0 text-label font-bold uppercase text-muted-foreground">EMA</span>
-              {([7, 20, 50, 200] as const).map((p) => (
-                <label
-                  key={p}
-                  className="flex shrink-0 cursor-pointer items-center gap-0.5 whitespace-nowrap text-label font-semibold leading-tight text-foreground dark:text-foreground/90"
-                >
-                  <input
-                    type="checkbox"
-                    checked={Boolean(extConfig[`ema${p}`])}
-                    onChange={(e) =>
-                      setExtConfig((prev) => ({ ...prev, [`ema${p}`]: e.target.checked }) as ChartExtensionsConfig)
+              {([7, 20, 50, 200] as const).map((p) => {
+                const k = `ema${p}` as keyof ChartExtensionsConfig;
+                const on = Boolean(extConfig[k]);
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() =>
+                      setExtConfig((prev) => ({ ...prev, [k]: !Boolean(prev[k]) }) as ChartExtensionsConfig)
                     }
-                    className="h-3.5 w-3.5 rounded border-border accent-orange-600 dark:border-border"
-                  />
-                  {p}
-                </label>
-              ))}
-              <span className="mx-0.5 h-3.5 w-px shrink-0 bg-border dark:bg-border" aria-hidden />
-              <label className="flex shrink-0 cursor-pointer items-center gap-0.5 whitespace-nowrap text-label font-semibold leading-tight text-foreground dark:text-foreground/90">
-                <input
-                  type="checkbox"
-                  checked={Boolean(extConfig.modularVwap)}
-                  onChange={(e) => setExtConfig((prev) => ({ ...prev, modularVwap: e.target.checked }))}
-                  className="h-3.5 w-3.5 rounded border-border accent-sky-600 dark:border-border"
-                />
+                    className={`shrink-0 rounded-md border px-1.5 py-0.5 text-label font-semibold leading-tight transition-colors ${
+                      on ? TB_TOGGLE_ON : TB_TOGGLE_OFF
+                    }`}
+                  >
+                    {p}
+                  </button>
+                );
+              })}
+              <span className="mx-0.5 h-3.5 w-px shrink-0 bg-border" aria-hidden />
+              <button
+                type="button"
+                aria-pressed={Boolean(extConfig.modularVwap)}
+                onClick={() => setExtConfig((prev) => ({ ...prev, modularVwap: !prev.modularVwap }))}
+                className={`shrink-0 rounded-md border px-1.5 py-0.5 text-label font-semibold leading-tight transition-colors ${
+                  extConfig.modularVwap ? TB_TOGGLE_ON : TB_TOGGLE_OFF
+                }`}
+              >
                 VWAP²
-              </label>
-              <label className="flex shrink-0 cursor-pointer items-center gap-0.5 whitespace-nowrap text-label font-semibold leading-tight text-foreground dark:text-foreground/90">
-                <input
-                  type="checkbox"
-                  checked={extConfig.volumeHistogram !== false}
-                  onChange={(e) => setExtConfig((prev) => ({ ...prev, volumeHistogram: e.target.checked }))}
-                  className="h-3.5 w-3.5 rounded border-border accent-gray-600 dark:border-border"
-                />
+              </button>
+              <button
+                type="button"
+                aria-pressed={extConfig.volumeHistogram !== false}
+                onClick={() =>
+                  setExtConfig((prev) => ({ ...prev, volumeHistogram: !prev.volumeHistogram }))
+                }
+                className={`shrink-0 rounded-md border px-1.5 py-0.5 text-label font-semibold leading-tight transition-colors ${
+                  extConfig.volumeHistogram !== false ? TB_TOGGLE_ON : TB_TOGGLE_OFF
+                }`}
+              >
                 Vol bars
-              </label>
-              <span className="mx-0.5 h-3.5 w-px shrink-0 bg-border dark:bg-border" aria-hidden />
+              </button>
+              <span className="mx-0.5 h-3.5 w-px shrink-0 bg-border" aria-hidden />
               <span
                 className="shrink-0 text-label font-bold uppercase text-muted-foreground"
                 title="Draw: H / V / ∠ / Fib. Esc: cancel or deselect. Del removes. Drawings save per symbol (this browser)."
@@ -769,10 +789,8 @@ function ChartPanelInner({
                             : 'Fibonacci retracement (2 clicks: swing high/low)'
                   }
                   onClick={() => setDrawTool(id)}
-                  className={`inline-flex shrink-0 rounded border border-transparent px-1.5 py-0.5 text-label font-bold leading-tight ${
-                    drawTool === id
-                      ? 'border-border bg-zinc-200 text-zinc-900 dark:border-border dark:bg-zinc-600 dark:text-zinc-100'
-                      : 'text-foreground/80 hover:border-border hover:bg-accent dark:text-foreground/80 dark:hover:border-border dark:hover:bg-accent'
+                  className={`inline-flex shrink-0 rounded-md border px-1.5 py-0.5 text-label font-bold leading-tight transition-colors ${
+                    drawTool === id ? `${TB_SEG_ON} border-transparent` : `${TB_SEG_OFF} border-transparent`
                   }`}
                 >
                   {label}
@@ -785,7 +803,7 @@ function ChartPanelInner({
                   const ad = adapterRef.current;
                   if (ad instanceof LightweightChartsAdapter) ad.clearDrawings();
                 }}
-                className="inline-flex shrink-0 rounded border border-border px-1.5 py-0.5 text-label font-semibold leading-tight text-foreground/80 hover:bg-accent dark:border-border dark:text-foreground/80 dark:hover:bg-accent"
+                className="inline-flex shrink-0 rounded-md border border-border px-1.5 py-0.5 text-label font-semibold leading-tight text-foreground/80 hover:bg-accent"
               >
                 Clr
               </button>
@@ -795,35 +813,30 @@ function ChartPanelInner({
       </div>
 
       {viewMode === 'depth' ? (
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background p-px">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-card p-px">
           <SpotDepthChart bids={depthBids} asks={depthAsks} className="min-h-[200px] flex-1" />
         </div>
       ) : (
-        <div
-          className={`relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${
-            theme === 'dark' ? 'bg-background' : 'bg-background'
-          }`}
-        >
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-card">
           {chartLoading && !chartError && (
-            <div
-              className={`absolute inset-0 z-10 flex items-center justify-center ${
-                theme === 'dark' ? 'bg-background/90' : 'bg-background/95'
-              }`}
-            >
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-card/90 backdrop-blur-[1px]">
               <div className="flex flex-col items-center gap-2">
-                <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" aria-hidden />
-                <span className={`text-xs ${theme === 'dark' ? 'text-muted-foreground' : 'text-muted-foreground'}`}>Loading chart…</span>
+                <div
+                  className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent"
+                  aria-hidden
+                />
+                <span className="text-xs text-muted-foreground">Loading chart…</span>
               </div>
             </div>
           )}
           {chartError && (
-            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-background/95 p-4">
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-card/95 p-4 backdrop-blur-[1px]">
               <AlertCircle className="h-10 w-10 text-muted-foreground" aria-hidden />
               <p className="max-w-xs text-center text-sm text-muted-foreground">Chart unavailable. {chartError}</p>
               <button
                 type="button"
                 onClick={retryChart}
-                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-foreground hover:bg-primary/85"
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
               >
                 Retry
               </button>
@@ -841,18 +854,12 @@ function ChartPanelInner({
               aria-hidden={drawTool === 'none'}
             />
           </div>
-          <div
-            className={`flex flex-shrink-0 items-center justify-between border-t px-2 py-0.5 text-label numeric ${
-              theme === 'dark'
-                ? 'border-border/90 bg-background text-muted-foreground'
-                : 'border-border/90 bg-background text-muted-foreground'
-            }`}
-          >
-            <span className="flex items-center gap-1">
-              <Clock className="h-3 w-3 opacity-70" aria-hidden />
+          <div className="flex flex-shrink-0 items-center justify-between border-t border-border bg-card px-2 py-0.5 text-label text-muted-foreground numeric">
+            <span className="flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5 opacity-70" aria-hidden />
               {utcNow} UTC
             </span>
-            <span className={theme === 'dark' ? 'text-muted-foreground' : 'text-muted-foreground'}>
+            <span>
               <span className="hidden sm:inline">{zoomScrollHint} · </span>
               Volume{showVolumeMa ? ' · SMA 9' : ''}
               {showRsi ? ' · RSI(14)' : ''}

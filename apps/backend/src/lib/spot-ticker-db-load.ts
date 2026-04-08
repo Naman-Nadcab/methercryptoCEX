@@ -1,7 +1,7 @@
 /**
  * Shared DB reads for spot ticker (REST + WS subscribe snapshot).
  * Uses same schema branching as GET /spot/ticker/:symbol (market vs trading_pair_id).
- * Falls back to market_prices (oracle) and ohlcv_candles when no trades exist.
+ * When no trades: last_price prefers latest 1m candle close (same series as default chart), then oracle, then any candle.
  */
 import { db } from './database.js';
 import { getSpotTradesUseMarket } from './spot-schema-cache.js';
@@ -19,6 +19,16 @@ export type SpotTickerDbStats = {
 };
 
 async function fallbackPrice(symbol: string): Promise<string | null> {
+  /** Match default chart interval (GET /trading/candles … interval=60 → 1m) so ticker/header align with candle series. */
+  const m1 = await db.query<{ close_price: string }>(
+    `SELECT oc.close_price::text FROM ohlcv_candles oc
+     JOIN trading_pairs tp ON tp.id = oc.trading_pair_id
+     WHERE tp.symbol = $1 AND oc.interval_type = '1m'
+     ORDER BY oc.open_time DESC LIMIT 1`,
+    [symbol]
+  );
+  if (m1.rows[0]?.close_price) return m1.rows[0].close_price;
+
   const oracle = await db.query<{ price: string }>(
     `SELECT mp.price::text FROM market_prices mp
      JOIN spot_markets sm ON sm.base_currency_id = mp.base_currency_id AND sm.quote_currency_id = mp.quote_currency_id

@@ -216,7 +216,7 @@ export default async function spotRoutes(app: FastifyInstance) {
       const result = await db.query(`
         SELECT m.id, m.symbol, m.base_asset, m.quote_asset, m.status, m.min_qty, m.min_notional, m.price_precision, m.qty_precision,
                COALESCE(m.maker_fee, 0.001)::text as maker_fee, COALESCE(m.taker_fee, 0.001)::text as taker_fee,
-               COALESCE(mp.price, candle_lp.close_price)::text as last_price,
+               COALESCE(mp.price, candle_1m.close_price, candle_1d.close_price)::text as last_price,
                COALESCE(candle_24.volume, '0')::text as volume_24h,
                candle_24.open_price::text as open_24h,
                candle_24.high_price::text as high_24h,
@@ -230,9 +230,15 @@ export default async function spotRoutes(app: FastifyInstance) {
         LEFT JOIN LATERAL (
           SELECT oc.close_price FROM ohlcv_candles oc
           JOIN trading_pairs tp2 ON tp2.id = oc.trading_pair_id
+          WHERE tp2.symbol = m.symbol AND oc.interval_type = '1m'
+          ORDER BY oc.open_time DESC LIMIT 1
+        ) candle_1m ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT oc.close_price FROM ohlcv_candles oc
+          JOIN trading_pairs tp2 ON tp2.id = oc.trading_pair_id
           WHERE tp2.symbol = m.symbol AND oc.interval_type = '1d'
           ORDER BY oc.open_time DESC LIMIT 1
-        ) candle_lp ON TRUE
+        ) candle_1d ON TRUE
         LEFT JOIN LATERAL (
           SELECT oc.open_price, oc.high_price, oc.low_price, oc.volume
           FROM ohlcv_candles oc

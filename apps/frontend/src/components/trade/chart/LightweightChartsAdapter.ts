@@ -9,7 +9,7 @@ import {
   type UTCTimestamp,
 } from 'lightweight-charts';
 import type { ChartAdapter, ChartTheme, CandleData, TradeMarker } from './ChartAdapter';
-import { getTradingChartColors } from './cssTradingColors';
+import { getDomChartCrosshairColors, getDomChartThemeOptions, getTradingChartColors } from './cssTradingColors';
 import { formatFixedTrim } from '../terminalFormat';
 import type { ChartExtensionsConfig, DrawingToolMode, SerializedDrawing } from './extension/types';
 import { throttleLeading } from './utils/throttle';
@@ -70,14 +70,6 @@ export class LightweightChartsAdapter implements ChartAdapter {
     return { w, h };
   }
 
-  private crosshairColors(): { line: string; labelBg: string } {
-    const dark = this.theme === 'dark';
-    return {
-      line: dark ? 'rgba(96, 165, 250, 0.45)' : 'rgba(37, 99, 235, 0.4)',
-      labelBg: dark ? 'rgba(37, 99, 235, 0.92)' : 'rgba(29, 78, 216, 0.92)',
-    };
-  }
-
   /** Merge live `lastBar` into copy of history for accurate indicators. */
   private workingCandles(): CandleData[] {
     if (this.allCandles.length === 0) return [];
@@ -110,8 +102,8 @@ export class LightweightChartsAdapter implements ChartAdapter {
     this.theme = theme;
     const { w, h } = this.getContainerSize(container);
     if (w <= 0 || h <= 0) return;
-    const opts = this.themeOptions(theme);
-    const cx = this.crosshairColors();
+    const opts = getDomChartThemeOptions(theme);
+    const cx = getDomChartCrosshairColors();
     const colors = getTradingChartColors();
     this.chart = createChart(container, {
       ...opts,
@@ -498,36 +490,11 @@ export class LightweightChartsAdapter implements ChartAdapter {
     this.drawingTools?.loadSerializedDrawings(payload);
   }
 
-  private themeOptions(theme: ChartTheme): {
-    layout: { background: { color: string }; textColor: string };
-    grid: { vertLines: { color: string }; horzLines: { color: string } };
-    rightPriceScale: { borderColor: string };
-    timeScale: { borderColor: string };
-  } {
-    const isDark = theme === 'dark';
-    return {
-      layout: {
-        background: { color: isDark ? '#0b0e11' : '#fafafa' },
-        textColor: isDark ? '#9ca3af' : '#4b5563',
-      },
-      grid: {
-        vertLines: { color: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' },
-        horzLines: { color: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' },
-      },
-      rightPriceScale: {
-        borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
-      },
-      timeScale: {
-        borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
-      },
-    };
-  }
-
   updateTheme(theme: ChartTheme): void {
     if (!this.chart) return;
     this.theme = theme;
-    const opts = this.themeOptions(theme);
-    const cx = this.crosshairColors();
+    const opts = getDomChartThemeOptions(theme);
+    const cx = getDomChartCrosshairColors();
     const colors = getTradingChartColors();
     this.chart.applyOptions({
       layout: opts.layout,

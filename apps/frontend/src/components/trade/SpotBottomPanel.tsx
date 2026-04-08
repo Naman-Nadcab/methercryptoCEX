@@ -8,12 +8,39 @@ import { useSpotBottomPanel, type Order } from './useSpotBottomPanel';
 import { useBalancesByAccount } from '@/lib/balances';
 import { ROUTES, SPOT_TRADE_HREF, walletPath } from '@/lib/routes';
 import { useMemo, useState, useEffect, useRef } from 'react';
+import { formatFixedTrim, formatValueFixedTrim } from './terminalFormat';
+
+/** Per-symbol decimals from exchange metadata (tier-1 formatting). */
+export type SpotMarketMeta = {
+  symbol: string;
+  price_precision?: number;
+  qty_precision?: number;
+};
 
 interface SpotBottomPanelProps {
   symbol: string;
   isAuth: boolean;
   ordersVersion?: number;
   tradesVersion?: number;
+  markets?: SpotMarketMeta[];
+}
+
+function precisionForMarket(markets: SpotMarketMeta[] | undefined, marketSymbol: string | null | undefined) {
+  const clamp = (n: number | undefined, fallback: number) =>
+    typeof n === 'number' && Number.isFinite(n) ? Math.min(12, Math.max(0, Math.floor(n))) : fallback;
+  if (!markets?.length || !marketSymbol) return { price: 8, qty: 8 };
+  const m = markets.find((x) => x.symbol === marketSymbol);
+  return {
+    price: clamp(m?.price_precision, 8),
+    qty: clamp(m?.qty_precision, 8),
+  };
+}
+
+function formatOrderPrice(value: string | null | undefined, decimals: number): string {
+  if (value == null || value === '') return '—';
+  const n = Number(value);
+  if (!Number.isFinite(n)) return value;
+  return formatValueFixedTrim(value, decimals);
 }
 
 function displayStatus(s: string): string {
@@ -72,10 +99,14 @@ function OpenOrderRow({
   o,
   onCancel,
   cancellingId,
+  priceDecimals,
+  qtyDecimals,
 }: {
   o: Order;
   onCancel: (id: string) => void;
   cancellingId: string | null | undefined;
+  priceDecimals: number;
+  qtyDecimals: number;
 }) {
   const [pulse, setPulse] = useState(false);
   const prev = useRef({ status: o.status, filled: o.filled_quantity });
@@ -91,7 +122,10 @@ function OpenOrderRow({
   const canCancel = ['OPEN', 'PARTIALLY_FILLED', 'PENDING_TRIGGER'].includes(o.status);
   const filled = parseFloat(o.filled_quantity ?? '0') || 0;
   const qty = parseFloat(o.quantity ?? '0') || 0;
-  const filledQtyStr = filled > 0 && qty > 0 ? `${filled.toFixed(4)}/${qty.toFixed(4)}` : (o.quantity ?? '—');
+  const filledQtyStr =
+    filled > 0 && qty > 0
+      ? `${formatFixedTrim(filled, qtyDecimals)}/${formatFixedTrim(qty, qtyDecimals)}`
+      : (o.quantity ?? '—');
   return (
     <tr
       className={`min-h-[36px] border-b border-border/60 transition-[background-color,box-shadow] duration-500 ease-out hover:bg-muted/50 sm:min-h-[30px] ${
@@ -110,8 +144,12 @@ function OpenOrderRow({
       <td className="py-1.5 px-2 align-middle">
         <span className={o.side === 'buy' ? 'text-buy' : 'text-sell'}>{o.side}</span>
       </td>
-      <td className="numeric py-1.5 px-2 align-middle text-label text-muted-foreground">{o.price ?? '—'}</td>
-      <td className="numeric py-1.5 px-2 align-middle text-label text-muted-foreground">{o.stop_price ?? '—'}</td>
+      <td className="numeric py-1.5 px-2 align-middle text-label text-muted-foreground">
+        {formatOrderPrice(o.price ?? null, priceDecimals)}
+      </td>
+      <td className="numeric py-1.5 px-2 align-middle text-label text-muted-foreground">
+        {formatOrderPrice(o.stop_price ?? null, priceDecimals)}
+      </td>
       <td className="numeric py-1.5 px-2 align-middle text-label text-muted-foreground">{filledQtyStr}</td>
       <td className="py-1.5 px-2 align-middle">{executionStatusPill(o.status)}</td>
       <td className="py-1.5 px-2 align-middle">
@@ -144,7 +182,7 @@ function displayOrderType(t: string | undefined): string {
 }
 
 export function SpotBottomPanel(props: SpotBottomPanelProps) {
-  const { symbol, isAuth, ordersVersion = 0, tradesVersion = 0 } = props;
+  const { symbol, isAuth, ordersVersion = 0, tradesVersion = 0, markets } = props;
   const data = useSpotBottomPanel({ symbol, isAuth, ordersVersion, tradesVersion });
   const { data: balancesByAccount = [] } = useBalancesByAccount(isAuth);
   const allTradingBalances = useMemo(
@@ -305,14 +343,19 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
                 </tr>
               </thead>
               <tbody>
-                {sortedOpenOrders.map((o) => (
-                  <OpenOrderRow
-                    key={o.id}
-                    o={o}
-                    onCancel={(id) => data.handleCancel(id)}
-                    cancellingId={data.cancellingId}
-                  />
-                ))}
+                {sortedOpenOrders.map((o) => {
+                  const pq = precisionForMarket(markets, o.market);
+                  return (
+                    <OpenOrderRow
+                      key={o.id}
+                      o={o}
+                      onCancel={(id) => data.handleCancel(id)}
+                      cancellingId={data.cancellingId}
+                      priceDecimals={pq.price}
+                      qtyDecimals={pq.qty}
+                    />
+                  );
+                })}
               </tbody>
             </table>
           )
@@ -339,7 +382,11 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
                 {sortedOrderHistory.map((o) => {
                   const filled = parseFloat(o.filled_quantity ?? '0') || 0;
                   const qty = parseFloat(o.quantity ?? '0') || 0;
-                  const filledQtyStr = filled > 0 || o.status === 'FILLED' ? `${filled.toFixed(4)}/${qty.toFixed(4)}` : (o.quantity ?? '—');
+                  const pq = precisionForMarket(markets, o.market);
+                  const filledQtyStr =
+                    filled > 0 || o.status === 'FILLED'
+                      ? `${formatFixedTrim(filled, pq.qty)}/${formatFixedTrim(qty, pq.qty)}`
+                      : (o.quantity ?? '—');
                   return (
                     <tr key={o.id} className="min-h-[36px] border-b border-border/60 transition-colors duration-150 hover:bg-muted/50 sm:min-h-[30px]">
                       <td className="py-1.5 px-2 align-middle">
@@ -352,8 +399,12 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
                       <td className="py-1.5 px-2 align-middle">
                         <span className={o.side === 'buy' ? 'text-buy' : 'text-sell'}>{o.side}</span>
                       </td>
-                      <td className="numeric py-1.5 px-2 align-middle text-muted-foreground">{o.price ?? '—'}</td>
-                      <td className="numeric py-1.5 px-2 align-middle text-muted-foreground">{o.stop_price ?? '—'}</td>
+                      <td className="numeric py-1.5 px-2 align-middle text-muted-foreground">
+                        {formatOrderPrice(o.price ?? null, pq.price)}
+                      </td>
+                      <td className="numeric py-1.5 px-2 align-middle text-muted-foreground">
+                        {formatOrderPrice(o.stop_price ?? null, pq.price)}
+                      </td>
                       <td className="numeric py-1.5 px-2 align-middle text-muted-foreground">{filledQtyStr}</td>
                       <td className="py-1.5 px-2 align-middle">{executionStatusPill(o.status)}</td>
                     </tr>
@@ -384,7 +435,9 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
                       <CoinIcon symbol={b.symbol} size={16} />
                       <span className="text-foreground">{b.symbol}</span>
                     </div>
-                    <span className="numeric text-muted-foreground">{parseFloat(b.trading ?? '0').toFixed(4)}</span>
+                    <span className="numeric text-muted-foreground">
+                      {formatValueFixedTrim(b.trading ?? '0', 8)}
+                    </span>
                   </Link>
                 ))}
               </div>
@@ -422,7 +475,14 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedTrades.map((t) => (
+                  {sortedTrades.map((t) => {
+                    const pq = precisionForMarket(markets, t.market);
+                    const feeNum = t.fee != null && t.fee !== '' ? Number(t.fee) : NaN;
+                    const feeDisplay =
+                      t.fee != null && t.fee !== ''
+                        ? `${Number.isFinite(feeNum) ? formatValueFixedTrim(t.fee, 8) : t.fee}${t.fee_asset ? ` ${t.fee_asset}` : ''}`
+                        : '—';
+                    return (
                     <tr key={t.id} className="min-h-[36px] border-b border-border/60 transition-colors duration-150 hover:bg-muted/50 sm:min-h-[30px]">
                       <td className="py-1.5 px-2 align-middle">
                         <div className="flex items-center gap-1">
@@ -433,14 +493,19 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
                       <td className="py-1.5 px-2 align-middle">
                         <span className={t.side === 'buy' ? 'text-buy' : 'text-sell'}>{t.side}</span>
                       </td>
-                      <td className="numeric py-1.5 px-2 align-middle text-muted-foreground">{t.price}</td>
-                      <td className="numeric py-1.5 px-2 align-middle text-muted-foreground">{t.quantity}</td>
-                      <td className="numeric py-1.5 px-2 align-middle text-muted-foreground">{t.fee ?? '—'}{t.fee_asset ? ` ${t.fee_asset}` : ''}</td>
+                      <td className="numeric py-1.5 px-2 align-middle text-muted-foreground">
+                        {formatValueFixedTrim(t.price, pq.price)}
+                      </td>
+                      <td className="numeric py-1.5 px-2 align-middle text-muted-foreground">
+                        {formatValueFixedTrim(t.quantity, pq.qty)}
+                      </td>
+                      <td className="numeric py-1.5 px-2 align-middle text-muted-foreground">{feeDisplay}</td>
                       <td className="numeric py-1.5 px-2 align-middle text-muted-foreground">
                         {t.created_at ? new Date(t.created_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
               {data.tradesPage < data.tradesTotalPages && (
