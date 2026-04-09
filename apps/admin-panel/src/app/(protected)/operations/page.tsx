@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { Gauge, Activity, Sliders, Siren, Cable, Server } from 'lucide-react';
+import { Activity, Sliders, Siren, Cable, Server, CheckSquare, SlidersHorizontal, LayoutGrid } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui';
 import { adminFetch } from '@/lib/api';
 import { useAdminAuthStore } from '@/store/auth';
@@ -14,6 +14,13 @@ const LINKS: {
   description: string;
   icon: typeof Activity;
 }[] = [
+  {
+    href: '/control-center',
+    title: 'Control center',
+    description:
+      'Consolidated toggles: trading halt, safe mode, feature flags, hot wallet ops, and risk knobs — complementary to Admin control.',
+    icon: LayoutGrid,
+  },
   {
     href: '/monitoring',
     title: 'Monitoring',
@@ -27,6 +34,20 @@ const LINKS: {
     description:
       'Circuit breakers, trading halts, and emergency exchange controls. Prefer narrow asset freezes before global trading halts to reduce customer impact.',
     icon: Sliders,
+  },
+  {
+    href: '/admin/mm-control',
+    title: 'MM desk',
+    description:
+      'Market-making runtime, per-pair controls, inventory and execution visibility. Use after liquidity or spread incidents.',
+    icon: SlidersHorizontal,
+  },
+  {
+    href: '/approvals',
+    title: 'Dual approvals',
+    description:
+      'Pending maker-checker requests: withdrawals, manual credits, trading halts, and other sensitive actions.',
+    icon: CheckSquare,
   },
   {
     href: '/incidents',

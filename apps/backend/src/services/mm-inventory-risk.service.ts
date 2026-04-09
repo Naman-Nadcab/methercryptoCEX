@@ -12,6 +12,8 @@ export type InventoryRiskAdjust = {
   askSizeMult: number;
   /** Additional half-spread widening (bps) applied symmetrically after vol/oracle. */
   extraSpreadBps: number;
+  /** Base notional / total inventory value when known (for MM strategy); null if unavailable. */
+  baseRatio: number | null;
 };
 
 async function getOracleMid(symbol: string): Promise<DecimalInstance | null> {
@@ -51,6 +53,7 @@ export async function getInventoryRiskAdjust(symbol: string, userId: string, vol
   let bidSizeMult = 1;
   let askSizeMult = 1;
   let extraSpreadBps = 0;
+  let baseRatioOut: number | null = null;
 
   try {
     const m = await db.query<{ base_asset: string; quote_asset: string }>(
@@ -58,7 +61,7 @@ export async function getInventoryRiskAdjust(symbol: string, userId: string, vol
       [symbol]
     );
     if (m.rows.length === 0) {
-      return { midSkewBps: 0, bidSizeMult: 1, askSizeMult: 1, extraSpreadBps: 0 };
+      return { midSkewBps: 0, bidSizeMult: 1, askSizeMult: 1, extraSpreadBps: 0, baseRatio: null };
     }
     const baseAsset = m.rows[0]!.base_asset;
     const quoteAsset = m.rows[0]!.quote_asset;
@@ -76,16 +79,17 @@ export async function getInventoryRiskAdjust(symbol: string, userId: string, vol
 
     const mid = await getOracleMid(symbol);
     if (!mid || mid.lte(0)) {
-      return { midSkewBps: 0, bidSizeMult: 1, askSizeMult: 1, extraSpreadBps: 0 };
+      return { midSkewBps: 0, bidSizeMult: 1, askSizeMult: 1, extraSpreadBps: 0, baseRatio: null };
     }
 
     const baseValue = baseBal.times(mid);
     const total = baseValue.plus(quoteBal);
     if (total.lte(0)) {
-      return { midSkewBps: 0, bidSizeMult: 1, askSizeMult: 1, extraSpreadBps: 0 };
+      return { midSkewBps: 0, bidSizeMult: 1, askSizeMult: 1, extraSpreadBps: 0, baseRatio: null };
     }
 
     const baseRatio = baseValue.div(total).toNumber();
+    baseRatioOut = baseRatio;
 
     if (baseRatio >= hard) {
       midSkewBps = maxSkew;
@@ -114,5 +118,68 @@ export async function getInventoryRiskAdjust(symbol: string, userId: string, vol
     /* ignore */
   }
 
-  return { midSkewBps, bidSizeMult, askSizeMult, extraSpreadBps };
+  return { midSkewBps, bidSizeMult, askSizeMult, extraSpreadBps, baseRatio: baseRatioOut };
+}
+
+export type MmPositionGuard = {
+  positionUsd: string;
+  skipBidPlacement: boolean;
+  skipAskPlacement: boolean;
+};
+
+/**
+ * When total notional (base×mid + quote) exceeds maxPositionUsd, stop adding risk on one side only
+ * when inventory is skewed: base-heavy → skip bids; quote-heavy → skip asks. Near-neutral (45–55%) allows both.
+ */
+export async function getMmPositionGuard(
+  symbol: string,
+  userId: string,
+  mid: DecimalInstance,
+  maxPositionUsd: number
+): Promise<MmPositionGuard> {
+  if (!Number.isFinite(maxPositionUsd) || maxPositionUsd <= 0) {
+    return { positionUsd: '0', skipBidPlacement: false, skipAskPlacement: false };
+  }
+  try {
+    const m = await db.query<{ base_asset: string; quote_asset: string }>(
+      `SELECT base_asset, quote_asset FROM spot_markets WHERE symbol = $1`,
+      [symbol]
+    );
+    if (m.rows.length === 0) {
+      return { positionUsd: '0', skipBidPlacement: false, skipAskPlacement: false };
+    }
+    const baseAsset = m.rows[0]!.base_asset;
+    const quoteAsset = m.rows[0]!.quote_asset;
+
+    const bal = await db.query<{ asset: string; total: string }>(
+      `SELECT c.symbol AS asset, (ub.available_balance::numeric + ub.locked_balance::numeric)::text AS total
+       FROM user_balances ub
+       JOIN currencies c ON c.id = ub.currency_id
+       WHERE ub.user_id = $1::uuid AND ub.account_type = 'trading' AND COALESCE(ub.chain_id, '') = ''
+         AND UPPER(TRIM(c.symbol)) IN (UPPER($2), UPPER($3))`,
+      [userId, baseAsset, quoteAsset]
+    );
+    const baseBal = new Decimal(bal.rows.find((r) => r.asset.toUpperCase() === baseAsset.toUpperCase())?.total ?? '0');
+    const quoteBal = new Decimal(bal.rows.find((r) => r.asset.toUpperCase() === quoteAsset.toUpperCase())?.total ?? '0');
+
+    if (!mid.isFinite() || mid.lte(0)) {
+      return { positionUsd: '0', skipBidPlacement: false, skipAskPlacement: false };
+    }
+
+    const baseValue = baseBal.times(mid);
+    const total = baseValue.plus(quoteBal);
+    const positionUsd = total.toString();
+    if (total.lte(maxPositionUsd)) {
+      return { positionUsd, skipBidPlacement: false, skipAskPlacement: false };
+    }
+
+    const baseRatio = total.gt(0) ? baseValue.div(total).toNumber() : 0.5;
+    let skipBidPlacement = false;
+    let skipAskPlacement = false;
+    if (baseRatio > 0.55) skipBidPlacement = true;
+    else if (baseRatio < 0.45) skipAskPlacement = true;
+    return { positionUsd, skipBidPlacement, skipAskPlacement };
+  } catch {
+    return { positionUsd: '0', skipBidPlacement: false, skipAskPlacement: false };
+  }
 }

@@ -23,6 +23,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/trades': 'Trades',
   '/p2p': 'P2P Trading',
   '/liquidity': 'Liquidity',
+  '/admin/mm-control': 'MM Control',
   '/risk': 'Risk & AML',
   '/analytics': 'Analytics',
   '/fees': 'Fees',

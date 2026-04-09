@@ -148,7 +148,17 @@ npm run dev:all
 # Or start individually:
 npm run dev --workspace=@exchange/backend
 npm run dev --workspace=@exchange/frontend
+
+# Primary operator console (admin-panel + backend):
+npm run dev:admin
+# Then open http://localhost:3001/dashboard — this is the canonical admin UI (MM desk, control center, etc.).
 ```
+
+### Operator console (primary admin)
+
+- **`apps/admin-panel`** at **`http://localhost:3001`** (default dev port) — **`/dashboard`** is the **primary** operator / admin application. New operator features should land here first.
+- **`apps/frontend`** at **`/admin`** is a **legacy / extended** admin shell. Prefer **admin-panel** for day-to-day operations unless you need a screen that only exists under `/admin`.
+- **Safe migration playbook (phases, parity map, smoke checklist):** [`docs/ADMIN_PANEL_MIGRATION.md`](docs/ADMIN_PANEL_MIGRATION.md).
 
 ### Using Docker
 

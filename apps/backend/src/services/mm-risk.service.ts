@@ -69,6 +69,14 @@ async function queryTopTradersVolume24h(): Promise<{ user_id: string; volume: st
   return [];
 }
 
+/** 24h spot PnL (sell - buy - fees) for liquidity bot hard stop. */
+export async function getMmUserDailyPnlUsd(userId: string): Promise<number> {
+  const rows = await queryDailyPnlForUsers([userId]);
+  const raw = rows[0]?.pnl ?? '0';
+  const n = parseFloat(raw);
+  return Number.isFinite(n) ? n : 0;
+}
+
 async function queryDailyPnlForUsers(userIds: string[]): Promise<{ user_id: string; pnl: string }[]> {
   if (userIds.length === 0) return [];
   if (!getSpotTradesShapeSync()) {

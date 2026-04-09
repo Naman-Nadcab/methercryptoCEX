@@ -354,7 +354,12 @@ const envSchema = z.object({
   INSTITUTIONAL_MM_VOL_SPREAD_COEFF: z.coerce.number().min(0).max(3).default(0.12),
   INSTITUTIONAL_MM_VOL_SPREAD_CAP_BPS: z.coerce.number().min(0).max(2000).default(120),
   INSTITUTIONAL_MM_VOL_SPREAD_MULT_CAP: z.coerce.number().min(1).max(25).default(5),
-  INSTITUTIONAL_MM_LADDER_LEVELS: z.coerce.number().min(1).max(12).default(1),
+  /** Raw ladder depth from env; effective value is clamped to [3, MM_LADDER_MAX]. When unset, default 5. */
+  INSTITUTIONAL_MM_LADDER_LEVELS: z.coerce.number().min(1).max(50).optional(),
+  MM_LADDER_MAX: z.coerce.number().min(3).max(50).default(20),
+  MM_MAX_POSITION_USD: z.coerce.number().min(0).default(10_000),
+  MM_MAX_DAILY_LOSS_USD: z.coerce.number().min(0).default(500),
+  MM_BOT_VOL_HIGH_BPS: z.coerce.number().min(1).max(500).default(80),
   INSTITUTIONAL_MM_LADDER_STEP_BPS: z.coerce.number().min(0).max(250).default(8),
   INSTITUTIONAL_MM_LADDER_SIZE_DECAY: z.coerce.number().min(0.15).max(1).default(0.68),
   INSTITUTIONAL_MM_QUOTE_MAX_AGE_SEC: z.coerce.number().min(0).max(7200).default(120),
@@ -582,6 +587,10 @@ if (!parsed.success) {
   console.error(parsed.error.flatten().fieldErrors);
   process.exit(1);
 }
+
+const mmLadderMax = parsed.data.MM_LADDER_MAX;
+const mmLadderRaw = Math.max(5, parsed.data.INSTITUTIONAL_MM_LADDER_LEVELS ?? 5);
+const mmLadderLevelsClamped = Math.min(mmLadderMax, Math.max(3, mmLadderRaw));
 
 // Tier 1: Production safety — block KYC demo auto-approve
 if (parsed.data.NODE_ENV === 'production' && parsed.data.KYC_DIGILOCKER_DEMO_AUTO_APPROVE) {
@@ -978,6 +987,9 @@ export const config = {
         .map((s) => s.trim().toLowerCase())
         .filter(Boolean)
     ),
+    maxPositionUsd: parsed.data.MM_MAX_POSITION_USD,
+    maxDailyLossUsd: parsed.data.MM_MAX_DAILY_LOSS_USD,
+    schedulerVolHighBps: parsed.data.MM_BOT_VOL_HIGH_BPS,
   },
 
   mmHealth: {
@@ -1111,7 +1123,8 @@ export const config = {
     volSpreadCoeff: parsed.data.INSTITUTIONAL_MM_VOL_SPREAD_COEFF,
     volSpreadCapBps: parsed.data.INSTITUTIONAL_MM_VOL_SPREAD_CAP_BPS,
     volSpreadMultCap: parsed.data.INSTITUTIONAL_MM_VOL_SPREAD_MULT_CAP,
-    ladderLevels: parsed.data.INSTITUTIONAL_MM_LADDER_LEVELS,
+    ladderLevels: mmLadderLevelsClamped,
+    ladderMax: mmLadderMax,
     ladderStepBps: parsed.data.INSTITUTIONAL_MM_LADDER_STEP_BPS,
     ladderSizeDecay: parsed.data.INSTITUTIONAL_MM_LADDER_SIZE_DECAY,
     quoteMaxAgeSec: parsed.data.INSTITUTIONAL_MM_QUOTE_MAX_AGE_SEC,

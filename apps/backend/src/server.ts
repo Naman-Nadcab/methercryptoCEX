@@ -66,6 +66,7 @@ import adminOperationalRoutes from './routes/admin-operational.fastify.js';
 import adminIntegrationsRoutes from './routes/admin-integrations.fastify.js';
 import adminPhase1ComplianceRoutes from './routes/admin-phase1-compliance.fastify.js';
 import adminPhase24Routes from './routes/admin-phase2-4.fastify.js';
+import adminMmControlRoutes from './routes/admin-mm-control.fastify.js';
 import observabilityRoutes from './routes/observability.fastify.js';
 import internalEngineRoutes from './routes/internal-engine.fastify.js';
 import latencyTracePlugin from './plugins/latencyTrace.plugin.js';
@@ -631,6 +632,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(adminIntegrationsRoutes, { prefix: '/api/v1/admin' });
   await app.register(adminPhase1ComplianceRoutes, { prefix: '/api/v1/admin' });
   await app.register(adminPhase24Routes, { prefix: '/api/v1/admin' });
+  await app.register(adminMmControlRoutes, { prefix: '/api/v1/admin' });
   await app.register(observabilityRoutes, { prefix: '/api/v1/observability' });
   await app.register(internalEngineRoutes, { prefix: '/internal/engine' });
 
@@ -1172,16 +1174,31 @@ async function start() {
     }
 
     if (config.liquidityBot.enabled && config.liquidityBot.apiKey) {
-      const { runLiquidityBotCycle } = await import('./services/liquidity-bot.service.js');
-      const botIntervalMs = 30_000;
-      setInterval(async () => {
-        try {
-          await runLiquidityBotCycle();
-        } catch (err) {
-          logger.warn('Liquidity bot cycle failed', { error: err instanceof Error ? err.message : String(err) });
-        }
-      }, botIntervalMs);
-      logger.info('Liquidity bot scheduled (every 30s)');
+      const scheduleLiquidityBot = (): void => {
+        const tick = async (): Promise<void> => {
+          try {
+            const { runLiquidityBotCycle, getLiquidityBotNextTickMs } = await import(
+              './services/liquidity-bot.service.js'
+            );
+            await runLiquidityBotCycle();
+            const delayMs = getLiquidityBotNextTickMs();
+            setTimeout(() => {
+              void tick();
+            }, delayMs);
+          } catch (err) {
+            logger.warn('Liquidity bot cycle failed', { error: err instanceof Error ? err.message : String(err) });
+            const { getLiquidityBotNextTickMs } = await import('./services/liquidity-bot.service.js');
+            setTimeout(() => {
+              void tick();
+            }, getLiquidityBotNextTickMs());
+          }
+        };
+        void tick();
+      };
+      scheduleLiquidityBot();
+      logger.info(
+        'Liquidity bot scheduled (dynamic interval: 1500ms after ladder fill, 2000ms when vol ≥ threshold, 5000ms base)'
+      );
     } else if (config.liquidityBot.enabled) {
       logger.warn('Liquidity bot enabled but LIQUIDITY_BOT_API_KEY not set; bot not started');
     }

@@ -303,6 +303,35 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      <section className="rounded-xl border border-admin-border bg-admin-card/60 px-4 py-3">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-admin-muted mb-2">Operator shortcuts</p>
+        <div className="flex flex-wrap gap-2">
+          {(
+            [
+              ['Withdrawals', '/withdrawals'],
+              ['Deposits', '/deposits'],
+              ['KYC', '/kyc'],
+              ['Approvals', '/approvals'],
+              ['Control center', '/control-center'],
+              ['Admin control', '/admin-control'],
+              ['MM desk', '/admin/mm-control'],
+              ['Trading', '/trading'],
+              ['Markets', '/markets'],
+              ['Admin users', '/admin-users'],
+              ['Support', '/support'],
+            ] as const
+          ).map(([label, href]) => (
+            <Link
+              key={href}
+              href={href}
+              className="rounded-md border border-admin-border bg-admin-card px-2.5 py-1 text-xs font-medium text-admin-text transition-colors hover:border-admin-primary/40 hover:bg-admin-primary/5"
+            >
+              {label}
+            </Link>
+          ))}
+        </div>
+      </section>
+
       {ADMIN_FEATURE_FLAGS.ADMIN_INCIDENT_MANAGEMENT && <IncidentBanner />}
 
       {/* === PRIMARY METRICS ROW === */}
