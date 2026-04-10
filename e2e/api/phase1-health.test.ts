@@ -1,10 +1,33 @@
 /**
  * Phase 1 — System health E2E tests.
  */
-import { config, getAuthHeaders } from '../config.js';
+import { createHmac, randomBytes } from 'crypto';
+import { config } from '../config.js';
 
 const BASE = config.baseUrl;
 const TIMEOUT = config.timeoutMs;
+
+const ENGINE_HMAC = (
+  process.env.ENGINE_HMAC_SECRET_ACTIVE ||
+  process.env.ENGINE_HMAC_SECRET ||
+  process.env.E2E_ENGINE_HMAC_SECRET ||
+  ''
+).trim();
+const E2E_EID = (process.env.E2E_ENGINE_INSTANCE_ID || 'default').trim();
+const E2E_SVC = (process.env.E2E_ENGINE_SERVICE_USER_ID || '00000000-0000-0000-0000-000000000001').trim();
+
+function engineSignedGetHeaders(pathWithQuery: string): Record<string, string> {
+  if (!ENGINE_HMAC) return {};
+  const nonce = `${Date.now()}-${randomBytes(8).toString('hex')}`;
+  const msg = `v2\n${E2E_SVC}\n${E2E_EID}\nGET\n${pathWithQuery}\n\n${nonce}\n`;
+  const signature = createHmac('sha256', ENGINE_HMAC).update(msg, 'utf8').digest('hex');
+  return {
+    'x-signature': signature,
+    'x-nonce': nonce,
+    'x-user-id': E2E_SVC,
+    'x-engine-id': E2E_EID,
+  };
+}
 
 async function fetchOk(path: string, options: RequestInit = {}): Promise<Response> {
   const res = await fetch(`${BASE}${path}`, { ...options, signal: AbortSignal.timeout(TIMEOUT) });
@@ -88,9 +111,13 @@ export async function runPhase1(): Promise<{ passed: number; failed: number; res
     failed++;
   }
 
-  // 1.6 Rust engine snapshot (optional)
+  // 1.6 Rust engine snapshot (optional; requires ENGINE_HMAC_SECRET when engine enforces HMAC)
   try {
-    const res = await fetch(`${config.engineUrl}/engine/snapshot`, { signal: AbortSignal.timeout(5000) });
+    const pathQ = '/engine/snapshot';
+    const res = await fetch(`${config.engineUrl}${pathQ}`, {
+      headers: engineSignedGetHeaders(pathQ),
+      signal: AbortSignal.timeout(5000),
+    });
     if (res.ok) {
       const body = await res.json() as { markets?: unknown };
       if (typeof body?.markets === 'object') {
@@ -100,6 +127,8 @@ export async function runPhase1(): Promise<{ passed: number; failed: number; res
         results.push('PASS: Rust engine /engine/snapshot (markets shape optional)');
         passed++;
       }
+    } else if (res.status === 401 && !ENGINE_HMAC) {
+      results.push('SKIP: Rust engine /engine/snapshot needs ENGINE_HMAC_SECRET (same as matching-engine)');
     } else {
       results.push(`SKIP: Rust engine not reachable (${res.status})`);
     }

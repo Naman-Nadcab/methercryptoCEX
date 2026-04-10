@@ -19,6 +19,8 @@ export interface OrderbookSnapshot {
   bids: OrderbookLevel[];
   asks: OrderbookLevel[];
   lastUpdateId: number;
+  /** Wall-clock ms when this snapshot was produced (cache write or DB rebuild). */
+  snapshotAtMs?: number;
 }
 
 /** Resolve symbol to trading_pair_id (when market column doesn't exist). Uses read replica when configured. */
@@ -73,12 +75,14 @@ export async function getOrderbookFromDb(symbol: string, limit: number = DEFAULT
       `, [pairId, limit]);
 
   const [bids, asks] = await Promise.all([bidsQuery, asksQuery]);
-  const lastUpdateId = Date.now();
+  const snapshotAtMs = Date.now();
+  const lastUpdateId = snapshotAtMs;
   return {
     symbol,
     bids: bids.rows,
     asks: asks.rows,
     lastUpdateId,
+    snapshotAtMs,
   };
 }
 
@@ -96,6 +100,9 @@ export async function getCachedOrderbook(symbol: string, limit: number = DEFAULT
     const data = JSON.parse(raw) as OrderbookSnapshot;
     data.bids = (data.bids || []).slice(0, limit);
     data.asks = (data.asks || []).slice(0, limit);
+    if (typeof data.snapshotAtMs !== 'number' || !Number.isFinite(data.snapshotAtMs)) {
+      data.snapshotAtMs = 0;
+    }
     return data;
   } catch {
     return null;

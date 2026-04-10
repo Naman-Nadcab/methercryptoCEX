@@ -26,9 +26,7 @@ const nextConfig = {
     return [
       { source: '/admin/login', destination: `${adminOrigin}/login`, permanent: false },
       { source: '/admin', destination: `${adminOrigin}/dashboard`, permanent: false },
-      // Redirect admin routes to admin-panel EXCEPT v2 routes (served by this app)
-      { source: '/admin/:slug((?!dashboard-v2|incidents-v2)[^/]+)', destination: `${adminOrigin}/:slug`, permanent: false },
-      { source: '/admin/:slug((?!dashboard-v2|incidents-v2)[^/]+)/:rest+', destination: `${adminOrigin}/:slug/:rest+`, permanent: false },
+      { source: '/admin/:path+', destination: `${adminOrigin}/:path+`, permanent: false },
     ];
   },
   async rewrites() {

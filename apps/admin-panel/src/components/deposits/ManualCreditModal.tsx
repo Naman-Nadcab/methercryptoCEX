@@ -30,6 +30,7 @@ export function ManualCreditModal({
   isLoading,
   submitError,
 }: ManualCreditModalProps) {
+  const MIN_REASON = 8;
   const [amount, setAmount] = useState(defaultAmount);
   const [currency, setCurrency] = useState(defaultAsset);
   const [reason, setReason] = useState('');
@@ -40,10 +41,12 @@ export function ManualCreditModal({
     if (!confirmed || isDuplicate) return;
     const user = userEmail ?? (userId ? String(userId) : '');
     if (!user || !currency.trim() || !amount.trim()) return;
+    const r = reason.trim();
+    if (r.length < MIN_REASON) return;
     await onConfirm({
       amount: amount.trim(),
       currency: currency.trim(),
-      reason: reason.trim() || undefined,
+      reason: r,
       tx_hash: txHash?.trim() || undefined,
     });
     setAmount('');
@@ -110,13 +113,16 @@ export function ManualCreditModal({
           </div>
           <div>
             <label htmlFor="mc-note" className="block text-sm font-medium text-admin-text">
-              Admin note (optional)
+              Reason / audit note <span className="text-admin-danger">*</span>
+              <span className="text-admin-muted font-normal"> (min {MIN_REASON} chars)</span>
             </label>
             <textarea
               id="mc-note"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               rows={2}
+              required
+              minLength={MIN_REASON}
               className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm focus:ring-2 focus:ring-admin-primary"
             />
           </div>
@@ -135,7 +141,10 @@ export function ManualCreditModal({
             <Button type="button" variant="secondary" onClick={handleClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={!confirmed || isLoading || isDuplicate}>
+            <Button
+              type="submit"
+              disabled={!confirmed || isLoading || isDuplicate || reason.trim().length < MIN_REASON}
+            >
               {isLoading ? 'Processing…' : 'Confirm'}
             </Button>
           </div>

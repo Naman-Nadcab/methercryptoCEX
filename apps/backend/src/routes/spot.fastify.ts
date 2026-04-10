@@ -18,11 +18,11 @@ import {
   invalidateOrderbookCache,
   type OrderbookSnapshot,
 } from '../services/spot-orderbook-cache.service.js';
+import { resolvePublicOrderbookSnapshot, isOrderbookStaleForSymbol } from '../services/spot-orderbook-public.service.js';
 import { scheduleOrderbookRedisBackup } from '../services/spot-orderbook-coalescer.service.js';
 import {
   primeOrderbookStateFromSubscribe,
   ingestOrderbookFromMemory,
-  getLastBroadcastBook,
 } from '../services/spot-orderbook-ws-engine.service.js';
 import {
   applyExecutedTrades,
@@ -69,6 +69,8 @@ import { config } from '../config/index.js';
 import { userHasP2POrderAccess, isUuid as isP2POrderUuid } from '../services/p2p-order-access.service.js';
 import { publishP2POrderRoom } from '../services/p2p-ws-publish.service.js';
 import { isSessionValid } from '../services/session.service.js';
+import { getClientIp } from '../lib/client-ip.js';
+import { issueSpotWsTicket, consumeWsTicket, WS_TICKET_TTL_SEC } from '../services/ws-ticket.service.js';
 
 const spotUserRateLimitOpts = {
   failClosed: config.rateLimit.failClosed,
@@ -127,14 +129,15 @@ const MARKET_ORDER_SLIPPAGE_BUFFER = new Decimal('0.01');
 
 async function cancelOnMatchingEngineIfNeeded(
   orderId: string,
-  row: { type: string; match_engine_id?: string | null }
+  row: { type: string; match_engine_id?: string | null },
+  actingUserId: string
 ): Promise<void> {
   if (!config.rustMatchingEngine.enabled) return;
   const t = (row.type || '').toLowerCase();
   if (t !== 'limit' && t !== 'market') return;
   const mid = String(row.match_engine_id ?? 'default').trim();
   if (mid === 'node') return;
-  await cancelOrderRustOnEngine(orderId, mid);
+  await cancelOrderRustOnEngine(orderId, mid, actingUserId);
 }
 
 function tradeRowToWirePayload(t: LiveWsTradeRow) {
@@ -488,36 +491,20 @@ export default async function spotRoutes(app: FastifyInstance) {
       const symbol = request.params.symbol?.toUpperCase().replace(/-/g, '_') || '';
       const limitRaw = request.query.limit ?? request.query.depth ?? '20';
       const limit = Math.min(100, Math.max(5, parseInt(String(limitRaw), 10) || 20));
+      let market = await db.query(
+        `SELECT 1 FROM spot_markets WHERE symbol = $1 AND status IN ('active', 'maintenance')`,
+        [symbol]
+      );
+      if (market.rows.length === 0) {
+        const tp = await db.query(`SELECT 1 FROM trading_pairs WHERE symbol = $1 AND trading_enabled = TRUE`, [symbol]);
+        if (tp.rows.length === 0) {
+          const err = new Error('NOT_FOUND');
+          (err as Error & { code?: string }).code = 'NOT_FOUND';
+          throw err;
+        }
+      }
       const data = await withTimeout(
-        (async (): Promise<OrderbookSnapshot> => {
-          let market = await db.query(
-            `SELECT 1 FROM spot_markets WHERE symbol = $1 AND status IN ('active', 'maintenance')`,
-            [symbol]
-          );
-          if (market.rows.length === 0) {
-            const tp = await db.query(`SELECT 1 FROM trading_pairs WHERE symbol = $1 AND trading_enabled = TRUE`, [symbol]);
-            if (tp.rows.length === 0) {
-              const err = new Error('NOT_FOUND');
-              (err as Error & { code?: string }).code = 'NOT_FOUND';
-              throw err;
-            }
-          }
-          let snapshot: OrderbookSnapshot | null = await getCachedOrderbook(symbol, limit);
-          if (!snapshot) {
-            snapshot = await getOrderbookFromDb(symbol, limit);
-            setOrderbookCache(snapshot).catch(() => {});
-          }
-          const ob: OrderbookSnapshot = {
-            ...snapshot,
-            bids: snapshot.bids.slice(0, limit),
-            asks: snapshot.asks.slice(0, limit),
-          };
-          const wsAligned = getLastBroadcastBook(symbol);
-          if (wsAligned?.lastUpdateId != null && wsAligned.lastUpdateId > 0) {
-            ob.lastUpdateId = wsAligned.lastUpdateId;
-          }
-          return ob;
-        })(),
+        resolvePublicOrderbookSnapshot(symbol, limit),
         12_000,
         `GET /spot/orderbook/${symbol}`
       );
@@ -607,6 +594,29 @@ export default async function spotRoutes(app: FastifyInstance) {
     }
     const userId = request.user!.id;
     const marketSymbol = (request.body?.market || '').toUpperCase().replace(/-/g, '_');
+    const { redisBlocksSpotOrderPlacement } = await import('../services/redis-health.service.js');
+    if (redisBlocksSpotOrderPlacement()) {
+      return reply.status(503).send({
+        success: false,
+        error: {
+          code: 'REDIS_UNAVAILABLE',
+          message: 'Order placement requires Redis while REDIS_FAILOVER_MODE=strict.',
+        },
+      });
+    }
+    const susp = await db.query<{ s: string | null }>(
+      `SELECT spot_trading_suspended_at::text AS s FROM users WHERE id = $1 AND deleted_at IS NULL`,
+      [userId]
+    );
+    if (susp.rows[0]?.s) {
+      return reply.status(403).send({
+        success: false,
+        error: {
+          code: 'SPOT_TRADING_SUSPENDED',
+          message: 'Spot trading is suspended for this account pending balance integrity review.',
+        },
+      });
+    }
     if (await isTradingHalted()) {
       return reply.status(503).send({
         success: false,
@@ -669,6 +679,15 @@ export default async function spotRoutes(app: FastifyInstance) {
           error: { code: velocityCheck.code ?? 'ORDER_VELOCITY_EXCEEDED', message: velocityCheck.reason ?? 'Order velocity exceeded' },
         });
       }
+    }
+    if (marketSymbol && isOrderbookStaleForSymbol(marketSymbol)) {
+      return reply.status(503).send({
+        success: false,
+        error: {
+          code: 'ORDERBOOK_STALE',
+          message: 'Order placement is paused until the public orderbook feed is fresh.',
+        },
+      });
     }
     const side = (request.body?.side || '').toLowerCase();
     const type = (request.body?.type || 'limit').toLowerCase();
@@ -1489,7 +1508,7 @@ export default async function spotRoutes(app: FastifyInstance) {
         : unlockAmountBase(remainingQty.toString(), 8);
 
       try {
-        await cancelOnMatchingEngineIfNeeded(orderId, o);
+        await cancelOnMatchingEngineIfNeeded(orderId, o, userId);
       } catch (e) {
         logger.error('Matching engine cancel failed', {
           orderId,
@@ -1585,7 +1604,7 @@ export default async function spotRoutes(app: FastifyInstance) {
       const quoteId = row?.quote_currency_id ?? (await getCurrencyIdBySymbol(row?.quote_asset ?? '')) ?? '';
       for (const ord of open.rows) {
         try {
-          await cancelOnMatchingEngineIfNeeded(ord.id, ord);
+          await cancelOnMatchingEngineIfNeeded(ord.id, ord, userId);
         } catch (e) {
           logger.error('Matching engine cancel failed (cancel-all)', {
             orderId: ord.id,
@@ -2317,7 +2336,7 @@ export default async function spotRoutes(app: FastifyInstance) {
         : unlockAmountBase(remainingQty.toString(), 8);
 
       try {
-        await cancelOnMatchingEngineIfNeeded(orderId, o);
+        await cancelOnMatchingEngineIfNeeded(orderId, o, userId);
       } catch (e) {
         logger.error('Matching engine cancel failed', {
           orderId,
@@ -2357,6 +2376,31 @@ export default async function spotRoutes(app: FastifyInstance) {
     }
   });
 
+  // POST /spot/ws-ticket — one-time ticket for /spot/ws (≤15s TTL, bound to user + IP + session)
+  app.post('/ws-ticket', { preHandler: [app.authenticate] }, async (request, reply) => {
+    try {
+      const uid = request.user?.id;
+      const sid = request.user?.sessionId;
+      if (!uid || !sid) {
+        return reply.status(401).send({
+          success: false,
+          error: { code: 'UNAUTHORIZED', message: 'Valid user session required' },
+        });
+      }
+      const ticket = await issueSpotWsTicket(uid, sid, getClientIp(request));
+      return reply.send({
+        success: true,
+        data: { ticket, expiresIn: WS_TICKET_TTL_SEC },
+      });
+    } catch (e) {
+      logger.error('spot ws-ticket issue failed', { error: e instanceof Error ? e.message : String(e) });
+      return reply.status(503).send({
+        success: false,
+        error: { code: 'TICKET_UNAVAILABLE', message: 'Could not issue WebSocket ticket' },
+      });
+    }
+  });
+
   // GET /spot/metrics — observability: orders/sec, trades/sec, order latency (last 60s window)
   app.get('/metrics', async (_request, reply) => {
     try {
@@ -2370,7 +2414,17 @@ export default async function spotRoutes(app: FastifyInstance) {
 
   // WebSocket: real-time orderbook, trades, ticker, user.orders, user.trades
   app.get('/ws', { websocket: true }, (socket, req) => {
-    /** Auth via first WS message `{ type: 'auth', data: { token } }` — no JWT in URL (leakage-safe). */
+    const rawUrl = (req as { url?: string }).url || '';
+    try {
+      const u = new URL(rawUrl, 'http://localhost');
+      if (u.searchParams.has('token')) {
+        socket.close(1008, 'JWT query param is not permitted');
+        return;
+      }
+    } catch {
+      /* ignore bad url */
+    }
+    /** Auth: POST /spot/ws-ticket then `{ type: 'auth', data: { ticket } }` — one-time, IP-bound. */
     const connId = spotWs.registerConnection(socket as any, undefined);
     if (!connId) {
       socket.send(JSON.stringify({ type: 'error', data: { message: 'Connection limit reached. Try again later.' }, timestamp: Date.now() }));
@@ -2390,33 +2444,28 @@ export default async function spotRoutes(app: FastifyInstance) {
           client_ts?: number;
           rtt_ms?: number;
           loss_pct?: number;
-          data?: { token?: string };
+          data?: { ticket?: string };
         };
         const wsUserId = spotWs.getConnectionUserId(connId);
         if (msg.type === 'auth') {
-          const t = typeof msg.data?.token === 'string' ? msg.data.token.trim() : '';
-          if (!t) {
-            socket.send(JSON.stringify({ type: 'auth_result', success: false, error: 'token_required', timestamp: Date.now() }));
+          const ticket = typeof msg.data?.ticket === 'string' ? msg.data.ticket.trim() : '';
+          if (!ticket) {
+            socket.send(JSON.stringify({ type: 'auth_result', success: false, error: 'ticket_required', timestamp: Date.now() }));
             return;
           }
           try {
-            const decoded = app.jwt.verify(t) as { userId?: string; sessionId?: string };
-            const uid = decoded.userId?.trim();
-            const sid = decoded.sessionId?.trim();
-            if (!uid || !sid) {
-              socket.send(JSON.stringify({ type: 'auth_result', success: false, error: 'invalid_token', timestamp: Date.now() }));
+            const clientIp = getClientIp(req as import('fastify').FastifyRequest);
+            const consumed = await consumeWsTicket(ticket, clientIp, 'spot');
+            if (!consumed.ok || !consumed.userId || !consumed.userSessionId) {
+              socket.send(JSON.stringify({ type: 'auth_result', success: false, error: 'invalid_ticket', timestamp: Date.now() }));
               return;
             }
-            const valid = await isSessionValid(sid);
+            const valid = await isSessionValid(consumed.userSessionId);
             if (!valid) {
               socket.send(JSON.stringify({ type: 'auth_result', success: false, error: 'session_invalid', timestamp: Date.now() }));
               return;
             }
-            const blacklisted = await redis.exists(`blacklist:token:${t}`);
-            if (blacklisted) {
-              socket.send(JSON.stringify({ type: 'auth_result', success: false, error: 'token_revoked', timestamp: Date.now() }));
-              return;
-            }
+            const uid = consumed.userId;
             if (spotWs.countConnectionsForUser(uid) >= config.ws.maxConnectionsPerUser) {
               socket.send(JSON.stringify({ type: 'auth_result', success: false, error: 'connection_limit', timestamp: Date.now() }));
               return;

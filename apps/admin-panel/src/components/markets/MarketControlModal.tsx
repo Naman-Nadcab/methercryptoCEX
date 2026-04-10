@@ -56,11 +56,12 @@ export function MarketControlModal({
   const [reason, setReason] = useState('');
   const [adminNote, setAdminNote] = useState('');
 
+  const MIN_PAUSE_REASON = 8;
   const isPause = action === 'pause';
-  const canConfirm = !isPause || reason.trim().length > 0;
+  const canConfirm = !isPause || reason.trim().length >= MIN_PAUSE_REASON;
 
   const handleConfirm = () => {
-    if (isPause && !reason.trim()) return;
+    if (isPause && reason.trim().length < MIN_PAUSE_REASON) return;
     if (isPause) {
       onConfirm({ reason: reason.trim(), admin_note: adminNote.trim() || undefined });
     } else {

@@ -1,5 +1,11 @@
-const ENGINE_BASE_URL = process.env.MATCHING_ENGINE_URL ?? 'http://localhost:7101';
+import { config } from '../config/index.js';
+import { engineHmacRequestHeaders } from './settlement/engine-hmac.js';
+
 const FETCH_TIMEOUT_MS = 2_000;
+
+function engineBaseUrl(): string {
+  return config.rustMatchingEngine.url.replace(/\/$/, '');
+}
 const MAX_CACHED_EVENTS = 5_000;
 
 export interface MatchEvent {
@@ -20,11 +26,21 @@ let lastMatchIndex = 0;
 let cachedEvents: MatchEvent[] = [];
 
 export async function fetchMatchEvents(sinceIndex: number): Promise<MatchesResponse> {
-  const url = `${ENGINE_BASE_URL}/engine/matches?since=${sinceIndex}`;
+  const base = engineBaseUrl();
+  const pathQ = `/engine/matches?since=${sinceIndex}`;
+  const url = `${base}${pathQ}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const hmac = engineHmacRequestHeaders({
+    activeSecret: config.rustMatchingEngine.hmacSecretActive,
+    method: 'GET',
+    pathWithQuery: pathQ,
+    body: '',
+    userId: config.rustMatchingEngine.hmacServiceUserId,
+    engineId: 'default',
+  });
   try {
-    const res = await fetch(url, { signal: controller.signal });
+    const res = await fetch(url, { signal: controller.signal, headers: { ...hmac } });
     clearTimeout(timeout);
     if (!res.ok) {
       throw new Error(`Matching engine returned ${res.status}`);

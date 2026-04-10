@@ -33,7 +33,14 @@
     "tier1:drain-settlement": "tsx scripts/tier1-drain-settlement.ts",
     "tier1:release-check:db": "npm run tier1:phase1-verify && npm run tier1:fiu-readiness",
     "tier1:release-check:full": "npm run tier1:release-check:db && npm run tier1:phase2-verify && npm run tier1:phase3-verify",
-    "tier1:release-check:strict": "TIER1_REQUIRE_ZERO_PENDING_SETTLEMENT=true npm run tier1:phase1-verify && TIER1_REQUIRE_ZERO_PENDING_SETTLEMENT=true npm run tier1:fiu-readiness && TIER1_REQUIRE_ZERO_PENDING_SETTLEMENT=true npm run tier1:phase2-verify && TIER1_REQUIRE_ZERO_PENDING_SETTLEMENT=true npm run tier1:phase3-verify"
+    "tier1:release-check:strict": "TIER1_REQUIRE_ZERO_PENDING_SETTLEMENT=true npm run tier1:phase1-verify && TIER1_REQUIRE_ZERO_PENDING_SETTLEMENT=true npm run tier1:fiu-readiness && TIER1_REQUIRE_ZERO_PENDING_SETTLEMENT=true npm run tier1:phase2-verify && TIER1_REQUIRE_ZERO_PENDING_SETTLEMENT=true npm run tier1:phase3-verify",
+    "test:phase0-security": "tsx scripts/phase0-security-verify.ts",
+    "test:phase1-final-security": "tsx scripts/phase1-final-security-verify.ts",
+    "test:phase1-chaos-redis": "PHASE1_VERIFY_REDIS_MODE=degraded tsx scripts/phase1-chaos-redis-subprocess.ts && PHASE1_VERIFY_REDIS_MODE=strict tsx scripts/phase1-chaos-redis-subprocess.ts",
+    "test:phase2-treasury": "tsx scripts/phase2-treasury-verify.ts",
+    "test:phase3-hardening": "tsx scripts/phase3-ultra-hardening-verify.ts",
+    "test:launch-validation": "tsx scripts/launch-security-validation.ts",
+    "start:signing-service": "node dist/signing/signing-http-main.js"
   },
   "dependencies": {
     "@aws-sdk/client-kms": "^3.989.0",

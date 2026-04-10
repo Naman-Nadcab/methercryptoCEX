@@ -534,12 +534,15 @@ export default function UserDetailPage() {
                 </div>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-admin-muted">Reason (required)</label>
+                <label className="mb-1 block text-xs font-medium text-admin-muted">
+                  Reason (required, min 8 characters)
+                </label>
                 <textarea
                   value={adjReason}
                   onChange={(e) => setAdjReason(e.target.value)}
                   rows={3}
-                  placeholder="Describe the reason for this adjustment…"
+                  minLength={8}
+                  placeholder="Describe the reason for this adjustment (audit trail)…"
                   className="w-full rounded-lg border border-admin-border px-3 py-2 text-sm focus:border-admin-primary focus:outline-none resize-none"
                 />
               </div>
@@ -549,9 +552,11 @@ export default function UserDetailPage() {
               <Button variant="secondary" size="sm" onClick={() => setShowBalanceAdjust(false)}>Cancel</Button>
               <Button
                 size="sm"
-                disabled={!adjCurrency || !adjAmount || !adjReason.trim() || balanceAdjust.isPending}
+                disabled={
+                  !adjCurrency || !adjAmount || adjReason.trim().length < 8 || balanceAdjust.isPending
+                }
                 onClick={() => {
-                  if (!adjCurrency || !adjAmount || !adjReason.trim()) return;
+                  if (!adjCurrency || !adjAmount || adjReason.trim().length < 8) return;
                   if (!confirm(`Confirm ${adjType} of ${adjAmount} to this user?`)) return;
                   balanceAdjust.mutate({ currency_id: adjCurrency, amount: adjAmount, type: adjType, reason: adjReason.trim() });
                 }}

@@ -1,40 +1,15 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db } from '../lib/database.js';
-import { redis } from '../lib/redis.js';
 import path from 'path';
 import fs from 'fs';
 import { pipeline } from 'stream/promises';
 import crypto from 'crypto';
-
-// Admin authentication middleware
-async function verifyAdmin(request: FastifyRequest, reply: FastifyReply) {
-  try {
-    const token = request.headers.authorization?.replace('Bearer ', '');
-    if (!token) {
-      return reply.status(401).send({ success: false, error: { code: 'UNAUTHORIZED', message: 'No token provided' } });
-    }
-
-    const decoded = await (request.server as { jwt: { verify: (t: string) => Promise<{ id?: string; adminId?: string; role?: string; sessionId?: string }> } }).jwt.verify(token);
-    const decodedTyped = decoded as { id?: string; adminId?: string; role?: string; sessionId?: string };
-
-    // Check if it's an admin token
-    if (!decodedTyped.adminId) {
-      return reply.status(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Admin access required' } });
-    }
-
-    // Verify session in Redis
-    const session = await redis.getJson<{ isActive: boolean }>(`admin:session:${decodedTyped.sessionId}`);
-    if (!session || !session.isActive) {
-      return reply.status(401).send({ success: false, error: { code: 'SESSION_EXPIRED', message: 'Session expired' } });
-    }
-
-    (request as any).admin = decodedTyped;
-  } catch (error) {
-    return reply.status(401).send({ success: false, error: { code: 'INVALID_TOKEN', message: 'Invalid token' } });
-  }
-}
+import { getAdminFromRequest } from './admin.fastify.js';
 
 export default async function uploadRoutes(app: FastifyInstance) {
+  const requireUploadAdmin = async (request: FastifyRequest, reply: FastifyReply) => {
+    await getAdminFromRequest(app, request, reply, false);
+  };
   // Multipart is registered globally in server.ts
 
   // Frontend public folder path (relative to backend)
@@ -46,7 +21,7 @@ export default async function uploadRoutes(app: FastifyInstance) {
 
   // Upload logo for blockchain
   app.post<{ Params: { blockchainId: string } }>('/logo/blockchain/:blockchainId', {
-    preHandler: verifyAdmin,
+    preHandler: requireUploadAdmin,
   }, async (request, reply) => {
     try {
       const { blockchainId } = request.params;
@@ -122,7 +97,7 @@ export default async function uploadRoutes(app: FastifyInstance) {
 
   // Upload logo for currency/token
   app.post<{ Params: { currencyId: string } }>('/logo/currency/:currencyId', {
-    preHandler: verifyAdmin,
+    preHandler: requireUploadAdmin,
   }, async (request, reply) => {
     try {
       const { currencyId } = request.params;
@@ -198,7 +173,7 @@ export default async function uploadRoutes(app: FastifyInstance) {
 
   // Generic upload endpoint - for new items (before ID exists)
   app.post<{ Params: { type: 'blockchain' | 'currency' }; Querystring: { symbol: string } }>('/logo/:type', {
-    preHandler: verifyAdmin,
+    preHandler: requireUploadAdmin,
   }, async (request, reply) => {
     try {
       const { type } = request.params;

@@ -1,5 +1,6 @@
 import { db } from '../lib/database.js';
 import { logger } from '../lib/logger.js';
+import { config } from '../config/index.js';
 
 export type ApprovalActionType =
   | 'withdrawal_approve'
@@ -35,8 +36,31 @@ export interface ApprovalRequest {
   executed_at: string | null;
   created_at: string;
   updated_at: string;
+  maker_unlock_at?: string | null;
+  action_executed?: boolean;
   requester_name?: string;
   requester_email?: string;
+}
+
+export function effectiveRequiredApprovals(actionType: ApprovalActionType, custom?: number): number {
+  if (custom != null) return custom;
+  if (
+    config.security.makerCheckerEnabled &&
+    (actionType === 'withdrawal_approve' || actionType === 'manual_credit')
+  ) {
+    return config.security.makerCheckerRequiredApprovals;
+  }
+  return DEFAULT_APPROVAL_THRESHOLDS[actionType] ?? 2;
+}
+
+function makerUnlockAt(actionType: ApprovalActionType): Date | null {
+  if (
+    !config.security.makerCheckerEnabled ||
+    (actionType !== 'withdrawal_approve' && actionType !== 'manual_credit')
+  ) {
+    return null;
+  }
+  return new Date(Date.now() + config.security.makerCheckerDelaySec * 1000);
 }
 
 class AdminApprovalService {
@@ -46,18 +70,16 @@ class AdminApprovalService {
     requestedBy: string,
     customThreshold?: number
   ): Promise<ApprovalRequest> {
-    const requiredApprovals =
-      customThreshold ?? DEFAULT_APPROVAL_THRESHOLDS[actionType] ?? 2;
-    const expiresAt = new Date(
-      Date.now() + DEFAULT_EXPIRY_HOURS * 60 * 60 * 1000
-    );
+    const requiredApprovals = effectiveRequiredApprovals(actionType, customThreshold);
+    const expiresAt = new Date(Date.now() + DEFAULT_EXPIRY_HOURS * 60 * 60 * 1000);
+    const unlock = makerUnlockAt(actionType);
 
     const result = await db.query<ApprovalRequest>(
       `INSERT INTO admin_approval_requests
-         (action_type, action_payload, requested_by, required_approvals, expires_at)
-       VALUES ($1, $2, $3, $4, $5)
+         (action_type, action_payload, requested_by, required_approvals, expires_at, maker_unlock_at)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
-      [actionType, JSON.stringify(actionPayload), requestedBy, requiredApprovals, expiresAt]
+      [actionType, JSON.stringify(actionPayload), requestedBy, requiredApprovals, expiresAt, unlock]
     );
 
     const request = result.rows[0]!;
@@ -66,6 +88,7 @@ class AdminApprovalService {
       actionType,
       requestedBy,
       requiredApprovals,
+      makerUnlockAt: unlock?.toISOString() ?? null,
     });
     return request;
   }
@@ -131,6 +154,12 @@ class AdminApprovalService {
     if (request.requested_by === adminId) {
       return { success: false, message: 'Cannot approve your own request' };
     }
+    if (request.maker_unlock_at && new Date(request.maker_unlock_at) > new Date()) {
+      return {
+        success: false,
+        message: `Maker-checker delay not elapsed; earliest approval at ${request.maker_unlock_at}`,
+      };
+    }
     const currentApprovers = request.approved_by ?? [];
     if (currentApprovers.includes(adminId)) {
       return { success: false, message: 'You have already approved this request' };
@@ -158,6 +187,8 @@ class AdminApprovalService {
       ]
     );
 
+    const row = updated.rows[0]!;
+
     logger.info('Approval request updated', {
       requestId,
       adminId,
@@ -166,12 +197,43 @@ class AdminApprovalService {
       fullyApproved: isFullyApproved,
     });
 
+    if (
+      !isFullyApproved &&
+      row.action_type === 'withdrawal_approve' &&
+      newApprovals >= 1
+    ) {
+      const withdrawalId = String((row.action_payload as { withdrawalId?: string })?.withdrawalId ?? '').trim();
+      if (withdrawalId) {
+        await db.query(
+          `UPDATE withdrawals SET treasury_stage = 'maker_approved', updated_at = NOW()
+           WHERE id = $1::uuid AND status = 'pending_approval'`,
+          [withdrawalId]
+        );
+      }
+    }
+
+    if (
+      isFullyApproved &&
+      config.security.makerCheckerEnabled &&
+      (row.action_type === 'withdrawal_approve' || row.action_type === 'manual_credit')
+    ) {
+      try {
+        const { executeMakerCheckerIfFullyApproved } = await import('./maker-checker-execute.service.js');
+        await executeMakerCheckerIfFullyApproved(row);
+      } catch (e) {
+        logger.error('maker-checker execution failed', {
+          requestId: row.id,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+
     return {
       success: true,
       message: isFullyApproved
-        ? 'Request fully approved and ready for execution'
+        ? 'Request fully approved and executed where applicable'
         : `Approved (${newApprovals}/${request.required_approvals})`,
-      request: updated.rows[0],
+      request: row,
     };
   }
 
@@ -226,7 +288,7 @@ class AdminApprovalService {
   }
 
   getDefaultThreshold(actionType: string): number {
-    return DEFAULT_APPROVAL_THRESHOLDS[actionType] ?? 2;
+    return effectiveRequiredApprovals(actionType as ApprovalActionType);
   }
 }
 

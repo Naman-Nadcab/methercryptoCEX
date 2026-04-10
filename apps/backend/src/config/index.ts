@@ -2,6 +2,8 @@ import dotenv from 'dotenv';
 import { z } from 'zod';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { getTier0ProductionViolations } from '../lib/security-production-gate.js';
+import { parseInternalHmacServiceSecrets } from '../lib/internal-hmac-service-secrets.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,6 +29,10 @@ const envSchema = z.object({
   // Redis Sentinel (HA): comma-separated hosts, e.g. sentinel1:26379,sentinel2:26379
   REDIS_SENTINELS: z.string().optional(),
   REDIS_SENTINEL_MASTER: z.string().optional(),
+  /** strict: fail-closed when Redis is down. degraded: allow read-oriented paths; high-risk admin mutations still blocked while Redis is unhealthy. */
+  REDIS_FAILOVER_MODE: z.enum(['strict', 'degraded']).default('strict'),
+  /** When set (e.g. CHAOS_TEST_HOOKS subprocess), wins over REDIS_FAILOVER_MODE so dotenv cannot clobber test mode. */
+  CHAOS_OVERRIDE_REDIS_FAILOVER: z.enum(['strict', 'degraded']).optional(),
 
   // RabbitMQ
   RABBITMQ_URL: z.string().default('amqp://localhost:5672'),
@@ -121,6 +127,8 @@ const envSchema = z.object({
   // Security
   CORS_ORIGINS: z.string().default('http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001,http://localhost:4000,http://127.0.0.1:4000'),
   TRUSTED_PROXIES: z.coerce.number().default(1),
+  /** Comma-separated IPs or IPv4 CIDRs of L7 proxies. When non-empty, X-Forwarded-For / X-Real-IP / CF-Connecting-IP are honored only for connections from these peers; otherwise socket IP is used (anti-spoof). Empty = legacy (trust forwarded headers). */
+  TRUSTED_PROXY_IPS: z.string().optional().transform((v) => (v ?? '').trim()),
   ADMIN_IP_WHITELIST: z.string().default('127.0.0.1,::1'),
   SESSION_SECRET: z.string().min(32),
   CSRF_SECRET: z.string().min(32),
@@ -135,6 +143,10 @@ const envSchema = z.object({
   PROMETHEUS_ENABLED: z.coerce.boolean().default(false),
   PROMETHEUS_PORT: z.coerce.number().default(9090),
   ALERT_WEBHOOK_URL: z.string().optional().transform((v) => ((v ?? '').trim() || undefined)), // Slack/email webhook for circuit_open, integrity_mismatch
+  OPS_ALERT_SLACK_URL: z.string().optional().transform((v) => ((v ?? '').trim() || undefined)),
+  OPS_ALERT_EMAIL_WEBHOOK_URL: z.string().optional().transform((v) => ((v ?? '').trim() || undefined)),
+  OPS_ALERT_DEDUPE_MS: z.coerce.number().min(10_000).max(3_600_000).default(120_000),
+  OPS_ALERT_RATE_LIMIT_PER_TYPE_PER_MIN: z.coerce.number().min(1).max(500).default(40),
 
   // WebSocket connection caps (DoS protection)
   WS_MAX_CONNECTIONS_GLOBAL: z.coerce.number().min(100).max(100_000).default(10_000),
@@ -196,6 +208,54 @@ const envSchema = z.object({
   MATCHING_ENGINE_SKIP_UNHEALTHY_FOR_PLACE: z.string().transform((v) => v !== 'false' && v !== '0').default('true'),
   /** Secret for engine->backend internal API (orderbook rebuild). When set, engine must send X-Engine-Secret. */
   ENGINE_INTERNAL_SECRET: z.string().optional().transform(v => (v ?? '').trim() || undefined),
+  /** @deprecated Use ENGINE_HMAC_SECRET_ACTIVE; still supported as active secret fallback. */
+  ENGINE_HMAC_SECRET: z.string().optional().transform(v => (v ?? '').trim() || undefined),
+  ENGINE_HMAC_SECRET_ACTIVE: z.string().optional().transform(v => (v ?? '').trim() || undefined),
+  ENGINE_HMAC_SECRET_OLD: z.string().optional().transform(v => (v ?? '').trim() || undefined),
+  /** User id sent on poller GET /engine/matches (x-user-id); not an end-user. */
+  ENGINE_HMAC_SERVICE_USER_ID: z.string().optional().transform(v => (v ?? '').trim() || undefined),
+  /** Comma-separated IPs/CIDRs allowed to call /internal/engine/* (required in production). Dev default: loopback. */
+  INTERNAL_API_ALLOW_CIDRS: z.string().optional().transform((v) => (v ?? '').trim()),
+  INTERNAL_ENGINE_RATE_LIMIT_MAX: z.coerce.number().min(10).max(50_000).default(600),
+  /** Comma-separated values for X-Service-Id on internal HMAC calls. Empty in dev = do not enforce service id; production Tier-0 requires non-empty. */
+  INTERNAL_HMAC_ALLOWED_SERVICE_IDS: z.string().optional().transform((v) => (v ?? '').trim()),
+  /** Comma-separated serviceId=secret for internal HMAC (production Tier-0). When set, signature verified per service only. */
+  INTERNAL_HMAC_SERVICE_SECRETS: z.string().optional().transform((v) => (v ?? '').trim()),
+  /** When true, emergency POST /admin/break-glass-login is enabled (still requires ADMIN_BREAK_GLASS_SECRET). */
+  ADMIN_BREAK_GLASS_ENABLED: z.string().transform((v) => v === 'true' || v === '1').default('false'),
+  /** Shared secret for break-glass login (min 32 chars when break-glass is enabled in production). */
+  ADMIN_BREAK_GLASS_SECRET: z.string().optional().transform((v) => (v ?? '').trim()),
+  /** Comma-separated IPs/CIDRs allowed for break-glass challenge + login (required when break-glass enabled in Tier-0). */
+  ADMIN_BREAK_GLASS_ALLOWED_IPS: z.string().optional().transform((v) => (v ?? '').trim()),
+  /** Require two-admin maker-checker for withdrawal_approve + manual_credit (direct routes blocked). */
+  MAKER_CHECKER_ENABLED: z.string().transform((v) => v === 'true' || v === '1').default('false'),
+  /** Seconds before a second admin may approve a sensitive approval request. */
+  MAKER_CHECKER_DELAY_SEC: z.coerce.number().min(60).max(3600).default(300),
+  /** Approvals required after delay (1 = initiator + one other admin). */
+  MAKER_CHECKER_REQUIRED_APPROVALS: z.coerce.number().min(1).max(5).default(1),
+  /** Append-only NDJSON export of audit_logs_immutable (tamper-evident chain). */
+  AUDIT_EXPORT_ENABLED: z.string().transform((v) => v === 'true' || v === '1').default('false'),
+  AUDIT_EXPORT_DIR: z.string().optional().transform((v) => (v ?? '').trim()),
+  AUDIT_EXPORT_MAX_RETRIES: z.coerce.number().min(1).max(10).default(3),
+  /** 0 = staleness flag disabled for public orderbook. */
+  MAX_ORDERBOOK_AGE_MS: z.coerce.number().min(0).max(3_600_000).default(0),
+  TRADING_PAUSE_ON_STALE_ORDERBOOK: z.string().transform((v) => v === 'true' || v === '1').default('false'),
+  BALANCE_CONSISTENCY_TOLERANCE: z.string().default('0.00000001'),
+  CHAOS_SCHEDULE_ENABLED: z.string().transform((v) => v === 'true' || v === '1').default('false'),
+  CHAOS_SCHEDULE_INTERVAL_MS: z.coerce.number().min(60_000).max(86_400_000).default(3_600_000),
+  CHAOS_REPORT_DIR: z.string().optional().transform((v) => (v ?? '').trim()),
+  TREASURY_ONCHAIN_RECONCILE_INTERVAL_MS: z.coerce.number().min(60_000).max(86_400_000).default(600_000),
+  TREASURY_HOT_MONITOR_INTERVAL_MS: z.coerce.number().min(30_000).max(3_600_000).default(120_000),
+  WITHDRAWAL_TREASURY_VELOCITY_MAX: z.coerce.number().min(1).max(100).default(8),
+  WITHDRAWAL_TREASURY_VELOCITY_WINDOW_MIN: z.coerce.number().min(5).max(1440).default(60),
+  WITHDRAWAL_TREASURY_AMOUNT_MULTIPLIER_WARN: z.string().default('10'),
+  /** When true, admin login from an IP never seen for this admin is rejected (after first session exists). */
+  ADMIN_BLOCK_LOGIN_NEW_IP: z.string().transform((v) => v === 'true' || v === '1').default('false'),
+  /**
+   * When set: forces admin 2FA on login (true/false/1/0/yes/no). Unset + NODE_ENV=development → 2FA not required for login.
+   * NODE_ENV=production always enforces 2FA regardless of this value.
+   */
+  ADMIN_2FA_MANDATORY: z.string().optional(),
 
   // Phase D: Price oracle (update market_prices from external API)
   PRICE_ORACLE_ENABLED: z.string().transform(v => v === 'true').default('false'),
@@ -394,6 +454,27 @@ const envSchema = z.object({
   WITHDRAWAL_APPROVAL_THRESHOLD: z.coerce.number().default(10000),
   // New whitelisted addresses: hours before first withdrawal (timelock)
   WITHDRAWAL_ADDRESS_COOLING_HOURS: z.coerce.number().min(0).default(24),
+  /** Dev only: skip withdrawal_address_whitelist + timelock (NEVER in production). */
+  WITHDRAWAL_WHITELIST_RELAXED: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true' || v === '1'),
+
+  SIGNING_REMOTE_ENABLED: z.string().transform((v) => v === 'true' || v === '1').default('false'),
+  SIGNING_SERVICE_URL: z.string().url().optional().transform((v) => (v ?? '').trim() || undefined),
+  SIGNING_SERVICE_HMAC_SECRET: z.string().optional().transform((v) => (v ?? '').trim() || undefined),
+  SIGNING_SERVICE_MTLS_CA_PATH: z.string().optional().transform((v) => (v ?? '').trim() || undefined),
+  SIGNING_SERVICE_MTLS_CERT_PATH: z.string().optional().transform((v) => (v ?? '').trim() || undefined),
+  SIGNING_SERVICE_MTLS_KEY_PATH: z.string().optional().transform((v) => (v ?? '').trim() || undefined),
+
+  PUBLIC_API_FASTIFY_RATE_LIMIT_MAX: z.coerce.number().min(10).max(100_000).default(1000),
+  PUBLIC_API_REDIS_RATE_ENABLED: z.string().transform((v) => v !== 'false' && v !== '0').default('true'),
+  PUBLIC_API_REDIS_RATE_IP_MAX: z.coerce.number().min(1).max(50_000).default(400),
+  PUBLIC_API_REDIS_RATE_IP_WINDOW_SEC: z.coerce.number().min(1).max(3600).default(60),
+  PUBLIC_API_REDIS_RATE_TOKEN_MAX: z.coerce.number().min(1).max(50_000).default(200),
+  PUBLIC_API_REDIS_RATE_TOKEN_WINDOW_SEC: z.coerce.number().min(1).max(3600).default(60),
+
+  TREASURY_TOKEN_RECONCILE_INTERVAL_MS: z.coerce.number().min(60_000).max(86_400_000).default(900_000),
 
   // Deposit consolidation: sweep user deposit addresses to hot wallet
   DEPOSIT_SWEEP_ENABLED: z.string().transform(v => v === 'true').default('true'),
@@ -609,6 +690,11 @@ if (natsPipelineOn && !parsed.data.NATS_URL?.trim()) {
 
 // Tier 1: Production — require admin IP whitelist (no open admin)
 if (parsed.data.NODE_ENV === 'production') {
+  const tier0 = getTier0ProductionViolations();
+  if (tier0.length > 0) {
+    console.error('❌ Tier-0 security: production requires:', tier0.join(', '));
+    process.exit(1);
+  }
   const adminIps = parsed.data.ADMIN_IP_WHITELIST.split(',').map((s) => s.trim()).filter(Boolean);
   if (adminIps.length === 0) {
     console.error('❌ ADMIN_IP_WHITELIST must be set in production (comma-separated IPs or CIDR). Empty = deny all.');
@@ -621,9 +707,46 @@ if (parsed.data.NODE_ENV === 'production') {
   if (!parsed.data.ALERT_WEBHOOK_URL?.trim()) {
     console.warn('⚠️  ALERT_WEBHOOK_URL not set — circuit_open and integrity_mismatch will not be sent to Slack/PagerDuty.');
   }
+  if (parsed.data.WITHDRAWAL_WHITELIST_RELAXED) {
+    console.error('❌ WITHDRAWAL_WHITELIST_RELAXED must be false in production.');
+    process.exit(1);
+  }
+  if (parsed.data.SIGNING_REMOTE_ENABLED) {
+    const miss =
+      !parsed.data.SIGNING_SERVICE_URL?.trim() ||
+      !parsed.data.SIGNING_SERVICE_HMAC_SECRET?.trim() ||
+      !parsed.data.SIGNING_SERVICE_MTLS_CA_PATH?.trim() ||
+      !parsed.data.SIGNING_SERVICE_MTLS_CERT_PATH?.trim() ||
+      !parsed.data.SIGNING_SERVICE_MTLS_KEY_PATH?.trim();
+    if (miss) {
+      console.error('❌ SIGNING_REMOTE_ENABLED requires SIGNING_SERVICE_URL, HMAC_SECRET, and MTLS_*_PATH.');
+      process.exit(1);
+    }
+  }
   if (!process.env.SANCTIONS_PROVIDER?.trim()) {
     console.warn('⚠️  SANCTIONS_PROVIDER not set — sanctions screening is no-op. Integrate a provider for compliance.');
   }
+}
+
+function parseAdmin2faMandatoryEnv(raw: string | undefined): boolean | null {
+  if (raw === undefined || String(raw).trim() === '') return null;
+  const t = String(raw).trim().toLowerCase();
+  if (['false', '0', 'no', 'off'].includes(t)) return false;
+  if (['true', '1', 'yes', 'on'].includes(t)) return true;
+  return null;
+}
+
+const admin2faEnv = parseAdmin2faMandatoryEnv(parsed.data.ADMIN_2FA_MANDATORY);
+const admin2faMandatory =
+  parsed.data.NODE_ENV === 'production'
+    ? true
+    : admin2faEnv !== null
+      ? admin2faEnv
+      : parsed.data.NODE_ENV === 'development'
+        ? false
+        : true;
+if (parsed.data.NODE_ENV !== 'production' && !admin2faMandatory) {
+  console.warn('⚠️ WARNING: 2FA DISABLED (DEV MODE ONLY)');
 }
 
 export const config = {
@@ -685,6 +808,7 @@ export const config = {
     tlsEnabled: parsed.data.REDIS_TLS_ENABLED,
     wsPubSubEnabled: parsed.data.REDIS_WS_PUBSUB_ENABLED,
     retryMode: parsed.data.REDIS_RETRY_MODE,
+    failoverMode: parsed.data.CHAOS_OVERRIDE_REDIS_FAILOVER ?? parsed.data.REDIS_FAILOVER_MODE,
     sentinels: (() => {
       const v = parsed.data.REDIS_SENTINELS?.trim();
       if (!v) return undefined;
@@ -807,6 +931,9 @@ export const config = {
   security: {
     corsOrigins: parsed.data.CORS_ORIGINS.split(',').map((o) => o.trim()),
     trustedProxies: parsed.data.TRUSTED_PROXIES,
+    trustedProxyIps: parsed.data.TRUSTED_PROXY_IPS
+      ? parsed.data.TRUSTED_PROXY_IPS.split(',').map((s) => s.trim()).filter(Boolean)
+      : [],
     // FIX #3: Admin IP whitelist. Comma-separated IPs or CIDR (e.g. 10.0.0.0/8). Empty in production = deny all; in non-production = do not enforce.
     adminIpWhitelist: parsed.data.ADMIN_IP_WHITELIST.split(',')
       .map((ip) => ip.trim())
@@ -818,6 +945,47 @@ export const config = {
     sessionCoreUrl: parsed.data.SESSION_CORE_URL,
     lockServiceUrl: parsed.data.LOCK_SERVICE_URL,
     totpEncryptionKey: parsed.data.TOTP_ENCRYPTION_KEY,
+    adminBlockLoginNewIp: parsed.data.ADMIN_BLOCK_LOGIN_NEW_IP,
+    breakGlassEnabled: parsed.data.ADMIN_BREAK_GLASS_ENABLED,
+    breakGlassSecret: parsed.data.ADMIN_BREAK_GLASS_SECRET?.trim() || undefined,
+    makerCheckerEnabled: parsed.data.MAKER_CHECKER_ENABLED,
+    makerCheckerDelaySec: parsed.data.MAKER_CHECKER_DELAY_SEC,
+    makerCheckerRequiredApprovals: parsed.data.MAKER_CHECKER_REQUIRED_APPROVALS,
+    breakGlassAllowedIps: parsed.data.ADMIN_BREAK_GLASS_ALLOWED_IPS
+      ? parsed.data.ADMIN_BREAK_GLASS_ALLOWED_IPS.split(',').map((s) => s.trim()).filter(Boolean)
+      : [],
+    /** Admin login requires 2FA to be enabled on the account. Always true when NODE_ENV=production. */
+    admin2faMandatory,
+  },
+
+  auditExport: {
+    enabled: parsed.data.AUDIT_EXPORT_ENABLED,
+    dir: parsed.data.AUDIT_EXPORT_DIR || undefined,
+    maxRetries: parsed.data.AUDIT_EXPORT_MAX_RETRIES,
+  },
+
+  orderbook: {
+    maxAgeMs: parsed.data.MAX_ORDERBOOK_AGE_MS,
+    pauseTradingOnStale: parsed.data.TRADING_PAUSE_ON_STALE_ORDERBOOK,
+  },
+
+  balanceConsistency: {
+    tolerance: parsed.data.BALANCE_CONSISTENCY_TOLERANCE,
+  },
+
+  chaosSchedule: {
+    enabled: parsed.data.CHAOS_SCHEDULE_ENABLED,
+    intervalMs: parsed.data.CHAOS_SCHEDULE_INTERVAL_MS,
+    reportDir: parsed.data.CHAOS_REPORT_DIR || undefined,
+  },
+
+  treasury: {
+    onchainReconcileIntervalMs: parsed.data.TREASURY_ONCHAIN_RECONCILE_INTERVAL_MS,
+    hotMonitorIntervalMs: parsed.data.TREASURY_HOT_MONITOR_INTERVAL_MS,
+    velocityMax: parsed.data.WITHDRAWAL_TREASURY_VELOCITY_MAX,
+    velocityWindowMin: parsed.data.WITHDRAWAL_TREASURY_VELOCITY_WINDOW_MIN,
+    amountMultiplierWarn: parsed.data.WITHDRAWAL_TREASURY_AMOUNT_MULTIPLIER_WARN,
+    tokenReconcileIntervalMs: parsed.data.TREASURY_TOKEN_RECONCILE_INTERVAL_MS,
   },
 
   logging: {
@@ -829,7 +997,30 @@ export const config = {
     prometheusEnabled: parsed.data.PROMETHEUS_ENABLED,
     prometheusPort: parsed.data.PROMETHEUS_PORT,
     alertWebhookUrl: parsed.data.ALERT_WEBHOOK_URL,
+    opsAlertWebhookUrl: parsed.data.OPS_ALERT_SLACK_URL,
+    opsAlertEmailWebhookUrl: parsed.data.OPS_ALERT_EMAIL_WEBHOOK_URL,
+    opsAlertDedupeMs: parsed.data.OPS_ALERT_DEDUPE_MS,
+    opsAlertRateLimitPerTypePerMin: parsed.data.OPS_ALERT_RATE_LIMIT_PER_TYPE_PER_MIN,
   },
+
+  signingService: {
+    remoteEnabled: parsed.data.SIGNING_REMOTE_ENABLED,
+    baseUrl: parsed.data.SIGNING_SERVICE_URL,
+    hmacSecret: parsed.data.SIGNING_SERVICE_HMAC_SECRET,
+    mtlsCaPath: parsed.data.SIGNING_SERVICE_MTLS_CA_PATH,
+    mtlsCertPath: parsed.data.SIGNING_SERVICE_MTLS_CERT_PATH,
+    mtlsKeyPath: parsed.data.SIGNING_SERVICE_MTLS_KEY_PATH,
+  },
+
+  publicApiRedisRate: {
+    enabled: parsed.data.PUBLIC_API_REDIS_RATE_ENABLED,
+    ipMax: parsed.data.PUBLIC_API_REDIS_RATE_IP_MAX,
+    ipWindowSec: parsed.data.PUBLIC_API_REDIS_RATE_IP_WINDOW_SEC,
+    tokenMax: parsed.data.PUBLIC_API_REDIS_RATE_TOKEN_MAX,
+    tokenWindowSec: parsed.data.PUBLIC_API_REDIS_RATE_TOKEN_WINDOW_SEC,
+  },
+
+  publicApiFastifyRateLimitMax: parsed.data.PUBLIC_API_FASTIFY_RATE_LIMIT_MAX,
 
   // Phase E: Multi-node and observability
   nodeId: parsed.data.NODE_ID ?? parsed.data.INSTANCE_ID ?? process.env.HOSTNAME ?? 'default',
@@ -902,6 +1093,20 @@ export const config = {
     netInflationCapMs: parsed.data.WS_NET_INFLATION_CAP_MS,
   },
 
+  internalApi: {
+    allowCidrs: (() => {
+      const raw = parsed.data.INTERNAL_API_ALLOW_CIDRS?.trim();
+      if (raw) return raw.split(',').map((s) => s.trim()).filter(Boolean);
+      if (parsed.data.NODE_ENV !== 'production') return ['127.0.0.1', '::1'];
+      return [];
+    })(),
+    rateLimitPerMinute: parsed.data.INTERNAL_ENGINE_RATE_LIMIT_MAX,
+    hmacAllowedServiceIds: parsed.data.INTERNAL_HMAC_ALLOWED_SERVICE_IDS
+      ? parsed.data.INTERNAL_HMAC_ALLOWED_SERVICE_IDS.split(',').map((s) => s.trim()).filter(Boolean)
+      : [],
+    hmacServiceSecrets: parseInternalHmacServiceSecrets(parsed.data.INTERNAL_HMAC_SERVICE_SECRETS),
+  },
+
   rustMatchingEngine: {
     /** Node in-process matching is disabled; Rust HTTP engine is the only execution path. */
     enabled: true,
@@ -913,6 +1118,13 @@ export const config = {
     skipUnhealthyForPlace: parsed.data.MATCHING_ENGINE_SKIP_UNHEALTHY_FOR_PLACE,
     routesRaw: parsed.data.MATCHING_ENGINE_ROUTES,
     internalSecret: parsed.data.ENGINE_INTERNAL_SECRET,
+    hmacSecretActive:
+      parsed.data.ENGINE_HMAC_SECRET_ACTIVE?.trim() ||
+      parsed.data.ENGINE_HMAC_SECRET?.trim() ||
+      undefined,
+    hmacSecretOld: parsed.data.ENGINE_HMAC_SECRET_OLD?.trim() || undefined,
+    hmacServiceUserId:
+      parsed.data.ENGINE_HMAC_SERVICE_USER_ID?.trim() || '00000000-0000-0000-0000-000000000001',
   },
 
   /** Spot durability / fan-out (Tier-1). */
@@ -1163,6 +1375,7 @@ export const config = {
   lockoutMinutes: parsed.data.LOCKOUT_MINUTES,
   withdrawalApprovalThreshold: parsed.data.WITHDRAWAL_APPROVAL_THRESHOLD,
   withdrawalAddressCoolingHours: parsed.data.WITHDRAWAL_ADDRESS_COOLING_HOURS,
+  withdrawalWhitelistRelaxed: parsed.data.WITHDRAWAL_WHITELIST_RELAXED,
 
   depositSweep: {
     enabled: parsed.data.DEPOSIT_SWEEP_ENABLED,

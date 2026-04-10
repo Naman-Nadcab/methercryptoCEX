@@ -35,6 +35,7 @@ import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/dashboard/StatusBadge';
 import { ArrowLeft, Power, PowerOff, AlertTriangle, History, RotateCcw, GitCompare, Shield, Layers, Search, Download, Upload, GitBranch, Pencil, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { SensitiveActionModal } from '@/components/ops/SensitiveActionModal';
 
 const TRADING_KEYS = ['default_maker_fee', 'default_taker_fee', 'min_order_size'];
 const LIMIT_KEYS = ['api_rate_limit', 'max_withdrawal_per_day', 'max_orders_per_minute', 'max_login_attempts'];
@@ -150,6 +151,7 @@ export default function SystemSettingsPage() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<SystemTab>('configuration');
   const [emergencyModal, setEmergencyModal] = useState<{ action: string; label: string; enabled: boolean } | null>(null);
+  const [tradingPauseModalOpen, setTradingPauseModalOpen] = useState(false);
   const [diffModal, setDiffModal] = useState<{ versionId: string; versionNum: number } | null>(null);
   const [rollbackModal, setRollbackModal] = useState<ConfigVersionRow | null>(null);
   const [importPreview, setImportPreview] = useState<{ flat: Record<string, string> } | { error: string } | null>(null);
@@ -381,9 +383,11 @@ export default function SystemSettingsPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'risk', 'settings'] }),
   });
   const haltMutation = useMutation({
-    mutationFn: (halted: boolean) => setTradingHalt(token, halted),
+    mutationFn: ({ halted, reason }: { halted: boolean; reason?: string }) =>
+      setTradingHalt(token, halted, reason ? { reason } : undefined),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'trading-halt'] });
+      setTradingPauseModalOpen(false);
     },
   });
   const emergencyMutation = useMutation({
@@ -548,6 +552,16 @@ export default function SystemSettingsPage() {
 
   return (
     <div className="space-y-5">
+      <SensitiveActionModal
+        open={tradingPauseModalOpen}
+        onClose={() => setTradingPauseModalOpen(false)}
+        onConfirm={(note) => haltMutation.mutate({ halted: true, reason: note })}
+        title="Pause all spot trading"
+        description="Required for audit compliance. Users cannot place or cancel orders while halted."
+        variant="danger"
+        confirmLabel="Pause trading"
+        isLoading={haltMutation.isPending}
+      />
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <Link href="/settings">
@@ -1076,7 +1090,9 @@ export default function SystemSettingsPage() {
               </div>
               <Button
                 variant={tradingHalted ? 'secondary' : 'primary'}
-                onClick={() => haltMutation.mutate(!tradingHalted)}
+                onClick={() =>
+                  tradingHalted ? haltMutation.mutate({ halted: false }) : setTradingPauseModalOpen(true)
+                }
                 disabled={haltMutation.isPending}
               >
                 {tradingHalted ? 'Resume trading' : 'Pause trading'}

@@ -22,6 +22,8 @@ import { recordAndEvaluate } from '../services/aml-transaction-monitor.service.j
 import { handleWithdrawPreview, type WithdrawPreviewQuerystring } from './wallet-withdraw-preview.js';
 import { getPortfolioHistory } from '../services/portfolio-snapshot.service.js';
 import { getCoinInfo } from '../services/coin-info.service.js';
+import { assertWithdrawalAllowedForTreasuryPolicy } from '../services/treasury/treasury-emergency.service.js';
+import { assessWithdrawalTreasuryRisk } from '../services/treasury/withdrawal-treasury-risk.service.js';
 
 const ROUND_DOWN = 1;
 const AMOUNT_PRECISION = 8;
@@ -1695,6 +1697,16 @@ export default async function walletRoutes(app: FastifyInstance) {
         });
       }
       const userId = request.user!.id;
+      const { redisBlocksUserWithdrawals } = await import('../services/redis-health.service.js');
+      if (redisBlocksUserWithdrawals()) {
+        return reply.status(503).send({
+          success: false,
+          error: {
+            code: 'REDIS_UNAVAILABLE',
+            message: 'Withdrawals are unavailable while Redis is unhealthy.',
+          },
+        });
+      }
       const withdrawType = (request.body.type ?? 'onchain') as 'onchain' | 'internal';
       let { symbol, chainId, amount, toAddress, accountType = 'funding', memo, twoFactorCode, fund_password, withdrawalAddressId, internal_user_identifier } = request.body;
       const allowedWithdrawalAccounts = ['funding', 'spot', 'trading'];
@@ -1956,6 +1968,16 @@ export default async function walletRoutes(app: FastifyInstance) {
             error: { code: 'INSUFFICIENT_BALANCE', message: 'Insufficient balance' }
           });
         }
+        const treasuryInternal = await assertWithdrawalAllowedForTreasuryPolicy({
+          userId,
+          assetSymbol: symbolNorm,
+        });
+        if (!treasuryInternal.ok) {
+          return reply.status(503).send({
+            success: false,
+            error: { code: treasuryInternal.code, message: treasuryInternal.message },
+          });
+        }
         // Internal transfer is always funding->funding; use CHAIN_ID_GLOBAL so we match user_balances rows (chain_id = '')
         // History: internal_transfers INSERT is inside the same transaction so history is always created when balance updates
         const withdrawalInternal = await db.transaction(async (client) => {
@@ -1964,8 +1986,8 @@ export default async function walletRoutes(app: FastifyInstance) {
           const ins = await client.query<{ id: string; created_at: string }>(`
             INSERT INTO withdrawals (
               user_id, token_id, chain_id, amount, fee, net_amount, to_address, status, account_type,
-              type, internal_user_id, email_verified, two_fa_verified
-            ) VALUES ($1, $2, $3, $4, $5, $6, NULL, 'completed', 'funding', 'internal', $7, FALSE, $8)
+              type, internal_user_id, email_verified, two_fa_verified, treasury_stage
+            ) VALUES ($1, $2, $3, $4, $5, $6, NULL, 'completed', 'funding', 'internal', $7, FALSE, $8, 'broadcasted')
             RETURNING id, created_at
           `, [userId, token.token_id, token.chain_id, withdrawAmountDec.toString(), feeDec.toString(), withdrawAmountDec.toString(), recipientId, internalTwoFaVerified]);
           const w = ins.rows[0]!;
@@ -2150,6 +2172,16 @@ export default async function walletRoutes(app: FastifyInstance) {
       }
 
       const token = tokenResult.rows[0]!;
+      const treasuryGate = await assertWithdrawalAllowedForTreasuryPolicy({
+        userId,
+        assetSymbol: token.symbol,
+      });
+      if (!treasuryGate.ok) {
+        return reply.status(503).send({
+          success: false,
+          error: { code: treasuryGate.code, message: treasuryGate.message },
+        });
+      }
       const rawFee = token.withdrawal_fee;
       if (rawFee == null || rawFee === '') {
         logger.warn('tokens.withdrawal_fee is NULL or empty, defaulting to 0', {
@@ -2395,43 +2427,45 @@ export default async function walletRoutes(app: FastifyInstance) {
         }
       }
 
-      // 4. Withdrawal address whitelist & timelock — must be allowed before creating withdrawal
-      const whitelistCheck = await isAddressAllowed({
-        userId,
-        asset: token.symbol,
-        address: toAddress!,
-      });
-      if (!whitelistCheck.allowed) {
-        await logUserActivity({
+      // 4. Withdrawal address whitelist & timelock (24h default) — required unless WITHDRAWAL_WHITELIST_RELAXED (non-prod only)
+      if (!config.withdrawalWhitelistRelaxed) {
+        const whitelistCheck = await isAddressAllowed({
           userId,
-          action: 'access_blocked',
-          ipAddress: req.clientIp ?? request.ip,
-          userAgent: request.headers['user-agent'],
-          deviceId: getDeviceIdFromRequest(request.headers as Record<string, string | undefined>),
-          metadata: {
-            reason: whitelistCheck.unlockAt ? 'address_timelocked' : 'address_not_whitelisted',
-            scope: 'withdrawal',
-            asset: token.symbol,
-            unlockAt: whitelistCheck.unlockAt?.toISOString(),
-          },
+          asset: token.symbol,
+          address: toAddress!,
         });
-        if (whitelistCheck.unlockAt) {
+        if (!whitelistCheck.allowed) {
+          await logUserActivity({
+            userId,
+            action: 'access_blocked',
+            ipAddress: req.clientIp ?? request.ip,
+            userAgent: request.headers['user-agent'],
+            deviceId: getDeviceIdFromRequest(request.headers as Record<string, string | undefined>),
+            metadata: {
+              reason: whitelistCheck.unlockAt ? 'address_timelocked' : 'address_not_whitelisted',
+              scope: 'withdrawal',
+              asset: token.symbol,
+              unlockAt: whitelistCheck.unlockAt?.toISOString(),
+            },
+          });
+          if (whitelistCheck.unlockAt) {
+            return reply.status(403).send({
+              success: false,
+              error: {
+                code: 'ADDRESS_TIMELOCKED',
+                message: 'This address is in a timelock period and cannot be used yet.',
+                unlockAt: whitelistCheck.unlockAt.toISOString(),
+              },
+            });
+          }
           return reply.status(403).send({
             success: false,
             error: {
-              code: 'ADDRESS_TIMELOCKED',
-              message: 'This address is in a timelock period and cannot be used yet.',
-              unlockAt: whitelistCheck.unlockAt.toISOString(),
+              code: 'ADDRESS_NOT_WHITELISTED',
+              message: 'This address is not in your withdrawal whitelist. Add it first and wait for the timelock to expire.',
             },
           });
         }
-        return reply.status(403).send({
-          success: false,
-          error: {
-            code: 'ADDRESS_NOT_WHITELISTED',
-            message: 'This address is not in your withdrawal whitelist. Add it first and wait for the timelock to expire.',
-          },
-        });
       }
 
       // 4.5 Sanctions / Travel Rule screening (on-chain only)
@@ -2525,12 +2559,22 @@ export default async function walletRoutes(app: FastifyInstance) {
       // Backend source of truth: amount (user requested), fee (from token), net_amount = amount - fee (already validated > 0)
       const twoFaVerified = has2FA;
 
-      // Admin approval: required if amount > threshold, asset is high-risk, or risk engine returned CHALLENGE
+      // Admin approval: required if amount > threshold, asset is high-risk, risk CHALLENGE, or treasury risk signals
       const { requiresWithdrawalApproval } = await import('../services/withdrawal-approval.service.js');
-      const needsApproval = riskRequiresChallenge || requiresWithdrawalApproval(withdrawAmountDec.toString(), {
-        is_high_risk: token.is_high_risk,
+      const treasuryRisk = await assessWithdrawalTreasuryRisk({
+        userId,
+        toAddress: toAddress!,
+        amount: withdrawAmountDec.toString(),
+        symbol: token.symbol,
       });
+      const needsApproval =
+        riskRequiresChallenge ||
+        treasuryRisk.requiresManualReview ||
+        requiresWithdrawalApproval(withdrawAmountDec.toString(), {
+          is_high_risk: token.is_high_risk,
+        });
       const initialStatus = needsApproval ? 'pending_approval' : 'pending';
+      const initialTreasuryStage = needsApproval ? 'pending' : 'checker_approved';
 
       // 6. Create withdrawal record and lock balance atomically (on-chain). No record exists if any prior step blocked.
       // Stores amount, fee, net_amount; lock uses amount + fee.
@@ -2542,10 +2586,10 @@ export default async function walletRoutes(app: FastifyInstance) {
           const insertResult = await client.query<{ id: string; created_at: Date }>(`
             INSERT INTO withdrawals (
               user_id, token_id, chain_id, amount, fee, net_amount, to_address, memo, status, account_type,
-              type, email_verified, two_fa_verified, withdrawal_address_id
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'onchain', FALSE, $11, $12)
+              type, email_verified, two_fa_verified, withdrawal_address_id, treasury_stage
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'onchain', FALSE, $11, $12, $13)
             RETURNING id, created_at
-          `, [userId, token.token_id, token.chain_id, withdrawAmountDec.toString(), feeDec.toString(), netAmount.toString(), toAddress!, memo || null, initialStatus, accountType, twoFaVerified, withdrawalAddressIdRes]);
+          `, [userId, token.token_id, token.chain_id, withdrawAmountDec.toString(), feeDec.toString(), netAmount.toString(), toAddress!, memo || null, initialStatus, accountType, twoFaVerified, withdrawalAddressIdRes, initialTreasuryStage]);
           const w = insertResult.rows[0]!;
           const totalStr = totalRequired.toString();
 

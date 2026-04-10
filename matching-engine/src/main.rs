@@ -21,12 +21,14 @@ use async_nats::jetstream::{self, context::Publish};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
 
 mod engine;
+mod hmac_auth;
 mod orderbook;
 mod publish_pipeline;
 mod persistence;
@@ -35,7 +37,7 @@ mod types;
 mod wal;
 
 #[derive(Clone)]
-struct AppState {
+pub(crate) struct AppState {
     engine: Arc<Engine>,
     instance_id: String,
     jetstream: Option<Arc<jetstream::Context>>,
@@ -43,6 +45,19 @@ struct AppState {
     publish_tx: Option<tokio::sync::mpsc::Sender<PendingMatchEvent>>,
     wal: Option<Arc<MatchWal>>,
     partitions: usize,
+    engine_hmac_active: Arc<Vec<u8>>,
+    engine_hmac_old: Arc<Vec<u8>>,
+    engine_redis: Option<redis::aio::ConnectionManager>,
+    engine_ip_limiter: Arc<
+        governor::RateLimiter<
+            std::net::IpAddr,
+            governor::state::keyed::DefaultKeyedStateStore<std::net::IpAddr>,
+            governor::clock::DefaultClock,
+        >,
+    >,
+    engine_allow_nets: Option<Arc<Vec<ipnet::IpNet>>>,
+    /// When false (default), ignore X-Forwarded-For for client IP (use direct peer).
+    trust_x_forwarded_for: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -572,6 +587,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     }
 
+    let active_raw = std::env::var("ENGINE_HMAC_SECRET_ACTIVE")
+        .or_else(|_| std::env::var("ENGINE_HMAC_SECRET"))
+        .unwrap_or_default();
+    let engine_hmac_active = Arc::new(active_raw.into_bytes());
+    let old_raw = std::env::var("ENGINE_HMAC_SECRET_OLD").unwrap_or_default();
+    let engine_hmac_old = Arc::new(old_raw.into_bytes());
+
+    let redis_url = std::env::var("ENGINE_REDIS_URL")
+        .or_else(|_| std::env::var("REDIS_URL"))
+        .unwrap_or_default();
+    let engine_redis: Option<redis::aio::ConnectionManager> = if engine_hmac_active.is_empty() {
+        None
+    } else {
+        if redis_url.trim().is_empty() {
+            eprintln!("[engine] FATAL: HMAC active secret set but ENGINE_REDIS_URL / REDIS_URL is empty (required for nonce dedup)");
+            std::process::exit(1);
+        }
+        let redis_client = redis::Client::open(redis_url.trim()).unwrap_or_else(|e| {
+            eprintln!("[engine] FATAL: invalid ENGINE_REDIS_URL / REDIS_URL: {e}");
+            std::process::exit(1);
+        });
+        Some(
+            redis::aio::ConnectionManager::new(redis_client)
+                .await
+                .unwrap_or_else(|e| {
+                    eprintln!("[engine] FATAL: Redis connection failed: {e}");
+                    std::process::exit(1);
+                }),
+        )
+    };
+
+    let rps: u32 = std::env::var("ENGINE_HTTP_RATE_LIMIT_PER_SEC")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(400)
+        .clamp(10, 50_000);
+    let engine_ip_limiter = hmac_auth::build_keyed_rate_limiter(rps);
+
+    let allow_raw = std::env::var("ENGINE_CLIENT_ALLOW_CIDRS").unwrap_or_default();
+    let engine_allow_nets = hmac_auth::parse_allow_cidrs(&allow_raw);
+    let trust_x_forwarded_for = env_truthy("ENGINE_TRUST_X_FORWARDED_FOR");
+
     let state = AppState {
         engine: engine.clone(),
         instance_id: instance_id.clone(),
@@ -579,24 +636,49 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         publish_tx,
         wal,
         partitions,
+        engine_hmac_active,
+        engine_hmac_old,
+        engine_redis,
+        engine_ip_limiter,
+        engine_allow_nets,
+        trust_x_forwarded_for,
     };
+
+    let engine_api = Router::new()
+        .route("/place", post(place))
+        .route("/cancel", post(cancel))
+        .route("/snapshot", get(snapshot))
+        .route("/matches", get(matches))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            hmac_auth::engine_hmac_middleware,
+        ))
+        .with_state(state.clone());
 
     let app = Router::new()
         .route("/health", get(health))
-        .route("/engine/place", post(place))
-        .route("/engine/cancel", post(cancel))
-        .route("/engine/snapshot", get(snapshot))
-        .route("/engine/matches", get(matches))
+        .nest("/engine", engine_api)
         .with_state(state);
 
     let port: u16 = std::env::var("ENGINE_HTTP_PORT")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(7101);
-    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
-    eprintln!("[engine] listening on {} (instance_id={})", addr, instance_id);
+    let bind: std::net::IpAddr = std::env::var("ENGINE_HTTP_BIND")
+        .unwrap_or_else(|_| "127.0.0.1".into())
+        .parse()
+        .unwrap_or(std::net::Ipv4Addr::LOCALHOST.into());
+    let addr = SocketAddr::from((bind, port));
+    eprintln!(
+        "[engine] listening on {} (instance_id={}, bind={})",
+        addr, instance_id, bind
+    );
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 

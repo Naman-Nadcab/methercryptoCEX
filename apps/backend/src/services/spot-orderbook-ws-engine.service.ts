@@ -43,7 +43,7 @@ function computeOrderbookWsDelta(
 /** Apply seq + lastBroadcast + ticker sync; return WS wire or null if unchanged vs previous. */
 function computeOrderbookWire(symbol: string, snapshot: OrderbookSnapshot): string | null {
   const seq = nextSpotBookSeq(symbol);
-  const snap: OrderbookSnapshot = { ...snapshot, symbol, lastUpdateId: seq };
+  const snap: OrderbookSnapshot = { ...snapshot, symbol, lastUpdateId: seq, snapshotAtMs: Date.now() };
   const prev = lastBroadcastOrderbook.get(symbol);
   lastBroadcastOrderbook.set(symbol, snap);
   const channel = `orderbook:${symbol}`;
@@ -114,7 +114,7 @@ export function buildOrderbookResyncWire(symbol: string, depth = DEFAULT_L2_DEPT
   const sym = symbol.toUpperCase();
   const seq = nextSpotBookSeq(sym);
   const raw = snapshotTop(sym, depth);
-  const snap: OrderbookSnapshot = { ...raw, symbol: sym, lastUpdateId: seq };
+  const snap: OrderbookSnapshot = { ...raw, symbol: sym, lastUpdateId: seq, snapshotAtMs: Date.now() };
   lastBroadcastOrderbook.set(sym, snap);
   const channel = `orderbook:${sym}`;
   const bestBid = snap.bids[0]?.price ?? null;
@@ -140,7 +140,7 @@ export function primeOrderbookStateFromSubscribe(symbol: string, snapshot: Order
   const existing = lastBroadcastOrderbook.get(symbol);
   const seq =
     existing?.lastUpdateId != null && existing.lastUpdateId > 0 ? existing.lastUpdateId : nextSpotBookSeq(symbol);
-  const snap: OrderbookSnapshot = { ...snapshot, symbol, lastUpdateId: seq };
+  const snap: OrderbookSnapshot = { ...snapshot, symbol, lastUpdateId: seq, snapshotAtMs: Date.now() };
   lastBroadcastOrderbook.set(symbol, snap);
   const bestBid = snap.bids[0]?.price ?? null;
   const bestAsk = snap.asks[0]?.price ?? null;

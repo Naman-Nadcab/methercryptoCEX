@@ -202,6 +202,18 @@ export default function TreasuryPage() {
         </Link>
       </div>
 
+      <div className="flex items-start gap-3 rounded-lg border border-admin-border bg-admin-card/80 px-3 py-2.5 text-[11px] text-admin-muted">
+        <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500 mt-0.5" />
+        <p>
+          <span className="font-medium text-admin-text">Data quality:</span> balances and health come from live APIs and chain/indexer state. After any error or
+          partial response, figures may be incomplete — confirm against{' '}
+          <Link href="/reconciliation" className="text-admin-primary hover:underline">
+            Reconciliation
+          </Link>{' '}
+          before custody or sweep decisions.
+        </p>
+      </div>
+
       {hasApiError && (
         <div className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 p-4">
           <AlertTriangle className="h-5 w-5 shrink-0 text-red-600" />

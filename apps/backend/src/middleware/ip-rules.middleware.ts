@@ -84,6 +84,8 @@ const SKIP_PATHS = new Set([
   '/',
   '/health',
   '/api/v1/admin/auth/login',
+  '/api/v1/admin/break-glass-challenge',
+  '/api/v1/admin/break-glass-login',
   '/api/v1/auth/login/check-passkeys',
   '/api/v1/auth/login/resend-otp',
   '/api/v1/auth/passkey/options',

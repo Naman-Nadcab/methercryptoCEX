@@ -8,6 +8,7 @@ import { authenticate, requireKYC } from '../middleware/auth.js';
 import type { AuthenticatedRequest } from '../types/index.js';
 import { rateLimiters } from '../middleware/rateLimiter.js';
 import { matchingEngine } from '../services/matching-engine.service.js';
+import { resolvePublicOrderbookSnapshot } from '../services/spot-orderbook-public.service.js';
 import { walletService } from '../services/wallet.service.js';
 import { db } from '../lib/database.js';
 import { OrderSide, OrderType, OrderStatus, TimeInForce, TradingPair } from '../types/index.js';
@@ -82,7 +83,14 @@ router.get(
       if (!pairId) return res.status(400).json({ success: false, error: { code: 'MISSING_PARAM', message: 'pairId required' } });
       const depth = parseInt(req.query.depth as string) || 50;
 
-      const orderbook = await matchingEngine.getOrderbook(pairId, depth);
+      const symRow = await db.query<{ symbol: string }>(
+        `SELECT symbol FROM trading_pairs WHERE id = $1::uuid LIMIT 1`,
+        [pairId]
+      );
+      if (symRow.rows.length === 0) {
+        return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Trading pair not found' } });
+      }
+      const orderbook = await resolvePublicOrderbookSnapshot(symRow.rows[0]!.symbol, depth);
 
       return res.json({
         success: true,

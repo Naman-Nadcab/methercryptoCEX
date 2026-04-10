@@ -1,8 +1,6 @@
 'use client';
 
-import { useState } from 'react';
-import { Button } from '@/components/ui/Button';
-import { cn } from '@/lib/cn';
+import { SensitiveActionModal } from '@/components/ops/SensitiveActionModal';
 
 export interface ApproveWithdrawalModalProps {
   open: boolean;
@@ -23,54 +21,28 @@ export function ApproveWithdrawalModal({
   amount,
   isLoading,
 }: ApproveWithdrawalModalProps) {
-  const [adminNote, setAdminNote] = useState('');
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await onConfirm(adminNote);
-    setAdminNote('');
-    onClose();
-  };
-
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div
-        className="w-full max-w-md rounded-xl bg-admin-card p-6 shadow-lg"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="text-lg font-semibold text-admin-text">Approve Withdrawal</h3>
-        <p className="mt-1 text-sm text-admin-muted">
-          ID: {withdrawalId}
+    <SensitiveActionModal
+      open={open}
+      onClose={onClose}
+      onConfirm={onConfirm}
+      title="Approve withdrawal"
+      description={
+        <>
+          <span className="font-mono text-xs text-admin-text">ID: {withdrawalId}</span>
           {asset != null && amount != null && (
-            <> · {asset} {amount}</>
+            <span className="block mt-1">
+              {asset} · {amount}
+            </span>
           )}
-        </p>
-        <form onSubmit={handleSubmit} className="mt-4 space-y-4">
-          <div>
-            <label htmlFor="approve-note" className="block text-sm font-medium text-admin-text">
-              Admin note (optional)
-            </label>
-            <textarea
-              id="approve-note"
-              value={adminNote}
-              onChange={(e) => setAdminNote(e.target.value)}
-              rows={2}
-              className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm focus:ring-2 focus:ring-admin-primary"
-              placeholder="Optional note for audit..."
-            />
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="secondary" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={isLoading}>
-              {isLoading ? 'Approving…' : 'Confirm approval'}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
+        </>
+      }
+      reasonLabel="Approval note (audit)"
+      placeholder="e.g. Verified KYC, matched risk checks, proceeding to signing queue."
+      minReasonLength={8}
+      confirmLabel="Confirm approval"
+      isLoading={isLoading}
+      variant="default"
+    />
   );
 }

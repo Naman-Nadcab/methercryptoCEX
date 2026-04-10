@@ -7,6 +7,7 @@
 
 import { Decimal } from '../lib/decimal.js';
 import { db } from '../lib/database.js';
+import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
 import { config } from '../config/index.js';
 import { logWithdrawalLifecycle } from '../lib/withdrawal-audit.js';
@@ -25,6 +26,7 @@ export interface WithdrawalAuditContext {
 export const WithdrawalApprovalErrors = {
   WITHDRAWAL_NOT_FOUND: 'WITHDRAWAL_NOT_FOUND',
   NOT_PENDING_APPROVAL: 'NOT_PENDING_APPROVAL',
+  APPROVAL_IN_PROGRESS: 'APPROVAL_IN_PROGRESS',
   RELEASE_BALANCE_FAILED: 'RELEASE_BALANCE_FAILED',
   HOT_WALLET_CAP_EXCEEDED: 'HOT_WALLET_CAP_EXCEEDED',
 } as const;
@@ -66,88 +68,122 @@ export function requiresWithdrawalApproval(
  * Approve a withdrawal: set status to 'pending', record approver, then enqueue for signing.
  * Uses SELECT FOR UPDATE to avoid race with concurrent reject.
  */
+const APPROVE_EXEC_LOCK_SEC = 45;
+
 export async function approveWithdrawal(
   withdrawalId: string,
   adminId: string,
   auditContext?: WithdrawalAuditContext
 ): Promise<{ ok: true }> {
-  const w = await db.transaction(async (client) => {
-    const row = await client.query<{
-      id: string;
-      status: string;
-      user_id: string;
-      token_id: string;
-      chain_id: string;
-      amount: string;
-    }>(
-      `SELECT id, status, user_id, token_id, chain_id, amount FROM withdrawals WHERE id = $1 FOR UPDATE`,
-      [withdrawalId]
-    );
-    if (row.rows.length === 0) {
-      throw new WithdrawalApprovalError(
-        WithdrawalApprovalErrors.WITHDRAWAL_NOT_FOUND,
-        'Withdrawal not found'
-      );
+  const lockKey = `withdrawal:approve:exec:${withdrawalId}`;
+  let lockHeld = false;
+  try {
+    try {
+      const acquired = await redis.setNxEx(lockKey, adminId, APPROVE_EXEC_LOCK_SEC);
+      if (!acquired) {
+        const st = await db.query<{ status: string }>(`SELECT status FROM withdrawals WHERE id = $1`, [withdrawalId]);
+        const s = st.rows[0]?.status;
+        if (s === 'pending') return { ok: true };
+        if (s === 'pending_approval') {
+          throw new WithdrawalApprovalError(
+            WithdrawalApprovalErrors.APPROVAL_IN_PROGRESS,
+            'Another approval is in progress for this withdrawal'
+          );
+        }
+        throw new WithdrawalApprovalError(
+          WithdrawalApprovalErrors.NOT_PENDING_APPROVAL,
+          `Withdrawal is not pending approval (status: ${s ?? 'unknown'})`
+        );
+      }
+      lockHeld = true;
+    } catch (e) {
+      if (e instanceof WithdrawalApprovalError) throw e;
+      logger.warn('withdrawal approve: redis lock skipped', { withdrawalId, error: e instanceof Error ? e.message : String(e) });
     }
-    const withdrawal = row.rows[0]!;
-    if (withdrawal.status !== 'pending_approval') {
-      throw new WithdrawalApprovalError(
-        WithdrawalApprovalErrors.NOT_PENDING_APPROVAL,
-        `Withdrawal is not pending approval (status: ${withdrawal.status})`
+
+    const w = await db.transaction(async (client) => {
+      const row = await client.query<{
+        id: string;
+        status: string;
+        user_id: string;
+        token_id: string;
+        chain_id: string;
+        amount: string;
+      }>(
+        `SELECT id, status, user_id, token_id, chain_id, amount FROM withdrawals WHERE id = $1 FOR UPDATE`,
+        [withdrawalId]
       );
-    }
-    await client.query(
-      `UPDATE withdrawals
-       SET status = 'pending', approved_by = $1, approved_at = CURRENT_TIMESTAMP,
-           rejected_by = NULL, rejected_at = NULL, rejection_reason = NULL, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $2`,
-      [adminId, withdrawalId]
-    );
-    return withdrawal;
-  });
+      if (row.rows.length === 0) {
+        throw new WithdrawalApprovalError(
+          WithdrawalApprovalErrors.WITHDRAWAL_NOT_FOUND,
+          'Withdrawal not found'
+        );
+      }
+      const withdrawal = row.rows[0]!;
+      if (withdrawal.status !== 'pending_approval') {
+        throw new WithdrawalApprovalError(
+          WithdrawalApprovalErrors.NOT_PENDING_APPROVAL,
+          `Withdrawal is not pending approval (status: ${withdrawal.status})`
+        );
+      }
+      await client.query(
+        `UPDATE withdrawals
+         SET status = 'pending', treasury_stage = 'checker_approved',
+             approved_by = $1, approved_at = CURRENT_TIMESTAMP,
+             rejected_by = NULL, rejected_at = NULL, rejection_reason = NULL, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2`,
+        [adminId, withdrawalId]
+      );
+      return withdrawal;
+    });
 
-  // E2E withdrawal lifecycle: stage 2 — approved (pending_approval → pending)
-  logger.info('[E2E_WITHDRAWAL] stage=approved', {
-    withdrawal_id: withdrawalId,
-    status: 'pending',
-    chain_id: w.chain_id,
-  });
-
-  await logWithdrawalLifecycle('withdrawal_approved', {
-    withdrawal_id: withdrawalId,
-    user_id: w.user_id,
-    admin_id: adminId,
-    token_id: w.token_id,
-    chain_id: w.chain_id,
-    amount: w.amount,
-    ip: auditContext?.ip ?? null,
-    user_agent: auditContext?.userAgent ?? null,
-  });
-
-  const enqueueResult = await enqueueWithdrawal(withdrawalId);
-  if (enqueueResult.enqueued) {
-    logger.info('[E2E_WITHDRAWAL] stage=enqueued', {
+    // E2E withdrawal lifecycle: stage 2 — approved (pending_approval → pending)
+    logger.info('[E2E_WITHDRAWAL] stage=approved', {
       withdrawal_id: withdrawalId,
+      status: 'pending',
       chain_id: w.chain_id,
     });
-  } else if (enqueueResult.reason) {
-    if (
-      enqueueResult.code === HotWalletCapCodes.SINGLE_TX_CAP_EXCEEDED ||
-      enqueueResult.code === HotWalletCapCodes.DAILY_CAP_EXCEEDED
-    ) {
-      throw new WithdrawalApprovalError(
-        WithdrawalApprovalErrors.HOT_WALLET_CAP_EXCEEDED,
-        enqueueResult.reason
-      );
-    }
-    logger.warn('Withdrawal approved but enqueue failed', {
-      withdrawalId,
-      reason: enqueueResult.reason,
-    });
-  }
 
-  logger.info('Withdrawal approved', { withdrawalId, adminId });
-  return { ok: true };
+    await logWithdrawalLifecycle('withdrawal_approved', {
+      withdrawal_id: withdrawalId,
+      user_id: w.user_id,
+      admin_id: adminId,
+      token_id: w.token_id,
+      chain_id: w.chain_id,
+      amount: w.amount,
+      ip: auditContext?.ip ?? null,
+      user_agent: auditContext?.userAgent ?? null,
+    });
+
+    const enqueueResult = await enqueueWithdrawal(withdrawalId);
+    if (enqueueResult.enqueued) {
+      logger.info('[E2E_WITHDRAWAL] stage=enqueued', {
+        withdrawal_id: withdrawalId,
+        chain_id: w.chain_id,
+      });
+    } else if (enqueueResult.reason) {
+      if (
+        enqueueResult.code === HotWalletCapCodes.SINGLE_TX_CAP_EXCEEDED ||
+        enqueueResult.code === HotWalletCapCodes.DAILY_CAP_EXCEEDED
+      ) {
+        throw new WithdrawalApprovalError(
+          WithdrawalApprovalErrors.HOT_WALLET_CAP_EXCEEDED,
+          enqueueResult.reason
+        );
+      }
+      logger.warn('Withdrawal approved but enqueue failed', {
+        withdrawalId,
+        reason: enqueueResult.reason,
+      });
+    }
+
+    logger.info('Withdrawal approved', { withdrawalId, adminId });
+    return { ok: true };
+  } finally {
+    if (lockHeld) {
+      void redis.del(lockKey).catch(() => {});
+    }
+  }
 }
 
 /**
@@ -204,7 +240,7 @@ export async function rejectWithdrawal(
 
     await client.query(
       `UPDATE withdrawals
-       SET status = 'failed', failed_reason = $1, rejected_by = $2, rejected_at = CURRENT_TIMESTAMP,
+       SET status = 'failed', treasury_stage = 'failed', failed_reason = $1, rejected_by = $2, rejected_at = CURRENT_TIMESTAMP,
            rejection_reason = $1, processed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
        WHERE id = $3`,
       [reason || 'Rejected by admin', adminId, withdrawalId]

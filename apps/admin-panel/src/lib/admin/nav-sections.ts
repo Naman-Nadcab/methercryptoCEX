@@ -29,6 +29,7 @@ import {
   SlidersHorizontal,
   AlertTriangle,
   CheckSquare,
+  ListTodo,
   FileText,
   Sliders,
   UserCog,
@@ -52,6 +53,7 @@ export function buildSidebarSections(): NavSection[] {
       items: [
         { label: 'Dashboard', href: '/dashboard', icon: Zap },
         { label: 'Control Center', href: '/control-center', icon: LayoutGrid },
+        { label: 'Operations triage', href: '/triage', icon: ListTodo },
         { label: 'Monitoring', href: '/monitoring', icon: Activity },
         { label: 'Analytics', href: '/analytics', icon: PieChart },
         ...(ADMIN_FEATURE_FLAGS.ADMIN_INCIDENT_SYSTEM ? [{ label: 'Incidents', href: '/incidents', icon: Siren }] : []),
@@ -111,7 +113,6 @@ export function buildSidebarSections(): NavSection[] {
         { label: 'Settings', href: '/settings', icon: Settings },
         { label: 'Backups', href: '/backups', icon: Database },
         { label: 'Operations', href: '/operations', icon: Cog },
-        { label: 'Monitoring', href: '/monitoring', icon: Activity },
         { label: 'Admin control', href: '/admin-control', icon: Gauge },
       ],
     },

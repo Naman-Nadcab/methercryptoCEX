@@ -3051,6 +3051,84 @@ const migrations = [
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
   );`,
   `CREATE INDEX IF NOT EXISTS idx_rpc_metrics_chain_window ON rpc_metrics(chain, window_start DESC);`,
+
+  // Phase-1 final: hash-chained immutable audit head + maker-checker delay + break-glass audit
+  `CREATE TABLE IF NOT EXISTS audit_chain_state (
+    id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    last_entry_hash VARCHAR(64) NOT NULL DEFAULT 'genesis'
+  );`,
+  `INSERT INTO audit_chain_state (id, last_entry_hash) VALUES (1, 'genesis') ON CONFLICT (id) DO NOTHING;`,
+  `ALTER TABLE audit_logs_immutable ADD COLUMN IF NOT EXISTS prev_hash VARCHAR(64);`,
+  `ALTER TABLE audit_logs_immutable ADD COLUMN IF NOT EXISTS entry_hash VARCHAR(64);`,
+  `CREATE INDEX IF NOT EXISTS idx_audit_immutable_entry_hash ON audit_logs_immutable(entry_hash) WHERE entry_hash IS NOT NULL;`,
+  `ALTER TABLE admin_approval_requests ADD COLUMN IF NOT EXISTS maker_unlock_at TIMESTAMPTZ;`,
+  `ALTER TABLE admin_approval_requests ADD COLUMN IF NOT EXISTS action_executed BOOLEAN NOT NULL DEFAULT FALSE;`,
+  `CREATE TABLE IF NOT EXISTS admin_break_glass_events (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    admin_id UUID REFERENCES admin_users(id) ON DELETE SET NULL,
+    ticket_id TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    ip_address INET,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_break_glass_created ON admin_break_glass_events(created_at DESC);`,
+  `ALTER TABLE admin_sessions ADD COLUMN IF NOT EXISTS break_glass BOOLEAN NOT NULL DEFAULT FALSE;`,
+
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS spot_trading_suspended_at TIMESTAMPTZ;`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS spot_trading_suspend_reason TEXT;`,
+
+  `CREATE TABLE IF NOT EXISTS audit_export_checkpoint (
+    id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    last_immutable_id UUID,
+    last_chain_hash VARCHAR(128),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );`,
+  `INSERT INTO audit_export_checkpoint (id) VALUES (1) ON CONFLICT (id) DO NOTHING;`,
+
+  `CREATE TABLE IF NOT EXISTS settlement_events_dlq (
+    id BIGSERIAL PRIMARY KEY,
+    source_event_id BIGINT NOT NULL,
+    engine_event_id BIGINT,
+    match_engine_id TEXT,
+    payload JSONB NOT NULL,
+    last_error TEXT,
+    moved_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_settlement_dlq_source ON settlement_events_dlq(source_event_id);`,
+
+  `CREATE OR REPLACE FUNCTION admin_approval_no_self_approve()
+   RETURNS TRIGGER AS $$
+   BEGIN
+     IF NEW.approved_by IS NOT NULL AND cardinality(NEW.approved_by) > 0 THEN
+       IF NEW.requested_by IS NOT NULL AND NEW.requested_by = ANY(NEW.approved_by) THEN
+         RAISE EXCEPTION 'MAKER_CHECKER_SELF_APPROVE';
+       END IF;
+     END IF;
+     RETURN NEW;
+   END;
+   $$ LANGUAGE plpgsql;`,
+  `DROP TRIGGER IF EXISTS trg_admin_approval_no_self ON admin_approval_requests;`,
+  `CREATE TRIGGER trg_admin_approval_no_self
+   BEFORE INSERT OR UPDATE ON admin_approval_requests
+   FOR EACH ROW EXECUTE FUNCTION admin_approval_no_self_approve();`,
+
+  // Phase-2 treasury: withdrawal pipeline stage + per-user withdrawal freeze
+  `ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS treasury_stage VARCHAR(32) NOT NULL DEFAULT 'pending';`,
+  `CREATE INDEX IF NOT EXISTS idx_withdrawals_treasury_stage ON withdrawals(treasury_stage);`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS withdrawals_frozen_at TIMESTAMPTZ;`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS withdrawals_frozen_reason TEXT;`,
+
+  `CREATE TABLE IF NOT EXISTS hot_wallet_token_balances (
+    hot_wallet_id UUID NOT NULL REFERENCES hot_wallets(id) ON DELETE CASCADE,
+    token_id UUID NOT NULL REFERENCES tokens(id) ON DELETE CASCADE,
+    balance_raw NUMERIC(78, 0) NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (hot_wallet_id, token_id)
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_hot_wallet_token_balances_token ON hot_wallet_token_balances(token_id);`,
+
+  // Multi-RPC quorum: secondary EVM JSON-RPC URL (optional; treasury reconcile requires 2 agreeing reads when both set)
+  `ALTER TABLE chains ADD COLUMN IF NOT EXISTS rpc_url_secondary TEXT;`,
 ];
 
 /** True if this migration SQL touches the legacy "balances" table (not user_balances). Run such steps via raw pool so runtime guard does not block. */

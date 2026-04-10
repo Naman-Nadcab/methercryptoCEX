@@ -16,3 +16,10 @@ reqwest = { version = "0.11", features = ["json"] }
 async-nats = { version = "0.38" }
 bytes = "1"
 futures = "0.3"
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+subtle = "2.5"
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
+governor = "0.6"
+ipnet = "2"

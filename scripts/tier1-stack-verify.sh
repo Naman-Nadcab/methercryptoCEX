@@ -68,10 +68,31 @@ else
 fi
 
 echo "=== 6) Matching engine (optional) ==="
-if curl -sf --max-time 2 "http://127.0.0.1:7101/engine/snapshot?market=BTC_USDT" >/dev/null; then
-  ok "Rust engine GET /engine/snapshot OK"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENGINE_SNAP_PATH="/engine/snapshot?market=BTC_USDT"
+export ENGINE_HMAC_SECRET_ACTIVE="${ENGINE_HMAC_SECRET_ACTIVE:-}"
+export ENGINE_HMAC_SECRET="${ENGINE_HMAC_SECRET:-}"
+export E2E_ENGINE_INSTANCE_ID="${E2E_ENGINE_INSTANCE_ID:-default}"
+export E2E_ENGINE_SERVICE_USER_ID="${E2E_ENGINE_SERVICE_USER_ID:-00000000-0000-0000-0000-000000000001}"
+if [[ -n "${ENGINE_HMAC_SECRET_ACTIVE:-}" ]] || [[ -n "${ENGINE_HMAC_SECRET:-}" ]]; then
+  SIGJSON="$(cd "$ROOT" && node scripts/engine-hmac-probe-snapshot.mjs 2>/dev/null)" || SIGJSON=""
+  if [[ -n "$SIGJSON" ]]; then
+    SIG="$(node -p "JSON.parse(process.argv[1]).sig" "$SIGJSON" 2>/dev/null)" || SIG=""
+    NONCE="$(node -p "JSON.parse(process.argv[1]).nonce" "$SIGJSON" 2>/dev/null)" || NONCE=""
+    U="$(node -p "JSON.parse(process.argv[1]).user" "$SIGJSON" 2>/dev/null)" || U=""
+    E="$(node -p "JSON.parse(process.argv[1]).eid" "$SIGJSON" 2>/dev/null)" || E=""
+    if [[ -n "$SIG" && -n "$NONCE" ]] && curl -sf --max-time 2 \
+      -H "x-signature: $SIG" -H "x-nonce: $NONCE" -H "x-user-id: $U" -H "x-engine-id: $E" \
+      "http://127.0.0.1:7101${ENGINE_SNAP_PATH}" >/dev/null; then
+      ok "Rust engine GET /engine/snapshot OK (HMAC v2)"
+    else
+      warn "Engine not on :7101 / Redis / HMAC — set secrets + REDIS; ENGINE_HTTP_BIND=0.0.0.0 for Docker"
+    fi
+  else
+    warn "Could not build HMAC probe (check ENGINE_HMAC_SECRET_ACTIVE)"
+  fi
 else
-  warn "Engine not on :7101 — run in another terminal: cd matching-engine && cargo run"
+  warn "ENGINE_HMAC_SECRET_ACTIVE / ENGINE_HMAC_SECRET unset — skipping engine snapshot probe"
 fi
 
 echo "=== 7) Backend /health (optional) ==="

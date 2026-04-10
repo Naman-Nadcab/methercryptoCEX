@@ -1,7 +1,6 @@
 /**
  * Internal API for Rust matching engine: orderbook rebuild on startup.
- * Protected by X-Engine-Secret when ENGINE_INTERNAL_SECRET is set.
- * Returns open spot orders and last_engine_event_id for deterministic recovery.
+ * Secured by parent-plugin middleware: CIDR allowlist, rate limit, X-Engine-Secret or engine HMAC v2.
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db } from '../lib/database.js';
@@ -11,24 +10,9 @@ import { getSpotOrdersUseMarketSync } from '../lib/spot-schema-cache.js';
 
 const OPEN_STATUSES = ['OPEN', 'PARTIALLY_FILLED'];
 
-function authInternalEngine(request: FastifyRequest, reply: FastifyReply): boolean {
-  const secret = config.rustMatchingEngine?.internalSecret;
-  if (!secret) {
-    return true;
-  }
-  const header = request.headers['x-engine-secret'];
-  if (header !== secret) {
-    reply.status(401).send({ error: 'UNAUTHORIZED', message: 'Invalid or missing X-Engine-Secret' });
-    return false;
-  }
-  return true;
-}
-
 export default async function internalEngineRoutes(app: FastifyInstance): Promise<void> {
   /** GET /internal/engine/state — open orders + last_engine_event_id for engine restart recovery */
-  app.get('/state', async (request: FastifyRequest, reply: FastifyReply) => {
-    if (!authInternalEngine(request, reply)) return;
-
+  app.get('/state', async (_request: FastifyRequest, reply: FastifyReply) => {
     try {
       const useMarket = getSpotOrdersUseMarketSync();
       const ordersQuery = useMarket
@@ -101,8 +85,6 @@ export default async function internalEngineRoutes(app: FastifyInstance): Promis
    * Restart processes running the MATCH_EVENTS pull consumer after calling this.
    */
   app.post('/settlement-stream/replay', async (request: FastifyRequest, reply: FastifyReply) => {
-    if (!authInternalEngine(request, reply)) return;
-
     if (!config.nats.url?.trim()) {
       return reply.status(503).send({
         error: 'NATS_NOT_CONFIGURED',
@@ -145,8 +127,6 @@ export default async function internalEngineRoutes(app: FastifyInstance): Promis
    * Re-publish DLQ payloads onto their original match.events.* subjects (requires original_nats_subject on envelope).
    */
   app.post('/settlement-dlq/replay', async (request: FastifyRequest, reply: FastifyReply) => {
-    if (!authInternalEngine(request, reply)) return;
-
     if (!config.nats.url?.trim()) {
       return reply.status(503).send({
         error: 'NATS_NOT_CONFIGURED',

@@ -9,6 +9,7 @@ interface PageMeta {
 
 const PAGE_TITLES: Record<string, string> = {
   '/dashboard': 'Dashboard',
+  '/triage': 'Operations triage',
   '/incidents': 'Incidents',
   '/users': 'Users',
   '/kyc': 'KYC Verification',

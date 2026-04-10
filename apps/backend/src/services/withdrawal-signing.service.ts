@@ -16,7 +16,10 @@ import { getCurrencyIdForToken } from '../lib/currency-resolver.js';
 import { ensureUserBalanceRow, assertUserBalanceUpdated, assertBalanceInvariant, CHAIN_ID_GLOBAL } from '../lib/user-balance-helper.js';
 import { insertBalanceLedger } from '../lib/balance-ledger.js';
 import { ROUND_DOWN, AMOUNT_PRECISION } from '../config/monetary-precision.js';
+import { config } from '../config/index.js';
 import { getSignerForChain, getHotWalletByChainId, checkHotWalletCaps, resolveHotWalletChainId } from './hot-wallet.service.js';
+import { remoteSignEvmNativeTransaction } from '../lib/signing-service-client.js';
+import { sendOpsAlert } from './ops-alert.service.js';
 import { redis } from '../lib/redis.js';
 
 const ACTOR_SYSTEM = 'withdrawal-signing-processor';
@@ -237,38 +240,8 @@ async function processSigningQueueClaimed(claimed: {
     action: 'withdrawal_signing_started',
     resourceType: 'withdrawal',
     resourceId: withdrawalId,
-    details: { withdrawal_id: withdrawalId, chain_id: chainId },
+    details: { withdrawal_id: withdrawalId, chain_id: chainId, remote: config.signingService.remoteEnabled },
   });
-
-  let signer: Awaited<ReturnType<typeof getSignerForChain>>;
-  try {
-    signer = await getSignerForChain(chainId, ACTOR_SYSTEM, 'withdrawal');
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Unknown';
-    logger.error('Get signer failed', { withdrawalId, chainId, error: msg });
-    await markQueueFailed(queueId, `Signer failed: ${msg}`);
-    await logHotWalletAudit({
-      actorId: ACTOR_SYSTEM,
-      actorType: 'system',
-      action: 'withdrawal_signing_failed',
-      resourceType: 'withdrawal',
-      resourceId: withdrawalId,
-      details: { withdrawal_id: withdrawalId, error: msg },
-    });
-    return;
-  }
-  if (!signer) {
-    await markQueueFailed(queueId, 'No hot wallet signer for chain');
-    await logHotWalletAudit({
-      actorId: ACTOR_SYSTEM,
-      actorType: 'system',
-      action: 'withdrawal_signing_failed',
-      resourceType: 'withdrawal',
-      resourceId: withdrawalId,
-      details: { withdrawal_id: withdrawalId, error: 'No signer' },
-    });
-    return;
-  }
 
   const valueWei = BigInt(
     new Decimal(w.net_amount).times(new Decimal(10).pow(token.decimals)).floor().toString()
@@ -278,20 +251,23 @@ async function processSigningQueueClaimed(claimed: {
     return;
   }
 
-  let signedTx: string;
-  if (isRetryBroadcast && claimed.signed_tx_hex) {
-    signedTx = claimed.signed_tx_hex;
-  } else {
+  const useRemote = config.signingService.remoteEnabled === true;
+  let signer: Awaited<ReturnType<typeof getSignerForChain>> | null = null;
+  if (!useRemote) {
     try {
-      signedTx = await signer.signTransaction({
-        to: w.to_address,
-        value: valueWei,
-        data: '0x',
-        gasLimit: 21000n,
-      });
+      signer = await getSignerForChain(chainId, ACTOR_SYSTEM, 'withdrawal');
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown';
-      await markQueueFailed(queueId, `Sign failed: ${msg}`);
+      logger.error('Get signer failed', { withdrawalId, chainId, error: msg });
+      void sendOpsAlert({
+        severity: 'critical',
+        alertType: 'signing',
+        title: 'Withdrawal signing: local signer unavailable',
+        body: msg,
+        dedupeKey: `signer-fail:${chainId}`,
+        context: { withdrawalId, chainId },
+      });
+      await markQueueFailed(queueId, `Signer failed: ${msg}`);
       await logHotWalletAudit({
         actorId: ACTOR_SYSTEM,
         actorType: 'system',
@@ -302,10 +278,75 @@ async function processSigningQueueClaimed(claimed: {
       });
       return;
     }
+    if (!signer) {
+      void sendOpsAlert({
+        severity: 'critical',
+        alertType: 'signing',
+        title: 'Withdrawal signing: no local signer',
+        body: chainId,
+        dedupeKey: `no-signer:${chainId}`,
+        context: { withdrawalId, chainId },
+      });
+      await markQueueFailed(queueId, 'No hot wallet signer for chain');
+      await logHotWalletAudit({
+        actorId: ACTOR_SYSTEM,
+        actorType: 'system',
+        action: 'withdrawal_signing_failed',
+        resourceType: 'withdrawal',
+        resourceId: withdrawalId,
+        details: { withdrawal_id: withdrawalId, error: 'No signer' },
+      });
+      return;
+    }
+  }
+
+  let signedTx: string;
+  if (isRetryBroadcast && claimed.signed_tx_hex) {
+    signedTx = claimed.signed_tx_hex;
+  } else {
+    try {
+      if (useRemote) {
+        signedTx = await remoteSignEvmNativeTransaction({
+          withdrawalId,
+          chainId,
+          toAddress: w.to_address,
+          valueWei: valueWei.toString(),
+          gasLimit: '21000',
+        });
+      } else {
+        signedTx = await signer!.signTransaction({
+          to: w.to_address,
+          value: valueWei,
+          data: '0x',
+          gasLimit: 21000n,
+        });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown';
+      void sendOpsAlert({
+        severity: 'critical',
+        alertType: 'signing',
+        title: useRemote ? 'Withdrawal signing failed (remote HSM service)' : 'Withdrawal signing failed (local)',
+        body: msg,
+        dedupeKey: `sign-tx:${withdrawalId}`,
+        context: { withdrawalId, chainId, remote: useRemote },
+      });
+      await markQueueFailed(queueId, `Sign failed: ${msg}`);
+      await logHotWalletAudit({
+        actorId: ACTOR_SYSTEM,
+        actorType: 'system',
+        action: 'withdrawal_signing_failed',
+        resourceType: 'withdrawal',
+        resourceId: withdrawalId,
+        details: { withdrawal_id: withdrawalId, error: msg, remote: useRemote },
+      });
+      return;
+    }
     await db.query(
       `UPDATE withdrawal_signing_queue SET status = 'broadcast', signed_tx_hex = $1 WHERE id = $2`,
       [signedTx, queueId]
     );
+    await db.query(`UPDATE withdrawals SET treasury_stage = 'signed', updated_at = NOW() WHERE id = $1`, [withdrawalId]);
   }
 
   const provider = new JsonRpcProvider(rpcUrl);
@@ -313,6 +354,7 @@ async function processSigningQueueClaimed(claimed: {
   try {
     const tx = await provider.broadcastTransaction(signedTx);
     txHash = tx.hash;
+    await db.query(`UPDATE withdrawals SET treasury_stage = 'broadcasted', updated_at = NOW() WHERE id = $1`, [withdrawalId]);
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown';
     const r = await db.query<{ attempts: number; max_attempts: number }>(
@@ -482,7 +524,7 @@ async function markQueueFailed(queueId: string, errorMessage: string): Promise<v
     if (w) {
       const total = new Decimal(w.amount).plus(w.fee).toString();
       await db.query(
-        `UPDATE withdrawals SET status = 'failed', failed_reason = $1, processed_at = CURRENT_TIMESTAMP WHERE id = $2`,
+        `UPDATE withdrawals SET status = 'failed', treasury_stage = 'failed', failed_reason = $1, processed_at = CURRENT_TIMESTAMP WHERE id = $2`,
         [errorMessage, row.withdrawal_id]
       );
       const currencyId = await getCurrencyIdForToken(w.token_id);

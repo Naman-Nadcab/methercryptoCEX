@@ -29,6 +29,7 @@ import { getSpotTradesShapeSync, loadSpotTradesShape } from '../../lib/spot-trad
 import { insertSpotTradesAfterMatch, updateSpotOrdersFilledAfterMatch } from './spot-settlement-order-writes.js';
 import { computeSettlementLedgerDeltasFromPayload } from './settlement-ledger-deltas.js';
 import { insertBalanceLedger } from '../../lib/balance-ledger.js';
+import { settlementEventsDlqTotal } from '../../lib/prometheus-metrics.js';
 
 function settlementWorkerIntervalMs(): number {
   return config.workers?.settlementWorkerIntervalMs ?? 250;
@@ -121,6 +122,25 @@ export function normalizeSettlementPayload(raw: unknown): EnginePayload {
 
 function batchSize(): number {
   return config.workers?.settlementBatchSize ?? 1;
+}
+
+async function appendSettlementDlq(
+  row: { id: number; engine_event_id: number; match_engine_id: string; payload: unknown },
+  err: string,
+  reason: 'fatal' | 'max_retries'
+): Promise<void> {
+  try {
+    const payloadJson =
+      typeof row.payload === 'string' ? row.payload : JSON.stringify(row.payload ?? {});
+    await db.query(
+      `INSERT INTO settlement_events_dlq (source_event_id, engine_event_id, match_engine_id, payload, last_error)
+       VALUES ($1, $2, $3, $4::jsonb, $5)`,
+      [row.id, row.engine_event_id, row.match_engine_id, payloadJson, err.substring(0, 2000)]
+    );
+    settlementEventsDlqTotal.inc({ reason });
+  } catch (e) {
+    logger.error('settlement_events_dlq insert failed', { error: e instanceof Error ? e.message : String(e) });
+  }
 }
 const SETTLEMENT_ACCOUNT_TYPE = 'trading';
 
@@ -854,6 +874,16 @@ async function processOneEvent(): Promise<boolean> {
         `UPDATE settlement_events SET status = 'failed', last_error = $1, processed_at = NOW() WHERE id = $2`,
         [msg.substring(0, 1000), rawRow.id]
       );
+      await appendSettlementDlq(
+        {
+          id: rawRow.id,
+          engine_event_id: rawRow.engine_event_id,
+          match_engine_id: rawRow.match_engine_id || 'default',
+          payload: rawRow.payload,
+        },
+        msg,
+        'fatal'
+      );
       return true;
     }
     const row: SettlementRow = {
@@ -942,6 +972,7 @@ async function processOneEvent(): Promise<boolean> {
           `UPDATE settlement_events SET status = 'failed', last_error = $1, processed_at = NOW() WHERE id = $2`,
           [errMsg.substring(0, 1000), row.id]
         );
+        await appendSettlementDlq(row, errMsg, 'fatal');
         logger.error('Settlement event failed (fatal, non-retryable)', {
           level: 'critical',
           id: row.id,
@@ -966,6 +997,7 @@ async function processOneEvent(): Promise<boolean> {
             `UPDATE settlement_events SET status = 'failed', processed_at = NOW() WHERE id = $1`,
             [row.id]
           );
+          await appendSettlementDlq(row, errMsg, 'max_retries');
         } else {
           recordSettlementEvent({
             type: 'failure_retry',

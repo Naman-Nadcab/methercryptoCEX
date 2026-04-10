@@ -1,14 +1,14 @@
 # Admin Panel migration (canonical operator console)
 
 **Primary UI:** `apps/admin-panel` — dev URL `http://localhost:3001/dashboard`  
-**Legacy UI:** `apps/frontend` routes under `/admin/*` — do **not** delete until this playbook’s gates pass.
+**Legacy UI:** removed. The user app (`apps/frontend`) no longer ships embedded `/admin` pages. Requests to `/admin` and `/admin/*` are **redirected** to `NEXT_PUBLIC_ADMIN_PANEL_URL` (see `apps/frontend/next.config.js`).
 
 ---
 
-## Phase 0 — Rules (no breaking changes)
+## Phase 0 — Rules (historical)
 
 1. **Branch per slice** — e.g. `chore/admin-migration-docs`, `feat/admin-panel-logs-hub`. Avoid mixing “delete legacy” with “new features”.
-2. **Legacy `/admin` stays** until **Phase 5 gate** is explicitly met.
+2. **Legacy `/admin`** — deleted from `apps/frontend`; redirects preserve bookmarks.
 3. **Definition of done** for “P0 parity”: every row in §P0 below is ✅ **Implemented & smoke-tested** in admin-panel.
 4. **Rollback:** revert the branch / redeploy previous image; document in PR.
 
@@ -79,24 +79,15 @@ Record date + environment + who ran it in PR or release notes.
 
 ---
 
-## Phase 4 — Soft deprecate legacy (still no delete)
+## Phase 4 — Soft deprecate legacy *(completed → removed)*
 
-- Frontend `/admin` layout banner (already) points to admin-panel.  
-- Optional: Next.js `redirect()` for **specific** legacy paths once canonical URL is verified.  
-- Collect feedback: “Still need legacy URL X?” for 2–4 weeks.
+Legacy embedded admin is gone; bookmarks hit `next.config.js` redirects to the admin-panel origin.
 
 ---
 
-## Phase 5 — Remove legacy admin (high risk; last)
+## Phase 5 — Remove legacy admin *(done)*
 
-**Gates (all required):**
-
-1. P0 matrix ✅ for every required flow.  
-2. P0 smoke green on staging.  
-3. `grep` for imports of `@/components/admin` **outside** `apps/frontend/src/app/admin` — clean or accepted.  
-4. Redirects for old bookmarks (temporary).  
-
-Then remove routes in **small PRs** (routes first, then dead components).
+Embedded `apps/frontend/src/app/admin/**` and related components, hooks, and API helpers were removed. **Keep** `NEXT_PUBLIC_ADMIN_PANEL_URL` set in each environment so `/admin` and `/admin/*` redirect correctly.
 
 ---
 

@@ -25,10 +25,12 @@ export function RejectWithdrawalModal({
   const [reason, setReason] = useState('');
   const [adminNote, setAdminNote] = useState('');
 
+  const MIN_REASON = 8;
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!reason.trim()) return;
-    await onConfirm(reason.trim(), adminNote.trim() || undefined);
+    const r = reason.trim();
+    if (r.length < MIN_REASON) return;
+    await onConfirm(r, adminNote.trim() || undefined);
     setReason('');
     setAdminNote('');
     onClose();
@@ -53,6 +55,7 @@ export function RejectWithdrawalModal({
           <div>
             <label htmlFor="reject-reason" className="block text-sm font-medium text-admin-text">
               Reason <span className="text-admin-danger">*</span>
+              <span className="text-admin-muted font-normal"> (min {MIN_REASON} chars)</span>
             </label>
             <textarea
               id="reject-reason"
@@ -60,8 +63,9 @@ export function RejectWithdrawalModal({
               onChange={(e) => setReason(e.target.value)}
               rows={2}
               required
+              minLength={MIN_REASON}
               className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm focus:ring-2 focus:ring-admin-primary"
-              placeholder="Reason for rejection..."
+              placeholder="Reason for rejection (audit trail)…"
             />
           </div>
           <div>
@@ -81,7 +85,7 @@ export function RejectWithdrawalModal({
             <Button type="button" variant="secondary" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" variant="danger" disabled={!reason.trim() || isLoading}>
+            <Button type="submit" variant="danger" disabled={reason.trim().length < MIN_REASON || isLoading}>
               {isLoading ? 'Rejecting…' : 'Reject withdrawal'}
             </Button>
           </div>

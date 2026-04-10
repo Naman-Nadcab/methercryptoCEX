@@ -5,8 +5,9 @@ import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
-import { logger } from '../lib/logger.js';
+import { logger, securityLog } from '../lib/logger.js';
 import { config } from '../config/index.js';
+import { redisBlocksHighRiskActions } from '../services/redis-health.service.js';
 import { ensureUserBalanceRow, assertUserBalanceUpdated, assertBalanceInvariant, CHAIN_ID_GLOBAL } from '../lib/user-balance-helper.js';
 import { insertBalanceLedger } from '../lib/balance-ledger.js';
 import { getCurrencyIdBySymbol } from '../lib/currency-resolver.js';
@@ -16,7 +17,16 @@ import { refreshMatchEventsCache } from '../services/matchingEngine.js';
 import { p2pService } from '../services/p2p.service.js';
 import { getClientIp } from '../lib/client-ip.js';
 import { isIpInWhitelist } from '../lib/admin-ip-whitelist.js';
+import { isBreakGlassClientIpAllowed } from '../lib/break-glass-access.js';
 import { enforceAdminRateLimit, rateLimitByIp } from '../lib/rate-limit-fastify.js';
+import {
+  hasAdminRbacPermission,
+  isSuperAdminRole,
+  getImplicitRolePermissions,
+  ADMIN_LEGACY_ROLE_PERMISSION,
+  ADMIN_IMPLICIT_ROLE_PERMISSIONS,
+} from '../lib/admin-rbac-routes.js';
+import { issueAdminWsTicket, consumeWsTicket, WS_TICKET_TTL_SEC } from '../services/ws-ticket.service.js';
 import { registerAdminConnection, unregisterAdminConnection } from '../services/admin-ws.service.js';
 import { registerAdminEventsConnection, unregisterAdminEventsConnection, broadcastAdminControlEvent } from '../services/admin-events-ws.service.js';
 import { applyTierLimitsToUser } from '../services/withdrawal-tier-limits.service.js';
@@ -27,6 +37,19 @@ const WITHDRAW_APPROVE_LOCK_TTL = 30;
 const IDEMPOTENCY_KEY_HEADER = 'idempotency-key';
 const ADMIN_LOGIN_MAX_ATTEMPTS_FALLBACK = 5;
 const ADMIN_LOGIN_LOCK_MINUTES = 15;
+
+function normalizeAdminUa(ua: string | undefined): string {
+  return (typeof ua === 'string' ? ua : '').trim().slice(0, 512);
+}
+
+function sessionBindHashes(request: FastifyRequest): { ipHash: string; uaHash: string } {
+  const ip = getClientIp(request);
+  const ua = normalizeAdminUa(request.headers['user-agent'] as string | undefined);
+  return {
+    ipHash: crypto.createHash('sha256').update(ip, 'utf8').digest('hex'),
+    uaHash: crypto.createHash('sha256').update(ua, 'utf8').digest('hex'),
+  };
+}
 
 function buildAdminManualCreditRequestHash(body: Record<string, unknown>): string {
   const normalized = {
@@ -60,16 +83,29 @@ interface AdminUser {
 }
 
 // Generate admin tokens
-function generateAdminTokens(app: FastifyInstance, payload: {
-  adminId: string;
-  email: string;
-  role: string;
-  sessionId: string;
-}) {
-  const accessToken = app.jwt.sign({ ...payload, type: 'admin' }, { expiresIn: '4h' });
+function generateAdminTokens(
+  app: FastifyInstance,
+  payload: {
+    adminId: string;
+    email: string;
+    role: string;
+    sessionId: string;
+  },
+  options?: { breakGlass?: boolean }
+) {
+  const breakGlass = options?.breakGlass === true;
+  const accessToken = app.jwt.sign(
+    { ...payload, type: 'admin', ...(breakGlass ? { breakGlass: true } : {}) },
+    { expiresIn: breakGlass ? '15m' : '4h' }
+  );
   const refreshToken = app.jwt.sign(
-    { adminId: payload.adminId, sessionId: payload.sessionId, type: 'admin_refresh' },
-    { expiresIn: '7d' }
+    {
+      adminId: payload.adminId,
+      sessionId: payload.sessionId,
+      type: 'admin_refresh',
+      ...(breakGlass ? { breakGlass: true } : {}),
+    },
+    { expiresIn: breakGlass ? '15m' : '7d' }
   );
   return { accessToken, refreshToken };
 }
@@ -111,13 +147,13 @@ export async function getAdminFromRequest(
   request: FastifyRequest,
   reply: FastifyReply,
   requireSuperAdmin: boolean
-): Promise<{ adminId: string; role: string } | null> {
+): Promise<{ adminId: string; role: string; breakGlass?: boolean } | null> {
   const token = request.headers.authorization?.replace('Bearer ', '');
   if (!token) {
     reply.status(401).send({ success: false, error: { code: 'UNAUTHORIZED', message: 'No token provided' } });
     return null;
   }
-  let decoded: { adminId: string; role?: string; sessionId: string; type?: string };
+  let decoded: { adminId: string; role?: string; sessionId: string; type?: string; breakGlass?: boolean };
   try {
     decoded = app.jwt.verify<typeof decoded>(token);
   } catch {
@@ -128,16 +164,30 @@ export async function getAdminFromRequest(
     reply.status(401).send({ success: false, error: { code: 'INVALID_TOKEN', message: 'Invalid admin token' } });
     return null;
   }
-  let session: { adminId: string; role: string; isActive: boolean } | null = null;
+  type AdminSessionCache = {
+    adminId: string;
+    role: string;
+    isActive: boolean;
+    bindIpHash?: string;
+    bindUaHash?: string;
+    breakGlass?: boolean;
+  };
+  let session: AdminSessionCache | null = null;
   try {
-    session = await redis.getJson<{ adminId: string; role: string; isActive: boolean }>(`admin:session:${decoded.sessionId}`);
+    session = await redis.getJson<AdminSessionCache>(`admin:session:${decoded.sessionId}`);
   } catch {
     // Redis down; fallback to DB
   }
   if (!session || !session.isActive) {
-    // Fallback: validate session from DB
-    const dbSession = await db.query<{ admin_id: string; role: string }>(
-      `SELECT s.admin_id, u.role FROM admin_sessions s
+    const dbSession = await db.query<{
+      admin_id: string;
+      role: string;
+      ip_address: string | null;
+      user_agent: string | null;
+      break_glass: boolean;
+    }>(
+      `SELECT s.admin_id, u.role, s.ip_address::text, s.user_agent, COALESCE(s.break_glass, false) AS break_glass
+       FROM admin_sessions s
        JOIN admin_users u ON u.id = s.admin_id
        WHERE s.id = $1 AND s.expires_at > NOW()`,
       [decoded.sessionId]
@@ -147,7 +197,51 @@ export async function getAdminFromRequest(
       return null;
     }
     const row = dbSession.rows[0]!;
-    session = { adminId: row.admin_id, role: row.role, isActive: true };
+    session = {
+      adminId: row.admin_id,
+      role: row.role,
+      isActive: true,
+      breakGlass: row.break_glass === true,
+    };
+    const reqIp = getClientIp(request);
+    const reqUa = normalizeAdminUa(request.headers['user-agent'] as string | undefined);
+    const dbIp = (row.ip_address || '').trim();
+    const dbUa = normalizeAdminUa(row.user_agent ?? undefined);
+    if (dbIp && dbIp !== reqIp) {
+      securityLog('admin_session_binding_mismatch', 'high', { adminId: row.admin_id, reason: 'ip' });
+      reply.status(401).send({
+        success: false,
+        error: {
+          code: 'SESSION_BINDING_MISMATCH',
+          message: 'Session is bound to another client context',
+        },
+      });
+      return null;
+    }
+    if (dbUa && dbUa !== reqUa) {
+      securityLog('admin_session_binding_mismatch', 'high', { adminId: row.admin_id, reason: 'ua' });
+      reply.status(401).send({
+        success: false,
+        error: {
+          code: 'SESSION_BINDING_MISMATCH',
+          message: 'Session is bound to another client context',
+        },
+      });
+      return null;
+    }
+  } else if (session.bindIpHash && session.bindUaHash) {
+    const bind = sessionBindHashes(request);
+    if (session.bindIpHash !== bind.ipHash || session.bindUaHash !== bind.uaHash) {
+      securityLog('admin_session_binding_mismatch', 'high', { adminId: session.adminId, reason: 'redis_bind' });
+      reply.status(401).send({
+        success: false,
+        error: {
+          code: 'SESSION_BINDING_MISMATCH',
+          message: 'Session is bound to another client context',
+        },
+      });
+      return null;
+    }
   }
   const role = session.role ?? decoded.role ?? '';
   if (requireSuperAdmin && role !== 'super_admin' && role !== 'Super Admin') {
@@ -157,6 +251,25 @@ export async function getAdminFromRequest(
     });
     return null;
   }
+
+  const jwtBreakGlass = decoded.breakGlass === true;
+  const sessBreakGlass = session.breakGlass === true;
+  if (jwtBreakGlass !== sessBreakGlass) {
+    securityLog('admin_break_glass_jwt_mismatch', 'critical', { adminId: session.adminId });
+    reply.status(401).send({
+      success: false,
+      error: { code: 'INVALID_TOKEN', message: 'Session token does not match server session' },
+    });
+    return null;
+  }
+  if (jwtBreakGlass && !config.security.breakGlassEnabled) {
+    reply.status(401).send({
+      success: false,
+      error: { code: 'BREAK_GLASS_DISABLED', message: 'Break-glass access is disabled' },
+    });
+    return null;
+  }
+
   // FIX #3: Admin IP whitelist — enforce only after JWT/session auth. Production: empty whitelist = deny all; non-production: empty = do not enforce.
   const clientIp = getClientIp(request);
   const whitelist = config.security?.adminIpWhitelist ?? [];
@@ -189,7 +302,7 @@ export async function getAdminFromRequest(
   // FIX #4: Admin rate limit 60/min per admin (after auth + IP whitelist).
   const allowed = await enforceAdminRateLimit(request, reply, session.adminId, 'admin', 60, 60);
   if (!allowed) return null;
-  return { adminId: session.adminId, role };
+  return { adminId: session.adminId, role, breakGlass: jwtBreakGlass ? true : undefined };
 }
 
 /**
@@ -229,41 +342,8 @@ export const ADMIN_PERMISSION_MATRIX: Record<string, string[]> = {
   'risk:export': ['risk:export', 'all'],
 };
 
-/** Roles that imply all permissions (no permission array check). */
-const SUPER_ROLES = ['super_admin', 'super admin', 'Super Admin'];
-
-/**
- * Role → permission mapping. Each role gets a set of implicit permissions
- * without needing the `permissions[]` column on admin_users.
- */
-const ROLE_TO_PERMISSIONS: Record<string, string[]> = {
-  super_admin: ['all'],
-  risk_manager: ['monitoring:view', 'aml:view', 'aml:escalate', 'users:view', 'users:edit', 'control:trading', 'markets:manage', 'risk:export', 'analytics:view', 'audit:view'],
-  finance_admin: ['withdrawals:approve', 'withdrawals:view', 'deposits:credit', 'deposits:view', 'users:view', 'monitoring:view', 'markets:manage', 'treasury:sweep', 'analytics:view', 'audit:view'],
-  support_agent: ['users:view', 'users:edit', 'kyc:review', 'deposits:view', 'withdrawals:view', 'p2p:disputes'],
-  auditor: ['audit:view', 'monitoring:view', 'analytics:view', 'users:view', 'withdrawals:view', 'deposits:view', 'settings:view', 'risk:export'],
-  withdrawal_approver: ['withdrawals:approve'],
-  kyc_reviewer: ['kyc:review'],
-  aml_reviewer: ['aml:view'],
-};
-
-/** Legacy compat: single role → single permission mapping (used as fallback) */
-const ROLE_TO_PERMISSION: Record<string, string> = {
-  withdrawal_approver: 'withdrawals:approve',
-  kyc_reviewer: 'kyc:review',
-  aml_reviewer: 'aml:view',
-  risk_manager: 'monitoring:view',
-};
-
-function hasPermission(role: string, permission: string): boolean {
-  const normalizedRole = (role || '').toLowerCase().replace(/\s+/g, '_');
-  if (SUPER_ROLES.some((r) => r.toLowerCase().replace(/\s+/g, '_') === normalizedRole)) return true;
-  const perms = ROLE_TO_PERMISSIONS[normalizedRole] || [];
-  return perms.includes('all') || perms.includes(permission);
-}
-
 function requirePermission(admin: { adminId: string; role: string }, permission: string, reply: FastifyReply): boolean {
-  if (!hasPermission(admin.role, permission)) {
+  if (!hasAdminRbacPermission(admin.role, permission)) {
     reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: `Permission '${permission}' required` } });
     return false;
   }
@@ -276,24 +356,20 @@ export async function getAdminWithPermission(
   request: FastifyRequest,
   reply: FastifyReply,
   requiredPermission: keyof typeof ADMIN_PERMISSION_MATRIX
-): Promise<{ adminId: string; role: string } | null> {
+): Promise<{ adminId: string; role: string; breakGlass?: boolean } | null> {
   const admin = await getAdminFromRequest(app, request, reply, false);
   if (!admin) return null;
   const role = (admin.role || '').toLowerCase().replace(/\s+/g, '_');
 
-  // 1. Super roles bypass everything
-  if (SUPER_ROLES.some((r) => r.toLowerCase().replace(/\s+/g, '_') === role)) return admin;
+  if (isSuperAdminRole(admin.role)) return admin;
 
-  // 2. Check expanded role → permissions mapping
-  const rolePerms = ROLE_TO_PERMISSIONS[role];
-  if (rolePerms) {
+  const rolePerms = getImplicitRolePermissions(role);
+  if (rolePerms.length) {
     if (rolePerms.includes('all') || rolePerms.includes(requiredPermission)) return admin;
   }
 
-  // 3. Legacy single-permission role mapping (backward compat)
-  if (ROLE_TO_PERMISSION[role] === requiredPermission) return admin;
+  if (ADMIN_LEGACY_ROLE_PERMISSION[role] === requiredPermission) return admin;
 
-  // 4. Check admin_users.permissions column
   const allowedPerms = ADMIN_PERMISSION_MATRIX[requiredPermission];
   if (!allowedPerms) return admin;
   const permRow = await db.query<{ permissions: string[] }>(
@@ -301,9 +377,9 @@ export async function getAdminWithPermission(
     [admin.adminId]
   );
   const permissions = permRow.rows[0]?.permissions ?? [];
-  const hasPermission =
+  const hasDbPermission =
     Array.isArray(permissions) && allowedPerms.some((p) => permissions.includes(p));
-  if (hasPermission) return admin;
+  if (hasDbPermission) return admin;
   reply.status(403).send({
     success: false,
     error: { code: 'FORBIDDEN', message: `This action requires permission: ${requiredPermission} (or role super_admin).` },
@@ -317,8 +393,8 @@ export async function getAdminWithPermission(
  */
 export function resolveEffectivePermissions(role: string, dbPermissions: string[]): string[] {
   const normalizedRole = (role || '').toLowerCase().replace(/\s+/g, '_');
-  if (SUPER_ROLES.some((r) => r.toLowerCase().replace(/\s+/g, '_') === normalizedRole)) return ['all'];
-  const rolePerms = ROLE_TO_PERMISSIONS[normalizedRole] ?? [];
+  if (isSuperAdminRole(role)) return ['all'];
+  const rolePerms = getImplicitRolePermissions(normalizedRole) ?? [];
   const explicit = Array.isArray(dbPermissions) ? dbPermissions : [];
   const set = new Set([...rolePerms, ...explicit]);
   return Array.from(set).sort();
@@ -329,64 +405,319 @@ export async function getAdminForWithdrawalApproval(
   app: FastifyInstance,
   request: FastifyRequest,
   reply: FastifyReply
-): Promise<{ adminId: string; role: string } | null> {
-  return getAdminWithPermission(app, request, reply, 'withdrawals:approve');
+): Promise<{ adminId: string; role: string; breakGlass?: boolean } | null> {
+  const admin = await getAdminWithPermission(app, request, reply, 'withdrawals:approve');
+  if (!admin) return null;
+  if (admin.breakGlass) {
+    reply.status(403).send({
+      success: false,
+      error: {
+        code: 'BREAK_GLASS_BLOCKED',
+        message:
+          'Break-glass sessions cannot approve withdrawals directly. Use POST /admin/approval-requests (maker-checker).',
+      },
+    });
+    return null;
+  }
+  return admin;
 }
 
-/**
- * URL pattern → required permission mapping for the global RBAC preHandler.
- * Super admins bypass all checks. Routes not matching any pattern fall through to
- * per-handler getAdminFromRequest (auth-only, backward compatible).
- */
-const ROUTE_PERMISSION_MAP: Array<{ pattern: RegExp; read: string; write: string }> = [
-  { pattern: /^\/(users|search|kyc)/, read: 'users:view', write: 'users:edit' },
-  { pattern: /^\/(withdrawals|deposits|treasury|funds|hot-wallets|deposit-sweeps|wallets)/, read: 'withdrawals:view', write: 'withdrawals:approve' },
-  { pattern: /^\/(trading|trading-halt|matches|settlement|spot)/, read: 'monitoring:view', write: 'control:trading' },
-  { pattern: /^\/(risk|aml)/, read: 'aml:view', write: 'aml:escalate' },
-  { pattern: /^\/(system|settings|control|safe-mode)/, read: 'settings:view', write: 'settings:edit' },
-  { pattern: /^\/(monitoring|analytics|liquidity-bot|dashboard)/, read: 'analytics:view', write: 'analytics:view' },
-  { pattern: /^\/(audit|security)/, read: 'audit:view', write: 'audit:view' },
-  { pattern: /^\/(fees|staking|markets|announcements|notifications|support|p2p|referral)/, read: 'monitoring:view', write: 'settings:edit' },
-  { pattern: /^\/(admin-users|roles)/, read: 'settings:view', write: 'settings:edit' },
-];
+function clientIpFromWsReq(req: {
+  headers: Record<string, string | string[] | undefined>;
+  socket?: { remoteAddress?: string };
+}): string {
+  const h = req.headers;
+  const cf = h['cf-connecting-ip'];
+  if (typeof cf === 'string' && cf.trim()) return cf.trim();
+  const xri = h['x-real-ip'];
+  if (typeof xri === 'string' && xri.trim()) return xri.trim();
+  const xff = h['x-forwarded-for'];
+  if (typeof xff === 'string') {
+    const first = xff.split(',')[0]?.trim();
+    if (first) return first;
+  }
+  const ra = req.socket?.remoteAddress || '0.0.0.0';
+  return ra.replace(/^::ffff:/, '');
+}
+
+function extractWsTicketFromProtocol(req: {
+  headers: Record<string, string | string[] | undefined>;
+}): string | null {
+  const raw = req.headers['sec-websocket-protocol'];
+  const parts =
+    typeof raw === 'string'
+      ? raw.split(',').map((s) => s.trim())
+      : Array.isArray(raw)
+        ? raw.flatMap((x) => x.split(',')).map((s) => s.trim())
+        : [];
+  for (const p of parts) {
+    if (p.startsWith('ticket.')) return p.slice('ticket.'.length).trim();
+  }
+  return null;
+}
 
 export default async function adminRoutes(app: FastifyInstance) {
 
-  app.addHook('onRequest', async (request, reply) => {
-    const url = request.url.replace(/^\/api\/v1\/admin/, '').split('?')[0] || '/';
-    if (url.startsWith('/auth/')) return;
-    return rateLimitByIp('admin-api', 600, 60)(request, reply);
-  });
+  app.post<{ Body: { email?: string; breakGlassSecret?: string } }>(
+    '/break-glass-challenge',
+    {
+      config: { rateLimit: false },
+      preHandler: [rateLimitByIp('admin-break-glass-all', 5, 600, { failClosed: config.isProduction })],
+    },
+    async (request, reply) => {
+      if (!config.security.breakGlassEnabled) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Not found' } });
+      }
+      const ip = getClientIp(request);
+      if (!isBreakGlassClientIpAllowed(ip)) {
+        securityLog('admin_break_glass_challenge_ip_denied', 'high', { ip });
+        return reply.status(403).send({
+          success: false,
+          error: { code: 'IP_NOT_ALLOWED', message: 'Break-glass is not permitted from this IP address' },
+        });
+      }
+      const body = request.body ?? {};
+      const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+      const bgSecret = typeof body.breakGlassSecret === 'string' ? body.breakGlassSecret : '';
+      if (!email || !bgSecret) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_INPUT', message: 'email and breakGlassSecret are required' },
+        });
+      }
+      const ha = crypto.createHash('sha256').update(bgSecret, 'utf8').digest();
+      const hb = crypto.createHash('sha256').update(config.security.breakGlassSecret ?? '', 'utf8').digest();
+      if (!config.security.breakGlassSecret || ha.length !== hb.length || !crypto.timingSafeEqual(ha, hb)) {
+        securityLog('admin_break_glass_challenge_secret_fail', 'high', {
+          emailHash: crypto.createHash('sha256').update(email, 'utf8').digest('hex').slice(0, 12),
+        });
+        return reply.status(401).send({
+          success: false,
+          error: { code: 'INVALID_CREDENTIALS', message: 'Invalid credentials' },
+        });
+      }
+      const token = crypto.randomBytes(32).toString('hex');
+      try {
+        await redis.setJson(`break-glass:ch:${token}`, { email, ip }, 60);
+      } catch (e) {
+        logger.error('break-glass-challenge: redis failed', { error: e instanceof Error ? e.message : String(e) });
+        return reply.status(503).send({
+          success: false,
+          error: { code: 'CHALLENGE_UNAVAILABLE', message: 'Break-glass challenge requires Redis' },
+        });
+      }
+      securityLog('admin_break_glass_challenge_issued', 'critical', {
+        emailHash: crypto.createHash('sha256').update(email, 'utf8').digest('hex').slice(0, 12),
+        ip,
+      });
+      return reply.send({
+        success: true,
+        data: { challengeToken: token, expiresInSec: 60 },
+      });
+    }
+  );
 
-  app.addHook('preHandler', async (request, reply) => {
-    const url = request.url.replace(/^\/api\/v1\/admin/, '').split('?')[0] || '/';
-    if (url.startsWith('/auth/') || url.startsWith('/ws/')) return;
+  app.post<{
+    Body: {
+      email?: string;
+      password?: string;
+      breakGlassSecret?: string;
+      challengeToken?: string;
+      reason?: string;
+      ticketId?: string;
+    };
+  }>(
+    '/break-glass-login',
+    {
+      config: { rateLimit: false },
+      preHandler: [rateLimitByIp('admin-break-glass-all', 5, 600, { failClosed: config.isProduction })],
+    },
+    async (request, reply) => {
+      if (!config.security.breakGlassEnabled) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Not found' } });
+      }
+      const loginClientIpEarly = getClientIp(request);
+      if (!isBreakGlassClientIpAllowed(loginClientIpEarly)) {
+        securityLog('admin_break_glass_login_ip_denied', 'high', { ip: loginClientIpEarly });
+        return reply.status(403).send({
+          success: false,
+          error: { code: 'IP_NOT_ALLOWED', message: 'Break-glass is not permitted from this IP address' },
+        });
+      }
+      const secretExpected = config.security.breakGlassSecret;
+      const body = request.body ?? {};
+      const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+      const password = typeof body.password === 'string' ? body.password : '';
+      const bgSecret = typeof body.breakGlassSecret === 'string' ? body.breakGlassSecret : '';
+      const challengeToken = typeof body.challengeToken === 'string' ? body.challengeToken.trim() : '';
+      const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+      const ticketId = typeof body.ticketId === 'string' ? body.ticketId.trim() : '';
+      if (!email || !password || !bgSecret || challengeToken.length < 16 || reason.length < 8 || ticketId.length < 4) {
+        return reply.status(400).send({
+          success: false,
+          error: {
+            code: 'INVALID_INPUT',
+            message:
+              'email, password, breakGlassSecret, challengeToken (from POST /break-glass-challenge), reason (min 8 chars), and ticketId are required',
+          },
+        });
+      }
+      try {
+        const ch = await redis.getDelJson<{ email: string; ip: string }>(`break-glass:ch:${challengeToken}`);
+        if (!ch || ch.email !== email || ch.ip !== loginClientIpEarly) {
+          securityLog('admin_break_glass_challenge_invalid', 'critical', {
+            emailHash: crypto.createHash('sha256').update(email, 'utf8').digest('hex').slice(0, 12),
+            ip: loginClientIpEarly,
+          });
+          return reply.status(401).send({
+            success: false,
+            error: { code: 'INVALID_CHALLENGE', message: 'Invalid or expired break-glass challenge token' },
+          });
+        }
+      } catch (e) {
+        logger.error('break-glass-login: redis challenge read failed', { error: e instanceof Error ? e.message : String(e) });
+        return reply.status(503).send({
+          success: false,
+          error: { code: 'CHALLENGE_UNAVAILABLE', message: 'Could not validate break-glass challenge' },
+        });
+      }
+      const ha = crypto.createHash('sha256').update(bgSecret, 'utf8').digest();
+      const hb = crypto.createHash('sha256').update(secretExpected ?? '', 'utf8').digest();
+      if (!secretExpected || ha.length !== hb.length || !crypto.timingSafeEqual(ha, hb)) {
+        securityLog('admin_break_glass_secret_fail', 'high', {
+          emailHash: crypto.createHash('sha256').update(email, 'utf8').digest('hex').slice(0, 12),
+        });
+        return reply.status(401).send({
+          success: false,
+          error: { code: 'INVALID_CREDENTIALS', message: 'Invalid credentials' },
+        });
+      }
+      const result = await db.query<{
+        id: string;
+        email: string;
+        name: string;
+        role: string;
+        permissions: string[];
+        password_hash: string;
+        is_active: boolean;
+      }>(`SELECT id, email, name, role, permissions, password_hash, is_active FROM admin_users WHERE email = $1`, [email]);
+      if (result.rows.length === 0) {
+        return reply.status(401).send({
+          success: false,
+          error: { code: 'INVALID_CREDENTIALS', message: 'Invalid credentials' },
+        });
+      }
+      const adm = result.rows[0]!;
+      if (!adm.is_active) {
+        return reply.status(403).send({ success: false, error: { code: 'ACCOUNT_DISABLED', message: 'Disabled' } });
+      }
+      const okPw = await bcrypt.compare(password, adm.password_hash);
+      if (!okPw) {
+        return reply.status(401).send({
+          success: false,
+          error: { code: 'INVALID_CREDENTIALS', message: 'Invalid credentials' },
+        });
+      }
+      const loginClientIp = getClientIp(request);
+      const sessionId = uuidv4();
+      const sessionToken = uuidv4();
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+      await db.query(
+        `INSERT INTO admin_sessions (id, admin_id, session_token, ip_address, user_agent, expires_at, break_glass)
+         VALUES ($1, $2, $3, $4, $5, $6, TRUE)`,
+        [sessionId, adm.id, sessionToken, loginClientIp, request.headers['user-agent'], expiresAt]
+      );
+      try {
+        const bh = sessionBindHashes(request);
+        await redis.setJson(
+          `admin:session:${sessionId}`,
+          {
+            adminId: adm.id,
+            email: adm.email,
+            role: adm.role,
+            isActive: true,
+            breakGlass: true,
+            bindIpHash: bh.ipHash,
+            bindUaHash: bh.uaHash,
+          },
+          15 * 60
+        );
+      } catch (e) {
+        logger.warn('break-glass: Redis session cache failed', { error: e instanceof Error ? e.message : String(e) });
+      }
+      await db.query(
+        `INSERT INTO admin_break_glass_events (admin_id, ticket_id, reason, ip_address)
+         VALUES ($1, $2, $3, $4::inet)`,
+        [adm.id, ticketId, reason, loginClientIp]
+      );
+      securityLog('admin_break_glass_login', 'critical', {
+        adminId: adm.id,
+        ticketId,
+        ip: loginClientIp,
+        reasonPreview: reason.slice(0, 120),
+        challengeConsumed: true,
+      });
+      logger.warn('admin break-glass session issued', { adminId: adm.id, ticketId, ip: loginClientIp });
+      const tokens = generateAdminTokens(
+        app,
+        {
+          adminId: adm.id,
+          email: adm.email,
+          role: adm.role,
+          sessionId,
+        },
+        { breakGlass: true }
+      );
+      return reply.send({
+        success: true,
+        data: {
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
+          expiresInMinutes: 15,
+          breakGlass: true,
+        },
+      });
+    }
+  );
 
+  /**
+   * POST /admin/auth/ws-ticket — one-time ticket for admin WebSockets (Sec-WebSocket-Protocol: ticket.<id>).
+   */
+  app.post('/auth/ws-ticket', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
-
-    const role = (admin.role || '').toLowerCase().replace(/\s+/g, '_');
-    if (SUPER_ROLES.some((r) => r.toLowerCase().replace(/\s+/g, '_') === role)) return;
-
-    const isWrite = ['POST', 'PATCH', 'PUT', 'DELETE'].includes(request.method.toUpperCase());
-    for (const rule of ROUTE_PERMISSION_MAP) {
-      if (rule.pattern.test(url)) {
-        const required = isWrite ? rule.write : rule.read;
-        if (!hasPermission(role, required)) {
-          reply.status(403).send({
-            success: false,
-            error: { code: 'FORBIDDEN', message: `Permission '${required}' required for this action.` },
-          });
-          return;
-        }
-        return;
+    const token = request.headers.authorization?.replace('Bearer ', '');
+    if (!token) {
+      return reply.status(401).send({ success: false, error: { code: 'UNAUTHORIZED', message: 'No token provided' } });
+    }
+    let sessionId: string;
+    try {
+      const d = app.jwt.verify<{ sessionId?: string; type?: string }>(token);
+      if (d.type !== 'admin' || !d.sessionId) {
+        return reply.status(401).send({ success: false, error: { code: 'INVALID_TOKEN', message: 'Invalid admin token' } });
       }
+      sessionId = d.sessionId;
+    } catch {
+      return reply.status(401).send({ success: false, error: { code: 'INVALID_TOKEN', message: 'Invalid admin token' } });
+    }
+    try {
+      const ticket = await issueAdminWsTicket(admin.adminId, sessionId, getClientIp(request));
+      return reply.send({
+        success: true,
+        data: { ticket, expiresIn: WS_TICKET_TTL_SEC, protocol: `ticket.${ticket}` },
+      });
+    } catch (e) {
+      logger.error('admin ws-ticket issue failed', { error: e instanceof Error ? e.message : String(e) });
+      return reply.status(503).send({
+        success: false,
+        error: { code: 'TICKET_UNAVAILABLE', message: 'Could not issue WebSocket ticket' },
+      });
     }
   });
 
   /**
    * WebSocket: /api/v1/admin/ws/metrics — real-time admin metrics (trade, order, deposit, withdrawal, p2p, aml).
-   * Query: token=<admin_jwt>. Only admin JWTs are accepted.
+   * Auth: Sec-WebSocket-Protocol `ticket.<one_time_ticket>` from POST /admin/auth/ws-ticket (no JWT in query).
    */
   app.get('/ws/metrics', { websocket: true }, (socket, req) => {
     const closeUnauthorized = (message: string) => {
@@ -394,31 +725,28 @@ export default async function adminRoutes(app: FastifyInstance) {
       socket.close(1008, message);
     };
     const url = new URL(req.url || '', 'http://localhost');
-    const token = url.searchParams.get('token');
-    if (!token) {
-      closeUnauthorized('Missing token');
+    if (url.searchParams.has('token')) {
+      closeUnauthorized('JWT in query string is not permitted');
       return;
     }
-    let decoded: { adminId?: string; type?: string; sessionId?: string };
-    try {
-      decoded = app.jwt.verify(token) as { adminId?: string; type?: string; sessionId?: string };
-      if (decoded.type !== 'admin' || !decoded.adminId || !decoded.sessionId) {
-        closeUnauthorized('Invalid token');
+    const ticket = extractWsTicketFromProtocol(req);
+    if (!ticket) {
+      closeUnauthorized('Missing ticket (use Sec-WebSocket-Protocol: ticket.<id>)');
+      return;
+    }
+    const clientIp = clientIpFromWsReq(req);
+    void (async () => {
+      const consumed = await consumeWsTicket(ticket, clientIp, 'admin');
+      if (!consumed.ok || !consumed.adminId || !consumed.sessionId) {
+        closeUnauthorized('Invalid, expired, or reused ticket');
         return;
       }
-    } catch {
-      closeUnauthorized('Invalid token');
-      return;
-    }
-    void (async () => {
-      const adminId = decoded.adminId!;
-      const sessionId = decoded.sessionId!;
-      const sessionValid = await isAdminSessionValid(sessionId, adminId);
+      const sessionValid = await isAdminSessionValid(consumed.sessionId, consumed.adminId);
       if (!sessionValid) {
         closeUnauthorized('Session expired');
         return;
       }
-      const connId = registerAdminConnection(socket as any, adminId);
+      const connId = registerAdminConnection(socket as any, consumed.adminId);
       socket.on('close', () => unregisterAdminConnection(connId));
       socket.on('message', (buf: Buffer) => {
         try {
@@ -434,7 +762,7 @@ export default async function adminRoutes(app: FastifyInstance) {
   });
 
   /**
-   * WebSocket: /api/v1/admin/ws/events — control panel real-time events (control_status_changed, emergency_level_changed, incident_created, service_restarted, liquidity_kill_activated).
+   * WebSocket: /api/v1/admin/ws/events — control panel real-time events.
    */
   app.get('/ws/events', { websocket: true }, (socket, req) => {
     const closeUnauthorized = (message: string) => {
@@ -442,31 +770,28 @@ export default async function adminRoutes(app: FastifyInstance) {
       socket.close(1008, message);
     };
     const url = new URL(req.url || '', 'http://localhost');
-    const token = url.searchParams.get('token');
-    if (!token) {
-      closeUnauthorized('Missing token');
+    if (url.searchParams.has('token')) {
+      closeUnauthorized('JWT in query string is not permitted');
       return;
     }
-    let decoded: { adminId?: string; type?: string; sessionId?: string };
-    try {
-      decoded = app.jwt.verify(token) as { adminId?: string; type?: string; sessionId?: string };
-      if (decoded.type !== 'admin' || !decoded.adminId || !decoded.sessionId) {
-        closeUnauthorized('Invalid token');
+    const ticket = extractWsTicketFromProtocol(req);
+    if (!ticket) {
+      closeUnauthorized('Missing ticket (use Sec-WebSocket-Protocol: ticket.<id>)');
+      return;
+    }
+    const clientIp = clientIpFromWsReq(req);
+    void (async () => {
+      const consumed = await consumeWsTicket(ticket, clientIp, 'admin');
+      if (!consumed.ok || !consumed.adminId || !consumed.sessionId) {
+        closeUnauthorized('Invalid, expired, or reused ticket');
         return;
       }
-    } catch {
-      closeUnauthorized('Invalid token');
-      return;
-    }
-    void (async () => {
-      const adminId = decoded.adminId!;
-      const sessionId = decoded.sessionId!;
-      const sessionValid = await isAdminSessionValid(sessionId, adminId);
+      const sessionValid = await isAdminSessionValid(consumed.sessionId, consumed.adminId);
       if (!sessionValid) {
         closeUnauthorized('Session expired');
         return;
       }
-      const connId = registerAdminEventsConnection(socket as any, adminId);
+      const connId = registerAdminEventsConnection(socket as any, consumed.adminId);
       socket.on('close', () => unregisterAdminEventsConnection(connId));
       socket.on('message', (buf: Buffer) => {
         try {
@@ -576,13 +901,41 @@ export default async function adminRoutes(app: FastifyInstance) {
         });
       }
 
-      // Check if 2FA is enabled and require verification
+      const loginClientIp = getClientIp(request);
+      const prevIpRes = await db.query<{ ip: string | null }>(
+        `SELECT ip_address::text AS ip FROM admin_sessions WHERE admin_id = $1 ORDER BY expires_at DESC LIMIT 1`,
+        [admin.id]
+      );
+      const prevIp = prevIpRes.rows[0]?.ip?.trim() || null;
+      if (prevIp && prevIp !== loginClientIp) {
+        securityLog('admin_login_new_ip', 'medium', { adminId: admin.id });
+        if (config.security.adminBlockLoginNewIp) {
+          return reply.status(403).send({
+            success: false,
+            error: {
+              code: 'ADMIN_LOGIN_NEW_IP_BLOCKED',
+              message: 'Login from a new IP is not permitted for this account.',
+            },
+          });
+        }
+      }
+
       try {
         const twoFaCheck = await db.query<{ two_factor_enabled: boolean }>(
           'SELECT two_factor_enabled FROM admin_users WHERE id = $1',
           [admin.id]
         );
-        if (twoFaCheck.rows[0]?.two_factor_enabled) {
+        const has2fa = twoFaCheck.rows[0]?.two_factor_enabled === true;
+        if (config.security.admin2faMandatory && !has2fa) {
+          return reply.status(403).send({
+            success: false,
+            error: {
+              code: 'ADMIN_2FA_MANDATORY',
+              message: 'All administrators must enable two-factor authentication before signing in.',
+            },
+          });
+        }
+        if (has2fa) {
           const { twofa_code } = request.body as { twofa_code?: string };
           if (!twofa_code) {
             return reply.status(200).send({
@@ -626,17 +979,23 @@ export default async function adminRoutes(app: FastifyInstance) {
       await db.query(
         `INSERT INTO admin_sessions (id, admin_id, session_token, ip_address, user_agent, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6)`,
-        [sessionId, admin.id, sessionToken, request.ip, request.headers['user-agent'], expiresAt]
+        [sessionId, admin.id, sessionToken, loginClientIp, request.headers['user-agent'], expiresAt]
       );
 
-      // Store session in Redis (optional; if Redis is down, session is still in DB and auth/me will fallback to DB)
       try {
-        await redis.setJson(`admin:session:${sessionId}`, {
-          adminId: admin.id,
-          email: admin.email,
-          role: admin.role,
-          isActive: true,
-        }, 7 * 24 * 60 * 60);
+        const bh = sessionBindHashes(request);
+        await redis.setJson(
+          `admin:session:${sessionId}`,
+          {
+            adminId: admin.id,
+            email: admin.email,
+            role: admin.role,
+            isActive: true,
+            bindIpHash: bh.ipHash,
+            bindUaHash: bh.uaHash,
+          },
+          7 * 24 * 60 * 60
+        );
       } catch (e) {
         logger.warn('Redis unavailable for admin session cache; using DB fallback', { error: e instanceof Error ? e.message : 'Unknown' });
       }
@@ -651,7 +1010,7 @@ export default async function adminRoutes(app: FastifyInstance) {
       await db.query(
         `INSERT INTO admin_activity_logs (admin_id, action, details, ip_address)
          VALUES ($1, $2, $3, $4)`,
-        [admin.id, 'login', JSON.stringify({ userAgent: request.headers['user-agent'] }), request.ip]
+        [admin.id, 'login', JSON.stringify({ userAgent: request.headers['user-agent'] }), loginClientIp]
       );
 
       // Generate tokens
@@ -819,6 +1178,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         adminId: string;
         sessionId: string;
         type: string;
+        breakGlass?: boolean;
       }>(refreshToken);
 
       if (decoded.type !== 'admin_refresh') {
@@ -829,7 +1189,12 @@ export default async function adminRoutes(app: FastifyInstance) {
       }
 
       // Check session
-      const session = await redis.getJson<{ adminId: string; email: string; role: string }>(`admin:session:${decoded.sessionId}`);
+      const session = await redis.getJson<{
+        adminId: string;
+        email: string;
+        role: string;
+        breakGlass?: boolean;
+      }>(`admin:session:${decoded.sessionId}`);
       if (!session) {
         return reply.status(401).send({
           success: false,
@@ -837,13 +1202,19 @@ export default async function adminRoutes(app: FastifyInstance) {
         });
       }
 
+      const breakGlass = decoded.breakGlass === true && session.breakGlass === true;
+
       // Generate new tokens
-      const tokens = generateAdminTokens(app, {
-        adminId: session.adminId,
-        email: session.email,
-        role: session.role,
-        sessionId: decoded.sessionId,
-      });
+      const tokens = generateAdminTokens(
+        app,
+        {
+          adminId: session.adminId,
+          email: session.email,
+          role: session.role,
+          sessionId: decoded.sessionId,
+        },
+        { breakGlass }
+      );
 
       return reply.send({
         success: true,
@@ -2201,10 +2572,10 @@ export default async function adminRoutes(app: FastifyInstance) {
   app.get('/roles', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
-    const roles = Object.entries(ROLE_TO_PERMISSIONS).map(([role, perms]) => ({
+    const roles = Object.entries(ADMIN_IMPLICIT_ROLE_PERMISSIONS).map(([role, perms]) => ({
       role,
       permissions: perms,
-      isSuperRole: SUPER_ROLES.some((r) => r.toLowerCase().replace(/\s+/g, '_') === role),
+      isSuperRole: isSuperAdminRole(role),
     }));
     return reply.send({ success: true, data: { roles, permissionMatrix: ADMIN_PERMISSION_MATRIX } });
   });
@@ -3322,14 +3693,37 @@ export default async function adminRoutes(app: FastifyInstance) {
     const halted = await getTradingHalted();
     return reply.send({ success: true, data: { halted } });
   });
-  app.post<{ Body: { halted: boolean } }>('/trading-halt', async (request, reply) => {
+  app.post<{ Body: { halted: boolean; reason?: string; admin_note?: string } }>('/trading-halt', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
     if (!requirePermission(admin, 'control:trading', reply)) return;
     const halted = request.body?.halted === true;
+    const reason = (request.body?.reason ?? '').trim() || undefined;
+    const adminNote = (request.body?.admin_note ?? '').trim() || undefined;
+    if (halted && (reason?.length ?? 0) < 8) {
+      return reply.status(400).send({
+        success: false,
+        error: {
+          code: 'REASON_REQUIRED',
+          message: 'Reason (minimum 8 characters) is required when halting trading.',
+        },
+      });
+    }
     const { setTradingHalt } = await import('../lib/trading-halt.js');
     await setTradingHalt(halted);
-    logger.warn('Trading halt changed', { adminId: admin.adminId, halted });
+    try {
+      await logAuditFromRequest(request, {
+        actorType: 'admin',
+        actorId: admin.adminId,
+        action: halted ? 'admin_trading_halt' : 'admin_trading_resume',
+        resourceType: 'trading',
+        resourceId: 'global',
+        newValue: { halted, reason, admin_note: adminNote },
+      });
+    } catch {
+      /* best-effort */
+    }
+    logger.warn('Trading halt changed', { adminId: admin.adminId, halted, reason });
     broadcastAdminControlEvent('control_status_changed', { trading: halted ? 'paused' : 'active' });
     return reply.send({ success: true, data: { halted } });
   });
@@ -5392,6 +5786,7 @@ export default async function adminRoutes(app: FastifyInstance) {
   app.patch('/settings', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
+    if (!requirePermission(admin, 'settings:edit', reply)) return;
     try {
       const settings = request.body as Record<string, any>;
 
@@ -5909,6 +6304,31 @@ export default async function adminRoutes(app: FastifyInstance) {
   }>('/deposits/manual-credit', async (request, reply) => {
     const admin = await getAdminWithPermission(app, request, reply, 'deposits:credit');
     if (!admin) return;
+    if (admin.breakGlass) {
+      return reply.status(403).send({
+        success: false,
+        error: {
+          code: 'BREAK_GLASS_BLOCKED',
+          message: 'Break-glass sessions cannot perform manual credits. Use POST /admin/approval-requests (maker-checker).',
+        },
+      });
+    }
+    if (config.security.makerCheckerEnabled) {
+      return reply.status(400).send({
+        success: false,
+        error: {
+          code: 'MAKER_CHECKER_REQUIRED',
+          message:
+            'Direct manual credit is disabled. Use POST /admin/approval-requests with actionType manual_credit; a second admin must approve after the delay.',
+        },
+      });
+    }
+    if (redisBlocksHighRiskActions()) {
+      return reply.status(503).send({
+        success: false,
+        error: { code: 'REDIS_UNAVAILABLE', message: 'Manual credit is disabled while Redis is unhealthy.' },
+      });
+    }
     try {
       const idempotencyKeyRaw = (request.headers[IDEMPOTENCY_KEY_HEADER] ?? request.headers['Idempotency-Key']) as string | undefined;
       const idempotencyKey = typeof idempotencyKeyRaw === 'string' ? idempotencyKeyRaw.trim() : '';
@@ -5956,6 +6376,16 @@ export default async function adminRoutes(app: FastifyInstance) {
         return reply.status(400).send({
           success: false,
           error: { code: 'INVALID_INPUT', message: 'user, currency, and amount are required' },
+        });
+      }
+      const reasonTrimmed = typeof reason === 'string' ? reason.trim() : '';
+      if (reasonTrimmed.length < 8) {
+        return reply.status(400).send({
+          success: false,
+          error: {
+            code: 'MANUAL_CREDIT_REASON_REQUIRED',
+            message: 'Manual credit requires reason (minimum 8 characters) for audit compliance.',
+          },
         });
       }
       if (txHashBody?.trim()) {
@@ -6048,7 +6478,7 @@ export default async function adminRoutes(app: FastifyInstance) {
           action: 'admin_manual_credit',
           resourceType: 'user',
           resourceId: userId,
-          newValue: { currency: symbol.trim(), amount: amountDec.toString(), reason: reason ?? undefined },
+          newValue: { currency: symbol.trim(), amount: amountDec.toString(), reason: reasonTrimmed },
         });
       } catch {
         /* best-effort */
@@ -6060,11 +6490,11 @@ export default async function adminRoutes(app: FastifyInstance) {
         currencyId,
         symbol: symbol.trim(),
         amount: amountDec.toString(),
-        reason: reason ?? null,
+        reason: reasonTrimmed,
       });
       const response = {
         success: true as const,
-        data: { userId, email: userRow.rows[0]!.email, currency: symbol.trim(), amount: amountDec.toString(), reason: reason ?? null },
+        data: { userId, email: userRow.rows[0]!.email, currency: symbol.trim(), amount: amountDec.toString(), reason: reasonTrimmed },
       };
       try {
         await redis.setJson(creditRedisKey, { requestHash: creditRequestHash, response }, ADMIN_CREDIT_IDEMPOTENCY_TTL_SECONDS);
@@ -6103,10 +6533,20 @@ export default async function adminRoutes(app: FastifyInstance) {
       const { id: userId } = request.params;
       const { currency_id: currencyId, amount: amountStr, type: adjustType, reason } = request.body || {};
 
-      if (!currencyId?.trim() || !amountStr?.trim() || !adjustType || !reason?.trim()) {
+      const reasonAdj = typeof reason === 'string' ? reason.trim() : '';
+      if (!currencyId?.trim() || !amountStr?.trim() || !adjustType || !reasonAdj) {
         return reply.status(400).send({
           success: false,
           error: { code: 'INVALID_INPUT', message: 'currency_id, amount, type, and reason are required' },
+        });
+      }
+      if (reasonAdj.length < 8) {
+        return reply.status(400).send({
+          success: false,
+          error: {
+            code: 'BALANCE_ADJUST_REASON_REQUIRED',
+            message: 'Balance adjustment requires reason (minimum 8 characters) for audit compliance.',
+          },
         });
       }
       if (adjustType !== 'credit' && adjustType !== 'debit') {
@@ -6114,6 +6554,33 @@ export default async function adminRoutes(app: FastifyInstance) {
           success: false,
           error: { code: 'INVALID_INPUT', message: 'type must be "credit" or "debit"' },
         });
+      }
+      if (adjustType === 'credit') {
+        if (admin.breakGlass) {
+          return reply.status(403).send({
+            success: false,
+            error: {
+              code: 'BREAK_GLASS_BLOCKED',
+              message: 'Break-glass sessions cannot credit balances. Use maker-checker approval requests.',
+            },
+          });
+        }
+        if (config.security.makerCheckerEnabled) {
+          return reply.status(400).send({
+            success: false,
+            error: {
+              code: 'MAKER_CHECKER_REQUIRED',
+              message:
+                'Balance credits require POST /admin/approval-requests (actionType manual_credit) when maker-checker is enabled.',
+            },
+          });
+        }
+        if (redisBlocksHighRiskActions()) {
+          return reply.status(503).send({
+            success: false,
+            error: { code: 'REDIS_UNAVAILABLE', message: 'Balance credit is disabled while Redis is unhealthy.' },
+          });
+        }
       }
 
       const ROUND_DOWN = 1;
@@ -6204,7 +6671,7 @@ export default async function adminRoutes(app: FastifyInstance) {
           action: `admin_balance_${adjustType}`,
           resourceType: 'user',
           resourceId: userId,
-          newValue: { currency: symbol, amount: amountDec.toString(), type: adjustType, reason: reason.trim() },
+          newValue: { currency: symbol, amount: amountDec.toString(), type: adjustType, reason: reasonAdj },
         });
       } catch {
         /* best-effort */
@@ -6217,12 +6684,12 @@ export default async function adminRoutes(app: FastifyInstance) {
         symbol,
         amount: amountDec.toString(),
         type: adjustType,
-        reason: reason.trim(),
+        reason: reasonAdj,
       });
 
       return reply.send({
         success: true,
-        data: { userId, email: userRow.rows[0]!.email, currency: symbol, amount: amountDec.toString(), type: adjustType, reason: reason.trim() },
+        data: { userId, email: userRow.rows[0]!.email, currency: symbol, amount: amountDec.toString(), type: adjustType, reason: reasonAdj },
       });
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
@@ -6785,6 +7252,25 @@ export default async function adminRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string }; Body: { admin_note?: string } }>('/withdrawals/:id/approve', async (request, reply) => {
     const admin = await getAdminForWithdrawalApproval(app, request, reply);
     if (!admin) return;
+    if (redisBlocksHighRiskActions()) {
+      return reply.status(503).send({
+        success: false,
+        error: {
+          code: 'REDIS_UNAVAILABLE',
+          message: 'Withdrawal approval is disabled while Redis is unhealthy.',
+        },
+      });
+    }
+    if (config.security.makerCheckerEnabled) {
+      return reply.status(400).send({
+        success: false,
+        error: {
+          code: 'MAKER_CHECKER_REQUIRED',
+          message:
+            'Direct withdrawal approval is disabled. Use POST /admin/approval-requests with actionType withdrawal_approve and payload { withdrawalId }.',
+        },
+      });
+    }
     const withdrawalId = request.params.id;
     if (!withdrawalId) {
       return reply.status(400).send({
@@ -6792,7 +7278,17 @@ export default async function adminRoutes(app: FastifyInstance) {
         error: { code: 'INVALID_INPUT', message: 'Withdrawal id is required' },
       });
     }
-    const adminNote = (request.body?.admin_note ?? '').trim() || null;
+    const adminNoteRaw = (request.body?.admin_note ?? '').trim();
+    if (adminNoteRaw.length < 8) {
+      return reply.status(400).send({
+        success: false,
+        error: {
+          code: 'AUDIT_NOTE_REQUIRED',
+          message: 'Approval requires admin_note (minimum 8 characters) for audit compliance.',
+        },
+      });
+    }
+    const adminNote = adminNoteRaw;
     const idempotencyKeyRaw = (request.headers[IDEMPOTENCY_KEY_HEADER] ?? request.headers['Idempotency-Key']) as string | undefined;
     const idempotencyKey = typeof idempotencyKeyRaw === 'string' ? idempotencyKeyRaw.trim() : '';
     if (idempotencyKey && idempotencyKey.length <= 256) {
@@ -6926,7 +7422,17 @@ export default async function adminRoutes(app: FastifyInstance) {
         error: { code: 'INVALID_INPUT', message: 'Withdrawal id is required' },
       });
     }
-    const reason = (request.body?.reason ?? 'Rejected by admin').trim() || 'Rejected by admin';
+    const reasonRaw = (request.body?.reason ?? '').trim();
+    if (reasonRaw.length < 8) {
+      return reply.status(400).send({
+        success: false,
+        error: {
+          code: 'REJECTION_REASON_REQUIRED',
+          message: 'Rejection requires reason (minimum 8 characters) for audit compliance.',
+        },
+      });
+    }
+    const reason = reasonRaw;
     const adminNote = (request.body?.admin_note ?? '').trim() || null;
     const idempotencyKeyRaw = (request.headers[IDEMPOTENCY_KEY_HEADER] ?? request.headers['Idempotency-Key']) as string | undefined;
     const idempotencyKey = typeof idempotencyKeyRaw === 'string' ? idempotencyKeyRaw.trim() : '';
@@ -9939,11 +10445,18 @@ export default async function adminRoutes(app: FastifyInstance) {
   app.post<{ Body: { halted?: boolean; reason?: string; admin_note?: string } }>('/trading/halt', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
+    if (!requirePermission(admin, 'control:trading', reply)) return;
     const halted = request.body?.halted === true;
     const reason = (request.body?.reason ?? '').trim() || undefined;
     const adminNote = (request.body?.admin_note ?? '').trim() || undefined;
-    if (halted && !reason) {
-      return reply.status(400).send({ success: false, error: { code: 'REASON_REQUIRED', message: 'Reason is required when pausing trading' } });
+    if (halted && (reason?.length ?? 0) < 8) {
+      return reply.status(400).send({
+        success: false,
+        error: {
+          code: 'REASON_REQUIRED',
+          message: 'Reason (minimum 8 characters) is required when pausing trading.',
+        },
+      });
     }
     const { setTradingHalt } = await import('../lib/trading-halt.js');
     await setTradingHalt(halted);
@@ -9971,6 +10484,7 @@ export default async function adminRoutes(app: FastifyInstance) {
   app.post<{ Body: { market?: string; halted?: boolean; reason?: string; admin_note?: string } }>('/trading/market-halt', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
+    if (!requirePermission(admin, 'control:trading', reply)) return;
     const market = (request.body?.market ?? '').trim();
     const halted = request.body?.halted === true;
     const reason = (request.body?.reason ?? '').toString().trim() || undefined;
@@ -9978,8 +10492,14 @@ export default async function adminRoutes(app: FastifyInstance) {
     if (!market) {
       return reply.status(400).send({ success: false, error: { code: 'MISSING_MARKET', message: 'market is required' } });
     }
-    if (halted && !reason) {
-      return reply.status(400).send({ success: false, error: { code: 'REASON_REQUIRED', message: 'Reason is required when pausing a market' } });
+    if (halted && (reason?.length ?? 0) < 8) {
+      return reply.status(400).send({
+        success: false,
+        error: {
+          code: 'REASON_REQUIRED',
+          message: 'Reason (minimum 8 characters) is required when pausing a market.',
+        },
+      });
     }
     try {
       const { setSymbolCircuit } = await import('../lib/per-symbol-circuit.js');

@@ -22,6 +22,7 @@ import {
   ToggleLeft, ToggleRight, Globe, Lock, RefreshCw, Sliders,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { SensitiveActionModal } from '@/components/ops/SensitiveActionModal';
 
 // --------------- Confirmation Modal ---------------
 function ConfirmModal({ open, title, message, danger, onClose, onConfirm, loading }: {
@@ -94,6 +95,7 @@ export default function ControlCenterPage() {
   const token = useAdminAuthStore((s) => s.accessToken);
   const qc = useQueryClient();
   const [confirm, setConfirm] = useState<{ title: string; message: string; danger?: boolean; action: () => void } | null>(null);
+  const [pauseTradingNoteOpen, setPauseTradingNoteOpen] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
 
   const showToast = (type: 'success' | 'error', msg: string) => { setToast({ type, msg }); setTimeout(() => setToast(null), 3000); };
@@ -123,7 +125,15 @@ export default function ControlCenterPage() {
   const kycRequired = settings['kyc_required_for_withdrawal']?.value ?? 'true';
 
   // ---- Mutations ----
-  const haltMut = useMutation({ mutationFn: (v: boolean) => setTradingHalt(token, v), onSuccess: () => { inv([['admin', 'trading-halt', token!]]); showToast('success', 'Trading state updated'); } });
+  const haltMut = useMutation({
+    mutationFn: ({ halted, reason }: { halted: boolean; reason?: string }) =>
+      setTradingHalt(token, halted, reason ? { reason } : undefined),
+    onSuccess: () => {
+      inv([['admin', 'trading-halt', token!]]);
+      showToast('success', 'Trading state updated');
+      setPauseTradingNoteOpen(false);
+    },
+  });
   const walletMut = useMutation({ mutationFn: (b: { depositPaused?: boolean; withdrawalPaused?: boolean }) => patchOperationalWalletStatus(token, b), onSuccess: () => { inv([['admin', 'operational', 'wallet-status', token!]]); showToast('success', 'Wallet status updated'); } });
   const emergencyMut = useMutation({ mutationFn: ({ action, enabled }: { action: string; enabled: boolean }) => postEmergencyAction(token, action, enabled), onSuccess: () => { inv([['admin', 'system', 'settings', token!]]); showToast('success', 'Emergency action applied'); } });
   const safeModeMut = useMutation({ mutationFn: (v: boolean) => postSystemSafeMode(token, v), onSuccess: () => { inv([['admin', 'system', 'safe-mode', token!], ['admin', 'trading-halt', token!]]); showToast('success', `Safe mode ${!safeMode ? 'enabled' : 'disabled'}`); } });
@@ -182,7 +192,13 @@ export default function ControlCenterPage() {
 
             <div className="grid gap-3 sm:grid-cols-2">
               <ToggleRow label="Trading" description="Spot order matching" active={!halted} danger={halted}
-                onToggle={() => withConfirm(halted ? 'Resume Trading' : 'Halt Trading', halted ? 'Resume all spot trading?' : 'Halt all spot order matching?', () => haltMut.mutate(!halted))}
+                onToggle={() => {
+                  if (halted) {
+                    withConfirm('Resume Trading', 'Resume all spot trading?', () => haltMut.mutate({ halted: false }));
+                  } else {
+                    setPauseTradingNoteOpen(true);
+                  }
+                }}
                 loading={haltMut.isPending} />
               <ToggleRow label="Deposits" description="User deposit address generation" active={!walletStatus.depositPaused} danger={walletStatus.depositPaused}
                 onToggle={() => withConfirm(walletStatus.depositPaused ? 'Resume Deposits' : 'Pause Deposits', walletStatus.depositPaused ? 'Allow deposits again?' : 'Pause all user deposits?', () => walletMut.mutate({ depositPaused: !walletStatus.depositPaused }))}
@@ -368,6 +384,17 @@ export default function ControlCenterPage() {
           )}
         </CardContent>
       </Card>
+
+      <SensitiveActionModal
+        open={pauseTradingNoteOpen}
+        onClose={() => setPauseTradingNoteOpen(false)}
+        onConfirm={(note) => haltMut.mutate({ halted: true, reason: note })}
+        title="Halt all spot trading"
+        description="Stops order matching exchange-wide. A written reason is stored in the audit log."
+        variant="danger"
+        confirmLabel="Halt trading"
+        isLoading={haltMut.isPending}
+      />
 
       {/* Confirmation Modal */}
       <ConfirmModal

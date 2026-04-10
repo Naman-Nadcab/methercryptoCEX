@@ -75,7 +75,7 @@ export function snapshotTop(symbol: string, depth = DEFAULT_L2_DEPTH): Orderbook
     .sort((a, x) => parseFloat(a[0]) - parseFloat(x[0]))
     .slice(0, depth)
     .map(([price, quantity]) => ({ price, quantity }));
-  return { symbol, bids: bidLevels, asks: askLevels, lastUpdateId: 0 };
+  return { symbol, bids: bidLevels, asks: askLevels, lastUpdateId: 0, snapshotAtMs: Date.now() };
 }
 
 export function isMemoryBookEmpty(symbol: string): boolean {

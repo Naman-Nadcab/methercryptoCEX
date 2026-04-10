@@ -1,14 +1,11 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { IncomingMessage, Server } from 'http';
-import jwt from 'jsonwebtoken';
 import { URL } from 'url';
-import { config } from '../config/index.js';
 import { redis } from '../lib/redis.js';
 import { isSessionValid } from '../services/session.service.js';
 import { logger, securityLog } from '../lib/logger.js';
-import { UserRole } from '../types/index.js';
-/** @deprecated matching-engine.service is legacy; Fastify uses spot-ws.service */
-import { matchingEngine } from '../services/matching-engine.service.js';
+import { consumeWsTicket } from '../services/ws-ticket.service.js';
+import { resolvePublicOrderbookSnapshot } from '../services/spot-orderbook-public.service.js';
 
 interface WSClient extends WebSocket {
   id: string;
@@ -16,6 +13,7 @@ interface WSClient extends WebSocket {
   subscriptions: Set<string>;
   isAlive: boolean;
   lastPing: number;
+  connectIp: string;
 }
 
 interface WSMessage {
@@ -24,14 +22,22 @@ interface WSMessage {
   data?: unknown;
 }
 
-interface TokenPayload {
-  userId: string;
-  email: string;
-  role: UserRole;
-  sessionId: string;
-}
-
 class WebSocketManager {
+  private clientIpFromRequest(request: IncomingMessage): string {
+    const h = request.headers;
+    const cf = h['cf-connecting-ip'];
+    if (typeof cf === 'string' && cf.trim()) return cf.trim();
+    const xri = h['x-real-ip'];
+    if (typeof xri === 'string' && xri.trim()) return xri.trim();
+    const xff = h['x-forwarded-for'];
+    if (typeof xff === 'string') {
+      const first = xff.split(',')[0]?.trim();
+      if (first) return first;
+    }
+    const ra = request.socket?.remoteAddress || '0.0.0.0';
+    return ra.replace(/^::ffff:/, '');
+  }
+
   private wss: WebSocketServer | null = null;
   private clients: Map<string, WSClient> = new Map();
   private userClients: Map<string, Set<string>> = new Map(); // userId -> clientIds
@@ -73,13 +79,12 @@ class WebSocketManager {
     client.subscriptions = new Set();
     client.isAlive = true;
     client.lastPing = Date.now();
+    client.connectIp = this.clientIpFromRequest(request);
 
-    // Parse query params for authentication
     const url = new URL(request.url || '', `http://${request.headers.host}`);
-    const token = url.searchParams.get('token');
-
-    if (token) {
-      this.authenticateClient(client, token);
+    if (url.searchParams.has('token')) {
+      ws.close(1008, 'JWT query param is not permitted');
+      return;
     }
 
     this.clients.set(client.id, client);
@@ -110,50 +115,6 @@ class WebSocketManager {
   }
 
   /**
-   * Authenticate client with JWT
-   */
-  private async authenticateClient(client: WSClient, token: string): Promise<boolean> {
-    try {
-      // Check if token is blacklisted
-      const isBlacklisted = await redis.exists(`blacklist:token:${token}`);
-      if (isBlacklisted) {
-        return false;
-      }
-
-      const payload = jwt.verify(token, config.jwt.secret) as TokenPayload;
-
-      // Verify session (Redis + DB fallback; rejects revoked sessions)
-      const valid = await isSessionValid(payload.sessionId);
-      if (!valid) return false;
-
-      client.userId = payload.userId;
-
-      // Track user's connections
-      if (!this.userClients.has(payload.userId)) {
-        this.userClients.set(payload.userId, new Set());
-      }
-      this.userClients.get(payload.userId)!.add(client.id);
-
-      // Auto-subscribe to user-specific channels
-      this.subscribeToChannel(client, `user:${payload.userId}:orders`);
-      this.subscribeToChannel(client, `user:${payload.userId}:balances`);
-
-      logger.debug('WebSocket client authenticated', {
-        clientId: client.id,
-        userId: payload.userId,
-      });
-
-      return true;
-    } catch (error) {
-      logger.debug('WebSocket authentication failed', {
-        clientId: client.id,
-        error: error instanceof Error ? error.message : 'Unknown',
-      });
-      return false;
-    }
-  }
-
-  /**
    * Handle incoming message
    */
   private async handleMessage(client: WSClient, data: WebSocket.RawData): Promise<void> {
@@ -178,15 +139,34 @@ class WebSocketManager {
           break;
 
         case 'auth':
-          if (message.data && typeof message.data === 'object' && 'token' in message.data) {
-            const authenticated = await this.authenticateClient(
-              client,
-              (message.data as { token: string }).token
-            );
-            this.send(client, {
-              type: 'auth_result',
-              data: { success: authenticated },
-            });
+          if (message.data && typeof message.data === 'object' && 'ticket' in message.data) {
+            const ticket =
+              typeof (message.data as { ticket?: string }).ticket === 'string'
+                ? (message.data as { ticket: string }).ticket.trim()
+                : '';
+            if (!ticket) {
+              this.send(client, { type: 'auth_result', data: { success: false, error: 'ticket_required' } });
+              break;
+            }
+            const consumed = await consumeWsTicket(ticket, client.connectIp, 'spot');
+            if (!consumed.ok || !consumed.userId || !consumed.userSessionId) {
+              this.send(client, { type: 'auth_result', data: { success: false, error: 'invalid_ticket' } });
+              break;
+            }
+            const valid = await isSessionValid(consumed.userSessionId);
+            if (!valid) {
+              this.send(client, { type: 'auth_result', data: { success: false, error: 'session_invalid' } });
+              break;
+            }
+            const uid = consumed.userId;
+            client.userId = uid;
+            if (!this.userClients.has(uid)) {
+              this.userClients.set(uid, new Set());
+            }
+            this.userClients.get(uid)!.add(client.id);
+            this.subscribeToChannel(client, `user:${uid}:orders`);
+            this.subscribeToChannel(client, `user:${uid}:balances`);
+            this.send(client, { type: 'auth_result', data: { success: true } });
           }
           break;
 
@@ -221,9 +201,9 @@ class WebSocketManager {
 
     // Send initial data for certain channels
     if (channel.startsWith('orderbook:')) {
-      const pairId = channel.split(':')[1];
-      if (pairId) {
-        const orderbook = await matchingEngine.getOrderbook(pairId);
+      const sym = channel.split(':')[1];
+      if (sym) {
+        const orderbook = await resolvePublicOrderbookSnapshot(sym, 50);
         this.send(client, {
           type: 'orderbook_snapshot',
           channel,

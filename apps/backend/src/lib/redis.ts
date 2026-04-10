@@ -162,6 +162,28 @@ class RedisClient {
     await this.client.del(key);
   }
 
+  /** Atomic get+delete (Redis 6.2+ GETDEL); fallback if server or client lacks command. */
+  async getDel(key: string): Promise<string | null> {
+    try {
+      const r = (await this.client.call('GETDEL', key)) as string | null;
+      return r;
+    } catch {
+      const v = await this.get(key);
+      if (v != null) await this.del(key);
+      return v;
+    }
+  }
+
+  async getDelJson<T>(key: string): Promise<T | null> {
+    const raw = await this.getDel(key);
+    if (raw == null) return null;
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      return null;
+    }
+  }
+
   async exists(key: string): Promise<boolean> {
     const result = await this.client.exists(key);
     return result === 1;

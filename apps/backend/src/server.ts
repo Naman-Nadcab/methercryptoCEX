@@ -15,6 +15,7 @@ import { db } from './lib/database.js';
 import { redis } from './lib/redis.js';
 import { logger } from './lib/logger.js';
 import { validateHotWalletEnv, validateProductionConfig } from './lib/hot-wallet-env.js';
+import { assertLaunchSecurityInvariants } from './lib/launch-security-guard.js';
 import { validateRedisPersistence } from './lib/validate-redis-persistence.js';
 import { validateRequiredTables } from './lib/validate-migrations.js';
 import { ipRulesMiddleware } from './middleware/ip-rules.middleware.js';
@@ -74,6 +75,7 @@ import authDecisionPlugin from './plugins/authDecision.plugin.js';
 import authLockPlugin from './plugins/authLock.plugin.js';
 
 export async function buildServer(): Promise<FastifyInstance> {
+  assertLaunchSecurityInvariants();
   const { setPrometheusInstanceId } = await import('./lib/prometheus-metrics.js');
   setPrometheusInstanceId(config.nodeId);
 
@@ -124,7 +126,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   await app.register(rateLimit, {
-    max: 1000,
+    max: config.publicApiFastifyRateLimitMax,
     timeWindow: '1 minute',
     allowList: (request: FastifyRequest) => {
       const path = (request.url as string)?.split('?')[0] ?? '';
@@ -157,6 +159,8 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(latencyTracePlugin);
   await app.register(authDecisionPlugin);
   await app.register(authLockPlugin);
+  const publicApiRedisRateLimitPlugin = (await import('./plugins/public-api-redis-rate-limit.plugin.js')).default;
+  await app.register(publicApiRedisRateLimitPlugin);
 
   app.addHook('onRequest', async (request) => {
     const id = (request.headers['x-request-id'] as string)?.trim() || crypto.randomUUID();
@@ -607,6 +611,9 @@ export async function buildServer(): Promise<FastifyInstance> {
     return reply.status(401).send({ success: false, error: { code: 'UNAUTHORIZED', message: 'Provide Bearer token or X-API-Key' } });
   });
 
+  const { registerAdminZeroTrustHooks } = await import('./middleware/admin-zero-trust.middleware.js');
+  registerAdminZeroTrustHooks(app);
+
   // Register routes
   await app.register(authRoutes, { prefix: '/api/v1/auth' });
   await app.register(oauthRoutes, { prefix: '/api/v1/auth' });
@@ -634,7 +641,16 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(adminPhase24Routes, { prefix: '/api/v1/admin' });
   await app.register(adminMmControlRoutes, { prefix: '/api/v1/admin' });
   await app.register(observabilityRoutes, { prefix: '/api/v1/observability' });
-  await app.register(internalEngineRoutes, { prefix: '/internal/engine' });
+  await app.register(
+    async (scope) => {
+      const { internalEngineSecurityPreHandler } = await import(
+        './middleware/internal-engine-security.middleware.js'
+      );
+      scope.addHook('preHandler', internalEngineSecurityPreHandler);
+      await scope.register(internalEngineRoutes);
+    },
+    { prefix: '/internal/engine' }
+  );
 
   // Error handler
   app.setErrorHandler((error: unknown, request, reply) => {
@@ -725,6 +741,8 @@ async function start() {
         process.exit(1);
       }
       await validateRedisPersistence();
+      const { startRedisHealthMonitor } = await import('./services/redis-health.service.js');
+      startRedisHealthMonitor(3000);
       const { startCacheInvalidationSubscriber } = await import('./services/cache-invalidation.service.js');
       await startCacheInvalidationSubscriber();
       if (runMode !== 'workers') {
@@ -774,6 +792,30 @@ async function start() {
     await loadSpotTradesShape();
     logger.info('✓ Spot schema cache initialized (orders + trades shape)');
 
+    {
+      const { startAuditLogExportJob } = await import('./services/audit-log-export.service.js');
+      startAuditLogExportJob(300_000);
+      const { startBalanceConsistencyJob } = await import('./services/balance-consistency.service.js');
+      startBalanceConsistencyJob(120_000);
+      if (config.treasury.onchainReconcileIntervalMs > 0) {
+        const { startTreasuryOnchainReconcileJob } = await import('./services/treasury/treasury-onchain-reconcile.service.js');
+        startTreasuryOnchainReconcileJob(config.treasury.onchainReconcileIntervalMs);
+      }
+      if (config.treasury.hotMonitorIntervalMs > 0) {
+        const { startTreasuryHotWalletMonitorJob } = await import('./services/treasury/treasury-hot-wallet-monitor.service.js');
+        startTreasuryHotWalletMonitorJob(config.treasury.hotMonitorIntervalMs);
+      }
+      if (config.treasury.tokenReconcileIntervalMs > 0) {
+        const { startTreasuryTokenReconcileJob } = await import('./services/treasury/treasury-multi-asset-reconcile.service.js');
+        startTreasuryTokenReconcileJob(config.treasury.tokenReconcileIntervalMs);
+      }
+      if (config.chaosSchedule.enabled && config.chaosSchedule.intervalMs > 0) {
+        const { startChaosScheduledJob } = await import('./services/chaos-scheduled-job.service.js');
+        startChaosScheduledJob(config.chaosSchedule.intervalMs);
+      }
+      logger.info('✓ Audit export, balance consistency, treasury + chaos jobs scheduled (where enabled)');
+    }
+
     if (config.nats.url) {
       try {
         const { ensureNatsJetStreamReady } = await import('./services/nats.service.js');
@@ -820,6 +862,7 @@ async function start() {
 
     validateHotWalletEnv();
     validateProductionConfig();
+    assertLaunchSecurityInvariants();
     await validateRequiredTables();
 
     if (runMode !== 'workers') {

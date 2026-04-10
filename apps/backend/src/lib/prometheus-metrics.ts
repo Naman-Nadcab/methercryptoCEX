@@ -391,3 +391,78 @@ export const spotOrderPlacementFailedTotal = new Counter({
   labelNames: ['code'],
   registers: [register],
 });
+
+export const settlementEventsDlqTotal = new Counter({
+  name: 'settlement_events_dlq_total',
+  help: 'Settlement events moved to DLQ after fatal failure or max retries',
+  labelNames: ['reason'],
+  registers: [register],
+});
+
+export const balanceIntegrityMismatchTotal = new Counter({
+  name: 'balance_integrity_mismatch_total',
+  help: 'Balance consistency engine detected integrity issues',
+  labelNames: ['kind'],
+  registers: [register],
+});
+
+export const balanceIntegrityUsersFrozenTotal = new Counter({
+  name: 'balance_integrity_users_frozen_total',
+  help: 'Users suspended for spot trading due to balance integrity',
+  registers: [register],
+});
+
+export const engineRequestDurationMs = new Histogram({
+  name: 'engine_request_duration_ms',
+  help: 'Rust matching engine HTTP request latency (ms)',
+  labelNames: ['endpoint'],
+  buckets: [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000],
+  registers: [register],
+});
+
+export const orderbookStaleResponsesTotal = new Counter({
+  name: 'orderbook_stale_responses_total',
+  help: 'Public orderbook responses where snapshot age exceeded MAX_ORDERBOOK_AGE_MS',
+  labelNames: ['symbol'],
+  registers: [register],
+});
+
+export const auditExportFailureTotal = new Counter({
+  name: 'audit_export_failure_total',
+  help: 'Audit NDJSON export failures after retries',
+  labelNames: ['reason'],
+  registers: [register],
+});
+
+export const auditExportChecksumMismatchTotal = new Counter({
+  name: 'audit_export_checksum_mismatch_total',
+  help: 'Exported row entry_hash verification mismatches',
+  registers: [register],
+});
+
+export const chaosScheduledTestTotal = new Counter({
+  name: 'chaos_scheduled_test_total',
+  help: 'Scheduled chaos drill runs',
+  labelNames: ['scenario'],
+  registers: [register],
+});
+
+export const treasuryOnchainMismatchTotal = new Counter({
+  name: 'treasury_onchain_mismatch_total',
+  help: 'Treasury hot wallet on-chain vs recorded mismatch detections',
+  labelNames: ['chain_id'],
+  registers: [register],
+});
+
+export const treasuryTokenMismatchTotal = new Counter({
+  name: 'treasury_token_mismatch_total',
+  help: 'Treasury ERC-20 hot wallet on-chain vs cache mismatch',
+  labelNames: ['chain_id', 'symbol'],
+  registers: [register],
+});
+
+export const balanceIntegrityMinorMismatchTotal = new Counter({
+  name: 'balance_integrity_minor_mismatch_total',
+  help: 'Sell-lock delta within tolerance (logged, no freeze)',
+  registers: [register],
+});

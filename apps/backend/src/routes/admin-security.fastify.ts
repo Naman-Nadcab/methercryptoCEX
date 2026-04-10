@@ -7,6 +7,8 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
+import { config } from '../config/index.js';
+import { redisBlocksHighRiskActions } from '../services/redis-health.service.js';
 import { getAdminFromRequest, getAdminWithPermission, getAdminForWithdrawalApproval } from './admin.fastify.js';
 import {
   listRiskRules,
@@ -588,6 +590,25 @@ export default async function adminSecurityRoutes(app: FastifyInstance): Promise
   app.post<{ Params: { id: string }; Body: { note?: string } }>('/security/withdrawals/:id/approve', async (request, reply) => {
     const admin = await getAdminForWithdrawalApproval(app, request, reply);
     if (!admin) return;
+    if (redisBlocksHighRiskActions()) {
+      return reply.status(503).send({
+        success: false,
+        error: {
+          code: 'REDIS_UNAVAILABLE',
+          message: 'Withdrawal approval is disabled while Redis is unhealthy.',
+        },
+      });
+    }
+    if (config.security.makerCheckerEnabled) {
+      return reply.status(400).send({
+        success: false,
+        error: {
+          code: 'MAKER_CHECKER_REQUIRED',
+          message:
+            'Direct withdrawal approval is disabled. Create POST /admin/approval-requests with actionType withdrawal_approve and payload { withdrawalId }; a second admin may approve after the delay.',
+        },
+      });
+    }
     const withdrawalId = request.params.id;
     if (!withdrawalId) {
       return reply.status(400).send({
@@ -823,10 +844,13 @@ export default async function adminSecurityRoutes(app: FastifyInstance): Promise
     if (!admin) return;
     const withdrawalId = request.params.id;
     const reason = (request.body?.reason ?? '').trim();
-    if (!reason) {
+    if (reason.length < 8) {
       return reply.status(400).send({
         success: false,
-        error: { code: 'INVALID_INPUT', message: 'reason is required' },
+        error: {
+          code: 'REJECTION_REASON_REQUIRED',
+          message: 'Rejection requires reason (minimum 8 characters) for audit compliance.',
+        },
       });
     }
     try {

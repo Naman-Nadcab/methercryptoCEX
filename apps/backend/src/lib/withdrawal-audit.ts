@@ -4,6 +4,7 @@
  */
 
 import { db } from './database.js';
+import { logAudit } from '../services/audit-log.service.js';
 
 export type WithdrawalAuditEvent =
   | 'withdrawal_created'
@@ -52,4 +53,20 @@ export async function logWithdrawalLifecycle(
       payload.withdrawal_id ?? null,
     ]
   );
+  await logAudit({
+    requestId: null,
+    actorType: payload.admin_id ? 'admin' : 'system',
+    actorId: payload.admin_id ?? null,
+    action: `withdrawal_lifecycle:${event}`,
+    resourceType: 'withdrawal',
+    resourceId: payload.withdrawal_id ?? null,
+    newValue: {
+      user_id: payload.user_id,
+      token_id: payload.token_id,
+      chain_id: payload.chain_id,
+      amount: amountVal,
+    },
+    ipAddress: payload.ip ?? null,
+    userAgent: payload.user_agent ?? null,
+  });
 }

@@ -1,60 +1,62 @@
 /**
- * Client IP extraction from Fastify request.
- * Respects proxy headers: X-Forwarded-For, X-Real-IP, CF-Connecting-IP (Cloudflare).
- * With trustProxy, Fastify sets request.ip from the leftmost forwarded value; we still
- * normalize and optionally honor CF-Connecting-IP for accuracy behind Cloudflare.
+ * Client IP extraction. When TRUSTED_PROXY_IPS is set, forwarded headers are used only if the
+ * immediate TCP peer matches a trusted proxy; otherwise socket.remoteAddress is used (anti-spoof).
  */
 
 import type { FastifyRequest } from 'fastify';
+import { config } from '../config/index.js';
+import { isTrustedProxyPeer } from './ip-trust.js';
 
-/**
- * Get the client IP from the request.
- * Order: CF-Connecting-IP (if present) > X-Real-IP > first entry of X-Forwarded-For > request.ip.
- * The first non-private, non-internal address in X-Forwarded-For can be used as "client";
- * when behind a single trusted proxy, the leftmost is typically the client.
- */
-export function getClientIp(request: FastifyRequest): string {
-  const headers = request.headers;
-
-  // Cloudflare sends the connecting client IP
-  const cfIp = headers['cf-connecting-ip'];
-  if (typeof cfIp === 'string') {
-    const t = cfIp.trim();
-    if (t) return t;
-  }
-
-  // Single proxy often sets X-Real-IP
-  const realIp = headers['x-real-ip'];
-  if (typeof realIp === 'string') {
-    const t = realIp.trim();
-    if (t) return t;
-  }
-
-  // X-Forwarded-For: "client, proxy1, proxy2" — leftmost is original client when trustProxy is used
-  const forwarded = headers['x-forwarded-for'];
-  if (forwarded) {
-    const first = typeof forwarded === 'string'
-      ? forwarded.split(',')[0]?.trim()
-      : Array.isArray(forwarded)
-        ? (forwarded[0] as string)?.trim()
-        : null;
-    if (first) return first;
-  }
-
-  // Fastify's request.ip (set when trustProxy is true)
-  const ip = request.ip;
-  if (ip && typeof ip === 'string') {
-    const t = ip.trim();
-    if (t) return t;
-  }
-
-  return '0.0.0.0';
+function normalizeIp(raw: string): string {
+  const t = raw.trim();
+  if (t.startsWith('::ffff:') && t.includes('.')) return t.slice(7);
+  return t;
 }
 
 /**
- * Get country code from request when provided by edge (e.g. Cloudflare CF-IPCountry).
- * Returns uppercase 2-letter ISO code or null.
+ * Get the client IP from the request.
+ * trustedProxyIps empty: legacy behavior (CF / X-Real-IP / X-Forwarded-For / request.ip).
+ * trustedProxyIps non-empty: forwarded headers only if socket peer is trusted; else socket IP.
  */
+export function getClientIp(request: FastifyRequest): string {
+  const rules = config.security.trustedProxyIps;
+  const socketIp = normalizeIp(request.socket?.remoteAddress ?? '') || '';
+
+  const trustForwarded = rules.length === 0 || isTrustedProxyPeer(request.socket?.remoteAddress, rules);
+
+  if (trustForwarded) {
+    const headers = request.headers;
+    const cfIp = headers['cf-connecting-ip'];
+    if (typeof cfIp === 'string') {
+      const t = cfIp.trim();
+      if (t) return t;
+    }
+    const realIp = headers['x-real-ip'];
+    if (typeof realIp === 'string') {
+      const t = realIp.trim();
+      if (t) return t;
+    }
+    const forwarded = headers['x-forwarded-for'];
+    if (forwarded) {
+      const first =
+        typeof forwarded === 'string'
+          ? forwarded.split(',')[0]?.trim()
+          : Array.isArray(forwarded)
+            ? (forwarded[0] as string)?.trim()
+            : null;
+      if (first) return first;
+    }
+    const ip = request.ip;
+    if (ip && typeof ip === 'string') {
+      const t = ip.trim();
+      if (t) return t;
+    }
+  }
+
+  if (socketIp) return socketIp;
+  return '0.0.0.0';
+}
+
 export function getCountryFromRequest(request: FastifyRequest): string | null {
   const cfCountry = request.headers['cf-ipcountry'];
   if (typeof cfCountry === 'string') {

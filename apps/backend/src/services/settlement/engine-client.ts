@@ -7,10 +7,40 @@
  */
 import { config } from '../../config/index.js';
 import { logger } from '../../lib/logger.js';
+import { engineRequestDurationMs } from '../../lib/prometheus-metrics.js';
 import { getMatchingEngineBaseUrlForMarket } from './matching-engine-shard-router.js';
 import { getMatchingEngineInstanceById, resolveEngineIdForBaseUrl } from './matching-engine-registry.js';
+import { engineHmacRequestHeaders } from './engine-hmac.js';
 
 const FETCH_TIMEOUT_MS = 5_000;
+
+function pathAndQueryFromUrl(fullUrl: string): string {
+  try {
+    const u = new URL(fullUrl);
+    return `${u.pathname}${u.search}`;
+  } catch {
+    const idx = fullUrl.indexOf('/engine/');
+    if (idx >= 0) return fullUrl.slice(idx);
+    return fullUrl.replace(/^https?:\/\/[^/]+/i, '') || '/';
+  }
+}
+
+function engineAuthHeaders(
+  method: 'GET' | 'POST',
+  fullUrl: string,
+  body: string,
+  userId: string,
+  engineId: string
+): Record<string, string> {
+  return engineHmacRequestHeaders({
+    activeSecret: config.rustMatchingEngine.hmacSecretActive,
+    method,
+    pathWithQuery: pathAndQueryFromUrl(fullUrl),
+    body,
+    userId,
+    engineId,
+  });
+}
 
 export interface RustOrder {
   id: string;
@@ -71,9 +101,16 @@ export async function fetchMatchesForEngine(
   const url = `${baseUrl.replace(/\/$/, '')}/engine/matches?after_id=${afterId}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const svcUser = config.rustMatchingEngine.hmacServiceUserId;
+  const hmac = engineAuthHeaders('GET', url, '', svcUser, matchEngineId);
+  const t0 = Date.now();
   try {
-    const res = await fetch(url, { signal: controller.signal });
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { ...hmac },
+    });
     clearTimeout(timeout);
+    engineRequestDurationMs.observe({ endpoint: 'matches' }, Math.max(0, Date.now() - t0));
     if (!res.ok) {
       throw new Error(`Matching engine returned ${res.status}`);
     }
@@ -92,6 +129,7 @@ export async function fetchMatchesForEngine(
     return { last_id: data.last_id, events };
   } catch (e) {
     clearTimeout(timeout);
+    engineRequestDurationMs.observe({ endpoint: 'matches' }, Math.max(0, Date.now() - t0));
     throw e;
   }
 }
@@ -122,20 +160,24 @@ export async function placeOrderRust(
   const bodyStr = JSON.stringify(wire);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const hmac = engineAuthHeaders('POST', url, bodyStr, order.user_id, engineId);
+  const t0 = Date.now();
   try {
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...hmac },
       body: bodyStr,
       signal: controller.signal,
     });
     clearTimeout(timeout);
+    engineRequestDurationMs.observe({ endpoint: 'place' }, Math.max(0, Date.now() - t0));
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
       logger.error('Matching engine POST /engine/place rejected', {
         status: res.status,
-        requestBody: bodyStr,
-        responseBody: errText.slice(0, 8_000),
+        engineId,
+        path: pathAndQueryFromUrl(url),
+        responseSnippet: errText.slice(0, 500),
       });
       throw new Error(`Matching engine place returned ${res.status}: ${errText.slice(0, 500)}`);
     }
@@ -146,23 +188,30 @@ export async function placeOrderRust(
     return { ...json, events, engineId, baseUrl: base };
   } catch (e) {
     clearTimeout(timeout);
+    engineRequestDurationMs.observe({ endpoint: 'place' }, Math.max(0, Date.now() - t0));
     throw e;
   }
 }
 
-export async function cancelOrderRustOnEngine(orderId: string, matchEngineId: string): Promise<{ ok: boolean }> {
+export async function cancelOrderRustOnEngine(
+  orderId: string,
+  matchEngineId: string,
+  actingUserId: string
+): Promise<{ ok: boolean }> {
   const inst = getMatchingEngineInstanceById(matchEngineId);
   if (!inst) {
     throw new Error(`Unknown match_engine_id for cancel: ${matchEngineId}`);
   }
   const url = `${inst.baseUrl}/engine/cancel`;
+  const bodyStr = JSON.stringify({ order_id: orderId });
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const hmac = engineAuthHeaders('POST', url, bodyStr, actingUserId, matchEngineId);
   try {
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order_id: orderId }),
+      headers: { 'Content-Type': 'application/json', ...hmac },
+      body: bodyStr,
       signal: controller.signal,
     });
     clearTimeout(timeout);

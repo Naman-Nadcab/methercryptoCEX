@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAdminAuthStore } from '@/store/auth';
 import {
@@ -20,8 +21,14 @@ import { TableSkeleton } from '@/components/ui';
 export default function WithdrawalsPage() {
   const token = useAdminAuthStore((s) => s.accessToken);
   const queryClient = useQueryClient();
+  const searchParams = useSearchParams();
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string>('all');
+
+  useEffect(() => {
+    const s = searchParams.get('status');
+    if (s) setStatusFilter(s);
+  }, [searchParams]);
   const [approveModal, setApproveModal] = useState<WithdrawalRow | null>(null);
   const [rejectModal, setRejectModal] = useState<WithdrawalRow | null>(null);
 

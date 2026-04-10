@@ -165,7 +165,15 @@ function GlobalCommandPaletteInner() {
     try {
       switch (cmd.id) {
         case 'act-pause-trading':
-          await adminFetch('/control/trading-halt', { method: 'POST', body: { halted: true }, token });
+          await adminFetch('/trading/halt', {
+            method: 'POST',
+            body: {
+              halted: true,
+              reason:
+                'Command palette: emergency global trading pause — operator must document incident in runbook/audit.',
+            },
+            token,
+          });
           queryClient.invalidateQueries({ queryKey: ['admin', 'trading-halt'] });
           break;
         case 'act-freeze-withdrawals':
