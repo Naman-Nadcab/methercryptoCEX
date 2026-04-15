@@ -12,6 +12,8 @@ import {
   updateGlobalMMConfig,
   getPairConfig,
   updatePairConfig,
+  deletePairConfig,
+  loadPairConfigsBulk,
   normalizeMmSymbol,
   listMmPairConfigKeys,
   getAllPairConfigsSnapshot,
@@ -54,7 +56,67 @@ function parseJsonBody<T extends Record<string, unknown>>(body: unknown): Partia
   return body as Partial<T>;
 }
 
+// ── DB persistence helpers (best-effort: never throws, never blocks startup) ──
+
+const MM_PERSIST_TABLE = 'mm_pair_runtime_configs';
+
+async function ensurePersistTable(): Promise<void> {
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS ${MM_PERSIST_TABLE} (
+        symbol      TEXT PRIMARY KEY,
+        config      JSONB NOT NULL DEFAULT '{}',
+        is_env_pair BOOLEAN NOT NULL DEFAULT FALSE,
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+  } catch (e) {
+    logger.warn('mm-control: could not create persist table', { error: e instanceof Error ? e.message : String(e) });
+  }
+}
+
+async function loadPersistedPairConfigs(): Promise<void> {
+  try {
+    const res = await db.query<{ symbol: string; config: string }>(`SELECT symbol, config FROM ${MM_PERSIST_TABLE}`);
+    const rows = res.rows.map((r) => ({
+      symbol: r.symbol,
+      config: (typeof r.config === 'object' ? r.config : JSON.parse(String(r.config))) as MMPairRuntimeConfig,
+    }));
+    loadPairConfigsBulk(rows);
+    if (rows.length) logger.info(`mm-control: loaded ${rows.length} pair config(s) from DB`);
+  } catch (e) {
+    logger.warn('mm-control: could not load persisted pair configs', { error: e instanceof Error ? e.message : String(e) });
+  }
+}
+
+async function persistPairConfig(symbol: string, cfg: MMPairRuntimeConfig, isEnvPair: boolean): Promise<void> {
+  try {
+    await db.query(
+      `INSERT INTO ${MM_PERSIST_TABLE} (symbol, config, is_env_pair, updated_at)
+       VALUES ($1, $2::jsonb, $3, NOW())
+       ON CONFLICT (symbol) DO UPDATE SET config = $2::jsonb, is_env_pair = $3, updated_at = NOW()`,
+      [symbol, JSON.stringify(cfg), isEnvPair]
+    );
+  } catch (e) {
+    logger.warn('mm-control: could not persist pair config', { symbol, error: e instanceof Error ? e.message : String(e) });
+  }
+}
+
+async function deletePersistPairConfig(symbol: string): Promise<void> {
+  try {
+    await db.query(`DELETE FROM ${MM_PERSIST_TABLE} WHERE symbol = $1`, [symbol]);
+  } catch (e) {
+    logger.warn('mm-control: could not delete persisted pair config', { symbol, error: e instanceof Error ? e.message : String(e) });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default async function adminMmControlRoutes(app: FastifyInstance) {
+  // Best-effort: ensure table exists and load any persisted configs on startup
+  await ensurePersistTable();
+  await loadPersistedPairConfigs();
+
   app.addHook('preHandler', async (request, reply) => {
     const isRead = request.method.toUpperCase() === 'GET';
     const admin = await getAdminWithPermission(
@@ -99,7 +161,36 @@ export default async function adminMmControlRoutes(app: FastifyInstance) {
     }
     const partial = parseJsonBody<MMPairRuntimeConfig>(request.body);
     const next = updatePairConfig(sym, partial);
+    // Persist best-effort (non-blocking)
+    const isEnvPair = config.liquidityBot.symbols.includes(sym);
+    void persistPairConfig(sym, next, isEnvPair);
     return reply.send({ success: true, data: { symbol: sym, config: next } });
+  });
+
+  /**
+   * DELETE /admin/mm-control/pair/:symbol
+   * Removes a runtime pair config from memory and DB.
+   * Env-defined symbols (in LIQUIDITY_BOT_SYMBOLS) will still appear in live with default config.
+   */
+  app.delete<{ Params: { symbol: string } }>('/mm-control/pair/:symbol', async (request, reply) => {
+    const sym = normalizeMmSymbol(request.params.symbol);
+    if (!sym) {
+      return reply.status(400).send({ success: false, error: { code: 'BAD_SYMBOL', message: 'Invalid symbol' } });
+    }
+    const wasPresent = deletePairConfig(sym);
+    void deletePersistPairConfig(sym);
+    const isEnvPair = config.liquidityBot.symbols.includes(sym);
+    return reply.send({
+      success: true,
+      data: {
+        symbol: sym,
+        removed: wasPresent,
+        isEnvPair,
+        note: isEnvPair
+          ? 'Env-defined symbol: runtime override removed; pair will continue with env defaults.'
+          : 'Runtime pair removed from memory and DB.',
+      },
+    });
   });
 
   app.get('/mm-control/status', async (_request, reply) => {
@@ -119,6 +210,7 @@ export default async function adminMmControlRoutes(app: FastifyInstance) {
         pnl1hUsd: number | null;
         fill_rate: number;
         toxic_flow: boolean;
+        is_env_pair: boolean;
       }> = [];
 
       const phaseC = getMmPhaseCPerPairSnapshot();
@@ -166,6 +258,7 @@ export default async function adminMmControlRoutes(app: FastifyInstance) {
                 pnl1hUsd,
                 fill_rate: pc.fill_rate,
                 toxic_flow: pc.toxic_flow,
+                is_env_pair: botSymbols.includes(sym),
               };
             })
           );

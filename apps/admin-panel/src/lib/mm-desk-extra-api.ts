@@ -34,3 +34,14 @@ export async function getMmEliteProfitability(token: string | null) {
     capitalWeights?: Record<string, number>;
   }>('/control/mm-elite-profitability', { token });
 }
+
+/** GET /control/mm-circuit — circuit breaker state for the MM engine. */
+export type MmCircuitState = {
+  tradingPaused?: boolean;
+  orderPlacementBlocked?: boolean;
+  reason?: string;
+};
+
+export async function getMmCircuitState(token: string | null) {
+  return adminFetch<MmCircuitState>('/control/mm-circuit', { token });
+}

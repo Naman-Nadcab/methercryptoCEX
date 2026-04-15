@@ -8,21 +8,73 @@ import {
   getNodeProviders,
   createNodeProvider,
   updateNodeProvider,
+  deleteNodeProvider,
   type NodeProviderRow,
 } from '@/lib/treasury-api';
+import { adminFetch } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { StatusBadge } from '@/components/dashboard/StatusBadge';
-import { ArrowLeft, Plus, Pencil } from 'lucide-react';
+import { Badge } from '@/components/ui/Badge';
+import { ArrowLeft, Plus, Pencil, Trash2, Zap, CheckCircle2, XCircle, Loader2, Server, AlertTriangle } from 'lucide-react';
 import { TableSkeleton } from '@/components/ui';
+import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
+import { cn } from '@/lib/cn';
 
-const NETWORKS = ['mainnet', 'testnet', 'sepolia', 'goerli'];
+// Expanded chain + network list
+const NETWORKS = [
+  'mainnet',
+  'testnet',
+  // Ethereum
+  'ethereum-mainnet',
+  'ethereum-sepolia',
+  'ethereum-goerli',
+  // BNB Chain
+  'bsc-mainnet',
+  'bsc-testnet',
+  // Polygon
+  'polygon-mainnet',
+  'polygon-amoy',
+  'polygon-mumbai',
+  // Arbitrum
+  'arbitrum-one',
+  'arbitrum-sepolia',
+  // Optimism
+  'optimism-mainnet',
+  'optimism-sepolia',
+  // Base
+  'base-mainnet',
+  'base-sepolia',
+  // Avalanche
+  'avalanche-mainnet',
+  'avalanche-fuji',
+  // Solana
+  'solana-mainnet',
+  'solana-devnet',
+  // Bitcoin
+  'bitcoin-mainnet',
+  'bitcoin-testnet',
+  // Tron
+  'tron-mainnet',
+  'tron-nile',
+  // Other
+  'sepolia',
+  'goerli',
+];
+
 const STATUSES = ['active', 'inactive', 'maintenance'];
+
+type PingState = { id: string; status: 'loading' | 'ok' | 'fail'; ms?: number };
+
+function StatusPill({ status }: { status: string }) {
+  if (status === 'active') return <Badge variant="success">Active</Badge>;
+  if (status === 'maintenance') return <Badge variant="warning">Maintenance</Badge>;
+  return <Badge variant="default">Inactive</Badge>;
+}
 
 export default function SettingsNodesPage() {
   const token = useAdminAuthStore((s) => s.accessToken);
   const queryClient = useQueryClient();
-  const [modal, setModal] = useState<{ type: 'add' | 'edit'; row?: NodeProviderRow | null } | null>(null);
+  const [modal, setModal] = useState<{ type: 'add' | 'edit' | 'delete'; row?: NodeProviderRow | null } | null>(null);
   const [form, setForm] = useState({
     provider_name: '',
     rpc_url: '',
@@ -30,6 +82,7 @@ export default function SettingsNodesPage() {
     network: 'mainnet',
     status: 'active' as string,
   });
+  const [ping, setPing] = useState<PingState | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin', 'settings', 'nodes', token],
@@ -56,7 +109,22 @@ export default function SettingsNodesPage() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteNodeProvider(token, id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'settings', 'nodes'] });
+      setModal(null);
+    },
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) =>
+      updateNodeProvider(token, id, { status }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'settings', 'nodes'] }),
+  });
+
   const nodes = (data?.data ?? []) as NodeProviderRow[];
+
   const openAdd = () => {
     setForm({ provider_name: '', rpc_url: '', api_key: '', network: 'mainnet', status: 'active' });
     setModal({ type: 'add' });
@@ -65,7 +133,7 @@ export default function SettingsNodesPage() {
     setForm({
       provider_name: row.provider_name,
       rpc_url: row.rpc_url ?? '',
-      api_key: '', // do not pre-fill; backend masks key
+      api_key: '',
       network: row.network ?? 'mainnet',
       status: row.status ?? 'active',
     });
@@ -94,72 +162,148 @@ export default function SettingsNodesPage() {
     }
   };
 
+  const handlePing = async (row: NodeProviderRow) => {
+    const url = row.rpc_url;
+    if (!url) return;
+    setPing({ id: row.id, status: 'loading' });
+    const t0 = Date.now();
+    try {
+      await adminFetch(`/integrations/test`, { method: 'POST', token, body: { integration: row.provider_name, url } });
+      setPing({ id: row.id, status: 'ok', ms: Date.now() - t0 });
+    } catch {
+      setPing({ id: row.id, status: 'fail', ms: Date.now() - t0 });
+    }
+    setTimeout(() => setPing(null), 5000);
+  };
+
+  const totalActive = nodes.filter((n) => n.status === 'active').length;
+  const totalMaintenance = nodes.filter((n) => n.status === 'maintenance').length;
+
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+    <AdminPageFrame
+      title="Node Providers"
+      description="Manage RPC node providers (Infura, Alchemy, QuickNode, self-hosted). Updates apply without redeploy."
+      quickActions={
+        <>
           <Link href="/settings">
             <Button variant="ghost" size="sm">
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
-          <div>
-            <h1 className="text-lg font-semibold text-admin-text">Node Providers</h1>
-            <p className="text-xs text-admin-muted mt-0.5">Manage RPC node providers (Infura, Alchemy, QuickNode, self-hosted). Updates apply without redeploy.</p>
+          <Button size="sm" onClick={openAdd}>
+            <Plus className="mr-1 h-4 w-4" />
+            Add provider
+          </Button>
+        </>
+      }
+    >
+      {/* KPI strip */}
+      <div className="grid grid-cols-4 gap-3">
+        {[
+          { label: 'Total Nodes', value: nodes.length, color: 'text-admin-text' },
+          { label: 'Active', value: totalActive, color: 'text-emerald-400' },
+          { label: 'Maintenance', value: totalMaintenance, color: totalMaintenance > 0 ? 'text-amber-400' : 'text-admin-muted' },
+          { label: 'Inactive', value: nodes.length - totalActive - totalMaintenance, color: 'text-admin-muted' },
+        ].map((k) => (
+          <div key={k.label} className="rounded-xl border border-admin-border bg-admin-card px-4 py-3">
+            <p className="text-xs text-admin-muted">{k.label}</p>
+            <p className={cn('mt-1 text-xl font-semibold tabular-nums', k.color)}>{isLoading ? '—' : k.value}</p>
           </div>
-        </div>
-        <Button size="sm" onClick={openAdd}>
-          <Plus className="mr-1 h-4 w-4" />
-          Add provider
-        </Button>
+        ))}
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Third-Party Node Integration</CardTitle>
+          <div className="flex items-center gap-2">
+            <Server className="h-4 w-4 text-admin-muted" />
+            <CardTitle>Blockchain Node Providers</CardTitle>
+          </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <TableSkeleton rows={3} cols={5} />
           ) : (
             <div className="overflow-x-auto rounded-xl border border-admin-border">
-              <table className="w-full min-w-[700px] text-left text-sm">
+              <table className="w-full min-w-[720px] text-left text-sm">
                 <thead className="bg-white/[0.02]">
                   <tr>
                     <th className="px-4 py-3 font-medium text-admin-muted">Provider</th>
                     <th className="px-4 py-3 font-medium text-admin-muted">RPC URL</th>
-                    <th className="px-4 py-3 font-medium text-admin-muted">API Key</th>
                     <th className="px-4 py-3 font-medium text-admin-muted">Network</th>
                     <th className="px-4 py-3 font-medium text-admin-muted">Status</th>
-                    <th className="px-4 py-3 font-medium text-admin-muted">Actions</th>
+                    <th className="px-4 py-3 font-medium text-admin-muted">Ping</th>
+                    <th className="px-4 py-3 font-medium text-admin-muted text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {nodes.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-admin-muted">
-                        No node providers. Add one to get started.
+                      <td colSpan={6} className="px-4 py-10 text-center text-admin-muted">
+                        No node providers. Add one to get started (Infura, Alchemy, QuickNode…).
                       </td>
                     </tr>
                   ) : (
-                    nodes.map((n) => (
-                      <tr key={n.id} className="border-t border-admin-border hover:bg-white/5">
-                        <td className="px-4 py-3 font-medium text-admin-text">{n.provider_name}</td>
-                        <td className="px-4 py-3 font-mono text-xs text-admin-muted max-w-[200px] truncate" title={n.rpc_url}>
-                          {n.rpc_url || '—'}
-                        </td>
-                        <td className="px-4 py-3 text-admin-muted">{n.api_key || '—'}</td>
-                        <td className="px-4 py-3 text-admin-muted">{n.network}</td>
-                        <td className="px-4 py-3">
-                          <StatusBadge status={n.status} />
-                        </td>
-                        <td className="px-4 py-3">
-                          <Button variant="ghost" size="sm" onClick={() => openEdit(n)}>
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                        </td>
-                      </tr>
-                    ))
+                    nodes.map((n) => {
+                      const p = ping?.id === n.id ? ping : null;
+                      return (
+                        <tr key={n.id} className="border-t border-admin-border hover:bg-white/5 transition-colors">
+                          <td className="px-4 py-3 font-medium text-admin-text">{n.provider_name}</td>
+                          <td className="px-4 py-3 font-mono text-xs text-admin-muted max-w-[200px] truncate" title={n.rpc_url ?? ''}>
+                            {n.rpc_url || <span className="text-admin-muted/40">—</span>}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="rounded-full bg-admin-surface px-2 py-0.5 text-xs text-admin-muted border border-admin-border">
+                              {n.network ?? 'mainnet'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <StatusPill status={n.status ?? 'active'} />
+                          </td>
+                          <td className="px-4 py-3 w-20">
+                            {p?.status === 'loading' && <Loader2 className="h-3.5 w-3.5 animate-spin text-admin-muted" />}
+                            {p?.status === 'ok' && <span className="text-xs text-emerald-400 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" />{p.ms}ms</span>}
+                            {p?.status === 'fail' && <span className="text-xs text-red-400 flex items-center gap-1"><XCircle className="h-3 w-3" />Fail</span>}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center justify-end gap-1">
+                              {n.rpc_url && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  title="Ping RPC node"
+                                  disabled={p?.status === 'loading'}
+                                  onClick={() => handlePing(n)}
+                                >
+                                  <Zap className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                title={n.status === 'active' ? 'Deactivate' : 'Activate'}
+                                disabled={toggleMutation.isPending}
+                                onClick={() => toggleMutation.mutate({ id: n.id, status: n.status === 'active' ? 'inactive' : 'active' })}
+                              >
+                                {n.status === 'active'
+                                  ? <XCircle className="h-3.5 w-3.5 text-admin-muted" />
+                                  : <CheckCircle2 className="h-3.5 w-3.5 text-admin-muted" />}
+                              </Button>
+                              <Button variant="ghost" size="sm" title="Edit" onClick={() => openEdit(n)}>
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                title="Delete"
+                                onClick={() => setModal({ type: 'delete', row: n })}
+                              >
+                                <Trash2 className="h-3.5 w-3.5 text-red-400" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -168,53 +312,54 @@ export default function SettingsNodesPage() {
         </CardContent>
       </Card>
 
-      {modal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setModal(null)}>
+      {/* Add / Edit modal */}
+      {(modal?.type === 'add' || modal?.type === 'edit') && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setModal(null)}>
           <div
-            className="w-full max-w-md rounded-xl bg-admin-card p-6 shadow-xl"
+            className="w-full max-w-md rounded-xl border border-admin-border bg-admin-card p-6 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="text-lg font-semibold text-admin-text">
+            <h2 className="text-base font-semibold text-admin-text">
               {modal.type === 'add' ? 'Add node provider' : 'Edit node provider'}
             </h2>
             <form onSubmit={handleSubmit} className="mt-4 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-admin-text">Provider name</label>
+                <label className="block text-xs font-medium text-admin-muted mb-1">Provider name *</label>
                 <input
                   type="text"
                   value={form.provider_name}
                   onChange={(e) => setForm((f) => ({ ...f, provider_name: e.target.value }))}
-                  placeholder="e.g. Infura, Alchemy"
-                  className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
+                  placeholder="e.g. Infura, Alchemy, QuickNode"
+                  className="w-full rounded-lg border border-admin-border bg-admin-surface px-3 py-2 text-sm text-admin-text focus:outline-none focus:ring-1 focus:ring-admin-accent/50"
                   required
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-admin-text">RPC URL</label>
+                <label className="block text-xs font-medium text-admin-muted mb-1">RPC URL</label>
                 <input
                   type="url"
                   value={form.rpc_url}
                   onChange={(e) => setForm((f) => ({ ...f, rpc_url: e.target.value }))}
-                  placeholder="https://..."
-                  className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
+                  placeholder="https://mainnet.infura.io/v3/..."
+                  className="w-full rounded-lg border border-admin-border bg-admin-surface px-3 py-2 text-sm text-admin-text focus:outline-none focus:ring-1 focus:ring-admin-accent/50"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-admin-text">API key</label>
+                <label className="block text-xs font-medium text-admin-muted mb-1">API key</label>
                 <input
                   type="password"
                   value={form.api_key}
                   onChange={(e) => setForm((f) => ({ ...f, api_key: e.target.value }))}
                   placeholder={modal.type === 'edit' ? 'Leave blank to keep current' : 'Optional'}
-                  className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-admin-border bg-admin-surface px-3 py-2 text-sm text-admin-text focus:outline-none focus:ring-1 focus:ring-admin-accent/50"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-admin-text">Network</label>
+                <label className="block text-xs font-medium text-admin-muted mb-1">Network / Chain</label>
                 <select
                   value={form.network}
                   onChange={(e) => setForm((f) => ({ ...f, network: e.target.value }))}
-                  className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-admin-border bg-admin-surface px-3 py-2 text-sm text-admin-text focus:outline-none focus:ring-1 focus:ring-admin-accent/50"
                 >
                   {NETWORKS.map((n) => (
                     <option key={n} value={n}>{n}</option>
@@ -222,11 +367,11 @@ export default function SettingsNodesPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-admin-text">Status</label>
+                <label className="block text-xs font-medium text-admin-muted mb-1">Status</label>
                 <select
                   value={form.status}
                   onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
-                  className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-admin-border bg-admin-surface px-3 py-2 text-sm text-admin-text focus:outline-none focus:ring-1 focus:ring-admin-accent/50"
                 >
                   {STATUSES.map((s) => (
                     <option key={s} value={s}>{s}</option>
@@ -245,6 +390,38 @@ export default function SettingsNodesPage() {
           </div>
         </div>
       )}
-    </div>
+
+      {/* Delete confirmation modal */}
+      {modal?.type === 'delete' && modal.row && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setModal(null)}>
+          <div
+            className="w-full max-w-sm rounded-xl border border-red-500/30 bg-admin-card p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <AlertTriangle className="h-5 w-5 text-red-400" />
+              <h2 className="text-base font-semibold text-admin-text">Delete node provider?</h2>
+            </div>
+            <p className="text-sm text-admin-muted mb-4">
+              Permanently remove <strong className="text-admin-text">{modal.row.provider_name}</strong>{' '}
+              ({modal.row.network ?? 'mainnet'})? This cannot be undone.
+            </p>
+            {deleteMutation.isError && (
+              <p className="mb-3 text-xs text-red-400">Failed to delete. Please try again.</p>
+            )}
+            <div className="flex gap-2">
+              <Button variant="secondary" className="flex-1" onClick={() => setModal(null)}>Cancel</Button>
+              <Button
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white border-0"
+                disabled={deleteMutation.isPending}
+                onClick={() => modal.row && deleteMutation.mutate(modal.row.id)}
+              >
+                {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </AdminPageFrame>
   );
 }

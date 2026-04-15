@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { adminFetch } from '@/lib/api';
 import { useAdminAuthStore } from '@/store/auth';
 import {
   getIntegrations,
@@ -25,9 +26,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { StatCard } from '@/components/dashboard/StatCard';
 import { StatusBadge } from '@/components/dashboard/StatusBadge';
-import { Plus, Pencil, Power, PowerOff, Wifi, Cable, Activity, Zap, ListOrdered, RefreshCw, ArrowRightLeft } from 'lucide-react';
+import { Plus, Pencil, Power, PowerOff, Wifi, Cable, Activity, Zap, ListOrdered, RefreshCw, ArrowRightLeft, KeyRound, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { TableSkeleton } from '@/components/ui';
+import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 
 function relativeTime(iso: string) {
   const d = new Date(iso);
@@ -54,6 +56,82 @@ const WEBHOOK_EVENTS = [
   'aml_alert_triggered',
 ];
 
+/* ── webhook deliveries table (extracted to avoid IIFE in JSX) ─────── */
+function WebhookDeliveriesTable({
+  deliveries,
+  webhookPage,
+  setWebhookPage,
+  pageSize,
+  retryMutation,
+}: {
+  deliveries: WebhookDeliveryRow[];
+  webhookPage: number;
+  setWebhookPage: React.Dispatch<React.SetStateAction<number>>;
+  pageSize: number;
+  retryMutation: { mutate: (id: string) => void; isPending: boolean };
+}) {
+  const pageDeliveries = deliveries.slice(webhookPage * pageSize, (webhookPage + 1) * pageSize);
+  const totalPages = Math.ceil(deliveries.length / pageSize);
+  return (
+    <>
+      <div className="overflow-x-auto rounded-xl border border-admin-border">
+        <table className="w-full min-w-[640px] text-left text-sm">
+          <thead className="bg-white/[0.02]">
+            <tr>
+              <th className="px-4 py-3 font-medium text-admin-muted">Webhook URL</th>
+              <th className="px-4 py-3 font-medium text-admin-muted">Event type</th>
+              <th className="px-4 py-3 font-medium text-admin-muted">Status</th>
+              <th className="px-4 py-3 font-medium text-admin-muted">Response</th>
+              <th className="px-4 py-3 font-medium text-admin-muted">Retries</th>
+              <th className="px-4 py-3 font-medium text-admin-muted">Time</th>
+              <th className="px-4 py-3 font-medium text-admin-muted">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pageDeliveries.length === 0 ? (
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-admin-muted">No webhook deliveries yet.</td></tr>
+            ) : pageDeliveries.map((d) => (
+              <tr key={d.id} className="border-t border-admin-border hover:bg-white/5">
+                <td className="max-w-[200px] truncate px-4 py-3 font-mono text-xs" title={d.webhook_url}>{d.webhook_url || '—'}</td>
+                <td className="px-4 py-3">{d.event_type || '—'}</td>
+                <td className="px-4 py-3">
+                  <StatusBadge status={d.delivery_status} variant={d.delivery_status === 'success' ? 'success' : d.delivery_status === 'failed' ? 'danger' : 'default'} />
+                </td>
+                <td className="px-4 py-3">{d.response_code ?? '—'}</td>
+                <td className="px-4 py-3">{d.retry_count}</td>
+                <td className="px-4 py-3 text-admin-muted text-xs">{relativeTime(d.time)}</td>
+                <td className="px-4 py-3">
+                  {d.delivery_status !== 'success' && (
+                    <Button variant="secondary" size="sm" onClick={() => retryMutation.mutate(d.id)} disabled={retryMutation.isPending}>
+                      Retry
+                    </Button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {totalPages > 1 && (
+        <div className="mt-3 flex items-center justify-between text-xs text-admin-muted">
+          <span>{deliveries.length} total deliveries</span>
+          <div className="flex items-center gap-1">
+            <button type="button" onClick={() => setWebhookPage((p) => Math.max(0, p - 1))} disabled={webhookPage === 0}
+              className="flex h-7 w-7 items-center justify-center rounded-lg border border-admin-border/40 disabled:opacity-30 hover:bg-white/5">
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </button>
+            <span className="px-2">Page {webhookPage + 1} / {totalPages}</span>
+            <button type="button" onClick={() => setWebhookPage((p) => Math.min(totalPages - 1, p + 1))} disabled={webhookPage >= totalPages - 1}
+              className="flex h-7 w-7 items-center justify-center rounded-lg border border-admin-border/40 disabled:opacity-30 hover:bg-white/5">
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function IntegrationsPage() {
   const token = useAdminAuthStore((s) => s.accessToken);
   const queryClient = useQueryClient();
@@ -64,6 +142,10 @@ export default function IntegrationsPage() {
   const [switchModal, setSwitchModal] = useState<{ category: IntegrationCategory; integrations: IntegrationRow[] } | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'webhooks' | 'logs'>('overview');
   const [testResult, setTestResult] = useState<{ id: string; latency_ms: number; status: string; error?: string } | null>(null);
+  const [rotateTarget, setRotateTarget] = useState<IntegrationRow | null>(null);
+  const [rotateConfirmed, setRotateConfirmed] = useState(false);
+  const [webhookPage, setWebhookPage] = useState(0);
+  const WEBHOOK_PAGE_SIZE = 20;
   const [form, setForm] = useState({
     provider_name: '',
     category: 'blockchain_nodes' as string,
@@ -178,6 +260,15 @@ export default function IntegrationsPage() {
     },
   });
 
+  const rotateKeyMutation = useMutation({
+    mutationFn: (id: string) => adminFetch(`/integrations/${id}/rotate-key`, { method: 'POST', token, body: {} }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'integrations'] });
+      setRotateTarget(null);
+      setRotateConfirmed(false);
+    },
+  });
+
   const health = healthData?.data;
   const rateLimits = (rateLimitData?.data?.rate_limits ?? []) as IntegrationRateLimitRow[];
   const deliveries = (deliveriesData?.data?.deliveries ?? []) as WebhookDeliveryRow[];
@@ -258,17 +349,16 @@ export default function IntegrationsPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold text-admin-text">Integrations</h1>
-          <p className="text-xs text-admin-muted mt-0.5">Manage external services, API keys, test connections, and webhooks.</p>
-        </div>
+    <AdminPageFrame
+      title="Integrations"
+      description="Manage external services, API keys, test connections, and webhooks."
+      quickActions={
         <Button size="sm" onClick={openAdd}>
           <Plus className="mr-1 h-4 w-4" />
           Add integration
         </Button>
-      </div>
+      }
+    >
 
       {health && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -413,6 +503,14 @@ export default function IntegrationsPage() {
                           <Button
                             variant="ghost"
                             size="sm"
+                            onClick={() => { setRotateTarget(row); setRotateConfirmed(false); }}
+                            title="Rotate API key"
+                          >
+                            <KeyRound className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             onClick={() => testMutation.mutate(row.id)}
                             disabled={testMutation.isPending}
                             title="Test connection"
@@ -542,50 +640,13 @@ export default function IntegrationsPage() {
                   'Failed to load webhook deliveries.'}
               </p>
             ) : (
-            <div className="overflow-x-auto rounded-xl border border-admin-border">
-              <table className="w-full min-w-[640px] text-left text-sm">
-                <thead className="bg-white/[0.02]">
-                  <tr>
-                    <th className="px-4 py-3 font-medium text-admin-muted">Webhook URL</th>
-                    <th className="px-4 py-3 font-medium text-admin-muted">Event type</th>
-                    <th className="px-4 py-3 font-medium text-admin-muted">Status</th>
-                    <th className="px-4 py-3 font-medium text-admin-muted">Response</th>
-                    <th className="px-4 py-3 font-medium text-admin-muted">Retries</th>
-                    <th className="px-4 py-3 font-medium text-admin-muted">Time</th>
-                    <th className="px-4 py-3 font-medium text-admin-muted">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {deliveries.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="px-4 py-8 text-center text-admin-muted">
-                        No webhook deliveries yet.
-                      </td>
-                    </tr>
-                  ) : (
-                    deliveries.map((d) => (
-                      <tr key={d.id} className="border-t border-admin-border hover:bg-white/5">
-                        <td className="max-w-[200px] truncate px-4 py-3 font-mono text-xs" title={d.webhook_url}>{d.webhook_url || '—'}</td>
-                        <td className="px-4 py-3">{d.event_type || '—'}</td>
-                        <td className="px-4 py-3">
-                          <StatusBadge status={d.delivery_status} variant={d.delivery_status === 'success' ? 'success' : d.delivery_status === 'failed' ? 'danger' : 'default'} />
-                        </td>
-                        <td className="px-4 py-3">{d.response_code ?? '—'}</td>
-                        <td className="px-4 py-3">{d.retry_count}</td>
-                        <td className="px-4 py-3 text-admin-muted text-xs">{relativeTime(d.time)}</td>
-                        <td className="px-4 py-3">
-                          {d.delivery_status !== 'success' && (
-                            <Button variant="secondary" size="sm" onClick={() => retryMutation.mutate(d.id)} disabled={retryMutation.isPending}>
-                              Retry delivery
-                            </Button>
-                          )}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+              <WebhookDeliveriesTable
+                deliveries={deliveries}
+                webhookPage={webhookPage}
+                setWebhookPage={setWebhookPage}
+                pageSize={WEBHOOK_PAGE_SIZE}
+                retryMutation={retryMutation}
+              />
             )}
           </CardContent>
         </Card>
@@ -626,7 +687,7 @@ export default function IntegrationsPage() {
                     </tr>
                   ) : (
                     eventLogs.map((log, i) => (
-                      <tr key={i} className="border-t border-admin-border hover:bg-white/5">
+                      <tr key={`${log.integration}-${log.event}-${log.timestamp ?? i}`} className="border-t border-admin-border hover:bg-white/5">
                         <td className="px-4 py-3 font-medium">{log.integration}</td>
                         <td className="px-4 py-3">{log.event}</td>
                         <td className="px-4 py-3">
@@ -811,6 +872,36 @@ export default function IntegrationsPage() {
         </div>
       )}
 
+      {rotateTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => !rotateKeyMutation.isPending && setRotateTarget(null)}>
+          <div className="w-full max-w-sm rounded-2xl border border-admin-border/60 bg-admin-card p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border border-amber-500/30 bg-amber-950/20">
+              <KeyRound className="h-6 w-6 text-amber-400" />
+            </div>
+            <h3 className="mb-1 text-center text-sm font-semibold text-admin-text">Rotate API Key</h3>
+            <p className="mb-3 text-center text-xs text-admin-muted">
+              Rotate API key for <span className="font-semibold text-admin-text">{rotateTarget.provider_name}</span>?
+              The existing key will be invalidated immediately.
+            </p>
+            <label className="mb-4 flex cursor-pointer items-center justify-center gap-2 text-xs text-amber-400">
+              <input type="checkbox" checked={rotateConfirmed} onChange={(e) => setRotateConfirmed(e.target.checked)} className="accent-amber-500" />
+              I understand the current key will stop working
+            </label>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setRotateTarget(null)} disabled={rotateKeyMutation.isPending}
+                className="flex-1 rounded-xl border border-admin-border/50 py-2 text-xs font-medium text-admin-muted hover:text-admin-text transition-colors disabled:opacity-40">
+                Cancel
+              </button>
+              <button type="button" disabled={!rotateConfirmed || rotateKeyMutation.isPending}
+                onClick={() => rotateKeyMutation.mutate(rotateTarget.id)}
+                className="flex-1 rounded-xl bg-amber-600 py-2 text-xs font-semibold text-white hover:bg-amber-500 disabled:opacity-40 transition-all">
+                {rotateKeyMutation.isPending ? 'Rotating…' : 'Rotate Key'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {switchModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setSwitchModal(null)}>
           <div className="w-full max-w-md rounded-xl bg-admin-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
@@ -838,6 +929,6 @@ export default function IntegrationsPage() {
           </div>
         </div>
       )}
-    </div>
+    </AdminPageFrame>
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAdminAuthStore, hasAdminPermission } from '@/store/auth';
 import {
@@ -34,8 +34,9 @@ import {
   type TimelineItem,
   type TimelineEventPayload,
   type SafetyTriggerRow,
+  postControlGlobalAction,
+  type GlobalActionType,
 } from '@/lib/control-api';
-import { StatCard } from '@/components/dashboard/StatCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { TableSkeleton } from '@/components/ui';
@@ -62,9 +63,12 @@ import {
   Layers,
   ChevronUp,
   ChevronDown,
+  ChevronRight,
   Settings,
+  Flame,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 
 const CIRCUIT_ACTIONS = [
   { action: 'open_trading_circuit', label: 'Open trading circuit', icon: Pause },
@@ -97,15 +101,74 @@ const SAFETY_TRIGGER_ACTION_OPTIONS = [
 function MetricScore({ label, value }: { label: string; value: number }) {
   const isCritical = value < 50;
   const isWarning = value < 70 && !isCritical;
-  const valueClass = isCritical
-    ? 'font-semibold text-red-700'
-    : isWarning
-      ? 'font-medium text-red-600'
-      : 'text-admin-text';
+  const barColor = isCritical ? 'bg-red-500' : isWarning ? 'bg-amber-500' : 'bg-emerald-500';
+  const textColor = isCritical ? 'text-red-400 font-semibold' : isWarning ? 'text-amber-400 font-medium' : 'text-admin-text';
   return (
-    <div className="flex items-center justify-between rounded border border-admin-border bg-admin-card px-3 py-2">
-      <span className="text-sm text-admin-muted">{label}</span>
-      <span className={`text-sm ${valueClass}`}>{value}</span>
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-admin-muted">{label}</span>
+        <span className={`text-xs tabular-nums ${textColor}`}>{value}/100</span>
+      </div>
+      <div className="h-1.5 w-full rounded-full bg-white/5 overflow-hidden">
+        <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function ZoneHeader({ title, icon: Icon, variant = 'default' }: { title: string; icon: React.ComponentType<{ className?: string }>; variant?: 'default' | 'danger' }) {
+  return (
+    <div className={cn(
+      'flex items-center gap-3 border-b pb-2 pt-6 first:pt-0',
+      variant === 'danger' ? 'border-red-500/20' : 'border-admin-border/50',
+    )}>
+      <Icon className={cn('h-4 w-4', variant === 'danger' ? 'text-red-400' : 'text-admin-muted')} />
+      <h2 className={cn('text-xs font-bold uppercase tracking-widest', variant === 'danger' ? 'text-red-400' : 'text-admin-muted')}>
+        {title}
+      </h2>
+    </div>
+  );
+}
+
+function FreezeToggle({ frozen, onToggle, disabled, label }: { frozen: boolean; onToggle: () => void; disabled: boolean; label: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={frozen}
+      aria-label={label}
+      onClick={onToggle}
+      disabled={disabled}
+      className={cn(
+        'relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50',
+        frozen ? 'bg-red-500/40 focus:ring-red-500' : 'bg-emerald-500/30 focus:ring-emerald-500',
+      )}
+    >
+      <span className={cn(
+        'pointer-events-none inline-block h-5 w-5 rounded-full shadow ring-0 transition-transform',
+        frozen ? 'translate-x-5 bg-red-400' : 'translate-x-0 bg-emerald-400',
+      )} />
+    </button>
+  );
+}
+
+function HealthGauge({ score }: { score: number }) {
+  const pct = Math.min(100, Math.max(0, score));
+  const circumference = 2 * Math.PI * 54;
+  const offset = circumference - (pct / 100) * circumference;
+  const color = pct >= 70 ? '#10B981' : pct >= 50 ? '#F59E0B' : '#EF4444';
+  return (
+    <div className="relative h-36 w-36">
+      <svg viewBox="0 0 120 120" className="h-full w-full -rotate-90">
+        <circle cx="60" cy="60" r="54" fill="none" stroke="currentColor" className="text-white/[0.06]" strokeWidth="8" />
+        <circle cx="60" cy="60" r="54" fill="none" stroke={color} strokeWidth="8"
+          strokeDasharray={circumference} strokeDashoffset={offset}
+          strokeLinecap="round" className="transition-all duration-700" />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-3xl font-bold tabular-nums text-admin-text">{score}</span>
+        <span className="text-[10px] text-admin-muted">/ 100</span>
+      </div>
     </div>
   );
 }
@@ -245,6 +308,24 @@ export default function AdminControlPage() {
   });
   const [testTriggerModal, setTestTriggerModal] = useState<SafetyTriggerRow | null>(null);
   const [testTriggerSimulatedMetric, setTestTriggerSimulatedMetric] = useState('');
+
+  // Card quick-action modal
+  type CardAction = {
+    title: string;
+    action: GlobalActionType;
+    description: string;
+    variant: 'danger' | 'safe';
+    needsReason: boolean;
+  };
+  const [cardAction, setCardAction] = useState<CardAction | null>(null);
+  const [cardActionReason, setCardActionReason] = useState('');
+  const [cardActionToast, setCardActionToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  useEffect(() => {
+    if (!cardActionToast) return;
+    const t = setTimeout(() => setCardActionToast(null), 4000);
+    return () => clearTimeout(t);
+  }, [cardActionToast]);
 
   useEffect(() => {
     if (!incidentToast) return;
@@ -542,45 +623,87 @@ export default function AdminControlPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'control', 'safety-triggers'] }),
   });
 
-  const statusVariant = (s: string) => {
-    if (s === 'operational' || s === 'active' || s === 'enabled') return 'success';
-    if (s === 'degraded' || s === 'paused' || s === 'disabled') return 'danger';
-    return 'default';
-  };
+  const globalActionMutation = useMutation({
+    mutationFn: (body: { action: GlobalActionType; reason?: string }) =>
+      postControlGlobalAction(token, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'control', 'status'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'control', 'events'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'control', 'circuit-history'] });
+      setCardAction(null);
+      setCardActionReason('');
+      setCardActionToast({ message: 'Action executed successfully.', type: 'success' });
+    },
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : 'Action failed';
+      setCardActionToast({ message: msg, type: 'error' });
+    },
+  });
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-lg font-semibold text-admin-text">Admin Control</h1>
-        <p className="text-xs text-admin-muted mt-0.5">Control exchange operations, circuit breakers, asset freezes, and emergency actions.</p>
-      </div>
+    <AdminPageFrame title="Exchange Controls" description="Control exchange operations, circuit breakers, asset freezes, and emergency actions.">
 
-      {/* Real-time exchange health score */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Gauge className="h-5 w-5" />
-            Exchange health score
-          </CardTitle>
-          <p className="text-sm text-admin-muted">API latency, matching engine, queue backlog, RPC provider health. Updates every 5s via WebSocket.</p>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-baseline gap-2">
-            <span className="text-4xl font-bold text-admin-text">{healthScore?.score ?? '—'}</span>
-            <span className="text-xl text-admin-muted">/ 100</span>
+      {/* Quick status strip */}
+      {status && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-admin-border bg-white/[0.02] px-4 py-2.5">
+          <div className="flex items-center gap-2">
+            <span className={cn('h-2 w-2 rounded-full', status.exchange_status === 'operational' ? 'bg-emerald-400' : status.exchange_status === 'degraded' ? 'bg-amber-400' : 'bg-red-400')} />
+            <span className="text-xs font-medium text-admin-muted">Exchange</span>
+            <span className="text-xs font-semibold text-admin-text capitalize">{status.exchange_status}</span>
           </div>
-          {healthScore?.metrics && (
-            <div className="rounded-lg border border-admin-border bg-white/[0.02]/50 p-4">
-              <p className="mb-3 text-xs font-medium uppercase tracking-wide text-admin-muted">Metric breakdown</p>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="h-4 w-px bg-admin-border" />
+          <div className="flex items-center gap-2">
+            <Zap className="h-3 w-3 text-admin-muted" />
+            <span className="text-xs text-admin-muted">Trading</span>
+            <span className={cn('text-xs font-semibold capitalize', status.trading_status === 'active' ? 'text-emerald-400' : 'text-red-400')}>{status.trading_status}</span>
+          </div>
+          <div className="h-4 w-px bg-admin-border" />
+          <div className="flex items-center gap-2">
+            <Power className="h-3 w-3 text-admin-muted" />
+            <span className="text-xs text-admin-muted">Withdrawals</span>
+            <span className={cn('text-xs font-semibold capitalize', status.withdrawals_status === 'enabled' ? 'text-emerald-400' : 'text-red-400')}>{status.withdrawals_status}</span>
+          </div>
+          <div className="h-4 w-px bg-admin-border" />
+          <div className="flex items-center gap-2">
+            <Power className="h-3 w-3 text-admin-muted" />
+            <span className="text-xs text-admin-muted">Deposits</span>
+            <span className={cn('text-xs font-semibold capitalize', status.deposits_status === 'enabled' ? 'text-emerald-400' : 'text-red-400')}>{status.deposits_status}</span>
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            <Layers className="h-3 w-3 text-admin-muted" />
+            <span className="text-xs text-admin-muted">Emergency Level</span>
+            <span className={cn('rounded px-1.5 py-0.5 text-xs font-bold tabular-nums', emergencyLevel === 0 ? 'bg-emerald-500/10 text-emerald-400' : emergencyLevel === 1 ? 'bg-amber-500/10 text-amber-400' : emergencyLevel === 2 ? 'bg-orange-500/10 text-orange-400' : 'bg-red-500/10 text-red-400')}>{emergencyLevel}</span>
+          </div>
+        </div>
+      )}
+
+      {/* ZONE: Live Status */}
+      <ZoneHeader title="Live Status" icon={Activity} />
+
+      {/* Health score hero */}
+      <Card className="overflow-hidden">
+        <div className="flex flex-col lg:flex-row">
+          {/* Gauge side */}
+          <div className="flex flex-col items-center justify-center gap-2 border-b border-admin-border bg-gradient-to-br from-white/[0.03] to-transparent px-8 py-6 lg:border-b-0 lg:border-r lg:py-8">
+            <HealthGauge score={healthScore?.score ?? 0} />
+            <p className="text-xs font-medium uppercase tracking-widest text-admin-muted">Health Score</p>
+            <p className="text-[10px] text-admin-muted/60">via WebSocket · 5s</p>
+          </div>
+          {/* Metrics side */}
+          <div className="flex-1 p-6">
+            <p className="mb-4 text-xs font-semibold uppercase tracking-widest text-admin-muted">Metric Breakdown</p>
+            {healthScore?.metrics ? (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <MetricScore label="API Latency" value={healthScore.metrics.api_latency} />
                 <MetricScore label="Matching Latency" value={healthScore.metrics.matching_latency} />
                 <MetricScore label="RPC Health" value={healthScore.metrics.rpc_health} />
                 <MetricScore label="Queue Backlog" value={healthScore.metrics.queue_backlog} />
               </div>
-            </div>
-          )}
-        </CardContent>
+            ) : (
+              <p className="text-sm text-admin-muted">Waiting for health data…</p>
+            )}
+          </div>
+        </div>
       </Card>
 
       {/* Service status monitoring */}
@@ -609,11 +732,16 @@ export default function AdminControlPage() {
                 ) : (
                   workerHealthServices.map((s) => (
                     <tr key={s.service} className="border-t border-admin-border">
-                      <td className="px-4 py-3 font-medium">{s.service}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <span className={cn('h-2 w-2 rounded-full shrink-0', s.status === 'healthy' || s.status === 'running' ? 'bg-emerald-400' : s.status === 'degraded' ? 'bg-amber-400' : 'bg-red-400')} />
+                          <span className="font-medium">{s.service}</span>
+                        </div>
+                      </td>
                       <td className="px-4 py-3">
                         <StatusBadge status={s.status} variant={healthStatusVariant(s.status)} />
                       </td>
-                      <td className="px-4 py-3 text-admin-muted">{formatUptimeSeconds(s.uptime)}</td>
+                      <td className="px-4 py-3 tabular-nums text-admin-muted">{formatUptimeSeconds(s.uptime)}</td>
                       <td className="px-4 py-3 text-admin-muted text-xs">{formatLastRestart(s.last_restart)}</td>
                     </tr>
                   ))
@@ -624,63 +752,166 @@ export default function AdminControlPage() {
         </CardContent>
       </Card>
 
-      {/* 1. Exchange status dashboard */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Activity className="h-5 w-5" />
-            Exchange status
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-            <StatCard title="Exchange status" value={status?.exchange_status ?? '—'} icon={Activity} />
-            <StatCard title="Trading" value={status?.trading_status ?? '—'} icon={Zap} />
-            <StatCard title="Withdrawals" value={status?.withdrawals_status ?? '—'} icon={Power} />
-            <StatCard title="Deposits" value={status?.deposits_status ?? '—'} icon={Power} />
-            <StatCard title="Liquidity engine" value={status?.liquidity_engine_status ?? '—'} icon={Activity} />
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {status && (
-              <>
-                <StatusBadge status={status.exchange_status} variant={statusVariant(status.exchange_status)} />
-                <StatusBadge status={status.trading_status} variant={statusVariant(status.trading_status)} />
-                <StatusBadge status={status.withdrawals_status} variant={statusVariant(status.withdrawals_status)} />
-                <StatusBadge status={status.deposits_status} variant={statusVariant(status.deposits_status)} />
-                <StatusBadge status={status.liquidity_engine_status} variant={statusVariant(status.liquidity_engine_status)} />
-              </>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+      {/* Exchange status cards — clickable */}
+      {cardActionToast && (
+        <div className={cn('rounded-lg px-4 py-2 text-sm', cardActionToast.type === 'success' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20')} role="alert">
+          {cardActionToast.message}
+        </div>
+      )}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        {([
+          {
+            title: 'Exchange',
+            value: status?.exchange_status,
+            icon: Activity,
+            ok: ['operational'],
+            onAction: status?.exchange_status === 'operational'
+              ? { title: 'Enable Emergency Mode', action: 'halt_trading' as GlobalActionType, description: 'This will halt all trading and put the exchange in degraded state.', variant: 'danger' as const, needsReason: true }
+              : { title: 'Resume Exchange', action: 'resume_trading' as GlobalActionType, description: 'This will resume normal trading operations.', variant: 'safe' as const, needsReason: false },
+          },
+          {
+            title: 'Trading',
+            value: status?.trading_status,
+            icon: Zap,
+            ok: ['active'],
+            onAction: status?.trading_status === 'active'
+              ? { title: 'Halt Trading', action: 'halt_trading' as GlobalActionType, description: 'This will pause all spot trading across all markets.', variant: 'danger' as const, needsReason: true }
+              : { title: 'Resume Trading', action: 'resume_trading' as GlobalActionType, description: 'This will resume trading across all markets.', variant: 'safe' as const, needsReason: false },
+          },
+          {
+            title: 'Withdrawals',
+            value: status?.withdrawals_status,
+            icon: Power,
+            ok: ['enabled'],
+            onAction: status?.withdrawals_status === 'enabled'
+              ? { title: 'Disable Withdrawals', action: 'disable_withdrawals' as GlobalActionType, description: 'This will block all user withdrawal requests.', variant: 'danger' as const, needsReason: true }
+              : { title: 'Enable Withdrawals', action: 'enable_withdrawals' as GlobalActionType, description: 'This will allow withdrawal requests again.', variant: 'safe' as const, needsReason: false },
+          },
+          {
+            title: 'Deposits',
+            value: status?.deposits_status,
+            icon: Power,
+            ok: ['enabled'],
+            onAction: status?.deposits_status === 'enabled'
+              ? { title: 'Disable Deposits', action: 'disable_deposits' as GlobalActionType, description: 'This will block all incoming deposit credits.', variant: 'danger' as const, needsReason: true }
+              : { title: 'Enable Deposits', action: 'enable_deposits' as GlobalActionType, description: 'This will allow deposit credits again.', variant: 'safe' as const, needsReason: false },
+          },
+          {
+            title: 'Liquidity Engine',
+            value: status?.liquidity_engine_status,
+            icon: Activity,
+            ok: ['operational', 'active', 'enabled'],
+            onAction: status?.liquidity_engine_status !== 'disabled'
+              ? { title: 'Pause Market Making', action: 'pause_market_making' as GlobalActionType, description: 'This will stop the MM engine and block new orders from the liquidity bot.', variant: 'danger' as const, needsReason: true }
+              : { title: 'Resume Market Making', action: 'resume_market_making' as GlobalActionType, description: 'This will resume the MM engine and liquidity bot.', variant: 'safe' as const, needsReason: false },
+          },
+        ]).map(({ title, value, icon: SIcon, ok, onAction }) => {
+          const isOk = value ? ok.includes(value) : false;
+          return (
+            <button
+              key={title}
+              type="button"
+              onClick={() => { setCardAction(onAction); setCardActionReason(''); }}
+              disabled={!status || globalActionMutation.isPending}
+              className={cn(
+                'group relative rounded-lg border p-4 text-left transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none',
+                isOk ? 'border-emerald-500/20 bg-emerald-500/[0.04] hover:border-emerald-500/40 hover:bg-emerald-500/[0.08]' : value ? 'border-red-500/20 bg-red-500/[0.04] hover:border-red-500/40 hover:bg-red-500/[0.08]' : 'border-admin-border bg-admin-card',
+              )}
+            >
+              <div className="flex items-center justify-between">
+                <SIcon className={cn('h-4 w-4', isOk ? 'text-emerald-400' : value ? 'text-red-400' : 'text-admin-muted')} />
+                <div className="flex items-center gap-1.5">
+                  <span className={cn('h-2 w-2 rounded-full', isOk ? 'bg-emerald-400 shadow-[0_0_6px_rgba(16,185,129,0.4)]' : value ? 'bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.4)]' : 'bg-zinc-600')} />
+                </div>
+              </div>
+              <p className="mt-3 text-xs text-admin-muted">{title}</p>
+              <p className={cn('text-sm font-semibold capitalize', isOk ? 'text-emerald-400' : value ? 'text-red-400' : 'text-admin-text')}>{value ?? '—'}</p>
+              {/* Hover hint */}
+              <div className="mt-2 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                <span className={cn('text-[10px] font-medium', onAction.variant === 'danger' ? 'text-red-400/70' : 'text-emerald-400/70')}>
+                  Click to {onAction.variant === 'danger' ? 'disable' : 'enable'}
+                </span>
+                <ChevronRight className="h-2.5 w-2.5 text-admin-muted/50" />
+              </div>
+            </button>
+          );
+        })}
+      </div>
 
-      {/* 2. Circuit breaker control */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Zap className="h-5 w-5" />
-            Circuit breaker control
-          </CardTitle>
-          <p className="text-sm text-admin-muted">Open/close trading circuit or pause matching engine.</p>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-2">
-            {CIRCUIT_ACTIONS.map(({ action, label, icon: Icon }) => (
-              <Button
-                key={action}
-                variant="secondary"
-                onClick={() => setConfirmCircuit({ action, label })}
-                disabled={circuitMutation.isPending}
-              >
-                <Icon className="h-4 w-4" />
-                {label}
+      {/* ZONE: Emergency Controls */}
+      <ZoneHeader title="Emergency Controls" icon={Flame} variant="danger" />
+
+      {/* Circuit breaker + Kill switch + Emergency mode — Danger Zone */}
+      <div className="rounded-xl border border-red-500/20 bg-red-500/[0.02] p-4 space-y-4">
+        <div className="grid gap-4 lg:grid-cols-3">
+          {/* Circuit breaker */}
+          <Card className="border-red-500/10">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Zap className="h-4 w-4 text-red-400" />
+                Circuit Breaker
+              </CardTitle>
+              <p className="text-xs text-admin-muted">Open/close trading circuit or pause matching engine.</p>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-2">
+                {CIRCUIT_ACTIONS.map(({ action, label, icon: Icon }) => (
+                  <Button
+                    key={action}
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setConfirmCircuit({ action, label })}
+                    disabled={circuitMutation.isPending}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Kill switch */}
+          <Card className="border-red-500/10">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <PowerOff className="h-4 w-4 text-red-400" />
+                Liquidity Kill Switch
+              </CardTitle>
+              <p className="text-xs text-admin-muted">Disables liquidity bot, MM accounts, and external providers.</p>
+            </CardHeader>
+            <CardContent className="flex gap-2">
+              <Button variant="danger" size="sm" onClick={() => setConfirmLiquidityKill(true)} disabled={liquidityKillMutation.isPending}>
+                Activate
               </Button>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+              <Button variant="secondary" size="sm" onClick={() => setConfirmLiquidityKill(false)} disabled={liquidityKillMutation.isPending}>
+                Deactivate
+              </Button>
+            </CardContent>
+          </Card>
 
-      {/* 3. Asset freeze controls */}
+          {/* Emergency mode */}
+          <Card className="border-red-500/10">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <AlertTriangle className="h-4 w-4 text-red-400" />
+                Emergency Mode
+              </CardTitle>
+              <p className="text-xs text-admin-muted">Pause trading, disable withdrawals and deposits, enable safe mode.</p>
+            </CardHeader>
+            <CardContent className="flex gap-2">
+              <Button variant="danger" size="sm" onClick={() => setConfirmEmergencyMode(true)} disabled={emergencyModeMutation.isPending}>
+                Enable
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => setConfirmEmergencyMode(false)} disabled={emergencyModeMutation.isPending}>
+                Disable
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      {/* Asset freeze controls */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -710,36 +941,39 @@ export default function AdminControlPage() {
                 ) : (
                   assets.map((row) => (
                     <tr key={row.asset} className="border-t border-admin-border">
-                      <td className="px-4 py-3 font-medium">{row.asset}</td>
+                      <td className="px-4 py-3 font-semibold">{row.asset}</td>
                       <td className="px-4 py-3">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => assetFreezeMutation.mutate({ asset: row.asset, deposits_frozen: !row.deposits_frozen })}
-                          disabled={assetFreezeMutation.isPending}
-                        >
-                          {row.deposits_frozen ? <StatusBadge status="Frozen" variant="danger" /> : <StatusBadge status="OK" variant="success" />}
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <FreezeToggle
+                            frozen={!!row.deposits_frozen}
+                            onToggle={() => assetFreezeMutation.mutate({ asset: row.asset, deposits_frozen: !row.deposits_frozen })}
+                            disabled={assetFreezeMutation.isPending}
+                            label={`Toggle ${row.asset} deposits`}
+                          />
+                          <span className={cn('text-xs font-medium', row.deposits_frozen ? 'text-red-400' : 'text-emerald-400')}>{row.deposits_frozen ? 'Frozen' : 'OK'}</span>
+                        </div>
                       </td>
                       <td className="px-4 py-3">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => assetFreezeMutation.mutate({ asset: row.asset, withdrawals_frozen: !row.withdrawals_frozen })}
-                          disabled={assetFreezeMutation.isPending}
-                        >
-                          {row.withdrawals_frozen ? <StatusBadge status="Frozen" variant="danger" /> : <StatusBadge status="OK" variant="success" />}
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <FreezeToggle
+                            frozen={!!row.withdrawals_frozen}
+                            onToggle={() => assetFreezeMutation.mutate({ asset: row.asset, withdrawals_frozen: !row.withdrawals_frozen })}
+                            disabled={assetFreezeMutation.isPending}
+                            label={`Toggle ${row.asset} withdrawals`}
+                          />
+                          <span className={cn('text-xs font-medium', row.withdrawals_frozen ? 'text-red-400' : 'text-emerald-400')}>{row.withdrawals_frozen ? 'Frozen' : 'OK'}</span>
+                        </div>
                       </td>
                       <td className="px-4 py-3">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => assetFreezeMutation.mutate({ asset: row.asset, trading_frozen: !row.trading_frozen })}
-                          disabled={assetFreezeMutation.isPending}
-                        >
-                          {row.trading_frozen ? <StatusBadge status="Frozen" variant="danger" /> : <StatusBadge status="OK" variant="success" />}
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <FreezeToggle
+                            frozen={!!row.trading_frozen}
+                            onToggle={() => assetFreezeMutation.mutate({ asset: row.asset, trading_frozen: !row.trading_frozen })}
+                            disabled={assetFreezeMutation.isPending}
+                            label={`Toggle ${row.asset} trading`}
+                          />
+                          <span className={cn('text-xs font-medium', row.trading_frozen ? 'text-red-400' : 'text-emerald-400')}>{row.trading_frozen ? 'Frozen' : 'OK'}</span>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -750,43 +984,8 @@ export default function AdminControlPage() {
         </CardContent>
       </Card>
 
-      {/* 4. Emergency liquidity kill switch + 5. Emergency mode */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <PowerOff className="h-5 w-5 text-admin-danger" />
-              Emergency liquidity kill switch
-            </CardTitle>
-            <p className="text-sm text-admin-muted">Disables liquidity bot, market maker accounts, and external liquidity providers.</p>
-          </CardHeader>
-          <CardContent>
-            <Button variant="danger" onClick={() => setConfirmLiquidityKill(true)} disabled={liquidityKillMutation.isPending}>
-              Activate kill switch
-            </Button>
-            <Button variant="secondary" className="ml-2" onClick={() => setConfirmLiquidityKill(false)} disabled={liquidityKillMutation.isPending}>
-              Deactivate
-            </Button>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-admin-danger" />
-              Exchange emergency mode
-            </CardTitle>
-            <p className="text-sm text-admin-muted">Pause trading, disable withdrawals and deposits, enable safe mode.</p>
-          </CardHeader>
-          <CardContent>
-            <Button variant="danger" onClick={() => setConfirmEmergencyMode(true)} disabled={emergencyModeMutation.isPending}>
-              Enable emergency mode
-            </Button>
-            <Button variant="secondary" className="ml-2" onClick={() => setConfirmEmergencyMode(false)} disabled={emergencyModeMutation.isPending}>
-              Disable
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
+      {/* ZONE: Incidents & History */}
+      <ZoneHeader title="Incidents & History" icon={Clock} />
 
       {/* 6. Incident management */}
       <Card>
@@ -841,7 +1040,7 @@ export default function AdminControlPage() {
         <CardContent>
           {incidentToast && (
             <div
-              className={`mb-4 rounded-lg px-4 py-2 text-sm ${incidentToast.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}
+              className={cn('mb-4 rounded-lg px-4 py-2 text-sm', incidentToast.type === 'success' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20')}
               role="alert"
             >
               {incidentToast.message}
@@ -898,6 +1097,8 @@ export default function AdminControlPage() {
         </CardContent>
       </Card>
 
+      {/* History side-by-side */}
+      <div className="grid gap-6 lg:grid-cols-2">
       {/* Asset freeze history */}
       <Card>
         <CardHeader>
@@ -1127,6 +1328,7 @@ export default function AdminControlPage() {
           </div>
         </CardContent>
       </Card>
+      </div>{/* close history grid */}
 
       {/* Incident timeline */}
       <Card>
@@ -1176,33 +1378,46 @@ export default function AdminControlPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2 max-h-80 overflow-y-auto">
+          <div className="relative max-h-96 overflow-y-auto pl-6">
             {timeline.length === 0 ? (
               <p className="py-4 text-center text-admin-muted">No timeline events.</p>
             ) : (
-              timeline.map((item, i) => {
-                const isPrepend = 'id' in item && item.id;
-                const key = isPrepend ? (item as TimelinePrependItem).id : `t-${i}-${item.timestamp}-${item.event}`;
-                const isNew = isPrepend && (item as TimelinePrependItem).isNew;
-                const dateStr = item.timestamp ? new Date(item.timestamp).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—';
-                return (
-                  <div
-                    key={key}
-                    className={`flex flex-col gap-1 rounded-lg border p-3 text-sm transition-colors ${
-                      isNew ? 'border-primary bg-primary/5' : 'border-admin-border'
-                    }`}
-                  >
-                    <div className="flex items-start gap-3">
-                      <span className="text-admin-muted shrink-0">{dateStr}</span>
-                      <span className="font-medium">{item.event}</span>
-                      <StatusBadge status={item.service} variant="default" />
-                    </div>
-                    {'triggered_by' in item && item.triggered_by && (
-                      <p className="text-xs text-admin-muted">Triggered by {item.triggered_by}</p>
-                    )}
-                  </div>
-                );
-              })
+              <>
+                {/* Vertical line */}
+                <div className="absolute left-[11px] top-0 bottom-0 w-px bg-admin-border" />
+                <div className="space-y-0">
+                  {timeline.map((item, i) => {
+                    const isPrepend = 'id' in item && item.id;
+                    const key = isPrepend ? (item as TimelinePrependItem).id : `t-${i}-${item.timestamp}-${item.event}`;
+                    const isNew = isPrepend && (item as TimelinePrependItem).isNew;
+                    const dateStr = item.timestamp ? new Date(item.timestamp).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—';
+                    return (
+                      <div key={key} className="relative flex gap-4 pb-4">
+                        {/* Dot */}
+                        <div className={cn(
+                          'absolute -left-6 top-1.5 h-2.5 w-2.5 rounded-full border-2 shrink-0 z-10',
+                          isNew ? 'border-blue-400 bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.5)]' : 'border-admin-border bg-[#0a0b0f]',
+                        )} />
+                        <div className={cn(
+                          'flex-1 rounded-lg border p-3 text-sm transition-all',
+                          isNew ? 'border-blue-500/30 bg-blue-500/[0.05]' : 'border-admin-border/50 bg-transparent',
+                        )}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-admin-text">{item.event}</span>
+                              <StatusBadge status={item.service} variant="default" />
+                            </div>
+                            <span className="shrink-0 text-[11px] tabular-nums text-admin-muted">{dateStr}</span>
+                          </div>
+                          {'triggered_by' in item && item.triggered_by && (
+                            <p className="mt-1 text-xs text-admin-muted">Triggered by {item.triggered_by}</p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
             )}
           </div>
           {timelineHasMore && (
@@ -1215,43 +1430,73 @@ export default function AdminControlPage() {
         </CardContent>
       </Card>
 
-      {/* Multi-stage emergency controls */}
+      {/* Multi-stage emergency controls — Stepper */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Layers className="h-5 w-5" />
-            Multi-stage emergency controls
-          </CardTitle>
-          <p className="text-sm text-admin-muted">Select a level or use Escalate/Downgrade. Changes require confirmation.</p>
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Layers className="h-5 w-5" />
+                Multi-stage emergency controls
+              </CardTitle>
+              <p className="text-sm text-admin-muted">Select a level or use Escalate/Downgrade. Changes require confirmation.</p>
+            </div>
+            <div className="flex gap-1">
+              <Button variant="secondary" size="sm" onClick={() => emergencyLevel > 0 && setConfirmEmergencyLevel(Math.max(0, emergencyLevel - 1))} disabled={emergencyLevel <= 0 || emergencyLevelMutation.isPending}>
+                <ChevronDown className="h-4 w-4" /> Downgrade
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => emergencyLevel < 3 && setConfirmEmergencyLevel(Math.min(3, emergencyLevel + 1))} disabled={emergencyLevel >= 3 || emergencyLevelMutation.isPending}>
+                <ChevronUp className="h-4 w-4" /> Escalate
+              </Button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
-          <div className="mb-4 text-sm font-medium">Current level: <strong>{emergencyLevel}</strong></div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {EMERGENCY_LEVELS.map(({ level, label, description }) => (
-              <div key={level} className="rounded-lg border border-admin-border p-4">
-                <Button
-                  variant={emergencyLevel === level ? 'primary' : 'secondary'}
-                  size="sm"
-                  className="w-full"
-                  onClick={() => setConfirmEmergencyLevel(level)}
-                  disabled={emergencyLevelMutation.isPending}
-                >
-                  Level {level} — {label}
-                </Button>
-                <p className="mt-2 text-sm text-admin-muted">{description}</p>
-              </div>
-            ))}
-          </div>
-          <div className="mt-4 flex gap-1">
-            <Button variant="ghost" size="sm" onClick={() => emergencyLevel > 0 && setConfirmEmergencyLevel(Math.max(0, emergencyLevel - 1))} disabled={emergencyLevel <= 0 || emergencyLevelMutation.isPending}>
-              <ChevronDown className="h-4 w-4" /> Downgrade
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => emergencyLevel < 3 && setConfirmEmergencyLevel(Math.min(3, emergencyLevel + 1))} disabled={emergencyLevel >= 3 || emergencyLevelMutation.isPending}>
-              <ChevronUp className="h-4 w-4" /> Escalate
-            </Button>
+          {/* Stepper visualization */}
+          <div className="flex items-start gap-0 overflow-x-auto pb-2">
+            {EMERGENCY_LEVELS.map(({ level, label, description }, i) => {
+              const isActive = emergencyLevel === level;
+              const isPassed = emergencyLevel > level;
+              const levelColors = [
+                { ring: 'border-emerald-500 bg-emerald-500/20 text-emerald-400', line: 'bg-emerald-500', desc: 'text-emerald-400/60' },
+                { ring: 'border-amber-500 bg-amber-500/20 text-amber-400', line: 'bg-amber-500', desc: 'text-amber-400/60' },
+                { ring: 'border-orange-500 bg-orange-500/20 text-orange-400', line: 'bg-orange-500', desc: 'text-orange-400/60' },
+                { ring: 'border-red-500 bg-red-500/20 text-red-400', line: 'bg-red-500', desc: 'text-red-400/60' },
+              ];
+              const c = levelColors[level];
+              return (
+                <div key={level} className="flex items-start">
+                  <button
+                    onClick={() => setConfirmEmergencyLevel(level)}
+                    disabled={emergencyLevelMutation.isPending}
+                    className="flex flex-col items-center gap-1.5 px-2 disabled:opacity-50"
+                  >
+                    <div className={cn(
+                      'flex h-10 w-10 items-center justify-center rounded-full border-2 text-sm font-bold tabular-nums transition-all',
+                      isActive || isPassed ? c.ring : 'border-admin-border bg-transparent text-admin-muted',
+                      isActive && 'ring-2 ring-offset-2 ring-offset-[#0a0b0f]',
+                      isActive && (level === 0 ? 'ring-emerald-500/40' : level === 1 ? 'ring-amber-500/40' : level === 2 ? 'ring-orange-500/40' : 'ring-red-500/40'),
+                    )}>
+                      {level}
+                    </div>
+                    <span className={cn('text-[11px] font-semibold whitespace-nowrap', isActive ? 'text-admin-text' : 'text-admin-muted')}>{label}</span>
+                    <span className={cn('text-[10px] max-w-[120px] text-center leading-tight', isActive ? c.desc : 'text-admin-muted/40')}>{description}</span>
+                  </button>
+                  {i < EMERGENCY_LEVELS.length - 1 && (
+                    <div className="mt-5 flex items-center">
+                      <div className={cn('h-0.5 w-10 transition-colors', isPassed ? c.line : 'bg-admin-border')} />
+                      <ChevronRight className={cn('h-3 w-3 -ml-1', isPassed ? c.line.replace('bg-', 'text-') : 'text-admin-border')} />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </CardContent>
       </Card>
+
+      {/* ZONE: Automation & Commands */}
+      <ZoneHeader title="Automation & Commands" icon={Settings} />
 
       {/* Automated safety triggers */}
       <Card>
@@ -1380,7 +1625,7 @@ export default function AdminControlPage() {
             ))}
           </div>
           {!canExecuteCommands && (
-            <p className="text-sm text-amber-600">You do not have permission to run system commands.</p>
+            <p className="text-sm text-amber-400">You do not have permission to run system commands.</p>
           )}
           <div>
             <h4 className="mb-3 text-sm font-medium text-admin-text">Command history</h4>
@@ -1539,6 +1784,58 @@ export default function AdminControlPage() {
         </CardContent>
       </Card>
 
+      {/* Card action modal */}
+      {cardAction && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => !globalActionMutation.isPending && setCardAction(null)}>
+          <div className="w-full max-w-md rounded-xl border border-admin-border bg-admin-card p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start gap-3">
+              <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-full', cardAction.variant === 'danger' ? 'bg-red-500/10' : 'bg-emerald-500/10')}>
+                {cardAction.variant === 'danger' ? <AlertTriangle className="h-5 w-5 text-red-400" /> : <CheckCircle className="h-5 w-5 text-emerald-400" />}
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-admin-text">{cardAction.title}</h3>
+                <p className="mt-1 text-sm text-admin-muted">{cardAction.description}</p>
+              </div>
+            </div>
+            {cardAction.needsReason && (
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-admin-text">Reason <span className="text-red-400">*</span></label>
+                <textarea
+                  value={cardActionReason}
+                  onChange={(e) => setCardActionReason(e.target.value)}
+                  placeholder="Provide a reason for this action (min 8 characters)..."
+                  rows={2}
+                  className="mt-1 w-full rounded-lg border border-admin-border bg-white/[0.02] px-3 py-2 text-sm text-admin-text placeholder:text-admin-muted/50 focus:border-admin-primary focus:outline-none focus:ring-1 focus:ring-admin-primary"
+                />
+                <p className="mt-1 text-xs text-admin-muted">{cardActionReason.trim().length}/8 characters minimum</p>
+              </div>
+            )}
+            {cardAction.variant === 'danger' && (
+              <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/[0.05] px-3 py-2">
+                <p className="text-xs text-amber-400">This is a destructive action. It will be logged in the audit trail and cannot be undone automatically.</p>
+              </div>
+            )}
+            <div className="mt-6 flex gap-3">
+              <Button variant="secondary" className="flex-1" onClick={() => { setCardAction(null); setCardActionReason(''); }} disabled={globalActionMutation.isPending}>
+                Cancel
+              </Button>
+              <Button
+                className="flex-1"
+                variant={cardAction.variant === 'danger' ? 'danger' : 'primary'}
+                onClick={() => {
+                  const reason = cardActionReason.trim();
+                  if (cardAction.needsReason && reason.length < 8) return;
+                  globalActionMutation.mutate({ action: cardAction.action, reason: reason || undefined });
+                }}
+                disabled={globalActionMutation.isPending || (cardAction.needsReason && cardActionReason.trim().length < 8)}
+              >
+                {globalActionMutation.isPending ? 'Executing…' : 'Confirm'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modals */}
       {confirmCircuit && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setConfirmCircuit(null)}>
@@ -1681,7 +1978,7 @@ export default function AdminControlPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => { if (!editTriggerSaveConfirm) { setEditTriggerModal(null); setEditTriggerSaveConfirm(false); } }}>
           <div className="w-full max-w-md rounded-xl bg-admin-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold text-admin-text">Edit trigger</h3>
-            <p className="mt-1 text-sm text-amber-600">Incorrect trigger settings may pause trading automatically.</p>
+            <p className="mt-1 text-sm text-amber-400">Incorrect trigger settings may pause trading automatically.</p>
             <div className="mt-4 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-admin-text">Trigger name</label>
@@ -1940,7 +2237,7 @@ export default function AdminControlPage() {
                     }
                     const wouldActivate = current > threshold;
                     return wouldActivate ? (
-                      <span className="text-amber-700">Trigger would activate.</span>
+                      <span className="text-amber-400">Trigger would activate.</span>
                     ) : (
                       <span className="text-admin-muted">Trigger would not activate.</span>
                     );
@@ -1954,6 +2251,6 @@ export default function AdminControlPage() {
           </div>
         </div>
       )}
-    </div>
+    </AdminPageFrame>
   );
 }

@@ -14,6 +14,7 @@ import {
   ArrowLeft, Send, UserCircle, ShieldCheck,
   CheckCircle, Clock, AlertTriangle,
 } from 'lucide-react';
+import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 
 interface Ticket {
   id: string;
@@ -74,9 +75,11 @@ export default function TicketDetailPage() {
   const token = useAdminAuthStore((s) => s.accessToken);
   const admin = useAdminAuthStore((s) => s.admin);
 
-  const [replyText, setReplyText] = useState('');
+  const [replyText,   setReplyText]   = useState('');
   const [resolveOpen, setResolveOpen] = useState(false);
   const [resolveNote, setResolveNote] = useState('');
+  const [replyError,  setReplyError]  = useState('');
+  const [updateError, setUpdateError] = useState('');
 
   const queryKey = ['admin', 'support-ticket', ticketId, token];
 
@@ -99,8 +102,10 @@ export default function TicketDetailPage() {
       }),
     onSuccess: () => {
       setReplyText('');
+      setReplyError('');
       queryClient.invalidateQueries({ queryKey });
     },
+    onError: (e: unknown) => setReplyError((e as { message?: string })?.message ?? 'Failed to send reply. Please try again.'),
   });
 
   const updateMutation = useMutation({
@@ -111,9 +116,11 @@ export default function TicketDetailPage() {
         body,
       }),
     onSuccess: () => {
+      setUpdateError('');
       queryClient.invalidateQueries({ queryKey });
       queryClient.invalidateQueries({ queryKey: ['admin', 'support-stats'] });
     },
+    onError: (e: unknown) => setUpdateError((e as { message?: string })?.message ?? 'Update failed. Please try again.'),
   });
 
   function handleAssignToMe() {
@@ -164,6 +171,7 @@ export default function TicketDetailPage() {
   const isTerminal = ticket.status === 'resolved' || ticket.status === 'closed';
 
   return (
+    <AdminPageFrame title={ticket.subject}>
     <div className="space-y-6">
       {/* Back link */}
       <button onClick={() => router.push('/support')} className="flex items-center gap-1 text-sm text-admin-muted hover:text-admin-text transition-colors">
@@ -181,7 +189,7 @@ export default function TicketDetailPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={PRIORITY_BADGE[ticket.priority] ?? 'default'}>{ticket.priority}</Badge>
-            <Badge variant={STATUS_BADGE[ticket.status] ?? 'default'} badgeStyle="dot">{ticket.status.replace('_', ' ')}</Badge>
+            <Badge variant={STATUS_BADGE[ticket.status] ?? 'default'} badgeStyle="dot">{ticket.status.replace(/_/g, ' ')}</Badge>
             <Badge variant="default" badgeStyle="outline">{ticket.category}</Badge>
           </div>
         </div>
@@ -208,7 +216,7 @@ export default function TicketDetailPage() {
               className="h-8 rounded-ds-md border border-admin-border bg-admin-card px-2 text-xs text-admin-text focus:outline-none focus:ring-2 focus:ring-admin-primary"
             >
               {STATUS_OPTIONS.map((s) => (
-                <option key={s} value={s}>{s.replace('_', ' ')}</option>
+                <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
               ))}
             </select>
           </div>
@@ -235,9 +243,12 @@ export default function TicketDetailPage() {
         </div>
 
         {ticket.resolution_note && (
-          <div className="mt-3 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-800">
-            <span className="font-medium">Resolution note:</span> {ticket.resolution_note}
+          <div className="mt-3 rounded-lg border border-emerald-500/20 bg-emerald-950/10 px-4 py-3 text-sm text-emerald-300">
+            <span className="font-semibold">Resolution note:</span> {ticket.resolution_note}
           </div>
+        )}
+        {updateError && (
+          <div className="mt-3 rounded-lg border border-red-500/25 bg-red-950/10 px-4 py-2 text-xs text-red-400">{updateError}</div>
         )}
       </Card>
 
@@ -263,7 +274,7 @@ export default function TicketDetailPage() {
                   <span className="text-xs font-medium text-admin-text">{msg.sender_name ?? (isAdmin ? 'Admin' : 'User')}</span>
                   <span className="text-[10px] text-admin-muted">{formatFull(msg.created_at)}</span>
                 </div>
-                <p className="text-sm text-gray-800 whitespace-pre-wrap">{msg.message}</p>
+                <p className="text-sm text-admin-text whitespace-pre-wrap">{msg.message}</p>
               </div>
             </div>
           );
@@ -276,9 +287,12 @@ export default function TicketDetailPage() {
           <Textarea
             placeholder="Type your reply…"
             value={replyText}
-            onChange={(e) => setReplyText(e.target.value)}
+            onChange={(e) => { setReplyText(e.target.value); if (replyError) setReplyError(''); }}
             rows={3}
           />
+          {replyError && (
+            <p className="mt-2 rounded-lg border border-red-500/25 bg-red-950/10 px-3 py-2 text-xs text-red-400">{replyError}</p>
+          )}
           <div className="mt-3 flex justify-end">
             <Button
               size="sm"
@@ -310,5 +324,6 @@ export default function TicketDetailPage() {
         </ModalFooter>
       </Modal>
     </div>
+    </AdminPageFrame>
   );
 }

@@ -28,9 +28,9 @@ const EVENT_QUERY_MAP: Record<string, string[][]> = {
   market_created:           [['admin', 'markets']],
   market_updated:           [['admin', 'markets']],
   market_halted:            [['admin', 'markets']],
-  wallet_balance_updated:   [['admin', 'treasury']],
-  sweep_completed:          [['admin', 'treasury']],
-  sweep_failed:             [['admin', 'treasury']],
+  wallet_balance_updated:   [['admin', 'treasury'], ['admin', 'treasury', 'reconciliation']],
+  sweep_completed:          [['admin', 'treasury'], ['admin', 'treasury', 'reconciliation']],
+  sweep_failed:             [['admin', 'treasury'], ['admin', 'treasury', 'reconciliation']],
   wallet_health_alert:      [['admin', 'treasury']],
   system_alert:             [['admin', 'monitoring']],
   rpc_timeout:              [['admin', 'monitoring']],
@@ -47,6 +47,9 @@ const EVENT_QUERY_MAP: Record<string, string[][]> = {
   service_restarted:        [['admin', 'control']],
   liquidity_kill_activated: [['admin', 'control']],
   health_score_updated:     [['admin', 'control', 'health-score']],
+  timeline_event:           [['admin', 'control'], ['admin', 'control', 'timeline']],
+  mm_circuit_changed:       [['admin', 'control'], ['admin', 'trading-halt']],
+  admin_session_terminated: [['admin', 'security'], ['admin', 'security', 'sessions']],
 };
 
 /**

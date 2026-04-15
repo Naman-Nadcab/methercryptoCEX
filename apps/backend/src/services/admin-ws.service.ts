@@ -14,10 +14,21 @@ export type AdminMetricsEventType =
   | 'connected'
   | 'trade_executed'
   | 'order_created'
+  | 'order_cancelled'
+  | 'order_filled'
   | 'deposit_confirmed'
   | 'withdrawal_requested'
+  | 'withdrawal_completed'
   | 'p2p_order_created'
-  | 'aml_alert_triggered';
+  | 'p2p_dispute_created'
+  | 'p2p_dispute_resolved'
+  | 'aml_alert_triggered'
+  | 'kyc_submitted'
+  | 'kyc_approved'
+  | 'kyc_rejected'
+  | 'sweep_completed'
+  | 'sweep_failed'
+  | 'wallet_balance_updated';
 
 export interface AdminMetricsEvent {
   type: AdminMetricsEventType;
@@ -126,6 +137,36 @@ export function publishAmlAlertTriggered(alert: { id?: string; user_id?: string;
   broadcastAdminMetrics('aml_alert_triggered', alert);
   eventBus.publish('alert:new', { ...alert, action: 'aml_alert_triggered' }, 'metrics');
   eventBus.publish('activity:update', { ...alert, action: 'aml_alert_triggered' }, 'metrics');
+}
+
+/** Convenience: order cancelled */
+export function publishOrderCancelled(order: { id?: string; market?: string; side?: string; user_id?: string }): void {
+  broadcastAdminMetrics('order_cancelled', order);
+  eventBus.publish('activity:update', { ...order, action: 'order_cancelled' }, 'metrics');
+}
+
+/** Convenience: order filled */
+export function publishOrderFilled(order: { id?: string; market?: string; side?: string; price?: string; quantity?: string; user_id?: string }): void {
+  broadcastAdminMetrics('order_filled', order);
+  eventBus.publish('activity:update', { ...order, action: 'order_filled' }, 'metrics');
+}
+
+/** Convenience: KYC status changed */
+export function publishKycStatusChanged(type: 'kyc_approved' | 'kyc_rejected' | 'kyc_submitted', data: { id?: string; user_id?: string; kyc_level?: number }): void {
+  broadcastAdminMetrics(type, data);
+  eventBus.publish('activity:update', { ...data, action: type }, 'metrics');
+}
+
+/** Convenience: sweep completed */
+export function publishSweepCompleted(sweep: { chain_id?: string; from_address?: string; tx_hash?: string }): void {
+  broadcastAdminMetrics('sweep_completed', sweep);
+  eventBus.publish('activity:update', { ...sweep, action: 'sweep_completed' }, 'metrics');
+}
+
+/** Convenience: sweep failed */
+export function publishSweepFailed(sweep: { chain_id?: string; from_address?: string; error?: string }): void {
+  broadcastAdminMetrics('sweep_failed', sweep);
+  eventBus.publish('activity:update', { ...sweep, action: 'sweep_failed' }, 'metrics');
 }
 
 export function getAdminMetricsConnectionCount(): number {

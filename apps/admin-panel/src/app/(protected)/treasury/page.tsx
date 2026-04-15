@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAdminAuthStore } from '@/store/auth';
@@ -8,12 +8,12 @@ import {
   getTreasuryStats,
   getTreasuryHealth,
   getTreasuryHotWallets,
-  getTreasuryColdWallets,
   getTreasurySweeps,
   getTreasuryTransactions,
   runTreasurySweep,
   retryTreasurySweep,
   getHotWallets,
+  getTreasuryReconciliation,
   type SweepRow,
 } from '@/lib/treasury-api';
 import { StatCard } from '@/components/dashboard/StatCard';
@@ -30,6 +30,7 @@ import { TableSkeleton } from '@/components/ui';
 import { ProtectedAction } from '@/components/rbac/ProtectedAction';
 import { useAdminWs } from '@/hooks/useAdminWs';
 import { Wallet, Flame, Snowflake, Clock, Play, Settings, Activity, Server, Zap, AlertTriangle } from 'lucide-react';
+import { AdminPageFrame, type AdminPageStatus } from '@/components/admin-shell/AdminPageFrame';
 
 function formatReserves(n: number): string {
   if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
@@ -48,6 +49,12 @@ export default function TreasuryPage() {
   const [activeTab, setActiveTab] = useState<TreasuryTab>('overview');
   const [txPage, setTxPage] = useState(1);
   const [txType, setTxType] = useState<string>('all');
+  /** Defer heavy /hot-wallets (families metadata) until after first paint so treasury shell + tables load first. */
+  const [deferHotWalletMeta, setDeferHotWalletMeta] = useState(false);
+  useEffect(() => {
+    const t = window.setTimeout(() => setDeferHotWalletMeta(true), 400);
+    return () => window.clearTimeout(t);
+  }, []);
 
   const { data: statsData, isLoading: statsLoading, isError: statsError } = useQuery({
     queryKey: ['admin', 'treasury', 'stats', token],
@@ -55,8 +62,8 @@ export default function TreasuryPage() {
     enabled: !!token,
     refetchInterval: 60_000,
     staleTime: 60_000,
-    retry: 3,
-    retryDelay: (attempt) => Math.min(2000 * 2 ** attempt, 15000),
+    retry: 1,
+    retryDelay: 1200,
   });
 
   const { data: healthData, isLoading: healthLoading, isError: healthError } = useQuery({
@@ -65,8 +72,8 @@ export default function TreasuryPage() {
     enabled: !!token,
     refetchInterval: 60_000,
     staleTime: 60_000,
-    retry: 3,
-    retryDelay: (attempt) => Math.min(2000 * 2 ** attempt, 15000),
+    retry: 1,
+    retryDelay: 1200,
   });
 
   const { data: hotData, isLoading: hotLoading } = useQuery({
@@ -81,17 +88,9 @@ export default function TreasuryPage() {
   const { data: hotWalletsCrud } = useQuery({
     queryKey: ['admin', 'hot-wallets-crud', token],
     queryFn: () => getHotWallets(token),
-    enabled: !!token,
-    staleTime: 30_000,
-  });
-
-  const { data: coldData, isLoading: coldLoading } = useQuery({
-    queryKey: ['admin', 'treasury', 'cold-wallets', token],
-    queryFn: () => getTreasuryColdWallets(token),
-    enabled: !!token,
-    refetchInterval: 30_000,
-    staleTime: 30_000,
-    retry: 1,
+    enabled: !!token && deferHotWalletMeta,
+    staleTime: 300_000,
+    refetchOnWindowFocus: false,
   });
 
   const { data: sweepsData, isLoading: sweepsLoading } = useQuery({
@@ -143,6 +142,17 @@ export default function TreasuryPage() {
     },
   });
 
+  const { data: reconData } = useQuery({
+    queryKey: ['admin', 'treasury', 'reconciliation', token],
+    queryFn: () => getTreasuryReconciliation(token),
+    enabled: !!token,
+    staleTime: 120_000,
+    refetchInterval: 120_000,
+    retry: 1,
+  });
+  const reconResult = reconData?.data;
+  const reconMismatch = reconResult && reconResult.matched === false;
+
   const stats = statsData?.data;
   const health = healthData?.data;
   const txPayload = txData?.data;
@@ -166,17 +176,11 @@ export default function TreasuryPage() {
     last_sweep_at: string | null;
     status: string;
   }>;
-  const coldWallets = (coldData?.data ?? []) as Array<{
-    chain_id: string;
-    chain_name: string;
-    address: string | null;
-    balance: string | null;
-    reserve_percentage: number;
-  }>;
   const sweepsPayload = sweepsData?.data;
   const sweeps = (sweepsPayload?.sweeps ?? []) as SweepRow[];
   const pagination = sweepsPayload?.pagination;
   const hasApiError = statsError && healthError;
+  const treasuryStatus: AdminPageStatus = (statsError && healthError) || reconMismatch ? 'risk' : (statsError || healthError || (failedSweeps24h > 3)) ? 'warning' : 'active';
 
   const handleSweepConfirm = () => {
     const action = sweepModal?.action;
@@ -188,19 +192,22 @@ export default function TreasuryPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-lg font-semibold text-admin-text">Treasury</h1>
-          <p className="text-xs text-admin-muted mt-0.5">Monitor exchange wallet infrastructure and sweep operations.</p>
-        </div>
+    <AdminPageFrame
+      title="Treasury"
+      description="Monitor exchange wallet infrastructure and sweep operations."
+      status={treasuryStatus}
+      error={hasApiError ? 'Treasury stats and health APIs failed to load.' : null}
+      onRetry={() => { queryClient.invalidateQueries({ queryKey: ['admin', 'treasury'] }); }}
+      quickActions={
         <Link href="/treasury/settings">
           <Button variant="secondary" size="sm">
             <Settings className="mr-1 h-4 w-4" />
             Sweep settings
           </Button>
         </Link>
-      </div>
+      }
+      className="!p-0"
+    >
 
       <div className="flex items-start gap-3 rounded-lg border border-admin-border bg-admin-card/80 px-3 py-2.5 text-[11px] text-admin-muted">
         <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500 mt-0.5" />
@@ -301,6 +308,19 @@ export default function TreasuryPage() {
           </div>
         </div>
       </div>
+
+      {reconMismatch && (
+        <div role="alert" className="flex items-center gap-3 rounded-lg border border-admin-danger/40 bg-admin-danger/10 p-4">
+          <AlertTriangle className="h-5 w-5 shrink-0 text-admin-danger" />
+          <div>
+            <p className="text-sm font-semibold text-admin-danger">Balance Mismatch Detected</p>
+            <p className="text-xs text-admin-muted">
+              On-chain balances do not match database records. {reconResult?.mismatches?.length ?? 0} chain(s) affected.
+              Last checked: {reconResult?.lastCheckedAt ? new Date(reconResult.lastCheckedAt).toLocaleString() : 'unknown'}.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div className="rounded-xl border border-admin-border bg-admin-card p-4 shadow-sm">
@@ -527,6 +547,6 @@ export default function TreasuryPage() {
         onConfirm={handleSweepConfirm}
         isLoading={runSweepMutation.isPending || retrySweepMutation.isPending}
       />
-    </div>
+    </AdminPageFrame>
   );
 }

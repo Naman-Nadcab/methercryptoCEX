@@ -36,6 +36,7 @@ import { StatusBadge } from '@/components/dashboard/StatusBadge';
 import { ArrowLeft, Power, PowerOff, AlertTriangle, History, RotateCcw, GitCompare, Shield, Layers, Search, Download, Upload, GitBranch, Pencil, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { SensitiveActionModal } from '@/components/ops/SensitiveActionModal';
+import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 
 const TRADING_KEYS = ['default_maker_fee', 'default_taker_fee', 'min_order_size'];
 const LIMIT_KEYS = ['api_rate_limit', 'max_withdrawal_per_day', 'max_orders_per_minute', 'max_login_attempts'];
@@ -151,6 +152,7 @@ export default function SystemSettingsPage() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<SystemTab>('configuration');
   const [emergencyModal, setEmergencyModal] = useState<{ action: string; label: string; enabled: boolean } | null>(null);
+  const [emergencyReason, setEmergencyReason] = useState('');
   const [tradingPauseModalOpen, setTradingPauseModalOpen] = useState(false);
   const [diffModal, setDiffModal] = useState<{ versionId: string; versionNum: number } | null>(null);
   const [rollbackModal, setRollbackModal] = useState<ConfigVersionRow | null>(null);
@@ -551,32 +553,16 @@ export default function SystemSettingsPage() {
   };
 
   return (
-    <div className="space-y-5">
-      <SensitiveActionModal
-        open={tradingPauseModalOpen}
-        onClose={() => setTradingPauseModalOpen(false)}
-        onConfirm={(note) => haltMutation.mutate({ halted: true, reason: note })}
-        title="Pause all spot trading"
-        description="Required for audit compliance. Users cannot place or cancel orders while halted."
-        variant="danger"
-        confirmLabel="Pause trading"
-        isLoading={haltMutation.isPending}
-      />
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
+    <AdminPageFrame
+      title="Global configuration & feature flags"
+      description="Toggle features, trading and risk settings, limits, and emergency controls."
+      quickActions={
+        <>
           <Link href="/settings">
             <Button variant="ghost" size="sm">
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
-          <div>
-            <h1 className="text-lg font-semibold text-admin-text">Global configuration & feature flags</h1>
-            <p className="text-xs text-admin-muted mt-0.5">
-              Toggle features, trading and risk settings, limits, and emergency controls.
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
           <Button variant="secondary" size="sm" onClick={handleExportSettings}>
             <Download className="h-4 w-4 mr-1" />
             Export Settings
@@ -592,8 +578,19 @@ export default function SystemSettingsPage() {
             <Upload className="h-4 w-4 mr-1" />
             Import Settings
           </Button>
-        </div>
-      </div>
+        </>
+      }
+    >
+      <SensitiveActionModal
+        open={tradingPauseModalOpen}
+        onClose={() => setTradingPauseModalOpen(false)}
+        onConfirm={(note) => haltMutation.mutate({ halted: true, reason: note })}
+        title="Pause all spot trading"
+        description="Required for audit compliance. Users cannot place or cancel orders while halted."
+        variant="danger"
+        confirmLabel="Pause trading"
+        isLoading={haltMutation.isPending}
+      />
 
       <div className="border-b border-admin-border">
         <nav className="flex gap-1">
@@ -715,9 +712,9 @@ export default function SystemSettingsPage() {
       {activeTab === 'configuration' && (
         <>
       {/* === SECTION: OPERATIONAL CONTROLS (CRITICAL) === */}
-      <div className="rounded-lg border-l-4 border-red-400 bg-red-50/50 px-4 py-3">
-        <h2 className="text-sm font-bold uppercase tracking-wider text-red-700">Operational Controls — Critical</h2>
-        <p className="text-xs text-red-600/70">These directly affect user-facing deposit, withdrawal, and trading flows in real time.</p>
+      <div className="rounded-lg border-l-4 border-red-500 bg-red-950/20 px-4 py-3">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-red-400">Operational Controls — Critical</h2>
+        <p className="text-xs text-red-400/70">These directly affect user-facing deposit, withdrawal, and trading flows in real time.</p>
       </div>
 
       {/* Safe mode */}
@@ -784,9 +781,9 @@ export default function SystemSettingsPage() {
       </Card>
 
       {/* === SECTION: SYSTEM CONFIGURATION (Non-critical) === */}
-      <div className="rounded-lg border-l-4 border-blue-400 bg-blue-50/50 px-4 py-3">
-        <h2 className="text-sm font-bold uppercase tracking-wider text-blue-700">System Configuration</h2>
-        <p className="text-xs text-blue-600/70">Feature flags, profiles, trading/risk settings, and limits. Changes here do not immediately halt user flows.</p>
+      <div className="rounded-lg border-l-4 border-blue-500 bg-blue-950/20 px-4 py-3">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-blue-400">System Configuration</h2>
+        <p className="text-xs text-blue-400/70">Feature flags, profiles, trading/risk settings, and limits. Changes here do not immediately halt user flows.</p>
       </div>
 
       {/* Environment profiles */}
@@ -904,7 +901,7 @@ export default function SystemSettingsPage() {
             <div
               className={cn(
                 'mb-3 rounded-lg px-4 py-2 text-sm',
-                toast.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
+                toast.type === 'success' ? 'bg-emerald-950/20 border border-emerald-500/30 text-emerald-400' : 'bg-red-950/20 border border-red-500/30 text-red-400'
               )}
               role="alert"
             >
@@ -1337,18 +1334,18 @@ export default function SystemSettingsPage() {
                 {toggles.map((t) => (
                   <div key={t.key} className={cn(
                     'flex items-center justify-between rounded-lg border p-4',
-                    t.active ? 'border-red-300 bg-red-50' : 'border-admin-border'
+                    t.active ? 'border-red-500/40 bg-red-950/20' : 'border-admin-border'
                   )}>
                     <div>
                       <p className="font-medium text-admin-text">{t.label}</p>
-                      <p className={cn('text-xs font-semibold', t.active ? 'text-red-600' : 'text-green-600')}>
+                      <p className={cn('text-xs font-semibold', t.active ? 'text-red-400' : 'text-emerald-400')}>
                         {t.active ? t.activeLabel : t.inactiveLabel}
                       </p>
                     </div>
                     <Button
                       variant={t.active ? 'secondary' : 'primary'}
                       size="sm"
-                      className={cn(t.active && 'border-red-400 text-red-700 hover:bg-red-100')}
+                      className={cn(t.active && 'border-red-500/40 text-red-400 hover:bg-red-950/30')}
                       onClick={() => setEmergencyModal({
                         action: t.key,
                         label: t.active ? `Resume ${t.label.toLowerCase()}` : `Emergency disable ${t.label.toLowerCase()}`,
@@ -1366,22 +1363,40 @@ export default function SystemSettingsPage() {
       </Card>
 
       {emergencyModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setEmergencyModal(null)}>
-          <div className="w-full max-w-sm rounded-xl bg-admin-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-admin-text">Confirm emergency action</h3>
-            <p className="mt-2 text-sm text-admin-muted">{emergencyModal.label}. This may affect all users.</p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => { setEmergencyModal(null); setEmergencyReason(''); }}>
+          <div className="w-full max-w-sm rounded-xl bg-admin-card border border-red-500/30 p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-red-950/40 border border-red-500/30">
+                <span className="block h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+              </span>
+              <h3 className="text-base font-semibold text-admin-text">Confirm Emergency Action</h3>
+            </div>
+            <p className="mt-1 text-sm text-admin-muted">{emergencyModal.label}. This may affect all users immediately.</p>
+            <div className="mt-4">
+              <label className="block text-xs font-medium text-admin-muted mb-1">Reason / Notes (required for audit trail)</label>
+              <textarea
+                value={emergencyReason}
+                onChange={(e) => setEmergencyReason(e.target.value)}
+                placeholder="e.g. Suspicious withdrawal volume detected, pausing to investigate…"
+                className="w-full rounded-lg border border-admin-border bg-admin-surface px-3 py-2 text-sm text-admin-text resize-none focus:outline-none focus:ring-1 focus:ring-red-500/50"
+                rows={3}
+              />
+            </div>
             <div className="mt-4 flex gap-2">
-              <Button variant="secondary" className="flex-1" onClick={() => setEmergencyModal(null)}>
+              <Button variant="secondary" className="flex-1" onClick={() => { setEmergencyModal(null); setEmergencyReason(''); }}>
                 Cancel
               </Button>
               <Button
-                className="flex-1"
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white border-0"
                 onClick={() => emergencyMutation.mutate({ action: emergencyModal.action, enabled: emergencyModal.enabled })}
-                disabled={emergencyMutation.isPending}
+                disabled={emergencyMutation.isPending || !emergencyReason.trim()}
               >
-                Confirm
+                {emergencyMutation.isPending ? 'Applying…' : 'Confirm'}
               </Button>
             </div>
+            {!emergencyReason.trim() && (
+              <p className="mt-2 text-center text-xs text-admin-muted/60">Enter a reason to enable confirm</p>
+            )}
           </div>
         </div>
       )}
@@ -1686,6 +1701,6 @@ export default function SystemSettingsPage() {
           </div>
         </div>
       )}
-    </div>
+    </AdminPageFrame>
   );
 }

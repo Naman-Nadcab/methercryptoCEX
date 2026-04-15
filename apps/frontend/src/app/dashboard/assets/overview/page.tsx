@@ -184,28 +184,33 @@ function AllocationDonut({
   const fmtVal = (n: number) => n < 1 ? `$${n.toFixed(4)}` : `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   return (
-    <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-start">
+    <div className="flex flex-col items-center gap-5">
+      {/* Donut chart — always centered */}
       <div className="relative shrink-0" style={{ width: size, height: size }}>
         <svg width={size} height={size} className="block">
-          {paths.map((p) => <path key={p.symbol} d={p.d} fill={p.color} opacity={0.88} className="transition-opacity hover:opacity-100" />)}
+          {paths.map((p) => (
+            <path key={p.symbol} d={p.d} fill={p.color} opacity={0.88} className="transition-opacity hover:opacity-100" />
+          ))}
           <circle cx={cx} cy={cy} r={r * 0.52} className="fill-card" />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center px-2 text-center pointer-events-none">
           <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Portfolio</span>
-          <span className="numeric mt-0.5 text-sm font-bold text-foreground sm:text-base">${maskFn(fmtUsdFn(centerUsd))}</span>
+          <span className="numeric mt-0.5 text-sm font-bold text-foreground">{maskFn(fmtUsdFn(centerUsd))}</span>
           <span className="mt-0.5 text-xs text-muted-foreground">{items.length} assets</span>
         </div>
       </div>
-      <div className="flex min-w-0 flex-1 flex-col gap-3">
+
+      {/* Legend — full width below the donut */}
+      <div className="w-full space-y-2">
         {paths.map((p) => (
-          <div key={p.symbol} className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-x-3 gap-y-1">
-            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: p.color }} />
-            <div className="flex min-w-0 items-center gap-2">
-              <CoinIcon symbol={p.symbol} size={20} />
+          <div key={p.symbol} className="grid items-center gap-x-2" style={{ gridTemplateColumns: '10px 1fr auto auto' }}>
+            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: p.color }} />
+            <div className="flex min-w-0 items-center gap-1.5">
+              <CoinIcon symbol={p.symbol} size={16} />
               <span className="truncate text-sm font-semibold text-foreground">{p.symbol}</span>
             </div>
-            <span className="numeric text-sm font-medium text-muted-foreground">{p.percent.toFixed(1)}%</span>
-            <span className="numeric text-sm text-foreground">{fmtVal(p.value)}</span>
+            <span className="whitespace-nowrap tabular-nums text-xs text-muted-foreground">{p.percent.toFixed(1)}%</span>
+            <span className="whitespace-nowrap tabular-nums text-xs text-foreground">{fmtVal(p.value)}</span>
           </div>
         ))}
       </div>
@@ -756,7 +761,7 @@ export default function AssetsOverviewPage() {
           {/* Right sidebar */}
           <div className="space-y-6">
             {/* Portfolio Allocation */}
-            <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+            <div className="overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-base font-semibold text-foreground">Portfolio Allocation</h3>
                 <span className="text-xs text-muted-foreground">{allocation.length} assets</span>

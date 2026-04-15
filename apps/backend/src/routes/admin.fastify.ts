@@ -27,9 +27,10 @@ import {
   ADMIN_IMPLICIT_ROLE_PERMISSIONS,
 } from '../lib/admin-rbac-routes.js';
 import { issueAdminWsTicket, consumeWsTicket, WS_TICKET_TTL_SEC } from '../services/ws-ticket.service.js';
-import { registerAdminConnection, unregisterAdminConnection } from '../services/admin-ws.service.js';
+import { registerAdminConnection, unregisterAdminConnection, publishKycStatusChanged, publishOrderCancelled } from '../services/admin-ws.service.js';
 import { registerAdminEventsConnection, unregisterAdminEventsConnection, broadcastAdminControlEvent } from '../services/admin-events-ws.service.js';
 import { applyTierLimitsToUser } from '../services/withdrawal-tier-limits.service.js';
+import { getHotWalletsIdModeCached } from '../lib/hot-wallets-schema-cache.js';
 const ADMIN_CREDIT_IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60;
 const ADMIN_CREDIT_IDEMPOTENCY_LOCK_TTL_SECONDS = 30;
 const WITHDRAW_APPROVE_IDEMPOTENCY_TTL = 24 * 60 * 60;
@@ -38,12 +39,24 @@ const IDEMPOTENCY_KEY_HEADER = 'idempotency-key';
 const ADMIN_LOGIN_MAX_ATTEMPTS_FALLBACK = 5;
 const ADMIN_LOGIN_LOCK_MINUTES = 15;
 
+/** When Redis is down, avoid hammering Postgres on every dashboard load. */
+let dashboardSummaryMemCache: { data: Record<string, unknown>; exp: number } | null = null;
+const DASHBOARD_SUMMARY_MEM_TTL_MS = 20_000;
+
 function normalizeAdminUa(ua: string | undefined): string {
   return (typeof ua === 'string' ? ua : '').trim().slice(0, 512);
 }
 
+function normalizeSessionIp(ip: string): string {
+  let s = ip.trim();
+  s = s.replace(/\/\d+$/, '');
+  if (s.startsWith('::ffff:') && s.includes('.')) s = s.slice(7);
+  if (s === '::1') s = '127.0.0.1';
+  return s.toLowerCase();
+}
+
 function sessionBindHashes(request: FastifyRequest): { ipHash: string; uaHash: string } {
-  const ip = getClientIp(request);
+  const ip = normalizeSessionIp(getClientIp(request));
   const ua = normalizeAdminUa(request.headers['user-agent'] as string | undefined);
   return {
     ipHash: crypto.createHash('sha256').update(ip, 'utf8').digest('hex'),
@@ -205,9 +218,10 @@ export async function getAdminFromRequest(
     };
     const reqIp = getClientIp(request);
     const reqUa = normalizeAdminUa(request.headers['user-agent'] as string | undefined);
-    const dbIp = (row.ip_address || '').trim();
+    const dbIp = normalizeSessionIp((row.ip_address || '').trim());
     const dbUa = normalizeAdminUa(row.user_agent ?? undefined);
-    if (dbIp && dbIp !== reqIp) {
+    const normalizedReqIp = normalizeSessionIp(reqIp);
+    if (dbIp && dbIp !== normalizedReqIp) {
       securityLog('admin_session_binding_mismatch', 'high', { adminId: row.admin_id, reason: 'ip' });
       reply.status(401).send({
         success: false,
@@ -1039,7 +1053,7 @@ export default async function adminRoutes(app: FastifyInstance) {
       });
 
     } catch (error) {
-      logger.error('Admin login error', { error: error instanceof Error ? error.message : 'Unknown' });
+      logger.error('Admin login error', { error: error instanceof Error ? error.message : 'Unknown', stack: error instanceof Error ? error.stack : undefined });
       return reply.status(500).send({
         success: false,
         error: { code: 'LOGIN_FAILED', message: 'Login failed. Please try again.' },
@@ -1230,6 +1244,73 @@ export default async function adminRoutes(app: FastifyInstance) {
   });
 
   // ===============================
+  // ADMIN SESSION MANAGEMENT
+  // ===============================
+
+  /** GET /admin-sessions — list all active admin sessions for security monitoring */
+  app.get('/admin-sessions', async (request, reply) => {
+    const admin = await getAdminWithPermission(app, request, reply, 'monitoring:view');
+    if (!admin) return;
+    try {
+      const result = await db.query<{
+        id: string;
+        admin_id: string;
+        ip_address: string;
+        user_agent: string;
+        created_at: string;
+        expires_at: string;
+        break_glass: boolean;
+      }>(
+        `SELECT s.id, s.admin_id, s.ip_address, s.user_agent, s.created_at, s.expires_at,
+                COALESCE(s.break_glass, false) AS break_glass,
+                a.email AS admin_email, a.name AS admin_name, a.role AS admin_role
+         FROM admin_sessions s
+         LEFT JOIN admin_users a ON a.id = s.admin_id
+         WHERE s.expires_at > NOW()
+         ORDER BY s.created_at DESC
+         LIMIT 100`
+      );
+      return reply.send({ success: true, data: { sessions: result.rows, total: result.rows.length } });
+    } catch (e) {
+      logger.warn('Failed to list admin sessions', { error: e instanceof Error ? e.message : 'unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to list admin sessions' } });
+    }
+  });
+
+  /** DELETE /admin-sessions/:id — terminate an admin session (force logout) */
+  app.delete<{ Params: { id: string } }>('/admin-sessions/:id', async (request, reply) => {
+    const admin = await getAdminWithPermission(app, request, reply, 'control:commands');
+    if (!admin) return;
+    const sessionId = request.params.id;
+    if (!sessionId) return reply.status(400).send({ success: false, error: { code: 'MISSING_ID', message: 'Session ID required' } });
+    try {
+      const sessionRow = await db.query<{ admin_id: string; session_token: string }>(
+        'SELECT admin_id, session_token FROM admin_sessions WHERE id = $1',
+        [sessionId]
+      );
+      if (!sessionRow.rows[0]) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Session not found' } });
+      }
+      const targetSession = sessionRow.rows[0];
+      await db.query('DELETE FROM admin_sessions WHERE id = $1', [sessionId]);
+      try { await redis.del(`admin:session:${targetSession.session_token}`); } catch {}
+      await logAuditFromRequest(request, {
+        actorType: 'admin',
+        actorId: admin.adminId,
+        action: 'admin_session_terminated',
+        resourceType: 'admin_session',
+        resourceId: sessionId,
+        newValue: { targetAdminId: targetSession.admin_id },
+      });
+      broadcastAdminControlEvent('admin_session_terminated', { session_terminated: sessionId, by: admin.adminId, targetAdminId: targetSession.admin_id });
+      return reply.send({ success: true, data: { terminated: sessionId } });
+    } catch (e) {
+      logger.warn('Failed to terminate admin session', { error: e instanceof Error ? e.message : 'unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'DELETE_FAILED', message: 'Failed to terminate session' } });
+    }
+  });
+
+  // ===============================
   // DASHBOARD STATS
   // ===============================
 
@@ -1311,6 +1392,11 @@ export default async function adminRoutes(app: FastifyInstance) {
         if (cached) return reply.send({ success: true, data: cached });
       } catch { /* Redis down */ }
 
+      const nowMem = Date.now();
+      if (dashboardSummaryMemCache && nowMem < dashboardSummaryMemCache.exp) {
+        return reply.send({ success: true, data: dashboardSummaryMemCache.data });
+      }
+
       const safe = <T>(p: Promise<T>, fallback: T): Promise<T> => p.catch(() => fallback);
       const safeRow = (sql: string): Promise<Record<string, string>> =>
         db.query<Record<string, string>>(sql).then(r => r.rows[0] ?? ({} as Record<string, string>)).catch(() => ({} as Record<string, string>));
@@ -1347,6 +1433,10 @@ export default async function adminRoutes(app: FastifyInstance) {
       };
 
       redis.setJson(CACHE_KEY, summary, 15).catch(() => {});
+      dashboardSummaryMemCache = {
+        data: summary as unknown as Record<string, unknown>,
+        exp: Date.now() + DASHBOARD_SUMMARY_MEM_TTL_MS,
+      };
       return reply.send({ success: true, data: summary });
     } catch (error) {
       logger.error('Dashboard summary error', { error: error instanceof Error ? error.message : 'Unknown' });
@@ -3073,6 +3163,33 @@ export default async function adminRoutes(app: FastifyInstance) {
     } catch (e) {
       logger.error('Control incidents error', { error: e instanceof Error ? e.message : 'Unknown' });
       return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to list incidents' } });
+    }
+  });
+
+  app.patch<{ Params: { id: string } }>('/control/incidents/:id/acknowledge', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    const id = (request.params as { id: string }).id;
+    try {
+      const result = await db.query(
+        `UPDATE monitoring_incidents SET status = 'acknowledged' WHERE id = $1::uuid AND status = 'open' RETURNING id`,
+        [id]
+      );
+      if (result.rowCount === 0) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Incident not found or not open' } });
+      }
+      await logAuditFromRequest(request, {
+        actorType: 'admin',
+        actorId: admin.adminId,
+        action: 'control_incident_acknowledged',
+        resourceType: 'control',
+        resourceId: id,
+        newValue: { incident_id: id },
+      });
+      return reply.send({ success: true, data: { acknowledged: true } });
+    } catch (e) {
+      logger.error('Control incident acknowledge error', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'UPDATE_FAILED', message: 'Failed to acknowledge' } });
     }
   });
 
@@ -5632,6 +5749,10 @@ export default async function adminRoutes(app: FastifyInstance) {
         /* best-effort */
       }
 
+      try {
+        publishKycStatusChanged(action === 'approve' ? 'kyc_approved' : 'kyc_rejected', { id, user_id: userId ?? undefined });
+      } catch { /* best-effort admin metrics */ }
+
       // If approved, update user tier and apply withdrawal limits from KYC tier
       if (action === 'approve') {
         const kyc = await db.query('SELECT user_id, kyc_level FROM kyc_applications WHERE id = $1', [id]);
@@ -7673,6 +7794,67 @@ export default async function adminRoutes(app: FastifyInstance) {
     }
   });
 
+  /** GET /admin/treasury/reconciliation — on-chain vs DB reconciliation status */
+  app.get('/treasury/reconciliation', async (request, reply) => {
+    try {
+      const mismatchPauseRow = await db.query<{ value: string }>(
+        `SELECT value FROM system_settings WHERE key = 'treasury_onchain_mismatch_pause'`
+      ).catch(() => ({ rows: [] as { value: string }[] }));
+      const isPaused = mismatchPauseRow.rows[0]?.value === '1' || mismatchPauseRow.rows[0]?.value === 'true';
+
+      const recentMismatches = await db.query<{
+        chain_id: string;
+        chain_name: string;
+        on_chain_balance: string;
+        db_balance: string;
+        difference: string;
+        created_at: string;
+      }>(
+        `SELECT
+          COALESCE(details->>'chain_id', details->>'chain') AS chain_id,
+          COALESCE(details->>'chain_name', details->>'chain') AS chain_name,
+          COALESCE(details->>'on_chain_balance', details->>'onChainBalance', '0') AS on_chain_balance,
+          COALESCE(details->>'db_balance', details->>'cachedBalance', '0') AS db_balance,
+          COALESCE(details->>'difference', details->>'diff', '0') AS difference,
+          created_at
+        FROM treasury_audit_logs
+        WHERE action ILIKE '%mismatch%' OR action ILIKE '%reconcil%'
+        ORDER BY created_at DESC
+        LIMIT 20`
+      ).catch(() => ({ rows: [] as any[] }));
+
+      const lastChecked = await db.query<{ created_at: string }>(
+        `SELECT created_at FROM treasury_audit_logs
+         WHERE action ILIKE '%reconcil%' OR action ILIKE '%balance_check%'
+         ORDER BY created_at DESC LIMIT 1`
+      ).catch(() => ({ rows: [] as { created_at: string }[] }));
+
+      const matched = !isPaused && recentMismatches.rows.length === 0;
+
+      return reply.send({
+        success: true,
+        data: {
+          matched,
+          paused: isPaused,
+          mismatches: recentMismatches.rows.map((r) => ({
+            chain: r.chain_name || r.chain_id || 'unknown',
+            onChainBalance: r.on_chain_balance,
+            dbBalance: r.db_balance,
+            diff: r.difference,
+          })),
+          lastCheckedAt: lastChecked.rows[0]?.created_at ?? null,
+          mismatchCount: recentMismatches.rows.length,
+        },
+      });
+    } catch (e) {
+      logger.warn('Treasury reconciliation check failed', { error: e instanceof Error ? e.message : 'unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'RECONCILIATION_FAILED', message: 'Failed to check reconciliation status' },
+      });
+    }
+  });
+
   /**
    * GET /admin/treasury/hot-wallets
    * List hot wallets with chain, address, balance, last_sweep, status.
@@ -7681,19 +7863,19 @@ export default async function adminRoutes(app: FastifyInstance) {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
     try {
-      const hasChainId = await db.query(`SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'hot_wallets' AND column_name = 'chain_id' LIMIT 1`);
-      const hasBlockchainId = await db.query(`SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'hot_wallets' AND column_name = 'blockchain_id' LIMIT 1`);
-      if (hasChainId.rows.length === 0 && hasBlockchainId.rows.length === 0) {
+      const idMode = await getHotWalletsIdModeCached();
+      if (idMode === 'none') {
         return reply.send({ success: true, data: [] });
       }
-      const orderCol = hasChainId.rows.length > 0 ? 'chain_id' : 'blockchain_id';
-      const rawRows = hasChainId.rows.length > 0
-        ? await db.query<{ id: string; chain_id: string; address: string; balance_cache: string; last_sweep_at: string | null; is_active: boolean }>(
-            `SELECT id, chain_id, address, COALESCE(balance_cache::text, '0') AS balance_cache, last_sweep_at::text AS last_sweep_at, is_active FROM hot_wallets ORDER BY ${orderCol}`
-          )
-        : await db.query<{ id: string; chain_id: string; address: string; balance_cache: string; last_sweep_at: string | null; is_active: boolean }>(
-            `SELECT id, blockchain_id::text AS chain_id, address, COALESCE(balance_cache::text, '0') AS balance_cache, last_sweep_at::text AS last_sweep_at, is_active FROM hot_wallets ORDER BY ${orderCol}`
-          );
+      const orderCol = idMode === 'chain_id' ? 'chain_id' : 'blockchain_id';
+      const rawRows =
+        idMode === 'chain_id'
+          ? await db.query<{ id: string; chain_id: string; address: string; balance_cache: string; last_sweep_at: string | null; is_active: boolean }>(
+              `SELECT id, chain_id, address, COALESCE(balance_cache::text, '0') AS balance_cache, last_sweep_at::text AS last_sweep_at, is_active FROM hot_wallets ORDER BY ${orderCol}`
+            )
+          : await db.query<{ id: string; chain_id: string; address: string; balance_cache: string; last_sweep_at: string | null; is_active: boolean }>(
+              `SELECT id, blockchain_id::text AS chain_id, address, COALESCE(balance_cache::text, '0') AS balance_cache, last_sweep_at::text AS last_sweep_at, is_active FROM hot_wallets ORDER BY ${orderCol}`
+            );
       const chainMap: Record<string, string> = {};
       try {
         const chains = await db.query<{ id: string; name: string }>('SELECT id, name FROM chains WHERE is_active = TRUE');
@@ -7734,18 +7916,18 @@ export default async function adminRoutes(app: FastifyInstance) {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
     try {
-      const hasChainId = await db.query(`SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'hot_wallets' AND column_name = 'chain_id' LIMIT 1`);
-      const hasBlockchainId = await db.query(`SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'hot_wallets' AND column_name = 'blockchain_id' LIMIT 1`);
-      if (hasChainId.rows.length === 0 && hasBlockchainId.rows.length === 0) {
+      const idMode = await getHotWalletsIdModeCached();
+      if (idMode === 'none') {
         return reply.send({ success: true, data: [] });
       }
-      const rows = hasChainId.rows.length > 0
-        ? await db.query<{ chain_id: string; cold_wallet_address: string | null; balance_cache: string }>(
-            `SELECT chain_id, cold_wallet_address, COALESCE(balance_cache::text, '0') AS balance_cache FROM hot_wallets WHERE is_active = TRUE AND cold_wallet_address IS NOT NULL AND cold_wallet_address != ''`
-          )
-        : await db.query<{ chain_id: string; cold_wallet_address: string | null; balance_cache: string }>(
-            `SELECT blockchain_id::text AS chain_id, cold_wallet_address, COALESCE(balance_cache::text, '0') AS balance_cache FROM hot_wallets WHERE is_active = TRUE AND cold_wallet_address IS NOT NULL AND cold_wallet_address != ''`
-          );
+      const rows =
+        idMode === 'chain_id'
+          ? await db.query<{ chain_id: string; cold_wallet_address: string | null; balance_cache: string }>(
+              `SELECT chain_id, cold_wallet_address, COALESCE(balance_cache::text, '0') AS balance_cache FROM hot_wallets WHERE is_active = TRUE AND cold_wallet_address IS NOT NULL AND cold_wallet_address != ''`
+            )
+          : await db.query<{ chain_id: string; cold_wallet_address: string | null; balance_cache: string }>(
+              `SELECT blockchain_id::text AS chain_id, cold_wallet_address, COALESCE(balance_cache::text, '0') AS balance_cache FROM hot_wallets WHERE is_active = TRUE AND cold_wallet_address IS NOT NULL AND cold_wallet_address != ''`
+            );
       const chainMap: Record<string, string> = {};
       try {
         const chains = await db.query<{ id: string; name: string }>('SELECT id, name FROM chains WHERE is_active = TRUE');
@@ -9160,17 +9342,11 @@ export default async function adminRoutes(app: FastifyInstance) {
     if (!admin) return;
     try {
       const hotWalletService = await import('../services/hot-wallet.service.js').then(m => m);
-      // Support both schemas: hot_wallets.chain_id (VARCHAR) or hot_wallets.blockchain_id (UUID)
-      const hasChainIdCol = await db.query<{ exists: boolean }>(
-        `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'hot_wallets' AND column_name = 'chain_id') AS exists`
-      ).then(r => r.rows[0]?.exists === true).catch(() => false);
-      const hasBlockchainIdCol = await db.query<{ exists: boolean }>(
-        `SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'hot_wallets' AND column_name = 'blockchain_id') AS exists`
-      ).then(r => r.rows[0]?.exists === true).catch(() => false);
+      const idMode = await getHotWalletsIdModeCached();
       let list: Array<{ id: string; chain_id: string; address: string; balance_cache: string; min_balance_alert: string; min_hot_balance: string | null; cold_wallet_address: string | null; is_active: boolean; created_at: string; updated_at: string }>;
-      if (hasChainIdCol) {
+      if (idMode === 'chain_id') {
         list = await hotWalletService.listHotWallets();
-      } else if (hasBlockchainIdCol) {
+      } else if (idMode === 'blockchain_id') {
         const rows = await db.query<{ id: string; chain_id: string; address: string; balance_cache: string; min_balance_alert: string; min_hot_balance: string | null; cold_wallet_address: string | null; is_active: boolean; created_at: string; updated_at: string }>(
           `SELECT hw.id, hw.blockchain_id::text AS chain_id, hw.address, hw.balance_cache, hw.min_balance_alert,
                   COALESCE(hw.min_hot_balance::text, '0') as min_hot_balance, hw.cold_wallet_address,
@@ -9189,9 +9365,25 @@ export default async function adminRoutes(app: FastifyInstance) {
       );
       const chainMap = Object.fromEntries(chains.rows.map(c => [c.id, c]));
       const familiesInDb = await hotWalletService.listChainFamiliesInDb();
-      const familyHasWallet = await Promise.all(
-        familiesInDb.map(async (f) => ({ ...f, hasWallet: await hotWalletService.familyHasHotWallet(f.type) }))
-      );
+      let familyHasWallet: Array<(typeof familiesInDb)[0] & { hasWallet: boolean }>;
+      if (idMode === 'chain_id') {
+        const typesRes = await db
+          .query<{ t: string }>(
+            `SELECT DISTINCT LOWER(c.type) AS t FROM hot_wallets hw
+             INNER JOIN chains c ON c.id = hw.chain_id
+             WHERE hw.is_active = TRUE AND c.is_active = TRUE`
+          )
+          .catch(() => ({ rows: [] as { t: string }[] }));
+        const hasType = new Set(typesRes.rows.map((r) => r.t));
+        familyHasWallet = familiesInDb.map((f) => ({
+          ...f,
+          hasWallet: hasType.has(String(f.type).toLowerCase()),
+        }));
+      } else {
+        familyHasWallet = await Promise.all(
+          familiesInDb.map(async (f) => ({ ...f, hasWallet: await hotWalletService.familyHasHotWallet(f.type) }))
+        );
+      }
       const availableFamilies = familyHasWallet
         .filter((f) => !f.hasWallet)
         .map(({ type, label, representativeChainId, chainName, creationSupported }) => ({
@@ -10268,21 +10460,17 @@ export default async function adminRoutes(app: FastifyInstance) {
       const pageNum = Math.max(1, parseInt(page, 10) || 1);
       const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
       const offset = (pageNum - 1) * limitNum;
-      const hasMarket = await db.query(`SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='spot_trades' AND column_name='market' LIMIT 1`);
-      const useMarket = hasMarket.rows.length > 0;
 
+      // spot_trades schema: id, trading_pair_id, maker_user_id, taker_user_id,
+      //   price, quantity, quote_amount, side, maker_fee, taker_fee,
+      //   maker_fee_currency_id, taker_fee_currency_id, created_at
       const conds: string[] = ['1=1'];
       const whereParams: unknown[] = [];
       let p = 1;
 
-      const marketQ = market?.trim();
-      if (marketQ) {
-        if (useMarket) {
-          conds.push(`t.market ILIKE $${p++}`);
-        } else {
-          conds.push(`tp.symbol ILIKE $${p++}`);
-        }
-        whereParams.push(`%${marketQ}%`);
+      if (market?.trim()) {
+        conds.push(`tp.symbol ILIKE $${p++}`);
+        whereParams.push(`%${market.trim()}%`);
       }
       if (side && side !== 'all') {
         conds.push(`LOWER(t.side::text) = LOWER($${p++})`);
@@ -10298,37 +10486,56 @@ export default async function adminRoutes(app: FastifyInstance) {
       }
 
       const whereSql = conds.join(' AND ');
-      const fromSql = useMarket
-        ? `FROM spot_trades t JOIN users u ON t.user_id = u.id`
-        : `FROM spot_trades t JOIN users u ON t.user_id = u.id LEFT JOIN trading_pairs tp ON t.trading_pair_id = tp.id`;
-      const limIdx = whereParams.length + 1;
-      const offIdx = whereParams.length + 2;
-      const listSql = useMarket
-        ? `SELECT t.id AS trade_id, t.market, t.side, u.email AS user_email, t.user_id, t.price::text AS price, t.quantity::text AS amount, t.fee::text AS fee, t.fee_asset, t.created_at
-           ${fromSql}
-           WHERE ${whereSql}
-           ORDER BY t.created_at DESC
-           LIMIT $${limIdx} OFFSET $${offIdx}`
-        : `SELECT t.id AS trade_id, tp.symbol AS market, t.side, u.email AS user_email, t.user_id, t.price::text AS price, t.quantity::text AS amount, t.fee::text AS fee, t.fee_asset, t.created_at
-           ${fromSql}
-           WHERE ${whereSql}
-           ORDER BY t.created_at DESC
-           LIMIT $${limIdx} OFFSET $${offIdx}`;
+      const baseFrom = `FROM spot_trades t
+        JOIN trading_pairs tp ON t.trading_pair_id = tp.id
+        LEFT JOIN users mu ON t.maker_user_id = mu.id
+        LEFT JOIN users tu ON t.taker_user_id = tu.id`;
+
+      const listSql = `
+        SELECT
+          t.id AS trade_id,
+          tp.symbol AS market,
+          t.side,
+          mu.email AS maker_email,
+          tu.email AS taker_email,
+          t.maker_user_id,
+          t.taker_user_id,
+          t.price::text AS price,
+          t.quantity::text AS amount,
+          t.quote_amount::text AS notional_value,
+          t.maker_fee::text AS maker_fee,
+          t.taker_fee::text AS taker_fee,
+          t.created_at
+        ${baseFrom}
+        WHERE ${whereSql}
+        ORDER BY t.created_at DESC
+        LIMIT $${p} OFFSET $${p + 1}`;
+
+      const countSql = `SELECT COUNT(*)::int AS count ${baseFrom} WHERE ${whereSql}`;
       const listParams = [...whereParams, limitNum, offset];
-      const countSql = `SELECT COUNT(*)::int AS count ${fromSql} WHERE ${whereSql}`;
+
       const [listRes, countRes] = await Promise.all([
         db.query(listSql, listParams as string[]),
         db.query(countSql, whereParams as string[]),
       ]);
+
       const total = (countRes.rows[0] as { count?: number })?.count ?? 0;
       const WHALE_THRESHOLD_USD = 100_000;
-      const trades = (listRes.rows as Array<{ price?: string; amount?: string; quantity?: string; [k: string]: unknown }>).map((row) => {
+      const trades = (listRes.rows as Array<Record<string, unknown>>).map((row) => {
         const price = parseFloat(String(row.price ?? 0));
-        const qty = parseFloat(String(row.amount ?? row.quantity ?? 0));
+        const qty = parseFloat(String(row.amount ?? 0));
         const notional = price * qty;
         const is_whale_trade = notional >= WHALE_THRESHOLD_USD;
-        return { ...row, notional, is_whale_trade };
+        // Expose a unified user_email for backwards compat with frontend
+        const user_email = String(row.side ?? '').toLowerCase() === 'buy'
+          ? (row.taker_email ?? row.maker_email ?? null)
+          : (row.maker_email ?? row.taker_email ?? null);
+        const user_id = String(row.side ?? '').toLowerCase() === 'buy'
+          ? (row.taker_user_id ?? row.maker_user_id ?? null)
+          : (row.maker_user_id ?? row.taker_user_id ?? null);
+        return { ...row, notional, is_whale_trade, user_email, user_id };
       });
+
       return reply.send({
         success: true,
         data: {
@@ -12477,6 +12684,93 @@ export default async function adminRoutes(app: FastifyInstance) {
         success: false,
         error: { code: 'FETCH_FAILED', message: 'Failed to fetch admins' },
       });
+    }
+  });
+
+  /**
+   * POST /admin/admins
+   * Create a new admin user
+   */
+  app.post<{ Body: { name: string; email: string; role: string; password: string } }>('/admins', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    if (!requirePermission(admin, 'all', reply)) return;
+    const { name, email, role, password } = request.body ?? {};
+    if (!name || !email || !role || !password) {
+      return reply.status(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'name, email, role, and password are required' } });
+    }
+    try {
+      const exists = await db.query('SELECT id FROM admin_users WHERE email = $1', [email]);
+      if (exists.rows?.length) return reply.status(409).send({ success: false, error: { code: 'CONFLICT', message: 'Email already in use' } });
+      const hash = await bcrypt.hash(password, 10);
+      const perms = role === 'SUPER_ADMIN' ? ['all'] : role === 'RISK_OFFICER' ? ['risk:view', 'risk:edit', 'users:view'] : role === 'COMPLIANCE_OFFICER' ? ['compliance:view', 'compliance:edit'] : ['support:view', 'users:view'];
+      const result = await db.query(
+        `INSERT INTO admin_users (email, name, role, password_hash, permissions, is_active, two_factor_enabled) VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7) RETURNING id::text, email, name, role, is_active, created_at::text`,
+        [email.toLowerCase(), name, role, hash, JSON.stringify(perms), true, false]
+      );
+      return reply.status(201).send({ success: true, data: result.rows[0] });
+    } catch (e) {
+      logger.error('Create admin error', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'CREATE_FAILED', message: 'Failed to create admin' } });
+    }
+  });
+
+  /**
+   * PATCH /admin/admins/:id
+   * Update admin user role / status
+   */
+  app.patch<{ Params: { id: string }; Body: { role?: string; is_active?: boolean; permissions?: string[] } }>('/admins/:id', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    if (!requirePermission(admin, 'all', reply)) return;
+    const { id } = request.params;
+    const { role, is_active, permissions } = request.body ?? {};
+    try {
+      const updates: string[] = [];
+      const params: unknown[] = [];
+      let idx = 1;
+      if (role !== undefined) { updates.push(`role = $${idx++}`); params.push(role); }
+      if (is_active !== undefined) { updates.push(`is_active = $${idx++}`); params.push(is_active); }
+      if (permissions !== undefined) { updates.push(`permissions = $${idx++}::text[]`); params.push(permissions); }
+      if (!updates.length) return reply.status(400).send({ success: false, error: { code: 'BAD_REQUEST', message: 'Nothing to update' } });
+      params.push(id);
+      const result = await db.query(
+        `UPDATE admin_users SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${idx}::uuid RETURNING id, email, name, role, permissions, is_active`,
+        params
+      );
+      if (!result.rows?.length) return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Admin not found' } });
+      return reply.send({ success: true, data: result.rows[0] });
+    } catch (e) {
+      logger.error('Update admin error', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'UPDATE_FAILED', message: 'Failed to update admin' } });
+    }
+  });
+
+  /**
+   * POST /admin/admins/:id/reset-password
+   * Generate a temporary password for an admin user
+   */
+  app.post<{ Params: { id: string } }>('/admins/:id/reset-password', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    if (!requirePermission(admin, 'all', reply)) return;
+    const { id } = request.params;
+    try {
+      const tempPassword = `Tmp-${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36)}`;
+      const hash = await bcrypt.hash(tempPassword, 10);
+      const result = await db.query(
+        `UPDATE admin_users SET password_hash = $1, updated_at = NOW() WHERE id = $2::uuid RETURNING id, email`,
+        [hash, id]
+      );
+      if (!result.rows?.length) return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Admin not found' } });
+      await logAuditFromRequest(request, {
+        actorType: 'admin', actorId: admin.adminId, action: 'admin_password_reset',
+        resourceType: 'admin_user', resourceId: id, newValue: { resetBy: admin.adminId },
+      });
+      return reply.send({ success: true, data: { id, email: result.rows[0].email, tempPassword, note: 'Share this password securely. It expires after first login.' } });
+    } catch (e) {
+      logger.error('Reset admin password error', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'RESET_FAILED', message: 'Failed to reset password' } });
     }
   });
 

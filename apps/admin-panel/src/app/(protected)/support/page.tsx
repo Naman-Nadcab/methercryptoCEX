@@ -15,6 +15,7 @@ import {
   Headphones, Clock, AlertTriangle, UserX, Search,
   ChevronLeft, ChevronRight,
 } from 'lucide-react';
+import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 
 interface SupportTicket {
   id: string;
@@ -108,7 +109,7 @@ export default function SupportPage() {
   });
   const stats = statsData?.data;
 
-  const { data: ticketsData, isLoading } = useQuery({
+  const { data: ticketsData, isLoading, isError: ticketsError } = useQuery({
     queryKey: ['admin', 'support-tickets', token, statusTab, priority, category, search, page],
     staleTime: 30_000,
     queryFn: () =>
@@ -131,32 +132,30 @@ export default function SupportPage() {
   const totalPages = Math.ceil(total / limit);
 
   const kpis = [
-    { label: 'Open Tickets', value: stats?.open ?? '—', icon: Headphones, color: 'text-blue-600 bg-blue-50' },
-    { label: 'In Progress', value: stats?.inProgress ?? '—', icon: Clock, color: 'text-indigo-600 bg-indigo-50' },
-    { label: 'Avg Resolution', value: stats?.avgResolutionHours != null ? `${stats.avgResolutionHours}h` : '—', icon: AlertTriangle, color: 'text-amber-600 bg-amber-50' },
-    { label: 'Unassigned', value: stats?.unassigned ?? '—', icon: UserX, color: 'text-red-600 bg-red-50' },
+    { label: 'Open Tickets',   value: stats?.open      ?? '—', icon: Headphones,   accent: 'blue' },
+    { label: 'In Progress',    value: stats?.inProgress ?? '—', icon: Clock,        accent: 'indigo' },
+    { label: 'Avg Resolution', value: stats?.avgResolutionHours != null ? `${stats.avgResolutionHours}h` : '—', icon: AlertTriangle, accent: 'amber' },
+    { label: 'Unassigned',     value: stats?.unassigned ?? '—', icon: UserX,        accent: 'red' },
   ];
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-lg font-semibold text-admin-text">Support Tickets</h1>
-        <p className="text-xs text-admin-muted">Manage customer support requests and conversations</p>
-      </div>
+    <AdminPageFrame title="Support Tickets" description="Manage customer support requests and conversations">
 
       {/* KPI cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {kpis.map((kpi) => (
-          <Card key={kpi.label} compact className="flex items-center gap-4">
-            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${kpi.color}`}>
-              <kpi.icon className="h-5 w-5" />
+          <div key={kpi.label} className="relative overflow-hidden rounded-2xl border border-admin-border/50 bg-admin-card p-5">
+            <div className={`absolute inset-x-0 top-0 h-0.5 rounded-t-2xl ${kpi.accent === 'blue' ? 'bg-blue-500' : kpi.accent === 'indigo' ? 'bg-indigo-500' : kpi.accent === 'amber' ? 'bg-amber-500' : 'bg-red-500'}`} />
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-admin-muted">{kpi.label}</p>
+                <p className="mt-2 text-3xl font-bold tabular-nums text-admin-text">{kpi.value}</p>
+              </div>
+              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${kpi.accent === 'blue' ? 'border-blue-500/25 bg-blue-950/20 text-blue-400' : kpi.accent === 'indigo' ? 'border-indigo-500/25 bg-indigo-950/20 text-indigo-400' : kpi.accent === 'amber' ? 'border-amber-500/25 bg-amber-950/20 text-amber-400' : 'border-red-500/25 bg-red-950/20 text-red-400'}`}>
+                <kpi.icon className="h-5 w-5" />
+              </div>
             </div>
-            <div>
-              <p className="text-xs text-admin-muted">{kpi.label}</p>
-              <p className="text-xl font-bold text-admin-text">{kpi.value}</p>
-            </div>
-          </Card>
+          </div>
         ))}
       </div>
 
@@ -214,6 +213,10 @@ export default function SupportPage() {
             <tbody className="divide-y divide-admin-border">
               {isLoading ? (
                 <tr><td colSpan={9} className="p-0"><TableSkeleton rows={6} cols={7} /></td></tr>
+              ) : ticketsError ? (
+                <tr><td colSpan={9} className="px-4 py-12 text-center">
+                  <p className="text-sm text-red-400">Failed to load tickets. Check your connection and try again.</p>
+                </td></tr>
               ) : tickets.length === 0 ? (
                 <tr><td colSpan={9} className="px-4 py-12 text-center text-admin-muted">No tickets found</td></tr>
               ) : (
@@ -235,7 +238,7 @@ export default function SupportPage() {
                     <td className="px-4 py-3">
                       <Badge variant={STATUS_BADGE[t.status] ?? 'default'} badgeStyle="dot">{t.status.replace('_', ' ')}</Badge>
                     </td>
-                    <td className="px-4 py-3 text-admin-muted">{t.assigned_admin_name ?? <span className="text-gray-300">—</span>}</td>
+                    <td className="px-4 py-3 text-admin-muted">{t.assigned_admin_name ?? <span className="text-admin-muted/40">—</span>}</td>
                     <td className="px-4 py-3 text-admin-muted text-xs whitespace-nowrap">{formatDate(t.created_at)}</td>
                     <td className="px-4 py-3 text-admin-muted text-xs whitespace-nowrap">{formatDate(t.updated_at)}</td>
                   </tr>
@@ -274,6 +277,6 @@ export default function SupportPage() {
           </div>
         )}
       </Card>
-    </div>
+    </AdminPageFrame>
   );
 }

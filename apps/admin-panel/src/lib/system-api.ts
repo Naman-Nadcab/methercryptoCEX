@@ -126,6 +126,7 @@ export function deleteSystemFeatureDependency(
     method: 'DELETE',
     token,
     params,
+    body: {},
   });
 }
 

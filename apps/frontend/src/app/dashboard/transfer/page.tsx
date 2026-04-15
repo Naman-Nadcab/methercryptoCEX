@@ -23,7 +23,7 @@ import {
   Send,
 } from 'lucide-react';
 import { WalletOperationsShell } from '@/components/wallet/WalletOperationsShell';
-import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { api } from '@/lib/api';
 
 interface TransferHistory {
   id: string;
@@ -52,8 +52,6 @@ export default function TransferPage() {
   const [showCoinDropdown, setShowCoinDropdown] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const API_URL = getApiBaseUrl();
-
   const { data: tokensData = [], isLoading: loading } = useTransferBalances(fromAccount, !!_hasHydrated && !!accessToken);
   const tokens = tokensData;
 
@@ -65,12 +63,9 @@ export default function TransferPage() {
 
   const fetchTransferHistory = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/wallet/transfer/history?limit=10`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setTransferHistory(data.data || []);
+      const data = await api.get<TransferHistory[]>('/api/v1/wallet/transfer/history?limit=10');
+      if (data.success && data.data) {
+        setTransferHistory(data.data);
       }
     } catch (err) {
       console.error('Failed to fetch history:', err);
@@ -106,22 +101,15 @@ export default function TransferPage() {
       setSubmitting(true);
       setError('');
 
-      const res = await fetch(`${API_URL}/api/v1/wallet/transfer`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-          'Idempotency-Key': crypto.randomUUID(),
-        },
-        body: JSON.stringify({
-          fromAccount,
-          toAccount,
-          tokenId: selectedToken.tokenId,
-          amount: amount,
-        }),
+      const data = await api.post('/api/v1/wallet/transfer', {
+        fromAccount,
+        toAccount,
+        tokenId: selectedToken.tokenId,
+        amount: amount,
+      }, {
+        headers: { 'Idempotency-Key': crypto.randomUUID() },
+        notifyOnError: false,
       });
-
-      const data = await res.json();
 
       if (data.success) {
         setSuccess(true);

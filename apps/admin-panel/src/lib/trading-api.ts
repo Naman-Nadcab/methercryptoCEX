@@ -28,8 +28,15 @@ export interface TradeRow {
   side: string;
   user_email?: string;
   user_id?: string;
+  maker_email?: string;
+  taker_email?: string;
+  maker_user_id?: string;
+  taker_user_id?: string;
   price: string;
   amount: string;
+  notional_value?: string;
+  maker_fee?: string;
+  taker_fee?: string;
   fee?: string;
   fee_asset?: string;
   created_at: string;

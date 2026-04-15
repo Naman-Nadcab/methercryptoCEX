@@ -35,7 +35,16 @@ export type AdminWsEventType =
   | 'kyc_approved'
   | 'kyc_rejected'
   | 'admin_login'
-  | 'admin_action';
+  | 'admin_action'
+  | 'control_status_changed'
+  | 'emergency_level_changed'
+  | 'incident_created'
+  | 'service_restarted'
+  | 'liquidity_kill_activated'
+  | 'health_score_updated'
+  | 'timeline_event'
+  | 'mm_circuit_changed'
+  | 'admin_session_terminated';
 
 export interface AdminWsEvent {
   type: AdminWsEventType;

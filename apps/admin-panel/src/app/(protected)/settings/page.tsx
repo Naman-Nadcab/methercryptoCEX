@@ -8,7 +8,8 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { useAdminAuthStore } from '@/store/auth';
 import { getSystemSettings, patchSystemSettings } from '@/lib/system-api';
-import { Server, ShieldCheck, Cable, Settings, Globe } from 'lucide-react';
+import { Server, ShieldCheck, Cable, Settings, Globe, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 
 export default function SettingsPage() {
   const token = useAdminAuthStore((s) => s.accessToken);
@@ -56,88 +57,60 @@ export default function SettingsPage() {
   });
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-lg font-semibold text-admin-text">Settings</h1>
-        <p className="text-xs text-admin-muted mt-0.5">Configure system and integration settings.</p>
-      </div>
+    <AdminPageFrame title="Settings" description="Configure system and integration settings.">
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Link href="/settings/system">
-          <Card className="cursor-pointer transition-shadow hover:shadow-md">
-            <CardHeader className="flex flex-row items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-100 text-violet-700">
-                <Settings className="h-5 w-5" />
-              </div>
-              <CardTitle className="text-base">System & feature flags</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-admin-muted">
-                Feature flags, trading and risk config, system limits, emergency controls.
-              </p>
-            </CardContent>
-          </Card>
-        </Link>
-        <Link href="/settings/nodes">
-          <Card className="cursor-pointer transition-shadow hover:shadow-md">
-            <CardHeader className="flex flex-row items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
-                <Server className="h-5 w-5" />
-              </div>
-              <CardTitle className="text-base">Node Providers</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-admin-muted">
-                Manage RPC node providers (Infura, Alchemy, QuickNode, self-hosted). Update without redeploy.
-              </p>
-            </CardContent>
-          </Card>
-        </Link>
-        <Link href="/settings/integrations">
-          <Card className="cursor-pointer transition-shadow hover:shadow-md">
-            <CardHeader className="flex flex-row items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-100 text-green-700">
-                <ShieldCheck className="h-5 w-5" />
-              </div>
-              <CardTitle className="text-base">Compliance Integrations</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-admin-muted">
-                Configure Chainalysis, TRM Labs, Elliptic, SumSub, ComplyAdvantage. Enable/disable and update API keys.
-              </p>
-            </CardContent>
-          </Card>
-        </Link>
-        <Link href="/settings/infrastructure">
-          <Card className="cursor-pointer transition-shadow hover:shadow-md">
-            <CardHeader className="flex flex-row items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-100 text-indigo-700">
-                <Cable className="h-5 w-5" />
-              </div>
-              <CardTitle className="text-base">Infrastructure</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-admin-muted">
-                RPC nodes, price oracles, email/SMS gateways, webhook endpoints. Update without redeploy.
-              </p>
-            </CardContent>
-          </Card>
-        </Link>
-        <Link href="/settings#geo-blocking">
-          <Card className="cursor-pointer transition-shadow hover:shadow-md">
-            <CardHeader className="flex flex-row items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-sky-100 text-sky-700">
-                <Globe className="h-5 w-5" />
-              </div>
-              <CardTitle className="text-base">Geo-blocking & Restrictions</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-admin-muted">
-                Country allowlists, OFAC alignment, and high-risk jurisdiction policies enforced at the gateway.
-              </p>
-            </CardContent>
-          </Card>
-        </Link>
+        {[
+          {
+            href: '/settings/system',
+            icon: <Settings className="h-5 w-5" />,
+            iconBg: 'bg-violet-950/40 border border-violet-500/30 text-violet-400',
+            title: 'System & Feature Flags',
+            desc: 'Feature flags, trading and risk config, system limits, emergency controls.',
+          },
+          {
+            href: '/settings/nodes',
+            icon: <Server className="h-5 w-5" />,
+            iconBg: 'bg-slate-800/60 border border-slate-500/30 text-slate-400',
+            title: 'Node Providers',
+            desc: 'Manage RPC node providers (Infura, Alchemy, QuickNode, self-hosted).',
+          },
+          {
+            href: '/settings/integrations',
+            icon: <ShieldCheck className="h-5 w-5" />,
+            iconBg: 'bg-emerald-950/40 border border-emerald-500/30 text-emerald-400',
+            title: 'Compliance Integrations',
+            desc: 'Configure Chainalysis, TRM Labs, Elliptic, SumSub, ComplyAdvantage.',
+          },
+          {
+            href: '/settings/infrastructure',
+            icon: <Cable className="h-5 w-5" />,
+            iconBg: 'bg-indigo-950/40 border border-indigo-500/30 text-indigo-400',
+            title: 'Infrastructure',
+            desc: 'RPC nodes, price oracles, email/SMS gateways, webhook endpoints.',
+          },
+          {
+            href: '/settings#geo-blocking',
+            icon: <Globe className="h-5 w-5" />,
+            iconBg: 'bg-sky-950/40 border border-sky-500/30 text-sky-400',
+            title: 'Geo-blocking & Restrictions',
+            desc: 'Country allowlists, OFAC alignment, and high-risk jurisdiction policies.',
+          },
+        ].map((item) => (
+          <Link key={item.href} href={item.href}>
+            <Card className="group cursor-pointer border border-admin-border bg-admin-card transition-all hover:border-admin-border/80 hover:bg-white/[0.04]">
+              <CardHeader className="flex flex-row items-center gap-3 pb-2">
+                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${item.iconBg}`}>
+                  {item.icon}
+                </div>
+                <CardTitle className="text-sm font-semibold text-admin-text">{item.title}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-xs text-admin-muted leading-relaxed">{item.desc}</p>
+              </CardContent>
+            </Card>
+          </Link>
+        ))}
       </div>
 
       <Card id="geo-blocking">
@@ -179,7 +152,7 @@ export default function SettingsPage() {
                 value={geoBlockedCountries}
                 onChange={(e) => setGeoBlockedCountries(e.target.value)}
                 placeholder="KP,IR,SY,CU,UA-43"
-                className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-lg border border-admin-border bg-admin-surface px-3 py-2 text-sm text-admin-text focus:outline-none focus:ring-1 focus:ring-admin-accent/50"
               />
             </div>
             <div>
@@ -188,7 +161,7 @@ export default function SettingsPage() {
                 value={highRiskCountries}
                 onChange={(e) => setHighRiskCountries(e.target.value)}
                 placeholder="MM,SS,YE"
-                className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-lg border border-admin-border bg-admin-surface px-3 py-2 text-sm text-admin-text focus:outline-none focus:ring-1 focus:ring-admin-accent/50"
               />
             </div>
             <div>
@@ -197,19 +170,27 @@ export default function SettingsPage() {
                 value={kycRequiredCountries}
                 onChange={(e) => setKycRequiredCountries(e.target.value)}
                 placeholder="US"
-                className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-lg border border-admin-border bg-admin-surface px-3 py-2 text-sm text-admin-text focus:outline-none focus:ring-1 focus:ring-admin-accent/50"
               />
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               <Button onClick={() => geoMutation.mutate()} disabled={geoMutation.isPending}>
-                {geoMutation.isPending ? 'Saving...' : 'Save Geo Rules'}
+                {geoMutation.isPending ? 'Saving…' : 'Save Geo Rules'}
               </Button>
-              {geoMutation.isSuccess && <span className="text-xs text-green-700">Saved</span>}
-              {geoMutation.isError && <span className="text-xs text-red-700">Failed to save</span>}
+              {geoMutation.isSuccess && (
+                <span className="flex items-center gap-1 text-xs text-emerald-400">
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Saved
+                </span>
+              )}
+              {geoMutation.isError && (
+                <span className="flex items-center gap-1 text-xs text-red-400">
+                  <AlertTriangle className="h-3.5 w-3.5" /> Failed to save
+                </span>
+              )}
             </div>
           </div>
         </CardContent>
       </Card>
-    </div>
+    </AdminPageFrame>
   );
 }

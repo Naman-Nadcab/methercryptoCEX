@@ -174,6 +174,7 @@ export function deleteScheduledReport(token: string | null, id: string) {
   return adminFetch<{ deleted: boolean }>(`/analytics/scheduled-reports/${encodeURIComponent(id)}`, {
     method: 'DELETE',
     token,
+    body: {},
   });
 }
 

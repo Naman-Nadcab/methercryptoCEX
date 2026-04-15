@@ -1,9 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Card, CardContent } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
+import { X, SlidersHorizontal, Search } from 'lucide-react';
+import { cn } from '@/lib/cn';
 
 export interface DepositFiltersProps {
   search: string;
@@ -20,6 +18,9 @@ export interface DepositFiltersProps {
   onClear: () => void;
 }
 
+const selectCls =
+  'rounded-xl border border-admin-border/60 bg-white/[0.03] px-3 py-2 text-sm text-admin-text focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/40 transition-all';
+
 export function DepositFilters({
   search,
   onSearchChange,
@@ -31,75 +32,83 @@ export function DepositFilters({
   onDateFromChange,
   dateTo,
   onDateToChange,
-  onApply,
   onClear,
 }: DepositFiltersProps) {
+  const hasFilters = !!(search || asset || status || dateFrom || dateTo);
+  const activeCount = [search, asset, status, dateFrom, dateTo].filter(Boolean).length;
+
   return (
-    <Card>
-      <CardContent className="p-6">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          <div>
-            <label className="mb-1 block text-sm font-medium text-admin-muted">Search</label>
-            <Input
-              placeholder="TX hash or user email"
-              value={search}
-              onChange={(e) => onSearchChange(e.target.value)}
-              className="w-full"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-admin-muted">Asset</label>
-            <select
-              value={asset}
-              onChange={(e) => onAssetChange(e.target.value)}
-              className="w-full rounded-lg border border-admin-border bg-admin-card px-3 py-2 text-sm focus:ring-2 focus:ring-admin-primary"
-            >
-              <option value="">All</option>
-              <option value="BTC">BTC</option>
-              <option value="ETH">ETH</option>
-              <option value="USDT">USDT</option>
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-admin-muted">Status</label>
-            <select
-              value={status}
-              onChange={(e) => onStatusChange(e.target.value)}
-              className="w-full rounded-lg border border-admin-border bg-admin-card px-3 py-2 text-sm focus:ring-2 focus:ring-admin-primary"
-            >
-              <option value="">All</option>
-              <option value="pending">Pending</option>
-              <option value="confirming">Processing</option>
-              <option value="completed">Confirmed</option>
-              <option value="failed">Failed</option>
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-admin-muted">From date</label>
-            <Input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => onDateFromChange(e.target.value)}
-              className="w-full"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-admin-muted">To date</label>
-            <Input
-              type="date"
-              value={dateTo}
-              onChange={(e) => onDateToChange(e.target.value)}
-              className="w-full"
-            />
-          </div>
+    <div className="rounded-2xl border border-admin-border/60 bg-admin-card p-4">
+      <div className="flex flex-wrap items-end gap-3">
+        {/* Search */}
+        <div className="relative min-w-[220px] flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-admin-muted" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder="TX hash or user email…"
+            className="w-full rounded-xl border border-admin-border/60 bg-white/[0.03] pl-9 pr-3 py-2 text-sm text-admin-text placeholder-admin-muted/60 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/40 transition-all"
+          />
         </div>
-        <div className="mt-4 flex gap-2">
-          <Button onClick={onApply}>Apply</Button>
-          <Button variant="secondary" onClick={onClear}>
-            Clear
-          </Button>
+
+        {/* Asset */}
+        <select value={asset} onChange={(e) => onAssetChange(e.target.value)} className={selectCls}>
+          <option value="">All assets</option>
+          <option value="BTC">BTC</option>
+          <option value="ETH">ETH</option>
+          <option value="USDT">USDT</option>
+          <option value="USDC">USDC</option>
+          <option value="BNB">BNB</option>
+          <option value="DAI">DAI</option>
+        </select>
+
+        {/* Status */}
+        <select value={status} onChange={(e) => onStatusChange(e.target.value)} className={selectCls}>
+          <option value="">All statuses</option>
+          <option value="pending">Pending</option>
+          <option value="confirming">Confirming</option>
+          <option value="completed">Completed</option>
+          <option value="failed">Failed</option>
+        </select>
+
+        {/* Date range */}
+        <div className="flex items-center gap-1.5">
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => onDateFromChange(e.target.value)}
+            className={cn(selectCls, 'w-[140px] text-xs')}
+          />
+          <span className="text-xs text-admin-muted">→</span>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => onDateToChange(e.target.value)}
+            className={cn(selectCls, 'w-[140px] text-xs')}
+          />
         </div>
-      </CardContent>
-    </Card>
+
+        {/* Clear */}
+        {hasFilters && (
+          <button
+            type="button"
+            onClick={onClear}
+            className="flex items-center gap-1 rounded-xl border border-red-500/25 bg-red-950/15 px-3 py-2 text-xs font-medium text-red-400 hover:bg-red-950/25 transition-colors"
+          >
+            <X className="h-3.5 w-3.5" />
+            Clear{activeCount > 1 ? ` (${activeCount})` : ''}
+          </button>
+        )}
+
+        {/* Filter count pill */}
+        {hasFilters && (
+          <div className="flex items-center gap-1 rounded-full border border-blue-500/25 bg-blue-950/15 px-2.5 py-1 text-[10px] font-semibold text-blue-400">
+            <SlidersHorizontal className="h-3 w-3" />
+            {activeCount} filter{activeCount !== 1 ? 's' : ''} active
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

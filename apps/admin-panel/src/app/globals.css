@@ -75,6 +75,43 @@ input, select, textarea {
   color: var(--admin-text);
 }
 
+/* ── Dashboard: Health ring animation ── */
+@keyframes health-ring-fill {
+  from { stroke-dashoffset: 251.33; }
+}
+@keyframes health-glow-pulse {
+  0%, 100% { filter: drop-shadow(0 0 4px currentColor); opacity: 1; }
+  50% { filter: drop-shadow(0 0 12px currentColor); opacity: 0.85; }
+}
+@keyframes subtle-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+.health-ring-track { fill: none; stroke: #1F2A37; stroke-width: 6; }
+.health-ring-value {
+  fill: none;
+  stroke-width: 6;
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-origin: center;
+  animation: health-ring-fill 1.2s ease-out forwards;
+  transition: stroke-dashoffset 0.8s ease-out, stroke 0.4s ease;
+}
+.health-glow { animation: health-glow-pulse 3s ease-in-out infinite; }
+.subtle-pulse { animation: subtle-pulse 2.5s ease-in-out infinite; }
+
+/* Dashboard sparkline area gradient */
+.sparkline-gradient-green { stop-color: #10B981; }
+.sparkline-gradient-blue { stop-color: #6366F1; }
+.sparkline-gradient-amber { stop-color: #F59E0B; }
+.sparkline-gradient-red { stop-color: #EF4444; }
+
+/* ── Dashboard: Metric bar fills ── */
+@keyframes bar-fill {
+  from { width: 0%; }
+}
+.metric-bar-fill { animation: bar-fill 0.8s ease-out forwards; }
+
 /* Admin login: neutral autofill (no browser yellow) */
 .admin-login-shell input:-webkit-autofill,
 .admin-login-shell input:-webkit-autofill:hover,

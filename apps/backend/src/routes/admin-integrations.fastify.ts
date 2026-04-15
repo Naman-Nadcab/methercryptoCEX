@@ -391,4 +391,46 @@ export default async function adminIntegrationsRoutes(app: FastifyInstance) {
       return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to fetch' } });
     }
   });
+
+  /* ─── DELETE /settings/nodes/:id ─────────────────────────────── */
+  app.delete<{ Params: { id: string } }>('/settings/nodes/:id', async (request, reply) => {
+    const { id } = request.params;
+    try {
+      const exists = await db.query('SELECT id FROM node_providers WHERE id = $1::uuid', [id]);
+      if (!exists.rows?.length) return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Node provider not found' } });
+      await db.query('DELETE FROM node_providers WHERE id = $1::uuid', [id]);
+      return reply.send({ success: true, data: { id } });
+    } catch (e) {
+      logger.error('Delete settings/nodes error', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'DELETE_FAILED', message: 'Failed to delete node provider' } });
+    }
+  });
+
+  /* ─── DELETE /settings/integrations/:id (compliance) ─────────── */
+  app.delete<{ Params: { id: string } }>('/settings/integrations/:id', async (request, reply) => {
+    const { id } = request.params;
+    try {
+      const exists = await db.query('SELECT id FROM compliance_integrations WHERE id = $1::uuid', [id]);
+      if (!exists.rows?.length) return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Compliance integration not found' } });
+      await db.query('DELETE FROM compliance_integrations WHERE id = $1::uuid', [id]);
+      return reply.send({ success: true, data: { id } });
+    } catch (e) {
+      logger.error('Delete settings/integrations error', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'DELETE_FAILED', message: 'Failed to delete compliance integration' } });
+    }
+  });
+
+  /* ─── DELETE /settings/infrastructure/:id ────────────────────── */
+  app.delete<{ Params: { id: string } }>('/settings/infrastructure/:id', async (request, reply) => {
+    const { id } = request.params;
+    try {
+      const exists = await db.query('SELECT id FROM infrastructure_providers WHERE id = $1::uuid', [id]);
+      if (!exists.rows?.length) return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Infrastructure provider not found' } });
+      await db.query('DELETE FROM infrastructure_providers WHERE id = $1::uuid', [id]);
+      return reply.send({ success: true, data: { id } });
+    } catch (e) {
+      logger.error('Delete settings/infrastructure error', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'DELETE_FAILED', message: 'Failed to delete infrastructure provider' } });
+    }
+  });
 }

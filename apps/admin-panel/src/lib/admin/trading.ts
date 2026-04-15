@@ -42,6 +42,14 @@ export async function getFeesWithdrawal(token: string | null) {
   return adminFetch<{ currencies?: unknown[] }>('/fees/withdrawal', { token });
 }
 
+export async function patchWithdrawalFee(
+  token: string | null,
+  id: string,
+  body: { withdrawal_fee?: string | number; min_withdrawal?: string | number; withdrawal_fee_type?: string }
+) {
+  return adminFetch(`/fees/withdrawal/${encodeURIComponent(id)}`, { method: 'PATCH', token, body });
+}
+
 /* ---- Fee Tier CRUD ---- */
 
 export interface FeeTier {
@@ -127,7 +135,7 @@ export async function updateFeePromotion(
 }
 
 export async function deleteFeePromotion(token: string | null, id: string) {
-  return adminFetch<{ deleted: boolean }>(`/fees/promotions/${encodeURIComponent(id)}`, { method: 'DELETE', token });
+  return adminFetch<{ deleted: boolean }>(`/fees/promotions/${encodeURIComponent(id)}`, { method: 'DELETE', token, body: {} });
 }
 
 /* ---- Audit: Fee Change History ---- */

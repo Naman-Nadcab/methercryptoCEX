@@ -82,6 +82,14 @@ const config: Config = {
           '0%, 100%': { opacity: '0.35' },
           '50%': { opacity: '0.55' },
         },
+        'status-pulse': {
+          '0%, 100%': { boxShadow: '0 0 0 0 currentColor' },
+          '50%': { boxShadow: '0 0 0 4px transparent' },
+        },
+        'float-subtle': {
+          '0%, 100%': { transform: 'translateY(0)' },
+          '50%': { transform: 'translateY(-2px)' },
+        },
       },
       animation: {
         shimmer: 'shimmer 1.5s ease-in-out infinite',
@@ -91,6 +99,8 @@ const config: Config = {
         'login-drift': 'login-drift 22s ease-in-out infinite',
         'login-drift-slow': 'login-drift-slow 28s ease-in-out infinite',
         'login-pulse-soft': 'login-pulse-soft 6s ease-in-out infinite',
+        'status-pulse': 'status-pulse 2s ease-in-out infinite',
+        'float-subtle': 'float-subtle 3s ease-in-out infinite',
       },
     },
   },

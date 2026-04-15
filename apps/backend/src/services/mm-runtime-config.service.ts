@@ -377,6 +377,37 @@ export function getAllPairConfigsSnapshot(): Record<string, MMPairRuntimeConfig>
 }
 
 /**
+ * Remove a runtime pair config from memory. Returns true if the key existed.
+ * Note: env-defined symbols remain in `live` regardless (they re-appear from bot.symbols).
+ */
+export function deletePairConfig(symbol: string): boolean {
+  const k = normalizeMmSymbol(symbol);
+  if (!k || !pairConfig.has(k)) return false;
+  pairConfig.delete(k);
+  pairCapitalState.delete(k);
+  return true;
+}
+
+/**
+ * Bulk-load pair configs (e.g. from DB on startup). Does NOT overwrite configs already in memory.
+ */
+export function loadPairConfigsBulk(rows: Array<{ symbol: string; config: MMPairRuntimeConfig }>): void {
+  for (const row of rows) {
+    const k = normalizeMmSymbol(row.symbol);
+    if (!k || pairConfig.has(k)) continue; // don't overwrite runtime changes
+    const safe = buildSafePairConfig(k, row.config);
+    if (safe) pairConfig.set(k, safe);
+  }
+}
+
+/** Build a fully validated pair config from an untrusted source (e.g. DB row). Returns null if symbol invalid. */
+function buildSafePairConfig(symbol: string, raw: Partial<MMPairRuntimeConfig>): MMPairRuntimeConfig | null {
+  const k = normalizeMmSymbol(symbol);
+  if (!k) return null;
+  return updatePairConfig(k, raw);
+}
+
+/**
  * Strictest positive daily loss cap: env, global runtime, and any per-pair limits on traded symbols.
  */
 export function resolveEffectiveMaxDailyLossUsd(symbols: string[]): number {

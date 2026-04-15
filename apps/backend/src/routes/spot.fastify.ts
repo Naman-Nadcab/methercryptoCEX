@@ -110,7 +110,7 @@ import {
 import { MatchEventPersistenceError } from '../services/settlement/match-event-persistence.service.js';
 import { spotOrderPlacementFailedTotal } from '../lib/prometheus-metrics.js';
 import { recordAndEvaluate } from '../services/aml-transaction-monitor.service.js';
-import { publishOrderCreated, publishTradeExecuted } from '../services/admin-ws.service.js';
+import { publishOrderCreated, publishTradeExecuted, publishOrderCancelled, publishOrderFilled } from '../services/admin-ws.service.js';
 
 const CIRCUIT_BREAKER_THRESHOLD = 5;
 const CIRCUIT_KEY_PREFIX = 'spot:circuit:';
@@ -288,7 +288,7 @@ export default async function spotRoutes(app: FastifyInstance) {
   // GET /spot/tickers — all active markets with last_price, 24h stats, change_pct (single optimized query + Redis cache)
   app.get('/tickers', async (_request, reply) => {
     try {
-      const cached = await redis.getJson<{ success: true; data: unknown[] }>(TICKERS_CACHE_KEY);
+      const cached = await redis.getJson<{ success: true; data: unknown[] }>(TICKERS_CACHE_KEY).catch(() => null);
       if (cached?.data && Array.isArray(cached.data) && cached.data.length >= 0) {
         reply.header('Cache-Control', 'public, max-age=2');
         return reply.send(cached);
@@ -1300,6 +1300,9 @@ export default async function spotRoutes(app: FastifyInstance) {
 
       try {
         publishOrderCreated({ id: o.id, market: o.market, side: o.side, type: o.type, user_id: userId });
+        if (o.status === 'FILLED') {
+          publishOrderFilled({ id: o.id, market: o.market, side: o.side, price: o.price ?? undefined, quantity: o.quantity ?? undefined, user_id: userId });
+        }
         for (const t of executedTrades) {
           publishTradeExecuted({ market: marketSymbol, side: 'buy', price: t.price?.toString(), quantity: t.quantity?.toString(), user_id: t.buyerId });
         }
@@ -1526,6 +1529,7 @@ export default async function spotRoutes(app: FastifyInstance) {
       });
 
       logger.info('spot_order_cancelled', { orderId, userId, market: o.market });
+      try { publishOrderCancelled({ id: orderId, market: o.market, side: o.side, user_id: userId }); } catch { /* best-effort */ }
       await ensureMemoryBookHydrated(o.market);
       if (o.price) {
         if (isNatsSpotPipelineConfigured()) {
@@ -2352,6 +2356,8 @@ export default async function spotRoutes(app: FastifyInstance) {
         await client.query(`UPDATE spot_orders SET status = 'CANCELLED', updated_at = NOW() WHERE id = $1`, [orderId]);
         await unlockTradingBalance(userId, unlockCurrencyId, unlockAmount, client);
       });
+
+      try { publishOrderCancelled({ id: orderId, market: o.market, side: o.side, user_id: userId }); } catch { /* best-effort */ }
 
       return reply.send({
         success: true,

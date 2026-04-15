@@ -16,9 +16,10 @@ import {
   ArrowLeft, ArrowDownToLine, ArrowUpFromLine, TrendingUp, BarChart3,
   Repeat, Mail, Globe, Calendar, Shield, ShieldOff, Ban, KeyRound,
   User, Wallet, Clock, Activity, Key, AlertTriangle, Copy, Check,
-  DollarSign, X,
+  DollarSign, X, Tag, StickyNote, Link2, ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 
 type TabId = 'overview' | 'wallets' | 'orders' | 'trades' | 'deposits' | 'withdrawals' | 'p2p' | 'activity' | 'security' | 'api-keys' | 'risk-timeline';
 
@@ -73,6 +74,14 @@ export default function UserDetailPage() {
   const [adjType, setAdjType] = useState<'credit' | 'debit'>('credit');
   const [adjReason, setAdjReason] = useState('');
   const [adjError, setAdjError] = useState('');
+  const [confirmAction, setConfirmAction] = useState<{ action: 'suspended' | 'locked' | 'active'; label: string } | null>(null);
+  const [show2faReset, setShow2faReset] = useState(false);
+  const [twoFaError,   setTwoFaError]   = useState('');
+  const [twoFaLoading, setTwoFaLoading] = useState(false);
+  const [adminNote, setAdminNote] = useState('');
+  const [savedNote, setSavedNote] = useState('');
+  const [userTags, setUserTags] = useState<string[]>([]);
+  const PRESET_TAGS = ['VIP', 'Whale', 'High Risk', 'Frozen', 'Watchlist', 'Fraud Suspect'];
 
   const { data: userData, isLoading: userLoading, isError: userError } = useQuery({
     queryKey: ['admin', 'user', id, token],
@@ -141,7 +150,7 @@ export default function UserDetailPage() {
 
   const updateStatus = useMutation({
     mutationFn: ({ status }: { status: 'active' | 'suspended' | 'locked' }) =>
-      updateUserStatus(token, id, { status }),
+      updateUserStatus(token, id, { status, reason: `Admin action: ${status}` }),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['admin', 'user', id] }); queryClient.invalidateQueries({ queryKey: ['admin', 'users'] }); },
   });
 
@@ -164,9 +173,9 @@ export default function UserDetailPage() {
     },
   });
 
-  const handleSuspend = useCallback(() => { if (confirm('Suspend this user?')) updateStatus.mutate({ status: 'suspended' }); }, [updateStatus]);
-  const handleBan = useCallback(() => { if (confirm('Ban this user?')) updateStatus.mutate({ status: 'locked' }); }, [updateStatus]);
-  const handleActivate = useCallback(() => { if (confirm('Reactivate this user?')) updateStatus.mutate({ status: 'active' }); }, [updateStatus]);
+  const handleSuspend  = useCallback(() => setConfirmAction({ action: 'suspended', label: 'Suspend' }), []);
+  const handleBan      = useCallback(() => setConfirmAction({ action: 'locked',    label: 'Ban'     }), []);
+  const handleActivate = useCallback(() => setConfirmAction({ action: 'active',    label: 'Reactivate' }), []);
 
   useAdminWs({
     onEvent: (event) => {
@@ -247,6 +256,7 @@ export default function UserDetailPage() {
   const kycLevel = (user.kyc_level as number) ?? 0;
 
   return (
+    <AdminPageFrame title={name}>
     <div className="space-y-5">
       {/* Back + Breadcrumb */}
       <button onClick={() => router.push('/users')} className="flex items-center gap-1.5 text-xs text-admin-primary hover:underline">
@@ -294,17 +304,14 @@ export default function UserDetailPage() {
               <Button variant="secondary" size="sm" onClick={handleSuspend} icon={<ShieldOff className="h-3.5 w-3.5" />}>Suspend</Button>
             )}
             {status !== 'locked' && (
-              <button onClick={handleBan} className="flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-100 transition-colors">
+              <button onClick={handleBan} className="flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-950/20 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-950/30 transition-colors">
                 <Ban className="h-3.5 w-3.5" /> Ban
               </button>
             )}
             <Button variant="secondary" size="sm" icon={<KeyRound className="h-3.5 w-3.5" />}
-              onClick={() => {
-                if (!confirm('Are you sure you want to reset 2FA for this user? They will need to set up 2FA again.')) return;
-                adminFetch(`/users/${id}/reset-2fa`, { method: 'POST', token })
-                  .then(() => { queryClient.invalidateQueries({ queryKey: ['admin', 'user', id] }); })
-                  .catch(() => { alert('Failed to reset 2FA. The endpoint may not be available yet.'); });
-              }}>Reset 2FA</Button>
+              onClick={() => { setTwoFaError(''); setShow2faReset(true); }}>
+              Reset 2FA
+            </Button>
           </div>
         </div>
       </div>
@@ -328,20 +335,94 @@ export default function UserDetailPage() {
           {/* Overview */}
           {activeTab === 'overview' && (
             <div className="space-y-5">
+              {/* Stats strip */}
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                <MiniStat label="Total Deposits" value={fmtCurrency(statsData?.data?.total_deposits)} icon={ArrowDownToLine} />
+                <MiniStat label="Total Deposits"    value={fmtCurrency(statsData?.data?.total_deposits)}   icon={ArrowDownToLine} />
                 <MiniStat label="Total Withdrawals" value={fmtCurrency(statsData?.data?.total_withdrawals)} icon={ArrowUpFromLine} />
-                <MiniStat label="Total Trades" value={statsData?.data?.total_trades ?? '0'} icon={BarChart3} />
-                <MiniStat label="30d Volume" value={fmtCurrency(statsData?.data?.volume_30d)} icon={TrendingUp} />
-                <MiniStat label="P2P Orders" value={statsData?.data?.p2p_orders_count ?? '0'} icon={Repeat} />
+                <MiniStat label="Total Trades"      value={statsData?.data?.total_trades ?? '0'}           icon={BarChart3} />
+                <MiniStat label="30d Volume"        value={fmtCurrency(statsData?.data?.volume_30d)}       icon={TrendingUp} />
+                <MiniStat label="P2P Orders"        value={statsData?.data?.p2p_orders_count ?? '0'}       icon={Repeat} />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <InfoRow label="User ID" value={id} mono />
-                <InfoRow label="Email Verified" value={(user.email_verified as boolean) ? 'Yes' : 'No'} />
-                <InfoRow label="Phone" value={(user.phone as string) || '—'} />
-                <InfoRow label="Last Login" value={fmtDate(user.last_login_at as string)} />
-                <InfoRow label="Tier Level" value={String(user.tier_level ?? 0)} />
-                <InfoRow label="Total Wallets" value={String(walletRows.length)} />
+
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                {/* Account info */}
+                <div className="rounded-xl border border-admin-border/50 bg-white/[0.015] p-4">
+                  <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-admin-muted">Account Info</p>
+                  <div className="space-y-0.5">
+                    <InfoRow label="User ID"       value={id}                                          mono />
+                    <InfoRow label="Email Verified" value={(user.email_verified as boolean) ? '✓ Yes' : '✗ No'} />
+                    <InfoRow label="Phone"          value={(user.phone as string) || '—'} />
+                    <InfoRow label="Last Login"     value={fmtDate(user.last_login_at as string)} />
+                    <InfoRow label="Tier Level"     value={String(user.tier_level ?? 0)} />
+                    <InfoRow label="Total Wallets"  value={String(walletRows.length)} />
+                  </div>
+                </div>
+
+                {/* Quick links */}
+                <div className="rounded-xl border border-admin-border/50 bg-white/[0.015] p-4">
+                  <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-admin-muted">Quick Links</p>
+                  <div className="space-y-1">
+                    {[
+                      { label: 'Risk Timeline',        tab: 'risk-timeline' as TabId, icon: Shield },
+                      { label: 'View Deposits',        tab: 'deposits'      as TabId, icon: ArrowDownToLine },
+                      { label: 'View Withdrawals',     tab: 'withdrawals'   as TabId, icon: ArrowUpFromLine },
+                      { label: 'Security Sessions',    tab: 'security'      as TabId, icon: Key },
+                      { label: 'View API Keys',        tab: 'api-keys'      as TabId, icon: KeyRound },
+                    ].map(({ label, tab, icon: Icon }) => (
+                      <button key={tab} type="button" onClick={() => setActiveTab(tab)}
+                        className="flex w-full items-center justify-between rounded-lg border border-admin-border/30 px-3 py-2 text-xs text-admin-muted hover:bg-white/[0.03] hover:text-admin-text transition-colors">
+                        <span className="flex items-center gap-2"><Icon className="h-3.5 w-3.5" />{label}</span>
+                        <ChevronRight className="h-3 w-3" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Tags panel */}
+              <div className="rounded-xl border border-admin-border/50 bg-white/[0.015] p-4">
+                <div className="mb-3 flex items-center gap-2">
+                  <Tag className="h-3.5 w-3.5 text-admin-muted" />
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-admin-muted">Internal Tags</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {PRESET_TAGS.map((tag) => {
+                    const active = userTags.includes(tag);
+                    return (
+                      <button key={tag} type="button"
+                        onClick={() => setUserTags((t) => active ? t.filter((x) => x !== tag) : [...t, tag])}
+                        className={cn('rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                          active
+                            ? tag.includes('Risk') || tag.includes('Fraud') ? 'border-red-500/50 bg-red-950/20 text-red-400' : tag === 'VIP' || tag === 'Whale' ? 'border-indigo-500/50 bg-indigo-950/20 text-indigo-300' : 'border-amber-500/50 bg-amber-950/20 text-amber-400'
+                            : 'border-admin-border/40 text-admin-muted hover:border-admin-border hover:text-admin-text')}>
+                        {active ? '✓ ' : ''}{tag}
+                      </button>
+                    );
+                  })}
+                </div>
+                {userTags.length > 0 && <p className="mt-2 text-[10px] text-admin-muted italic">These tags are local session notes — not persisted to the server.</p>}
+              </div>
+
+              {/* Admin Notes */}
+              <div className="rounded-xl border border-admin-border/50 bg-white/[0.015] p-4">
+                <div className="mb-3 flex items-center gap-2">
+                  <StickyNote className="h-3.5 w-3.5 text-admin-muted" />
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-admin-muted">Admin Notes</p>
+                </div>
+                {savedNote && (
+                  <div className="mb-3 rounded-lg border border-blue-500/20 bg-blue-950/10 px-3 py-2 text-xs text-blue-300 whitespace-pre-line">{savedNote}</div>
+                )}
+                <textarea value={adminNote} onChange={(e) => setAdminNote(e.target.value)} rows={3}
+                  placeholder="Add internal notes about this user (not visible to the user)…"
+                  className="w-full resize-none rounded-lg border border-admin-border/50 bg-white/[0.03] px-3 py-2 text-xs text-admin-text placeholder:text-admin-muted focus:outline-none focus:border-blue-500/40" />
+                <div className="mt-2 flex items-center justify-between">
+                  <p className="text-[10px] text-admin-muted">Session-only — not stored in the database.</p>
+                  <button type="button" onClick={() => { setSavedNote(adminNote); setAdminNote(''); }}
+                    disabled={!adminNote.trim()}
+                    className="rounded-lg border border-admin-border/50 px-3 py-1.5 text-xs font-medium text-admin-muted hover:text-admin-text disabled:opacity-30 transition-colors">
+                    Save Note
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -484,6 +565,79 @@ export default function UserDetailPage() {
         </div>
       </div>
 
+      {/* Confirm Action Modal */}
+      {confirmAction && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmAction(null)} />
+          <div className="relative z-10 w-full max-w-sm rounded-2xl border border-admin-border/60 bg-admin-card p-6 shadow-2xl">
+            <div className={cn('mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border',
+              confirmAction.action === 'locked' ? 'border-red-500/30 bg-red-950/20' : confirmAction.action === 'suspended' ? 'border-amber-500/30 bg-amber-950/20' : 'border-emerald-500/30 bg-emerald-950/20')}>
+              {confirmAction.action === 'locked' ? <Ban className="h-6 w-6 text-red-400" /> : confirmAction.action === 'suspended' ? <ShieldOff className="h-6 w-6 text-amber-400" /> : <Shield className="h-6 w-6 text-emerald-400" />}
+            </div>
+            <h3 className="mb-1 text-center text-sm font-semibold text-admin-text">{confirmAction.label} User</h3>
+            <p className="mb-5 text-center text-xs text-admin-muted">
+              {confirmAction.action === 'locked' ? 'This will ban the user. They cannot login until unbanned.'
+               : confirmAction.action === 'suspended' ? 'This will suspend the user. They can be reactivated.'
+               : 'This will reactivate the user account.'}
+            </p>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setConfirmAction(null)}
+                className="flex-1 rounded-xl border border-admin-border/50 py-2 text-xs font-medium text-admin-muted hover:text-admin-text transition-colors">
+                Cancel
+              </button>
+              <button type="button" onClick={() => { updateStatus.mutate({ status: confirmAction.action }); setConfirmAction(null); }}
+                className={cn('flex-1 rounded-xl py-2 text-xs font-semibold text-white transition-all',
+                  confirmAction.action === 'locked' ? 'bg-red-600 hover:bg-red-500' : confirmAction.action === 'suspended' ? 'bg-amber-600 hover:bg-amber-500' : 'bg-emerald-600 hover:bg-emerald-500')}>
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2FA Reset Modal */}
+      {show2faReset && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !twoFaLoading && setShow2faReset(false)} />
+          <div className="relative z-10 w-full max-w-sm rounded-2xl border border-admin-border/60 bg-admin-card p-6 shadow-2xl">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border border-amber-500/30 bg-amber-950/20">
+              <KeyRound className="h-6 w-6 text-amber-400" />
+            </div>
+            <h3 className="mb-1 text-center text-sm font-semibold text-admin-text">Reset 2FA</h3>
+            <p className="mb-2 text-center text-xs text-admin-muted">
+              This will remove the user&apos;s current 2FA device. They will be required to set up 2FA again on next login.
+            </p>
+            <p className="mb-5 text-center text-[10px] text-amber-400">This action is irreversible and will be recorded in the audit log.</p>
+            {twoFaError && (
+              <p className="mb-3 rounded-lg border border-red-500/25 bg-red-950/10 px-3 py-2 text-xs text-red-400">{twoFaError}</p>
+            )}
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setShow2faReset(false)} disabled={twoFaLoading}
+                className="flex-1 rounded-xl border border-admin-border/50 py-2 text-xs font-medium text-admin-muted hover:text-admin-text transition-colors disabled:opacity-40">
+                Cancel
+              </button>
+              <button type="button" disabled={twoFaLoading}
+                onClick={async () => {
+                  setTwoFaLoading(true);
+                  setTwoFaError('');
+                  try {
+                    await adminFetch(`/users/${id}/reset-2fa`, { method: 'POST', token, body: {} });
+                    queryClient.invalidateQueries({ queryKey: ['admin', 'user', id] });
+                    setShow2faReset(false);
+                  } catch (e: unknown) {
+                    setTwoFaError((e as { message?: string })?.message ?? 'Failed to reset 2FA. The endpoint may not be configured.');
+                  } finally {
+                    setTwoFaLoading(false);
+                  }
+                }}
+                className="flex-1 rounded-xl bg-amber-600 py-2 text-xs font-semibold text-white hover:bg-amber-500 transition-all disabled:opacity-40">
+                {twoFaLoading ? 'Processing…' : 'Confirm Reset'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Balance Adjustment Modal */}
       {showBalanceAdjust && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
@@ -523,13 +677,13 @@ export default function UserDetailPage() {
               <div>
                 <label className="mb-1 block text-xs font-medium text-admin-muted">Type</label>
                 <div className="flex gap-4">
-                  <label className="flex items-center gap-2 text-sm">
-                    <input type="radio" name="adjType" checked={adjType === 'credit'} onChange={() => setAdjType('credit')} className="accent-emerald-600" />
-                    <span className="text-emerald-700 font-medium">Credit</span>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="radio" name="adjType" checked={adjType === 'credit'} onChange={() => setAdjType('credit')} className="accent-emerald-500" />
+                    <span className="text-emerald-400 font-medium">Credit (+)</span>
                   </label>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input type="radio" name="adjType" checked={adjType === 'debit'} onChange={() => setAdjType('debit')} className="accent-red-600" />
-                    <span className="text-red-700 font-medium">Debit</span>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="radio" name="adjType" checked={adjType === 'debit'} onChange={() => setAdjType('debit')} className="accent-red-500" />
+                    <span className="text-red-400 font-medium">Debit (−)</span>
                   </label>
                 </div>
               </div>
@@ -546,7 +700,7 @@ export default function UserDetailPage() {
                   className="w-full rounded-lg border border-admin-border px-3 py-2 text-sm focus:border-admin-primary focus:outline-none resize-none"
                 />
               </div>
-              {adjError && <p className="text-xs text-red-600">{adjError}</p>}
+              {adjError && <p className="text-xs text-red-400 rounded-lg border border-red-500/25 bg-red-950/10 px-2.5 py-1.5">{adjError}</p>}
             </div>
             <div className="flex items-center justify-end gap-2 border-t border-admin-border px-5 py-3">
               <Button variant="secondary" size="sm" onClick={() => setShowBalanceAdjust(false)}>Cancel</Button>
@@ -557,7 +711,6 @@ export default function UserDetailPage() {
                 }
                 onClick={() => {
                   if (!adjCurrency || !adjAmount || adjReason.trim().length < 8) return;
-                  if (!confirm(`Confirm ${adjType} of ${adjAmount} to this user?`)) return;
                   balanceAdjust.mutate({ currency_id: adjCurrency, amount: adjAmount, type: adjType, reason: adjReason.trim() });
                 }}
               >
@@ -568,6 +721,7 @@ export default function UserDetailPage() {
         </div>
       )}
     </div>
+    </AdminPageFrame>
   );
 }
 
@@ -622,7 +776,7 @@ function TxTable({ headers, rows, empty }: { headers: string[]; rows: React.Reac
 function EmptyTab({ message }: { message: string }) {
   return (
     <div className="py-10 text-center">
-      <Shield className="h-7 w-7 text-gray-200 mx-auto mb-2" />
+      <Shield className="h-7 w-7 text-admin-muted/20 mx-auto mb-2" />
       <p className="text-xs text-admin-muted">{message}</p>
     </div>
   );

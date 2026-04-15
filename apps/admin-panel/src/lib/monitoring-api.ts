@@ -191,3 +191,7 @@ export function updateInfrastructureProvider(
     body,
   });
 }
+
+export function deleteInfrastructureProvider(token: string | null, id: string) {
+  return adminFetch<{ id: string }>(`/settings/infrastructure/${encodeURIComponent(id)}`, { method: 'DELETE', token });
+}

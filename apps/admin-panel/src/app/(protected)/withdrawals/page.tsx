@@ -10,37 +10,92 @@ import {
   rejectWithdrawal,
   type WithdrawalRow,
 } from '@/lib/withdrawals-api';
-import { StatCard } from '@/components/dashboard/StatCard';
 import { WithdrawalsTable } from '@/components/withdrawals/WithdrawalsTable';
 import { ApproveWithdrawalModal } from '@/components/withdrawals/ApproveWithdrawalModal';
 import { RejectWithdrawalModal } from '@/components/withdrawals/RejectWithdrawalModal';
 import { useAdminWs } from '@/hooks/useAdminWs';
-import { ArrowUpFromLine, Clock, XCircle, CheckCircle2, DollarSign } from 'lucide-react';
-import { TableSkeleton } from '@/components/ui';
+import {
+  ArrowUpFromLine, Clock, XCircle, CheckCircle2, DollarSign,
+  Search, X, RefreshCw, ChevronLeft, ChevronRight, Wifi,
+} from 'lucide-react';
+import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
+import { cn } from '@/lib/cn';
 
+/* ── tiny helpers ────────────────────────────────────── */
+function fmtMoney(n: number | undefined): string {
+  if (n == null || !Number.isFinite(n)) return '—';
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+  if (n >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
+  return `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+}
+
+/* ── KPI card ────────────────────────────────────────── */
+interface KpiProps {
+  label: string;
+  value: string | number;
+  sub?: string;
+  icon: React.ReactNode;
+  accent: string;   // gradient class
+  ring: string;     // icon bubble classes
+  alert?: boolean;
+  loading: boolean;
+}
+function KpiCard({ label, value, sub, icon, accent, ring, alert, loading }: KpiProps) {
+  return (
+    <div className={cn(
+      'relative overflow-hidden rounded-2xl border bg-admin-card p-5',
+      alert ? 'border-red-500/25' : 'border-admin-border/60'
+    )}>
+      <div className={cn('absolute inset-x-0 top-0 h-0.5 rounded-t-2xl', accent)} />
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-admin-muted">{label}</p>
+          {loading ? (
+            <div className="mt-2 h-7 w-20 animate-pulse rounded-lg bg-white/[0.06]" />
+          ) : (
+            <p className={cn('mt-2 text-2xl font-bold tabular-nums', alert ? 'text-red-400' : 'text-admin-text')}>
+              {value}
+            </p>
+          )}
+          {sub && !loading && <p className="mt-0.5 text-[10px] text-admin-muted">{sub}</p>}
+        </div>
+        <div className={cn('flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border', ring)}>
+          {icon}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── page ────────────────────────────────────────────── */
 export default function WithdrawalsPage() {
   const token = useAdminAuthStore((s) => s.accessToken);
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
-  const [page, setPage] = useState(1);
+
+  const [page, setPage]               = useState(1);
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [search, setSearch]           = useState('');
+  const [liveFlash, setLiveFlash]     = useState(false);
+  const [approveModal, setApproveModal] = useState<WithdrawalRow | null>(null);
+  const [rejectModal, setRejectModal]   = useState<WithdrawalRow | null>(null);
 
   useEffect(() => {
     const s = searchParams.get('status');
     if (s) setStatusFilter(s);
   }, [searchParams]);
-  const [approveModal, setApproveModal] = useState<WithdrawalRow | null>(null);
-  const [rejectModal, setRejectModal] = useState<WithdrawalRow | null>(null);
 
-  const { data, isLoading, isError, error } = useQuery({
-    queryKey: ['admin', 'withdrawals', token, page, statusFilter],
+  useEffect(() => { setPage(1); }, [statusFilter, search]);
+
+  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
+    queryKey: ['admin', 'withdrawals', token, page, statusFilter, search],
     staleTime: 30_000,
-    queryFn: () =>
-      getWithdrawalsList(token, {
-        page,
-        limit: 20,
-        status: statusFilter === 'all' ? undefined : statusFilter,
-      }),
+    queryFn: () => getWithdrawalsList(token, {
+      page, limit: 25,
+      status: statusFilter === 'all' ? undefined : statusFilter,
+      ...(search.trim() ? { search: search.trim() } : {}),
+    }),
     enabled: !!token,
     refetchInterval: 30_000,
   });
@@ -50,6 +105,8 @@ export default function WithdrawalsPage() {
       const type = (event?.type as string) ?? '';
       if (['withdrawal_requested', 'withdrawal_approved', 'withdrawal_rejected'].includes(type)) {
         queryClient.invalidateQueries({ queryKey: ['admin', 'withdrawals'] });
+        setLiveFlash(true);
+        setTimeout(() => setLiveFlash(false), 800);
       }
     },
   });
@@ -57,148 +114,258 @@ export default function WithdrawalsPage() {
   const approveMutation = useMutation({
     mutationFn: ({ id, adminNote }: { id: string; adminNote?: string }) =>
       approveWithdrawal(token, id, { admin_note: adminNote }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'withdrawals'] });
-      setApproveModal(null);
-    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['admin', 'withdrawals'] }); setApproveModal(null); },
   });
 
   const rejectMutation = useMutation({
     mutationFn: ({ id, reason, adminNote }: { id: string; reason: string; adminNote?: string }) =>
       rejectWithdrawal(token, id, { reason, admin_note: adminNote }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'withdrawals'] });
-      setRejectModal(null);
-    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['admin', 'withdrawals'] }); setRejectModal(null); },
   });
 
   const handleApprove = useCallback(
-    (adminNote: string) => {
-      if (!approveModal) return;
-      approveMutation.mutate({ id: approveModal.id, adminNote: adminNote || undefined });
-    },
+    (adminNote: string) => { if (approveModal) approveMutation.mutate({ id: approveModal.id, adminNote: adminNote || undefined }); },
     [approveModal, approveMutation]
   );
-
   const handleReject = useCallback(
-    (reason: string, adminNote?: string) => {
-      if (!rejectModal) return;
-      rejectMutation.mutate({ id: rejectModal.id, reason, adminNote });
-    },
+    (reason: string, adminNote?: string) => { if (rejectModal) rejectMutation.mutate({ id: rejectModal.id, reason, adminNote }); },
     [rejectModal, rejectMutation]
   );
 
-  const withdrawals = (data?.data?.withdrawals ?? []) as WithdrawalRow[];
-  const stats = data?.data?.stats as Record<string, number> | undefined;
-  const pagination = data?.data?.pagination;
-  const total = pagination?.total ?? 0;
-  const totalPages = pagination?.totalPages ?? 1;
+  const withdrawals  = (data?.data?.withdrawals ?? []) as WithdrawalRow[];
+  const stats        = data?.data?.stats as Record<string, number> | undefined;
+  const pagination   = data?.data?.pagination as { total?: number; totalPages?: number } | undefined;
+  const total        = pagination?.total ?? 0;
+  const totalPages   = pagination?.totalPages ?? 1;
+  const pendingCount = stats?.pending_approval ?? 0;
+  const failedCount  = stats?.failed ?? 0;
+
+  const kpis: Omit<KpiProps, 'loading'>[] = [
+    {
+      label: 'Pending Approval',
+      value: pendingCount,
+      sub: pendingCount > 0 ? 'needs review' : 'queue empty',
+      icon: <Clock className="h-4 w-4 text-amber-400" />,
+      accent: pendingCount > 10
+        ? 'bg-gradient-to-r from-amber-500/70 to-transparent'
+        : 'bg-gradient-to-r from-amber-500/30 to-transparent',
+      ring: 'border-amber-500/20 bg-amber-950/20',
+      alert: pendingCount > 50,
+    },
+    {
+      label: 'Processing',
+      value: stats?.processing ?? 0,
+      sub: 'in flight',
+      icon: <ArrowUpFromLine className="h-4 w-4 text-blue-400" />,
+      accent: 'bg-gradient-to-r from-blue-500/50 to-transparent',
+      ring: 'border-blue-500/20 bg-blue-950/20',
+    },
+    {
+      label: 'Completed (24h)',
+      value: stats?.completed ?? 0,
+      sub: 'settled successfully',
+      icon: <CheckCircle2 className="h-4 w-4 text-emerald-400" />,
+      accent: 'bg-gradient-to-r from-emerald-500/50 to-transparent',
+      ring: 'border-emerald-500/20 bg-emerald-950/20',
+    },
+    {
+      label: 'Failed (24h)',
+      value: failedCount,
+      sub: failedCount > 0 ? 'need investigation' : 'none',
+      icon: <XCircle className="h-4 w-4 text-red-400" />,
+      accent: failedCount > 0
+        ? 'bg-gradient-to-r from-red-500/70 to-transparent'
+        : 'bg-gradient-to-r from-red-500/20 to-transparent',
+      ring: 'border-red-500/20 bg-red-950/20',
+      alert: failedCount > 5,
+    },
+    {
+      label: 'Volume (24h)',
+      value: fmtMoney(stats?.volume_24h),
+      sub: 'USD equivalent',
+      icon: <DollarSign className="h-4 w-4 text-emerald-400" />,
+      accent: 'bg-gradient-to-r from-emerald-500/40 to-transparent',
+      ring: 'border-emerald-500/20 bg-emerald-950/20',
+    },
+  ];
+
+  const STATUS_OPTIONS = [
+    ['all', 'All statuses'],
+    ['pending_approval', 'Pending Approval'],
+    ['pending', 'Pending'],
+    ['processing', 'Processing'],
+    ['completed', 'Completed'],
+    ['rejected', 'Rejected'],
+    ['failed', 'Failed'],
+    ['cancelled', 'Cancelled'],
+  ];
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-lg font-semibold text-admin-text">Withdrawals</h1>
-        <p className="text-xs text-admin-muted mt-0.5">Review, approve, or reject user withdrawals.</p>
+    <AdminPageFrame
+      title="Withdrawals"
+      description="Review, approve, and monitor outgoing withdrawal requests."
+      status={failedCount > 5 ? 'warning' : pendingCount > 50 ? 'warning' : 'active'}
+      quickActions={
+        <div className="flex items-center gap-2">
+          <div className={cn(
+            'flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold transition-all',
+            liveFlash ? 'border-emerald-400/50 bg-emerald-950/30 text-emerald-300' : 'border-admin-border/50 text-admin-muted'
+          )}>
+            <Wifi className="h-3 w-3" /> LIVE
+          </div>
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            className="flex items-center gap-1.5 rounded-xl border border-admin-border/60 px-3 py-1.5 text-xs text-admin-muted hover:text-admin-text hover:bg-white/[0.04] transition-colors"
+          >
+            <RefreshCw className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')} />
+            Refresh
+          </button>
+        </div>
+      }
+    >
+
+      {/* ── KPI strip ── */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        {kpis.map((k) => <KpiCard key={k.label} {...k} loading={isLoading} />)}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <StatCard
-          title="Pending Approval"
-          value={stats?.pending_approval ?? '0'}
-          icon={Clock}
-          iconBg="bg-admin-warning/10 text-admin-warning"
-        />
-        <StatCard
-          title="Processing"
-          value={stats?.processing ?? '0'}
-          icon={ArrowUpFromLine}
-          iconBg="bg-admin-primary/10 text-admin-primary"
-        />
-        <StatCard
-          title="Completed (24h)"
-          value={stats?.completed ?? '0'}
-          icon={CheckCircle2}
-          iconBg="bg-admin-success/10 text-admin-success"
-        />
-        <StatCard
-          title="Failed"
-          value={stats?.failed ?? '0'}
-          icon={XCircle}
-          iconBg="bg-admin-danger/10 text-admin-danger"
-        />
-        <StatCard
-          title="Volume (24h)"
-          value={
-            stats?.volume_24h != null
-              ? `$${Number(stats.volume_24h).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
-              : '—'
-          }
-          icon={DollarSign}
-          iconBg="bg-admin-primary/10 text-admin-primary"
-        />
-      </div>
+      {/* ── Filters ── */}
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-admin-border/60 bg-admin-card px-4 py-3.5">
+        {/* Search */}
+        <div className="relative min-w-[220px] flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-admin-muted" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search user, address, TX hash…"
+            className="w-full rounded-xl border border-admin-border/60 bg-white/[0.03] py-2 pl-9 pr-8 text-sm text-admin-text placeholder-admin-muted/60 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/40 transition-all"
+          />
+          {search && (
+            <button type="button" onClick={() => setSearch('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-admin-muted hover:text-admin-text">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
 
-      <div className="flex flex-wrap items-center gap-4">
-          <select
+        {/* Status */}
+        <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="rounded-lg border border-admin-border bg-white/[0.02] px-2.5 py-1.5 text-xs text-admin-muted focus:border-admin-primary focus:outline-none focus:ring-1 focus:ring-admin-primary"
+          className="rounded-xl border border-admin-border/60 bg-white/[0.03] px-3 py-2 text-sm text-admin-text focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500/40 transition-all"
         >
-          <option value="all">All statuses</option>
-          <option value="pending_approval">Pending Approval</option>
-          <option value="pending">Pending</option>
-          <option value="processing">Processing</option>
-          <option value="completed">Completed</option>
-          <option value="rejected">Rejected</option>
-          <option value="failed">Failed</option>
-          <option value="cancelled">Cancelled</option>
+          {STATUS_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
+
+        {/* Active filter badge */}
+        {(search || statusFilter !== 'all') && (
+          <button
+            type="button"
+            onClick={() => { setSearch(''); setStatusFilter('all'); }}
+            className="flex items-center gap-1 rounded-xl border border-red-500/25 bg-red-950/15 px-3 py-2 text-xs font-medium text-red-400 hover:bg-red-950/25 transition-colors"
+          >
+            <X className="h-3.5 w-3.5" /> Clear filters
+          </button>
+        )}
       </div>
 
-      <div className="rounded-xl border border-admin-border bg-admin-card">
-        {isError && (
-          <p className="mb-4 text-sm text-admin-danger">
-            {(error as { message?: string })?.message ?? 'Failed to load withdrawals'}
-          </p>
-        )}
-        {isLoading ? (
-          <TableSkeleton rows={6} cols={6} />
-        ) : (
-          <>
-            <WithdrawalsTable
-              rows={withdrawals}
-              onApprove={(w) => setApproveModal(w)}
-              onReject={(w) => setRejectModal(w)}
-            />
-            {totalPages > 1 && (
-              <div className="mt-4 flex items-center justify-between border-t border-admin-border pt-4">
-                <span className="text-sm text-admin-muted">
-                  Page {page} of {totalPages} · {total} total
-                </span>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    disabled={page <= 1}
-                    onClick={() => setPage((p) => p - 1)}
-                    className="rounded border border-admin-border bg-admin-card px-3 py-1.5 text-sm disabled:opacity-50 hover:bg-white/5"
-                  >
-                    Previous
-                  </button>
-                  <button
-                    type="button"
-                    disabled={page >= totalPages}
-                    onClick={() => setPage((p) => p + 1)}
-                    className="rounded border border-admin-border bg-admin-card px-3 py-1.5 text-sm disabled:opacity-50 hover:bg-white/5"
-                  >
-                    Next
-                  </button>
-                </div>
-              </div>
+      {/* ── Table card ── */}
+      <div className="rounded-2xl border border-admin-border/60 bg-admin-card">
+
+        {/* Table toolbar */}
+        <div className="flex items-center justify-between border-b border-admin-border/50 px-5 py-3.5">
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-semibold text-admin-text">
+              {isLoading ? 'Loading…' : `${total.toLocaleString()} withdrawal${total !== 1 ? 's' : ''}`}
+            </p>
+            {isFetching && !isLoading && <RefreshCw className="h-3.5 w-3.5 animate-spin text-admin-muted" />}
+            {pendingCount > 0 && (
+              <span className="rounded-full border border-amber-500/30 bg-amber-950/20 px-2 py-0.5 text-[10px] font-semibold text-amber-400">
+                {pendingCount} need approval
+              </span>
             )}
-          </>
+          </div>
+          <span className="text-xs text-admin-muted">Page {page} of {Math.max(1, totalPages)}</span>
+        </div>
+
+        {/* Error banner */}
+        {isError && (
+          <div className="flex items-center gap-2 border-b border-admin-border/50 bg-red-950/15 px-5 py-3 text-sm text-red-300">
+            {(error as { message?: string })?.message ?? 'Failed to load withdrawals'}
+          </div>
+        )}
+
+        {/* Loading skeleton */}
+        {isLoading ? (
+          <div className="space-y-3 p-5">
+            {Array.from({ length: 7 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-4">
+                <div className="h-4 w-20 animate-pulse rounded bg-white/[0.05]" />
+                <div className="h-4 flex-1 animate-pulse rounded bg-white/[0.04]" />
+                <div className="h-4 w-14 animate-pulse rounded bg-white/[0.05]" />
+                <div className="h-4 w-24 animate-pulse rounded bg-white/[0.04]" />
+                <div className="h-4 w-20 animate-pulse rounded bg-white/[0.03]" />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <WithdrawalsTable
+            rows={withdrawals}
+            onApprove={(w) => setApproveModal(w)}
+            onReject={(w) => setRejectModal(w)}
+          />
+        )}
+
+        {/* ── Pagination ── */}
+        {!isLoading && totalPages > 1 && (
+          <div className="flex items-center justify-between border-t border-admin-border/50 px-5 py-3.5">
+            <p className="text-xs text-admin-muted">
+              {total > 0 ? `${((page - 1) * 25) + 1}–${Math.min(page * 25, total)} of ${total.toLocaleString()}` : '0 results'}
+            </p>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-admin-border/60 text-admin-muted hover:text-admin-text hover:bg-white/[0.04] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+
+              {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                const pg = totalPages <= 5 ? i + 1
+                  : page <= 3 ? i + 1
+                  : page >= totalPages - 2 ? totalPages - 4 + i
+                  : page - 2 + i;
+                return (
+                  <button key={pg} type="button" onClick={() => setPage(pg)}
+                    className={cn(
+                      'flex h-8 w-8 items-center justify-center rounded-lg border text-xs font-medium transition-colors',
+                      pg === page
+                        ? 'border-blue-500/40 bg-blue-950/30 text-blue-300'
+                        : 'border-admin-border/60 text-admin-muted hover:text-admin-text hover:bg-white/[0.04]'
+                    )}>
+                    {pg}
+                  </button>
+                );
+              })}
+
+              <button
+                type="button"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-admin-border/60 text-admin-muted hover:text-admin-text hover:bg-white/[0.04] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
         )}
       </div>
 
+      {/* ── Modals ── */}
       <ApproveWithdrawalModal
         open={!!approveModal}
         onClose={() => setApproveModal(null)}
@@ -208,7 +375,6 @@ export default function WithdrawalsPage() {
         amount={approveModal?.amount}
         isLoading={approveMutation.isPending}
       />
-
       <RejectWithdrawalModal
         open={!!rejectModal}
         onClose={() => setRejectModal(null)}
@@ -218,6 +384,6 @@ export default function WithdrawalsPage() {
         amount={rejectModal?.amount}
         isLoading={rejectMutation.isPending}
       />
-    </div>
+    </AdminPageFrame>
   );
 }

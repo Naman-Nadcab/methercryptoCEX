@@ -1,72 +1,54 @@
 'use client';
 
-import { useMemo, memo } from 'react';
-import { BookOpen, ArrowRight, Zap, Clock } from 'lucide-react';
+import { memo } from 'react';
 import { getPlaybooksForSources, type Playbook } from './incidentPlaybooks';
+import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 
-interface PlaybookPanelProps {
-  alertSources: string[];
-}
+function PlaybookPanelInner({ alertSources }: { alertSources: string[] }) {
+  const playbooks = getPlaybooksForSources(alertSources);
 
-function PlaybookPanelInner({ alertSources }: PlaybookPanelProps) {
-  const playbooks = useMemo(() => getPlaybooksForSources(alertSources), [alertSources]);
-
-  if (playbooks.length === 0) return null;
+  if (playbooks.length === 0) {
+    return (
+      <div className="text-center py-6 text-xs text-zinc-600">
+        No playbooks available for the current alert sources.
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2 text-xs text-admin-muted">
-        <BookOpen className="w-3.5 h-3.5" />
-        <span className="font-medium">Suggested Playbooks</span>
-      </div>
-
-      {playbooks.map((pb) => (<PlaybookCard key={pb.id} playbook={pb} />))}
+    <div className="space-y-4">
+      {playbooks.map((pb) => (
+        <PlaybookCard key={pb.id} playbook={pb} />
+      ))}
     </div>
   );
 }
 
 export const PlaybookPanel = memo(PlaybookPanelInner);
 
-const PlaybookCard = memo(function PlaybookCard({ playbook }: { playbook: Playbook }) {
-  const immediateSteps = playbook.steps.filter((s) => s.priority === 'immediate');
-  const followUpSteps = playbook.steps.filter((s) => s.priority === 'follow-up');
+function PlaybookCard({ playbook }: { playbook: Playbook }) {
+  const immediate = playbook.steps.filter((s) => s.priority === 'immediate');
+  const followUp = playbook.steps.filter((s) => s.priority === 'follow-up');
 
   return (
-    <div className="rounded-lg border border-admin-border bg-white/[0.02] overflow-hidden">
-      <div className="px-3 py-2 border-b border-admin-border/60 flex items-center gap-2">
-        <BookOpen className="w-3 h-3 text-blue-600" />
-        <span className="text-xs font-medium text-blue-600">{playbook.title}</span>
+    <div className="rounded-lg border border-[#1F2937] bg-[#0F1117]/60 overflow-hidden">
+      <div className="px-3 py-2 border-b border-[#1F2937] bg-white/[0.02]">
+        <h4 className="text-xs font-semibold text-[#E5E7EB]">{playbook.title}</h4>
       </div>
-
       <div className="px-3 py-2 space-y-1.5">
-        {immediateSteps.length > 0 && (
-          <div className="space-y-1">
-            <div className="flex items-center gap-1 text-[10px] text-red-600 font-semibold uppercase tracking-wider">
-              <Zap className="w-2.5 h-2.5" /> Immediate
-            </div>
-            {immediateSteps.map((step, i) => (
-              <div key={i} className="flex items-start gap-2 text-xs text-admin-text pl-1">
-                <ArrowRight className="w-3 h-3 text-admin-muted mt-0.5 shrink-0" />
-                <span>{step.action}</span>
-              </div>
-            ))}
+        {immediate.map((step, i) => (
+          <div key={i} className="flex items-start gap-2 text-xs">
+            <AlertTriangle className="w-3 h-3 mt-0.5 text-amber-400 shrink-0" />
+            <span className="text-zinc-300">{step.action}</span>
           </div>
-        )}
-
-        {followUpSteps.length > 0 && (
-          <div className="space-y-1 pt-1.5 border-t border-admin-border/40">
-            <div className="flex items-center gap-1 text-[10px] text-amber-600 font-semibold uppercase tracking-wider">
-              <Clock className="w-2.5 h-2.5" /> Follow-up
-            </div>
-            {followUpSteps.map((step, i) => (
-              <div key={i} className="flex items-start gap-2 text-xs text-admin-muted pl-1">
-                <ArrowRight className="w-3 h-3 text-admin-muted mt-0.5 shrink-0" />
-                <span>{step.action}</span>
-              </div>
-            ))}
+        ))}
+        {followUp.map((step, i) => (
+          <div key={i} className="flex items-start gap-2 text-xs">
+            <CheckCircle2 className="w-3 h-3 mt-0.5 text-zinc-600 shrink-0" />
+            <span className="text-zinc-500">{step.action}</span>
           </div>
-        )}
+        ))}
       </div>
     </div>
   );
-});
+}

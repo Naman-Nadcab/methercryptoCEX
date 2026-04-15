@@ -14,6 +14,7 @@ import { ConfirmationProgress } from '@/components/deposits/ConfirmationProgress
 import { LargeDepositBadge, StuckDepositBadge, isDepositStuck } from '@/components/deposits/DepositIndicators';
 import { ManualCreditModal } from '@/components/deposits/ManualCreditModal';
 import { User, CreditCard } from 'lucide-react';
+import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 
 export default function DepositDetailPage() {
   const params = useParams();
@@ -124,6 +125,7 @@ export default function DepositDetailPage() {
   }
 
   return (
+    <AdminPageFrame title={`Deposit ${String(deposit.deposit_id).slice(0, 8)}…`} description="Deposit details and actions">
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
@@ -237,5 +239,6 @@ export default function DepositDetailPage() {
         submitError={manualCreditError}
       />
     </div>
+    </AdminPageFrame>
   );
 }

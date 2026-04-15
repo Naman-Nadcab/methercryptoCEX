@@ -2,266 +2,620 @@
 
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { Activity, Sliders, Siren, Cable, Server, CheckSquare, SlidersHorizontal, LayoutGrid } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui';
+import {
+  Activity, Sliders, Siren, Cable, Server, CheckSquare,
+  SlidersHorizontal, LayoutGrid, Zap, ShieldCheck, AlertTriangle,
+  ArrowRight, Clock, Database, Wifi, Cpu, HardDrive, BarChart3,
+  TrendingUp, Wallet, BookOpen, ChevronRight, Radio,
+  RefreshCw, Flame,
+} from 'lucide-react';
 import { adminFetch } from '@/lib/api';
 import { useAdminAuthStore } from '@/store/auth';
 import { cn } from '@/lib/cn';
+import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 
-const LINKS: {
-  href: string;
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
+
+interface SmartAlert {
+  type: string;
+  severity: string;
+  message: string;
+  count?: number;
+}
+
+interface OpsIncident {
+  type: string;
+  count: number;
+  severity: string;
+}
+
+interface Playbooks {
+  [key: string]: string;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Hub links                                                          */
+/* ------------------------------------------------------------------ */
+
+const HUB_SECTIONS: {
   title: string;
-  description: string;
-  icon: typeof Activity;
+  items: { href: string; title: string; desc: string; icon: typeof Activity; accent: string }[];
 }[] = [
   {
-    href: '/control-center',
-    title: 'Control center',
-    description:
-      'Consolidated toggles: trading halt, safe mode, feature flags, hot wallet ops, and risk knobs — complementary to Admin control.',
-    icon: LayoutGrid,
+    title: 'Command & Control',
+    items: [
+      { href: '/control-center', title: 'Control Center', desc: 'Fee settings, risk thresholds, geo-blocking, feature flags, and system toggles.', icon: LayoutGrid, accent: 'from-blue-500/20 to-blue-600/5 border-blue-500/20 text-blue-400' },
+      { href: '/admin-control', title: 'Exchange Controls', desc: 'Circuit breakers, trading halts, emergency mode, and asset freeze controls.', icon: Sliders, accent: 'from-red-500/20 to-red-600/5 border-red-500/20 text-red-400' },
+      { href: '/approvals', title: 'Dual Approvals', desc: 'Pending maker-checker requests for withdrawals, credits, and sensitive actions.', icon: CheckSquare, accent: 'from-purple-500/20 to-purple-600/5 border-purple-500/20 text-purple-400' },
+    ],
   },
   {
-    href: '/monitoring',
-    title: 'Monitoring',
-    description:
-      'Health, queues, RPC providers, and live infrastructure signals. Use this view when validating SLO burn rates or tracing cascading failures across workers.',
-    icon: Activity,
+    title: 'Observability',
+    items: [
+      { href: '/monitoring', title: 'Monitoring', desc: 'Health, queues, RPC providers, latency history, and infrastructure signals.', icon: Activity, accent: 'from-emerald-500/20 to-emerald-600/5 border-emerald-500/20 text-emerald-400' },
+      { href: '/incidents', title: 'Incidents', desc: 'Create, acknowledge, resolve incidents. SLA tracking and playbooks.', icon: Siren, accent: 'from-orange-500/20 to-orange-600/5 border-orange-500/20 text-orange-400' },
+      { href: '/monitoring/alert-rules', title: 'Alert Rules', desc: 'Configure thresholds that trigger infrastructure alerts. Live metric comparison.', icon: Zap, accent: 'from-amber-500/20 to-amber-600/5 border-amber-500/20 text-amber-400' },
+    ],
   },
   {
-    href: '/admin-control',
-    title: 'Admin control',
-    description:
-      'Circuit breakers, trading halts, and emergency exchange controls. Prefer narrow asset freezes before global trading halts to reduce customer impact.',
-    icon: Sliders,
-  },
-  {
-    href: '/admin/mm-control',
-    title: 'MM desk',
-    description:
-      'Market-making runtime, per-pair controls, inventory and execution visibility. Use after liquidity or spread incidents.',
-    icon: SlidersHorizontal,
-  },
-  {
-    href: '/approvals',
-    title: 'Dual approvals',
-    description:
-      'Pending maker-checker requests: withdrawals, manual credits, trading halts, and other sensitive actions.',
-    icon: CheckSquare,
-  },
-  {
-    href: '/incidents',
-    title: 'Incidents',
-    description:
-      'Track and resolve operational incidents across services. Capture customer communications, mitigation steps, and timestamps while memory is fresh.',
-    icon: Siren,
-  },
-  {
-    href: '/integrations',
-    title: 'Integrations',
-    description:
-      'Third-party connectors, webhooks, and external service status. Validate credentials rotation schedules and failure budgets before peak trading windows.',
-    icon: Cable,
-  },
-  {
-    href: '/settings/infrastructure',
     title: 'Infrastructure',
-    description:
-      'Nodes, deployment targets, and core platform configuration. Coordinate with DevOps for blue/green cutovers and ledger reconciliation checkpoints.',
-    icon: Server,
+    items: [
+      { href: '/admin/mm-control', title: 'MM Desk', desc: 'Market-making runtime, per-pair controls, inventory and execution visibility.', icon: SlidersHorizontal, accent: 'from-cyan-500/20 to-cyan-600/5 border-cyan-500/20 text-cyan-400' },
+      { href: '/integrations', title: 'Integrations', desc: 'Third-party connectors, webhooks, credential rotation, failure budgets.', icon: Cable, accent: 'from-pink-500/20 to-pink-600/5 border-pink-500/20 text-pink-400' },
+      { href: '/settings/infrastructure', title: 'Infrastructure', desc: 'Nodes, deployment targets, providers, and platform configuration.', icon: Server, accent: 'from-indigo-500/20 to-indigo-600/5 border-indigo-500/20 text-indigo-400' },
+    ],
   },
 ];
 
+/* ------------------------------------------------------------------ */
+/*  Page component                                                     */
+/* ------------------------------------------------------------------ */
+
 export default function OperationsPage() {
   const token = useAdminAuthStore((s) => s.accessToken);
+
+  // System health
   const { data: healthData, isLoading: healthLoading } = useQuery({
     queryKey: ['admin', 'system-health', token],
     queryFn: () => adminFetch('/system-health', { token }),
     enabled: !!token,
-    refetchInterval: 15000,
-    staleTime: 30_000,
-    retry: 1,
+    refetchInterval: 15_000,
+    staleTime: 10_000,
   });
-  const health = healthData?.success ? (healthData.data as Record<string, any> | undefined) : undefined;
 
+  // Smart alerts
+  const { data: alertsData } = useQuery({
+    queryKey: ['admin', 'operations-smart-alerts', token],
+    queryFn: () => adminFetch<{ alerts: SmartAlert[]; summary: { amlOpen: number; pendingWithdrawals: number; circuitOpen: boolean } }>('/operations/smart-alerts', { token }),
+    enabled: !!token,
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  });
+
+  // System reliability
+  const { data: reliabilityData } = useQuery({
+    queryKey: ['admin', 'operations-reliability', token],
+    queryFn: () => adminFetch<{
+      sloStatus: string;
+      settlementPending: number;
+      settlementProcessed1h: number;
+      settlementSuccessRate: number;
+      circuitOpen: boolean;
+      tradingHalted: boolean;
+      orderLatencyP99: number | null;
+    }>('/operations/system-reliability', { token }),
+    enabled: !!token,
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  });
+
+  // Operational incidents (counters)
+  const { data: incidentsData } = useQuery({
+    queryKey: ['admin', 'operations-incidents', token],
+    queryFn: () => adminFetch<{ incidents: OpsIncident[]; counters: Record<string, number> }>('/operations/incidents', { token }),
+    enabled: !!token,
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  });
+
+  // Proof of reserves
+  const { data: porData } = useQuery({
+    queryKey: ['admin', 'operations-por', token],
+    queryFn: () => adminFetch<{ totalLiabilities: number; totalHotReserves: number; reserveRatio: number }>('/operations/proof-of-reserves', { token }),
+    enabled: !!token,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+
+  // Playbooks
+  const { data: playbooksData } = useQuery({
+    queryKey: ['admin', 'operations-playbooks', token],
+    queryFn: () => adminFetch<{ playbooks: Playbooks }>('/operations/playbooks', { token }),
+    enabled: !!token,
+    staleTime: 120_000,
+  });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const health = healthData?.success ? (healthData.data as Record<string, any> | undefined) : undefined;
   const dbUp = health?.database?.status === 'up';
   const redisUp = health?.redis?.status === 'up';
   const nodeUp = health?.node?.status === 'up';
-  const systemStatus = health && dbUp && redisUp && nodeUp ? 'healthy' : health ? 'degraded' : null;
+  const systemOk = health && dbUp && redisUp && nodeUp;
   const apiLatencyMs = health?.api_latency_ms;
   const wsConnections = health?.websocket?.connections;
   const memoryMb = health?.node?.memory_heap_mb;
 
+  const alerts = alertsData?.data?.alerts ?? [];
+  const alertSummary = alertsData?.data?.summary;
+  const reliability = reliabilityData?.data;
+  const opsIncidents = incidentsData?.data?.incidents ?? [];
+  const activeOpsIncidents = opsIncidents.filter((i) => i.count > 0);
+  const por = porData?.data;
+  const playbooks = playbooksData?.data?.playbooks ?? {};
+
+  const pageStatus = (reliability?.circuitOpen || reliability?.tradingHalted || alerts.some((a) => a.severity === 'critical'))
+    ? 'risk' as const
+    : alerts.length > 0 || activeOpsIncidents.length > 0
+      ? 'warning' as const
+      : 'active' as const;
+
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="text-lg font-semibold text-admin-text">Operations</h1>
-        <p className="text-xs text-admin-muted mt-0.5">Operational tools for day-to-day exchange management.</p>
+    <AdminPageFrame
+      title="Operations Hub"
+      description="Unified operational command center. Live telemetry, alerts, reliability metrics, and quick-access tools."
+      status={pageStatus}
+    >
+      {/* ── Health strip ── */}
+      <HealthStrip
+        loading={healthLoading}
+        systemOk={systemOk ?? false}
+        dbUp={dbUp}
+        redisUp={redisUp}
+        apiLatencyMs={apiLatencyMs}
+        wsConnections={wsConnections}
+        memoryMb={memoryMb}
+        circuitOpen={reliability?.circuitOpen}
+        tradingHalted={reliability?.tradingHalted}
+      />
+
+      {/* ── Smart alerts banner ── */}
+      {alerts.length > 0 && <AlertsBanner alerts={alerts} />}
+
+      {/* ── KPI row ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <KpiTile label="System" value={systemOk ? 'Healthy' : health ? 'Degraded' : '—'}
+          icon={<ShieldCheck className="h-3.5 w-3.5" />}
+          color={systemOk ? 'text-emerald-400' : health ? 'text-amber-400' : 'text-admin-muted'} />
+        <KpiTile label="API Latency" value={apiLatencyMs != null ? `${apiLatencyMs}ms` : '—'}
+          icon={<Clock className="h-3.5 w-3.5" />}
+          color={apiLatencyMs != null && apiLatencyMs < 300 ? 'text-emerald-400' : apiLatencyMs != null && apiLatencyMs < 800 ? 'text-amber-400' : 'text-admin-muted'} />
+        <KpiTile label="Settlement" value={reliability ? `${reliability.settlementSuccessRate.toFixed(1)}%` : '—'}
+          icon={<BarChart3 className="h-3.5 w-3.5" />}
+          color={reliability && reliability.settlementSuccessRate >= 99 ? 'text-emerald-400' : reliability && reliability.settlementSuccessRate >= 90 ? 'text-amber-400' : 'text-admin-muted'} />
+        <KpiTile label="Pending Settlement" value={reliability?.settlementPending?.toString() ?? '—'}
+          icon={<RefreshCw className="h-3.5 w-3.5" />}
+          color={reliability && reliability.settlementPending === 0 ? 'text-emerald-400' : reliability && reliability.settlementPending < 10 ? 'text-amber-400' : 'text-red-400'} />
+        <KpiTile label="Reserve Ratio" value={por ? `${(por.reserveRatio * 100).toFixed(1)}%` : '—'}
+          icon={<Wallet className="h-3.5 w-3.5" />}
+          color={por && por.reserveRatio >= 1 ? 'text-emerald-400' : por && por.reserveRatio >= 0.9 ? 'text-amber-400' : 'text-red-400'} />
+        <KpiTile label="Active Alerts" value={String(alerts.length)}
+          icon={<Zap className="h-3.5 w-3.5" />}
+          color={alerts.length === 0 ? 'text-emerald-400' : 'text-red-400'} pulse={alerts.length > 0} />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Card compact className="min-h-[88px]">
-          <CardHeader className="pb-1">
-            <CardTitle className="text-xs font-medium uppercase tracking-wide text-admin-muted">System status</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <p className="text-lg font-semibold capitalize text-admin-text">
-              {!token ? (
-                'N/A'
-              ) : healthLoading ? (
-                '...'
-              ) : (
-                systemStatus ?? 'N/A'
-              )}
-            </p>
-          </CardContent>
-        </Card>
-        <Card compact className="min-h-[88px]">
-          <CardHeader className="pb-1">
-            <CardTitle className="text-xs font-medium uppercase tracking-wide text-admin-muted">API latency</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <p className="text-lg font-semibold tabular-nums text-admin-text">
-              {!token ? (
-                'N/A'
-              ) : healthLoading ? (
-                '...'
-              ) : apiLatencyMs != null ? (
-                `${apiLatencyMs} ms`
-              ) : (
-                'N/A'
-              )}
-            </p>
-          </CardContent>
-        </Card>
-        <Card compact className="min-h-[88px]">
-          <CardHeader className="pb-1">
-            <CardTitle className="text-xs font-medium uppercase tracking-wide text-admin-muted">WebSocket connections</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <p className="text-lg font-semibold tabular-nums text-admin-text">
-              {!token ? (
-                'N/A'
-              ) : healthLoading ? (
-                '...'
-              ) : wsConnections != null ? (
-                wsConnections
-              ) : (
-                'N/A'
-              )}
-            </p>
-          </CardContent>
-        </Card>
-        <Card compact className="min-h-[88px]">
-          <CardHeader className="pb-1">
-            <CardTitle className="text-xs font-medium uppercase tracking-wide text-admin-muted">Memory usage</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <p className="text-lg font-semibold tabular-nums text-admin-text">
-              {!token ? (
-                'N/A'
-              ) : healthLoading ? (
-                '...'
-              ) : memoryMb != null ? (
-                `${memoryMb} MB`
-              ) : (
-                'N/A'
-              )}
-            </p>
-          </CardContent>
-        </Card>
+      {/* ── Reliability + Incidents side by side ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <ReliabilityPanel reliability={reliability} />
+        <OpsIncidentsPanel incidents={opsIncidents} />
       </div>
 
-      <p className="max-w-2xl text-sm text-admin-muted">
-        Jump to operational tools for day-to-day exchange management. Each area opens in place with your current admin
-        session.
-      </p>
-      <p className="max-w-2xl text-sm text-admin-muted">
-        Use monitoring for live telemetry, admin control for kill switches, incidents for postmortems, integrations for
-        vendor links, and infrastructure for nodes and environment configuration.
-      </p>
-
-      <Card compact className="border-dashed border-admin-border bg-white/[0.02]">
-        <CardContent className="space-y-2 p-0 text-sm text-admin-muted">
-          <p className="font-medium text-gray-800">Runbook tips</p>
-          <ul className="list-disc space-y-1 pl-5 leading-relaxed">
-            <li>Start with Monitoring when users report latency or failed withdrawals.</li>
-            <li>Use Admin control only after confirming blast radius with on-call leadership.</li>
-            <li>File incidents early—even if root cause is unknown—so timelines stay defensible.</li>
-            <li>Infrastructure changes should flow through your change-management process outside this UI.</li>
-          </ul>
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {LINKS.map(({ href, title, description, icon: Icon }) => (
-          <Link key={href} href={href} className="group block">
-            <Card
-              compact
-              className={cn(
-                'h-full transition-shadow duration-200',
-                'group-hover:border-admin-primary/40 group-hover:shadow-card-hover'
-              )}
-            >
-              <CardContent className="flex h-full flex-col gap-3 p-0">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-admin-primary/10 text-admin-primary">
-                  <Icon className="h-5 w-5" />
+      {/* ── Hub navigation grid ── */}
+      {HUB_SECTIONS.map((section) => (
+        <div key={section.title} className="space-y-3">
+          <h2 className="text-[10px] font-semibold uppercase tracking-widest text-admin-muted">{section.title}</h2>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {section.items.map(({ href, title, desc, icon: Icon, accent }) => (
+              <Link key={href} href={href} className="group block">
+                <div className={cn(
+                  'relative flex h-full flex-col gap-3 rounded-xl border bg-gradient-to-br p-4 transition-all duration-200',
+                  'hover:shadow-lg hover:shadow-black/20 hover:-translate-y-0.5',
+                  accent
+                )}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/[0.06]">
+                      <Icon className="h-4.5 w-4.5" />
+                    </div>
+                    <ArrowRight className="h-3.5 w-3.5 text-admin-muted opacity-0 transition-all group-hover:opacity-100 group-hover:translate-x-0.5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-admin-text group-hover:text-white transition-colors">{title}</h3>
+                    <p className="mt-1 text-[11px] leading-relaxed text-admin-muted">{desc}</p>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="text-base font-semibold text-admin-text group-hover:text-admin-primary">{title}</h2>
-                  <p className="mt-1 text-sm leading-relaxed text-admin-muted">{description}</p>
-                </div>
-                <span className="mt-auto text-xs font-medium text-admin-primary">Open →</span>
-              </CardContent>
-            </Card>
-          </Link>
+              </Link>
+            ))}
+          </div>
+        </div>
+      ))}
+
+      {/* ── Runbook playbooks ── */}
+      <PlaybooksPanel playbooks={playbooks} />
+
+      {/* ── Proof of reserves summary ── */}
+      {por && <ReservesBar por={por} />}
+
+      {/* ── Footer tips ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <TipCard title="Operational Cadence" items={[
+          'Confirm monitoring green after every production deploy.',
+          'Review incidents weekly — even resolved ones — for missing runbook steps.',
+          'Rotate integration credentials on the same schedule as API wallets.',
+          'Reconcile infrastructure capacity ahead of major market listings.',
+        ]} ordered />
+        <TipCard title="When to Escalate" items={[
+          'User balances diverge from chain state or internal ledger projections.',
+          'Matching latency crosses your internal SLO for more than two poll intervals.',
+          'Any automated circuit triggers without a human acknowledgement record.',
+          'Third-party custody or banking integrations return repeated 5xx responses.',
+          'Regulatory inbox receives repeated fraud or sanctions hits within a single hour.',
+        ]} />
+      </div>
+    </AdminPageFrame>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Health Strip                                                       */
+/* ------------------------------------------------------------------ */
+
+function HealthStrip({ loading, systemOk, dbUp, redisUp, apiLatencyMs, wsConnections, memoryMb, circuitOpen, tradingHalted }: {
+  loading: boolean;
+  systemOk: boolean;
+  dbUp?: boolean;
+  redisUp?: boolean;
+  apiLatencyMs?: number;
+  wsConnections?: number;
+  memoryMb?: number;
+  circuitOpen?: boolean;
+  tradingHalted?: boolean;
+}) {
+  if (loading) {
+    return (
+      <div className="flex items-center gap-3 rounded-xl border border-admin-border bg-admin-card px-4 py-3 animate-pulse">
+        <div className="h-2 w-2 rounded-full bg-admin-border" />
+        <span className="text-[10px] text-admin-muted">Loading health data...</span>
+      </div>
+    );
+  }
+
+  const items: { label: string; ok: boolean; value?: string; icon: typeof Database }[] = [
+    { label: 'Database', ok: !!dbUp, icon: Database },
+    { label: 'Redis', ok: !!redisUp, icon: HardDrive },
+    { label: 'API', ok: apiLatencyMs != null && apiLatencyMs < 500, value: apiLatencyMs != null ? `${apiLatencyMs}ms` : undefined, icon: Wifi },
+    { label: 'WebSocket', ok: true, value: wsConnections != null ? String(wsConnections) : undefined, icon: Radio },
+    { label: 'Memory', ok: memoryMb != null && memoryMb < 512, value: memoryMb != null ? `${memoryMb}MB` : undefined, icon: Cpu },
+  ];
+
+  const flags: { label: string; active: boolean }[] = [];
+  if (circuitOpen) flags.push({ label: 'Circuit Open', active: true });
+  if (tradingHalted) flags.push({ label: 'Trading Halted', active: true });
+
+  return (
+    <div className={cn(
+      'flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border px-4 py-3',
+      systemOk && !circuitOpen && !tradingHalted
+        ? 'border-emerald-500/20 bg-emerald-500/[0.03]'
+        : 'border-red-500/20 bg-red-500/[0.03]'
+    )}>
+      <div className={cn(
+        'flex items-center gap-2',
+        systemOk && !circuitOpen && !tradingHalted ? 'text-emerald-400' : 'text-red-400'
+      )}>
+        <div className={cn('h-2 w-2 rounded-full', systemOk && !circuitOpen && !tradingHalted ? 'bg-emerald-400' : 'bg-red-400 animate-pulse')} />
+        <span className="text-[10px] font-semibold uppercase tracking-wider">
+          {systemOk && !circuitOpen && !tradingHalted ? 'All Systems Operational' : 'Issues Detected'}
+        </span>
+      </div>
+
+      <div className="h-4 w-px bg-admin-border hidden sm:block" />
+
+      {items.map((item) => (
+        <div key={item.label} className="flex items-center gap-1.5">
+          <item.icon className={cn('h-3 w-3', item.ok ? 'text-admin-muted' : 'text-red-400')} />
+          <span className="text-[10px] text-admin-muted">{item.label}</span>
+          {item.value && (
+            <span className={cn('text-[10px] font-bold tabular-nums', item.ok ? 'text-admin-text' : 'text-red-400')}>{item.value}</span>
+          )}
+          <div className={cn('h-1.5 w-1.5 rounded-full', item.ok ? 'bg-emerald-400' : 'bg-red-400')} />
+        </div>
+      ))}
+
+      {flags.map((f) => (
+        <span key={f.label} className="flex items-center gap-1.5 rounded-md border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-400 animate-pulse">
+          <Flame className="h-2.5 w-2.5" />
+          {f.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Alerts Banner                                                      */
+/* ------------------------------------------------------------------ */
+
+function AlertsBanner({ alerts }: { alerts: SmartAlert[] }) {
+  const severityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+  const sorted = [...alerts].sort((a, b) => (severityOrder[a.severity] ?? 9) - (severityOrder[b.severity] ?? 9));
+
+  return (
+    <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.04] p-4 space-y-2">
+      <div className="flex items-center gap-2">
+        <AlertTriangle className="h-4 w-4 text-amber-400" />
+        <span className="text-xs font-semibold text-amber-400">{alerts.length} Active Alert{alerts.length !== 1 ? 's' : ''}</span>
+      </div>
+      <div className="space-y-1.5">
+        {sorted.map((a, i) => {
+          const sevColor = a.severity === 'critical' ? 'text-red-400 bg-red-500/10 border-red-500/30'
+            : a.severity === 'high' ? 'text-orange-400 bg-orange-500/10 border-orange-500/30'
+              : 'text-amber-400 bg-amber-500/10 border-amber-500/30';
+          return (
+            <div key={i} className="flex items-center gap-3 text-xs">
+              <span className={cn('inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider', sevColor)}>
+                {a.severity}
+              </span>
+              <span className="text-admin-text">{a.message}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  KPI Tile                                                           */
+/* ------------------------------------------------------------------ */
+
+function KpiTile({ label, value, icon, color, pulse }: {
+  label: string; value: string; icon: React.ReactNode; color: string; pulse?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-admin-border bg-admin-card p-3">
+      <div className={cn('flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.04] shrink-0', color)}>
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <p className={cn('text-lg font-bold tabular-nums text-admin-text truncate', pulse && 'animate-pulse')}>{value}</p>
+        <p className="text-[9px] font-medium uppercase tracking-wider text-admin-muted">{label}</p>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Reliability Panel                                                  */
+/* ------------------------------------------------------------------ */
+
+function ReliabilityPanel({ reliability }: {
+  reliability?: {
+    sloStatus: string;
+    settlementPending: number;
+    settlementProcessed1h: number;
+    settlementSuccessRate: number;
+    circuitOpen: boolean;
+    tradingHalted: boolean;
+    orderLatencyP99: number | null;
+  } | null;
+}) {
+  const items = [
+    {
+      label: 'SLO Status',
+      value: reliability?.sloStatus ?? '—',
+      ok: reliability?.sloStatus === 'ok' || reliability?.sloStatus === 'healthy',
+    },
+    {
+      label: 'Settlement Rate',
+      value: reliability ? `${reliability.settlementSuccessRate.toFixed(1)}%` : '—',
+      ok: reliability ? reliability.settlementSuccessRate >= 99 : true,
+    },
+    {
+      label: 'Processed (1h)',
+      value: reliability?.settlementProcessed1h?.toString() ?? '—',
+      ok: true,
+    },
+    {
+      label: 'Pending',
+      value: reliability?.settlementPending?.toString() ?? '—',
+      ok: reliability ? reliability.settlementPending < 10 : true,
+    },
+    {
+      label: 'Order P99',
+      value: reliability?.orderLatencyP99 != null ? `${reliability.orderLatencyP99}ms` : '—',
+      ok: reliability?.orderLatencyP99 != null ? reliability.orderLatencyP99 < 500 : true,
+    },
+    {
+      label: 'Circuit Breaker',
+      value: reliability?.circuitOpen ? 'OPEN' : 'Closed',
+      ok: !reliability?.circuitOpen,
+    },
+  ];
+
+  return (
+    <div className="rounded-xl border border-admin-border bg-admin-card overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-admin-border px-4 py-3">
+        <TrendingUp className="h-4 w-4 text-blue-400" />
+        <span className="text-xs font-semibold text-admin-text">System Reliability</span>
+        <Link href="/monitoring" className="ml-auto text-[10px] text-admin-primary hover:underline flex items-center gap-1">
+          Monitoring <ChevronRight className="h-3 w-3" />
+        </Link>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-px bg-admin-border/30">
+        {items.map((item) => (
+          <div key={item.label} className="bg-admin-card px-3 py-3">
+            <p className="text-[10px] text-admin-muted uppercase tracking-wider">{item.label}</p>
+            <div className="flex items-center gap-1.5 mt-1">
+              <div className={cn('h-1.5 w-1.5 rounded-full', item.ok ? 'bg-emerald-400' : 'bg-red-400 animate-pulse')} />
+              <p className={cn('text-sm font-bold tabular-nums', item.ok ? 'text-admin-text' : 'text-red-400')}>{item.value}</p>
+            </div>
+          </div>
         ))}
       </div>
+    </div>
+  );
+}
 
-      <Card compact>
-        <CardContent className="space-y-3 p-0 text-sm text-admin-muted leading-relaxed">
-          <p className="font-medium text-admin-text">Need something else?</p>
-          <p>
-            Treasury, risk, and user tooling live in the primary navigation. This hub stays focused on keeping the
-            exchange technically healthy. If a destination 404s in your deployment, confirm the feature flag or route is
-            enabled for your build.
-          </p>
-          <p className="text-xs">
-            Tip: open Monitoring and Admin control in separate tabs during incidents so state-changing actions never
-            happen without a telemetry pane visible.
-          </p>
-        </CardContent>
-      </Card>
+/* ------------------------------------------------------------------ */
+/*  Ops Incidents Panel                                                */
+/* ------------------------------------------------------------------ */
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card compact className="bg-admin-card">
-          <CardContent className="space-y-2 p-0 text-sm text-admin-muted leading-relaxed">
-            <p className="font-medium text-admin-text">Operational cadence</p>
-            <ol className="list-decimal space-y-2 pl-5">
-              <li>Confirm monitoring green after every production deploy.</li>
-              <li>Review incidents weekly—even resolved ones—for missing runbook steps.</li>
-              <li>Rotate integration credentials on the same schedule as API wallets.</li>
-              <li>Reconcile infrastructure capacity ahead of major market listings.</li>
-            </ol>
-          </CardContent>
-        </Card>
-        <Card compact className="bg-admin-card">
-          <CardContent className="space-y-2 p-0 text-sm text-admin-muted leading-relaxed">
-            <p className="font-medium text-admin-text">When to escalate</p>
-            <ul className="list-disc space-y-2 pl-5">
-              <li>User balances diverge from chain state or internal ledger projections.</li>
-              <li>Matching latency crosses your internal SLO for more than two poll intervals.</li>
-              <li>Any automated circuit triggers without a human acknowledgement record.</li>
-              <li>Third-party custody or banking integrations return repeated 5xx responses.</li>
-              <li>Regulatory inbox receives repeated fraud or sanctions hits within a single hour.</li>
-            </ul>
-          </CardContent>
-        </Card>
+function OpsIncidentsPanel({ incidents }: { incidents: OpsIncident[] }) {
+  const active = incidents.filter((i) => i.count > 0);
+
+  return (
+    <div className="rounded-xl border border-admin-border bg-admin-card overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-admin-border px-4 py-3">
+        <Siren className="h-4 w-4 text-orange-400" />
+        <span className="text-xs font-semibold text-admin-text">Operational Counters</span>
+        {active.length > 0 && (
+          <span className="ml-1 rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-bold text-red-400 tabular-nums animate-pulse">
+            {active.length} active
+          </span>
+        )}
+        <Link href="/incidents" className="ml-auto text-[10px] text-admin-primary hover:underline flex items-center gap-1">
+          Incidents <ChevronRight className="h-3 w-3" />
+        </Link>
       </div>
+      {incidents.length === 0 ? (
+        <div className="px-4 py-8 text-center text-xs text-admin-muted">No operational counters available.</div>
+      ) : (
+        <div className="divide-y divide-admin-border/50">
+          {incidents.map((inc) => {
+            const sevColor = inc.severity === 'critical'
+              ? 'bg-red-500/10 text-red-400 border-red-500/30'
+              : inc.severity === 'high'
+                ? 'bg-orange-500/10 text-orange-400 border-orange-500/30'
+                : 'bg-amber-500/10 text-amber-400 border-amber-500/30';
+            const isActive = inc.count > 0;
+            return (
+              <div key={inc.type} className={cn('flex items-center gap-3 px-4 py-2.5', isActive && 'bg-red-500/[0.02]')}>
+                <div className={cn('h-1.5 w-1.5 rounded-full shrink-0', isActive ? 'bg-red-400 animate-pulse' : 'bg-emerald-400')} />
+                <span className="text-xs text-admin-text flex-1">{inc.type.replace(/_/g, ' ')}</span>
+                <span className={cn('rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider', sevColor)}>
+                  {inc.severity}
+                </span>
+                <span className={cn('text-sm font-bold tabular-nums', isActive ? 'text-red-400' : 'text-admin-muted')}>
+                  {inc.count}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
-      <p className="text-center text-[11px] text-admin-muted">
-        Operations hub · routes validated for this admin build · bookmark for incident response
-      </p>
+/* ------------------------------------------------------------------ */
+/*  Playbooks Panel                                                    */
+/* ------------------------------------------------------------------ */
+
+function PlaybooksPanel({ playbooks }: { playbooks: Playbooks }) {
+  const entries = Object.entries(playbooks);
+  if (entries.length === 0) return null;
+
+  return (
+    <div className="rounded-xl border border-admin-border bg-admin-card overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-admin-border px-4 py-3">
+        <BookOpen className="h-4 w-4 text-purple-400" />
+        <span className="text-xs font-semibold text-admin-text">Operational Playbooks</span>
+        <span className="text-[10px] text-admin-muted ml-1">Quick-reference runbooks</span>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-px bg-admin-border/30">
+        {entries.map(([key, steps]) => (
+          <div key={key} className="bg-admin-card p-4">
+            <h4 className="text-xs font-semibold text-admin-text capitalize mb-2">
+              {key.replace(/_/g, ' ')}
+            </h4>
+            <div className="space-y-1">
+              {steps.split('\n').map((line, i) => (
+                <p key={i} className="text-[11px] text-admin-muted leading-relaxed">{line}</p>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Reserves Bar                                                       */
+/* ------------------------------------------------------------------ */
+
+function ReservesBar({ por }: { por: { totalLiabilities: number; totalHotReserves: number; reserveRatio: number } }) {
+  const pct = Math.min(100, por.reserveRatio * 100);
+  const ok = por.reserveRatio >= 1;
+
+  return (
+    <div className="rounded-xl border border-admin-border bg-admin-card p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Wallet className="h-4 w-4 text-emerald-400" />
+          <span className="text-xs font-semibold text-admin-text">Proof of Reserves</span>
+        </div>
+        <div className="flex items-center gap-4 text-[10px] text-admin-muted">
+          <span>Liabilities: <b className="text-admin-text">${por.totalLiabilities.toLocaleString(undefined, { maximumFractionDigits: 2 })}</b></span>
+          <span>Hot Reserves: <b className="text-admin-text">${por.totalHotReserves.toLocaleString(undefined, { maximumFractionDigits: 2 })}</b></span>
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between text-[10px]">
+          <span className="text-admin-muted">Reserve ratio</span>
+          <span className={cn('font-bold tabular-nums', ok ? 'text-emerald-400' : 'text-red-400')}>
+            {pct.toFixed(1)}%
+          </span>
+        </div>
+        <div className="h-2 rounded-full bg-white/[0.06] overflow-hidden">
+          <div
+            className={cn('h-full rounded-full transition-all duration-500', ok ? 'bg-emerald-500' : 'bg-red-500')}
+            style={{ width: `${Math.min(100, pct)}%` }}
+          />
+        </div>
+        <div className="flex items-center gap-1 text-[10px]">
+          {ok ? (
+            <>
+              <ShieldCheck className="h-3 w-3 text-emerald-400" />
+              <span className="text-emerald-400 font-medium">Fully collateralized</span>
+            </>
+          ) : (
+            <>
+              <AlertTriangle className="h-3 w-3 text-red-400" />
+              <span className="text-red-400 font-medium">Under-collateralized — review immediately</span>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Tip Card                                                           */
+/* ------------------------------------------------------------------ */
+
+function TipCard({ title, items, ordered }: { title: string; items: string[]; ordered?: boolean }) {
+  const Tag = ordered ? 'ol' : 'ul';
+  return (
+    <div className="rounded-xl border border-admin-border bg-admin-card p-4 space-y-2">
+      <p className="text-xs font-semibold text-admin-text">{title}</p>
+      <Tag className={cn('space-y-1.5 pl-4 text-[11px] text-admin-muted leading-relaxed', ordered ? 'list-decimal' : 'list-disc')}>
+        {items.map((item, i) => (
+          <li key={i}>{item}</li>
+        ))}
+      </Tag>
     </div>
   );
 }

@@ -57,8 +57,14 @@ const BACKOFF_FACTOR = 1.5;
 
 function getWsBaseUrl(): string {
   if (typeof window === 'undefined') return '';
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}`;
+  const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000').replace(/\/$/, '');
+  try {
+    const url = new URL(apiBase);
+    const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${url.host}`;
+  } catch {
+    return 'ws://localhost:4000';
+  }
 }
 
 function getBackoffMs(attempt: number): number {

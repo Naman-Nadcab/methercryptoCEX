@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { Modal, ModalFooter } from '@/components/ui/Modal';
 import { ProtectedAction } from '@/components/rbac/ProtectedAction';
 import { usePermission } from '@/hooks/usePermission';
+import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 import {
   Database, Download, RotateCcw, Plus, AlertTriangle, ShieldAlert,
 } from 'lucide-react';
@@ -60,7 +61,7 @@ export default function BackupsPage() {
 
   const [restoreTarget, setRestoreTarget] = useState<BackupRow | null>(null);
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['admin', 'backups', token],
     staleTime: 30_000,
     queryFn: () =>
@@ -111,12 +112,10 @@ export default function BackupsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-semibold text-admin-text">Database Backups</h1>
-          <p className="text-xs text-admin-muted mt-0.5">Manage database snapshots and restores.</p>
-        </div>
+    <AdminPageFrame
+      title="Database Backups"
+      description="Manage database snapshots and restores. Super admin only."
+      quickActions={
         <ProtectedAction permission="all" fallback="disabled">
           <Button
             size="sm"
@@ -127,17 +126,41 @@ export default function BackupsPage() {
             Create Backup
           </Button>
         </ProtectedAction>
-      </div>
+      }
+    >
+      {/* KPI strip */}
+      {backups.length > 0 && (() => {
+        const completed = backups.filter((b) => b.status === 'completed');
+        const failed = backups.filter((b) => b.status === 'failed');
+        const totalBytes = completed.reduce((sum, b) => sum + (b.sizeBytes ?? 0), 0);
+        const latest = completed[0];
+        return (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {[
+              { label: 'Total Backups', value: String(backups.length), color: 'text-admin-text' },
+              { label: 'Completed', value: String(completed.length), color: 'text-emerald-400' },
+              { label: 'Failed', value: String(failed.length), color: failed.length > 0 ? 'text-red-400' : 'text-admin-muted' },
+              { label: 'Latest', value: latest ? formatDate(latest.createdAt) : '—', color: 'text-admin-text' },
+              { label: 'Storage Used', value: formatBytes(totalBytes), color: 'text-blue-400' },
+            ].slice(0, 4).map((k) => (
+              <div key={k.label} className="rounded-xl border border-admin-border bg-admin-card px-4 py-3">
+                <p className="text-xs text-admin-muted">{k.label}</p>
+                <p className={`mt-1 text-lg font-semibold tabular-nums ${k.color}`}>{k.value}</p>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       {createMutation.isSuccess && (
-        <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-2.5 text-xs text-green-800 flex items-center gap-2">
+        <div className="rounded-lg border border-emerald-500/30 bg-emerald-950/20 px-4 py-2.5 text-xs text-emerald-400 flex items-center gap-2">
           <Download className="h-3.5 w-3.5" />
           Backup initiated successfully. It will appear in the list below once complete.
         </div>
       )}
 
       {createMutation.isError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-xs text-red-700 flex items-center gap-2">
+        <div className="rounded-lg border border-red-500/30 bg-red-950/20 px-4 py-2.5 text-xs text-red-400 flex items-center gap-2">
           <AlertTriangle className="h-3.5 w-3.5" />
           Failed to create backup. Please try again.
         </div>
@@ -219,7 +242,7 @@ export default function BackupsPage() {
         title="Request Database Restore"
         description={`Restore from backup ${restoreTarget?.id.slice(0, 8) ?? ''} created on ${restoreTarget ? formatDate(restoreTarget.createdAt) : ''}.`}
       >
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800 mb-4">
+        <div className="rounded-lg border border-amber-500/30 bg-amber-950/20 px-3 py-2.5 text-xs text-amber-400 mb-4">
           <div className="flex items-start gap-2">
             <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
             <span>
@@ -230,7 +253,7 @@ export default function BackupsPage() {
         </div>
 
         {restoreMutation.isError && (
-          <div className="rounded-lg bg-red-50 border border-red-200 p-2 text-xs text-red-700 mb-4">
+          <div className="rounded-lg border border-red-500/30 bg-red-950/20 p-2 text-xs text-red-400 mb-4">
             Failed to submit restore request. Please try again.
           </div>
         )}
@@ -255,6 +278,6 @@ export default function BackupsPage() {
           </Button>
         </ModalFooter>
       </Modal>
-    </div>
+    </AdminPageFrame>
   );
 }

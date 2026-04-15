@@ -15,6 +15,7 @@ import { DetailSkeleton } from '@/components/ui';
 import { useAdminWs } from '@/hooks/useAdminWs';
 import { ArrowLeft, DollarSign, BarChart3 } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 
 function formatDate(s: string | undefined): string {
   if (!s) return '—';
@@ -129,6 +130,7 @@ export default function MarketDetailPage() {
       : String(market.symbol ?? symbol).replace(/_/g, '/');
 
   return (
+    <AdminPageFrame title={displaySymbol} description="Market details">
     <div className="space-y-5">
       <div className="flex items-center gap-4">
         <Link href="/markets">
@@ -413,5 +415,6 @@ export default function MarketDetailPage() {
         </>
       )}
     </div>
+    </AdminPageFrame>
   );
 }

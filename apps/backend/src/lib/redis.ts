@@ -25,15 +25,15 @@ class RedisClient {
 
   private constructor() {
     const baseOptions: RedisOptions = {
-      maxRetriesPerRequest: 3,
+      maxRetriesPerRequest: 1,
       retryStrategy(times) {
         const persistent = config.redis.retryMode === 'persistent';
         if (!persistent && times > 20) return null;
         return Math.min(Math.pow(2, Math.min(times, 14)) * 50, 30_000);
       },
-      connectTimeout: 10_000,
-      /** Avoid hanging requests (e.g. auth rate-limit) when Redis stops responding mid-session. */
-      commandTimeout: 10_000,
+      connectTimeout: 2_000,
+      commandTimeout: 2_000,
+      enableOfflineQueue: false,
       ...(config.redis.password && { password: config.redis.password }),
     };
 
@@ -136,17 +136,26 @@ class RedisClient {
     logger.info('✓ Redis all clients ready (persistent retry mode for reconnects)');
   }
 
+  private static readonly OP_TIMEOUT_MS = 3_000;
+
+  private safeExec<T>(fn: () => Promise<T>, label: string): Promise<T> {
+    const status = this.client.status;
+    if (status !== 'ready') {
+      return Promise.reject(new Error(`Redis unavailable (status: ${status}) for ${label}`));
+    }
+    return withTimeout(fn(), RedisClient.OP_TIMEOUT_MS, `redis:${label}`);
+  }
+
   // Basic operations
   async get(key: string): Promise<string | null> {
-    return this.client.get(key);
+    return this.safeExec(() => this.client.get(key), 'get');
   }
 
   async set(key: string, value: string, ttlSeconds?: number): Promise<void> {
-    if (ttlSeconds) {
-      await this.client.setex(key, ttlSeconds, value);
-    } else {
-      await this.client.set(key, value);
-    }
+    await this.safeExec(
+      () => ttlSeconds ? this.client.setex(key, ttlSeconds, value) : this.client.set(key, value) as unknown as Promise<void>,
+      'set',
+    );
   }
 
   /**
@@ -154,24 +163,27 @@ class RedisClient {
    * Returns true if the key was set, false if key already existed.
    */
   async setNxEx(key: string, value: string, exSeconds: number): Promise<boolean> {
-    const result = await this.client.set(key, value, 'EX', exSeconds, 'NX');
-    return result === 'OK';
+    return this.safeExec(async () => {
+      const result = await this.client.set(key, value, 'EX', exSeconds, 'NX');
+      return result === 'OK';
+    }, 'setNxEx');
   }
 
   async del(key: string): Promise<void> {
-    await this.client.del(key);
+    await this.safeExec(() => this.client.del(key).then(() => {}), 'del');
   }
 
   /** Atomic get+delete (Redis 6.2+ GETDEL); fallback if server or client lacks command. */
   async getDel(key: string): Promise<string | null> {
-    try {
-      const r = (await this.client.call('GETDEL', key)) as string | null;
-      return r;
-    } catch {
-      const v = await this.get(key);
-      if (v != null) await this.del(key);
-      return v;
-    }
+    return this.safeExec(async () => {
+      try {
+        return (await this.client.call('GETDEL', key)) as string | null;
+      } catch {
+        const v = await this.client.get(key);
+        if (v != null) await this.client.del(key);
+        return v;
+      }
+    }, 'getDel');
   }
 
   async getDelJson<T>(key: string): Promise<T | null> {
@@ -185,36 +197,40 @@ class RedisClient {
   }
 
   async exists(key: string): Promise<boolean> {
-    const result = await this.client.exists(key);
-    return result === 1;
+    return this.safeExec(async () => {
+      const result = await this.client.exists(key);
+      return result === 1;
+    }, 'exists');
   }
 
   /** Return keys matching pattern (e.g. 'monitoring:*'). Use sparingly; prefer SCAN in production. */
   async keys(pattern: string): Promise<string[]> {
-    return this.client.keys(pattern);
+    return this.safeExec(() => this.client.keys(pattern), 'keys');
   }
 
   async incr(key: string): Promise<number> {
-    return this.client.incr(key);
+    return this.safeExec(() => this.client.incr(key), 'incr');
   }
 
   async expire(key: string, seconds: number): Promise<void> {
-    await this.client.expire(key, seconds);
+    await this.safeExec(() => this.client.expire(key, seconds).then(() => {}), 'expire');
   }
 
   async ttl(key: string): Promise<number> {
-    return this.client.ttl(key);
+    return this.safeExec(() => this.client.ttl(key), 'ttl');
   }
 
   // JSON operations
   async getJson<T>(key: string): Promise<T | null> {
-    const value = await this.client.get(key);
-    if (!value) return null;
-    try {
-      return JSON.parse(value) as T;
-    } catch {
-      return null;
-    }
+    return this.safeExec(async () => {
+      const value = await this.client.get(key);
+      if (!value) return null;
+      try {
+        return JSON.parse(value) as T;
+      } catch {
+        return null;
+      }
+    }, 'getJson');
   }
 
   async setJson<T>(key: string, value: T, ttlSeconds?: number): Promise<void> {
@@ -223,19 +239,19 @@ class RedisClient {
 
   // Hash operations
   async hget(key: string, field: string): Promise<string | null> {
-    return this.client.hget(key, field);
+    return this.safeExec(() => this.client.hget(key, field), 'hget');
   }
 
   async hset(key: string, field: string, value: string): Promise<void> {
-    await this.client.hset(key, field, value);
+    await this.safeExec(() => this.client.hset(key, field, value).then(() => {}), 'hset');
   }
 
   async hgetall(key: string): Promise<Record<string, string>> {
-    return this.client.hgetall(key);
+    return this.safeExec(() => this.client.hgetall(key), 'hgetall');
   }
 
   async hdel(key: string, field: string): Promise<void> {
-    await this.client.hdel(key, field);
+    await this.safeExec(() => this.client.hdel(key, field).then(() => {}), 'hdel');
   }
 
   async hincrby(key: string, field: string, increment: number): Promise<number> {
@@ -330,23 +346,25 @@ class RedisClient {
     limit: number,
     windowSeconds: number
   ): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
-    const now = Date.now();
-    const windowStart = now - windowSeconds * 1000;
+    return this.safeExec(async () => {
+      const now = Date.now();
+      const windowStart = now - windowSeconds * 1000;
 
-    const multi = this.client.multi();
-    multi.zremrangebyscore(key, 0, windowStart);
-    multi.zadd(key, now, `${now}-${Math.random()}`);
-    multi.zcard(key);
-    multi.expire(key, windowSeconds);
+      const multi = this.client.multi();
+      multi.zremrangebyscore(key, 0, windowStart);
+      multi.zadd(key, now, `${now}-${Math.random()}`);
+      multi.zcard(key);
+      multi.expire(key, windowSeconds);
 
-    const results = await multi.exec();
-    const count = results?.[2]?.[1] as number;
+      const results = await multi.exec();
+      const count = results?.[2]?.[1] as number;
 
-    return {
-      allowed: count <= limit,
-      remaining: Math.max(0, limit - count),
-      resetAt: now + windowSeconds * 1000,
-    };
+      return {
+        allowed: count <= limit,
+        remaining: Math.max(0, limit - count),
+        resetAt: now + windowSeconds * 1000,
+      };
+    }, 'rateLimit');
   }
 
   // Pub/Sub

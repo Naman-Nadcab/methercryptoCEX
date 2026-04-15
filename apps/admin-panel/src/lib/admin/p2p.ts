@@ -81,3 +81,11 @@ export async function freezeEscrow(token: string | null, escrowId: string, reaso
 export async function unfreezeEscrow(token: string | null, escrowId: string) {
   return adminFetch(`/escrows/${escrowId}/unfreeze`, { method: 'POST', token });
 }
+
+export async function freezeP2pUser(token: string | null, userId: string, reason: string) {
+  return adminFetch(`/users/${userId}/status`, {
+    method: 'PATCH',
+    token,
+    body: { status: 'suspended', reason },
+  });
+}

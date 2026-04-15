@@ -169,6 +169,7 @@ export function deleteSettingsTradingPair(token: string | null, id: string) {
   return adminFetch<{ deleted: boolean }>(`/settings/trading-pairs/${encodeURIComponent(id)}`, {
     method: 'DELETE',
     token,
+    body: {},
   });
 }
 

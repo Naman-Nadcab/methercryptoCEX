@@ -19,6 +19,7 @@ export {
   getEscrows as getP2pEscrows,
   freezeEscrow,
   unfreezeEscrow,
+  freezeP2pUser,
 } from './p2p';
 export {
   getSettings,

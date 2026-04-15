@@ -126,6 +126,31 @@ interface P2PAdFilters {
 }
 
 class P2PService {
+  /** Admin kill-switch: system_settings.admin_p2p_orders_paused */
+  private async isP2PAdminPaused(): Promise<boolean> {
+    try {
+      const r = await db.query<{ value: unknown }>(
+        `SELECT value FROM system_settings WHERE key = 'admin_p2p_orders_paused' LIMIT 1`
+      );
+      if (r.rows.length === 0) return false;
+      const v = r.rows[0]!.value;
+      if (v === true || v === 1) return true;
+      const s = typeof v === 'string' ? v.trim() : '';
+      if (s === '1' || s.toLowerCase() === 'true') return true;
+      if (s.startsWith('{')) {
+        try {
+          const p = JSON.parse(s) as { enabled?: boolean };
+          return p.enabled === true;
+        } catch {
+          return false;
+        }
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Create a new P2P advertisement
    */
@@ -463,6 +488,10 @@ class P2PService {
    */
   async createOrder(params: CreateOrderParams): Promise<P2POrder> {
     const { userId, adId, quantity, paymentMethodId } = params;
+
+    if (await this.isP2PAdminPaused()) {
+      throw new Error('P2P order placement is temporarily paused by exchange operators.');
+    }
 
     // Resolve sellerId for seller-level lock (need ad type)
     const adPreview = await db.query<{ user_id: string; type: string }>(

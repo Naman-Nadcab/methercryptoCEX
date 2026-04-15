@@ -5,6 +5,7 @@
  */
 import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
+import { broadcastAdminControlEvent } from './admin-events-ws.service.js';
 
 const KEY_TRADING = 'mm_circuit:pause_trading';
 const KEY_ORDERS = 'mm_circuit:block_new_orders';
@@ -80,7 +81,16 @@ export async function setMmCircuitState(
     logger.error('MM circuit Redis write failed', { error: e instanceof Error ? e.message : String(e) });
     throw e;
   }
-  return getMmCircuitState();
+  const newState = await getMmCircuitState();
+  try {
+    broadcastAdminControlEvent('mm_circuit_changed', {
+      tradingPaused: newState.tradingPaused,
+      orderPlacementBlocked: newState.orderPlacementBlocked,
+      autoManaged: newState.autoManaged,
+      source: opts?.source ?? 'admin',
+    });
+  } catch { /* best-effort */ }
+  return newState;
 }
 
 /** Clear auto latch only (after auto recovery). */

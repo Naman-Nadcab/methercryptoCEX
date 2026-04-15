@@ -8,8 +8,10 @@ import { UnifiedSidebar } from './UnifiedSidebar';
 import { UnifiedTopbar } from './UnifiedTopbar';
 import { RightPanel } from './RightPanel';
 import { GlobalCommandPalette } from './GlobalCommandPalette';
+import { GlobalActionBar } from './GlobalActionBar';
 import { LegacyWrapper } from './LegacyWrapper';
 import { NewPageWrapper } from './NewPageWrapper';
+import { AlertDrawer } from '@/components/admin-v2/AlertDrawer';
 import { cn } from '@/lib/cn';
 
 interface AppShellProps {
@@ -28,6 +30,7 @@ function AppShellInner({ children }: AppShellProps) {
 
       <div className={cn('transition-all duration-200', collapsed ? 'pl-[72px]' : 'pl-60')}>
         <UnifiedTopbar />
+        <GlobalActionBar />
 
         <main className="min-h-screen">
           <LegacyWrapper>{children}</LegacyWrapper>
@@ -38,6 +41,7 @@ function AppShellInner({ children }: AppShellProps) {
 
       {/* Global Command Palette — available on ALL pages via Cmd+K */}
       <GlobalCommandPalette />
+      <AlertDrawer />
     </div>
   );
 }

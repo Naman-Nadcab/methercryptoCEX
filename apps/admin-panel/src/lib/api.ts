@@ -52,13 +52,16 @@ export async function adminFetch<T = unknown>(
   }
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
-    'Content-Type': 'application/json',
     ...customHeaders,
   };
+  const hasBody = body != null;
+  if (hasBody) {
+    headers['Content-Type'] = 'application/json';
+  }
   const res = await fetch(url, {
     method,
     headers,
-    body: body != null ? JSON.stringify(body) : undefined,
+    body: hasBody ? JSON.stringify(body) : undefined,
   });
   const json = (await res.json().catch(() => ({}))) as AdminApiResponse<T>;
   if (!res.ok) {
@@ -186,6 +189,39 @@ export async function getWithdrawals(
 
 export async function getControlOverview(token: string | null) {
   return adminFetch<{ markets?: { total?: number; active?: number }; settlement?: unknown }>('/control/overview', { token });
+}
+
+export type ExchangeHealthTier1 = {
+  overall: 'GREEN' | 'YELLOW' | 'RED';
+  reasons: string[];
+  components: Record<string, unknown>;
+  timestamp: string;
+};
+
+export async function getExchangeHealthTier1(token: string | null) {
+  return adminFetch<ExchangeHealthTier1>('/control/exchange-health-tier1', { token });
+}
+
+export async function postGlobalControlAction(
+  token: string | null,
+  body: { action: string; reason?: string; market?: string; twofa_code?: string }
+) {
+  return adminFetch<Record<string, unknown>>('/control/global-action', { method: 'POST', body, token });
+}
+
+export async function getPageAuditReport(token: string | null) {
+  return adminFetch<{
+    summary: string;
+    generated_at: string;
+    results: Array<{
+      page: string;
+      path: string;
+      status: 'WORKING' | 'PARTIAL' | 'BROKEN';
+      httpStatus: number;
+      detail?: string;
+    }>;
+    note?: string;
+  }>('/system/page-audit', { token });
 }
 
 export async function getDeposits(

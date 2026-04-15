@@ -8,7 +8,7 @@ import { Loader2, BarChart3, RefreshCw, X as XIcon, Search, ChevronRight, Downlo
 import { P2P_HREF, SPOT_TRADE_HREF } from '@/lib/routes';
 import { CoinIcon } from '@/components/ui/CoinIcon';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { api } from '@/lib/api';
 import { getMessageFromApiError } from '@/lib/errorMessages';
 import { fetchMyOrders } from '@/lib/p2pApi';
 
@@ -46,10 +46,7 @@ export default function OrdersHubPage() {
     if (!accessToken) return;
     setOpenLoading(true);
     try {
-      const res = await fetch(`${getApiBaseUrl()}/api/v1/spot/orders?status=OPEN&limit=100`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const json = await res.json().catch(() => ({}));
+      const json = await api.get<{ orders: SpotOrder[] }>('/api/v1/spot/orders?status=OPEN&limit=100', { notifyOnError: false });
       setOpenOrders(json.success && json.data?.orders ? json.data.orders : []);
     } catch { setOpenOrders([]); }
     finally { setOpenLoading(false); }
@@ -59,14 +56,11 @@ export default function OrdersHubPage() {
     if (!accessToken) return;
     append ? setHistoryLoadingMore(true) : setHistoryLoading(true);
     try {
-      const url = new URL(`${getApiBaseUrl()}/api/v1/spot/orders`);
-      url.searchParams.set('status', 'HISTORY');
-      url.searchParams.set('limit', '50');
-      if (cursor) url.searchParams.set('cursor', cursor);
-      const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
-      const json = await res.json().catch(() => ({}));
+      const params = new URLSearchParams({ status: 'HISTORY', limit: '50' });
+      if (cursor) params.set('cursor', cursor);
+      const json = await api.get<{ orders: SpotOrder[]; next_cursor?: string }>(`/api/v1/spot/orders?${params}`, { notifyOnError: false });
       if (json.success && json.data?.orders) {
-        setHistoryOrders(prev => append ? [...prev, ...json.data.orders] : json.data.orders);
+        setHistoryOrders(prev => append ? [...prev, ...json.data!.orders] : json.data!.orders);
         setHistoryCursor(json.data.next_cursor ?? null);
       } else if (!append) { setHistoryOrders([]); setHistoryCursor(null); }
     } catch { if (!append) { setHistoryOrders([]); setHistoryCursor(null); } }
@@ -96,10 +90,7 @@ export default function OrdersHubPage() {
     setCancellingId(orderId);
     setError(null);
     try {
-      const res = await fetch(`${getApiBaseUrl()}/api/v1/spot/orders/${encodeURIComponent(orderId)}/cancel`, {
-        method: 'POST', headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const json = await res.json().catch(() => ({}));
+      const json = await api.post(`/api/v1/spot/orders/${encodeURIComponent(orderId)}/cancel`, undefined, { notifyOnError: false });
       if (json.success) {
         setOpenOrders(prev => prev.filter(o => o.id !== orderId));
         queryClient.invalidateQueries({ queryKey: ['balances'] });

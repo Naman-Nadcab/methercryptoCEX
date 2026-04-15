@@ -10,6 +10,7 @@ import { WithdrawalRiskBadge } from '@/components/withdrawals/WithdrawalRiskBadg
 import { Button } from '@/components/ui/Button';
 import { DetailSkeleton } from '@/components/ui';
 import { User } from 'lucide-react';
+import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 
 function formatDate(s: string | undefined): string {
   if (!s) return '—';
@@ -57,6 +58,7 @@ export default function WithdrawalDetailPage() {
   const isLargeWithdrawal = w.risk_flags?.includes('Large Withdrawal');
 
   return (
+    <AdminPageFrame title={`Withdrawal ${String(w.id).slice(0, 8)}…`} description="Status, risk, and payout details">
     <div className="space-y-5">
       <div className="flex items-center gap-2">
         <button
@@ -152,5 +154,6 @@ export default function WithdrawalDetailPage() {
         </div>
       </div>
     </div>
+    </AdminPageFrame>
   );
 }

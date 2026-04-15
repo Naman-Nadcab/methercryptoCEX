@@ -18,7 +18,9 @@ export type AdminControlEventType =
   | 'service_restarted'
   | 'liquidity_kill_activated'
   | 'health_score_updated'
-  | 'timeline_event';
+  | 'timeline_event'
+  | 'mm_circuit_changed'
+  | 'admin_session_terminated';
 
 export interface AdminControlEventMessage {
   event: AdminControlEventType;
@@ -83,6 +85,8 @@ const ALWAYS_BROADCAST: Set<AdminControlEventType> = new Set([
   'emergency_level_changed',
   'liquidity_kill_activated',
   'service_restarted',
+  'mm_circuit_changed',
+  'admin_session_terminated',
 ]);
 
 export function broadcastAdminControlEvent(event: AdminControlEventType, payload: Record<string, unknown>): void {

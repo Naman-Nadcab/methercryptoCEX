@@ -21,23 +21,24 @@ export type Permission =
   | 'kyc:review'
   | 'deposits:credit' | 'deposits:view'
   | 'users:view' | 'users:edit'
-  | 'p2p:disputes'
+  | 'p2p:disputes' | 'p2p:escrow'
   | 'aml:view' | 'aml:escalate'
   | 'monitoring:view'
   | 'settings:edit' | 'settings:view'
   | 'control:commands' | 'control:trading'
   | 'markets:manage'
-  | 'treasury:sweep'
+  | 'treasury:sweep' | 'treasury:view'
+  | 'mm:control' | 'mm:view'
   | 'risk:export'
   | 'audit:view'
   | 'analytics:view';
 
 const ROLE_PERMISSIONS: Record<string, Permission[]> = {
   super_admin:    ['all'],
-  risk_manager:   ['monitoring:view', 'aml:view', 'aml:escalate', 'users:view', 'control:trading', 'markets:manage', 'risk:export', 'analytics:view', 'audit:view'],
-  finance_admin:  ['withdrawals:approve', 'withdrawals:view', 'deposits:credit', 'deposits:view', 'users:view', 'monitoring:view', 'markets:manage', 'treasury:sweep', 'analytics:view', 'audit:view'],
-  support_agent:  ['users:view', 'users:edit', 'kyc:review', 'deposits:view', 'withdrawals:view', 'p2p:disputes'],
-  auditor:        ['audit:view', 'monitoring:view', 'analytics:view', 'users:view', 'withdrawals:view', 'deposits:view', 'settings:view', 'risk:export'],
+  risk_manager:   ['monitoring:view', 'aml:view', 'aml:escalate', 'users:view', 'control:trading', 'markets:manage', 'risk:export', 'analytics:view', 'audit:view', 'mm:view', 'treasury:view'],
+  finance_admin:  ['withdrawals:approve', 'withdrawals:view', 'deposits:credit', 'deposits:view', 'users:view', 'monitoring:view', 'markets:manage', 'treasury:sweep', 'treasury:view', 'analytics:view', 'audit:view'],
+  support_agent:  ['users:view', 'users:edit', 'kyc:review', 'deposits:view', 'withdrawals:view', 'p2p:disputes', 'p2p:escrow'],
+  auditor:        ['audit:view', 'monitoring:view', 'analytics:view', 'users:view', 'withdrawals:view', 'deposits:view', 'settings:view', 'risk:export', 'mm:view', 'treasury:view'],
 };
 
 const SUPER_ROLES = new Set(['super_admin', 'super admin']);

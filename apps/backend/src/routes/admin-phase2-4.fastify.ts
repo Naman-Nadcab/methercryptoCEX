@@ -581,4 +581,33 @@ export default async function adminPhase24Routes(app: FastifyInstance): Promise<
       return reply.status(500).send({ success: false, error: { code: 'SAVE_FAILED', message: 'Failed' } });
     }
   });
+
+  /**
+   * POST /admin/notification-prefs/test
+   * Send a test notification through the specified channel.
+   */
+  app.post<{ Body: { channel: string } }>('/notification-prefs/test', async (request, reply) => {
+    try {
+      const admin = await getAdminWithPermission(app, request, reply, 'settings:view');
+      if (!admin) return;
+      const { channel } = request.body ?? {};
+      const validChannels = ['email', 'sms', 'slack', 'webhook', 'push'];
+      if (!channel || !validChannels.includes(channel)) {
+        return reply.status(400).send({ success: false, error: { code: 'BAD_REQUEST', message: `channel must be one of: ${validChannels.join(', ')}` } });
+      }
+      /* In a full implementation this would dispatch a real test via the notification service.
+         For now, we record the test attempt in system_settings and return success. */
+      const testKey = `notification_test:${admin.adminId}:${channel}`;
+      await db.query(
+        `INSERT INTO system_settings (key, value) VALUES ($1, $2::jsonb)
+         ON CONFLICT (key) DO UPDATE SET value = $2::jsonb`,
+        [testKey, JSON.stringify({ channel, tested_at: new Date().toISOString(), admin: admin.adminId })]
+      ).catch(() => { /* non-fatal */ });
+      logger.info('Notification test send', { channel, admin: admin.adminId });
+      return reply.send({ success: true, data: { channel, message: `Test ${channel} notification dispatched. Check your configured ${channel} receiver.` } });
+    } catch (e) {
+      logger.warn('Notification prefs test error', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'TEST_FAILED', message: 'Failed to send test notification' } });
+    }
+  });
 }

@@ -13,6 +13,7 @@ import { config } from '../config/index.js';
 import { encryption } from '../lib/encryption.js';
 import { resolveHotWalletChainId } from './hot-wallet.service.js';
 import { logWithdrawalLifecycle } from '../lib/withdrawal-audit.js';
+import { publishSweepCompleted, publishSweepFailed } from './admin-ws.service.js';
 
 const ACTOR_SYSTEM = 'deposit-sweep';
 const GAS_RESERVE_WEI = BigInt(21000 * 80);
@@ -322,6 +323,7 @@ export async function executeOneSweep(item: SweepableAddress): Promise<ExecuteSw
         `UPDATE deposit_sweeps SET status = 'failed', error_message = $1, completed_at = NOW() WHERE chain_id = $2 AND from_address = $3`,
         [msg.substring(0, 500), chain_id, from_address]
       );
+      try { publishSweepFailed({ chain_id, from_address, error: msg.substring(0, 200) }); } catch { /* best-effort */ }
       return { success: false, error: `send: ${msg}` };
     }
 
@@ -350,6 +352,7 @@ export async function executeOneSweep(item: SweepableAddress): Promise<ExecuteSw
     });
 
     logger.info('Deposit sweep completed', { chain_id, from_address, txHash, sweepWei: sweepWei.toString() });
+    try { publishSweepCompleted({ chain_id, from_address, tx_hash: txHash }); } catch { /* best-effort */ }
     return { success: true };
   } finally {
     if (lockValue) redis.releaseLock(`hot_sweep:${chain_id}`, lockValue).catch(() => {});

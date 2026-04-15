@@ -3129,6 +3129,13 @@ const migrations = [
 
   // Multi-RPC quorum: secondary EVM JSON-RPC URL (optional; treasury reconcile requires 2 agreeing reads when both set)
   `ALTER TABLE chains ADD COLUMN IF NOT EXISTS rpc_url_secondary TEXT;`,
+
+  // Ensure p2p_orders has all timestamp columns (might be missing if table was created before this column existed)
+  `ALTER TABLE p2p_orders ADD COLUMN IF NOT EXISTS payment_confirmed_at TIMESTAMP WITH TIME ZONE;`,
+  `ALTER TABLE p2p_orders ADD COLUMN IF NOT EXISTS released_at TIMESTAMP WITH TIME ZONE;`,
+  `ALTER TABLE p2p_orders ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP WITH TIME ZONE;`,
+  `ALTER TABLE p2p_orders ADD COLUMN IF NOT EXISTS cancel_reason TEXT;`,
+  `ALTER TABLE p2p_orders ADD COLUMN IF NOT EXISTS status VARCHAR(20);`,
 ];
 
 /** True if this migration SQL touches the legacy "balances" table (not user_balances). Run such steps via raw pool so runtime guard does not block. */

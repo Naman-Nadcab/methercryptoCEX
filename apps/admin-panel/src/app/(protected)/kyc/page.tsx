@@ -19,6 +19,7 @@ import {
   TableSkeleton,
 } from '@/components/ui';
 import { cn } from '@/lib/cn';
+import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 import { ProtectedAction } from '@/components/rbac/ProtectedAction';
 import { useAdminWs } from '@/hooks/useAdminWs';
 
@@ -140,6 +141,7 @@ export default function KycManagementPage() {
     isError,
     error,
     isFetching,
+    refetch,
   } = useQuery({
     queryKey: ['admin', 'kyc-list', token, page, statusTab],
     staleTime: 30_000,
@@ -215,24 +217,23 @@ export default function KycManagementPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-lg font-semibold text-admin-text">KYC Verification</h1>
-        <p className="text-xs text-admin-muted mt-0.5">
-          Review identity submissions, approve or reject with documented reasons.
-        </p>
-      </div>
+    <AdminPageFrame title="KYC Verification" description="Review identity submissions, approve or reject with documented reasons." status="active" error={isError ? ((error as Error)?.message ?? 'Failed to load KYC submissions') : null} onRetry={refetch}>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {[
-          { label: 'Pending Reviews', value: pendingReviews != null ? String(pendingReviews) : '—', highlight: (pendingReviews ?? 0) > 0 },
-          { label: 'Approved Today', value: approvedToday != null ? String(approvedToday) : '—' },
-          { label: 'Rejected Today', value: rejectedToday != null ? String(rejectedToday) : '—' },
-          { label: 'Total Verified', value: totalVerified != null ? String(totalVerified) : '—' },
+          { label: 'Pending Reviews', value: pendingReviews != null ? String(pendingReviews) : '—', alert: (pendingReviews ?? 0) > 0, accent: 'amber' },
+          { label: 'Approved Today',  value: approvedToday  != null ? String(approvedToday)  : '—', alert: false, accent: 'emerald' },
+          { label: 'Rejected Today',  value: rejectedToday  != null ? String(rejectedToday)  : '—', alert: false, accent: 'red' },
+          { label: 'Total Verified',  value: totalVerified  != null ? String(totalVerified)  : '—', alert: false, accent: 'indigo' },
         ].map((kpi) => (
-          <div key={kpi.label} className={cn('rounded-xl border bg-admin-card p-4', kpi.highlight ? 'border-amber-200 bg-amber-50/30' : 'border-admin-border')}>
-            <p className="text-[10px] font-medium uppercase tracking-wider text-admin-muted">{kpi.label}</p>
-            <p className={cn('mt-2 text-xl font-bold text-admin-text tabular-nums', kpi.highlight && 'text-amber-600')}>{kpi.value}</p>
+          <div key={kpi.label} className={cn('relative overflow-hidden rounded-2xl border bg-admin-card p-5',
+            kpi.alert ? 'border-amber-500/30' : 'border-admin-border/50')}>
+            <div className={cn('absolute inset-x-0 top-0 h-0.5 rounded-t-2xl',
+              kpi.accent === 'amber' ? 'bg-amber-500' : kpi.accent === 'emerald' ? 'bg-emerald-500' : kpi.accent === 'red' ? 'bg-red-500' : 'bg-indigo-500')} />
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-admin-muted">{kpi.label}</p>
+            <p className={cn('mt-2 text-3xl font-bold tabular-nums',
+              kpi.alert ? 'text-amber-400' : 'text-admin-text')}>{kpi.value}</p>
+            {kpi.alert && <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-amber-400">Action needed</p>}
           </div>
         ))}
       </div>
@@ -272,7 +273,7 @@ export default function KycManagementPage() {
           </div>
 
           {actionError && (
-            <p className="rounded-ds-md border border-admin-danger/30 bg-red-50 px-3 py-2 text-sm text-admin-danger">{actionError}</p>
+            <p className="rounded-lg border border-red-500/30 bg-red-950/10 px-3 py-2 text-xs text-red-400">{actionError}</p>
           )}
 
           {isError && (
@@ -416,6 +417,6 @@ export default function KycManagementPage() {
           </ProtectedAction>
         </ModalFooter>
       </Modal>
-    </div>
+    </AdminPageFrame>
   );
 }

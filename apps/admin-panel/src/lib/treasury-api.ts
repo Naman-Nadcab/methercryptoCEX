@@ -88,7 +88,7 @@ export function createHotWallet(token: string | null, body: { chainFamily?: stri
 }
 
 export function deleteHotWallet(token: string | null, chainId: string) {
-  return adminFetch<{ deleted: boolean }>(`/hot-wallets/${encodeURIComponent(chainId)}`, { method: 'DELETE', token });
+  return adminFetch<{ deleted: boolean }>(`/hot-wallets/${encodeURIComponent(chainId)}`, { method: 'DELETE', token, body: {} });
 }
 
 export function replaceHotWallet(token: string | null, chainId: string) {
@@ -146,7 +146,7 @@ export function patchColdWallet(token: string | null, id: string, body: { label?
 }
 
 export function deleteColdWallet(token: string | null, id: string) {
-  return adminFetch<{ deleted: boolean }>(`/cold-wallets/${encodeURIComponent(id)}`, { method: 'DELETE', token });
+  return adminFetch<{ deleted: boolean }>(`/cold-wallets/${encodeURIComponent(id)}`, { method: 'DELETE', token, body: {} });
 }
 
 // Treasury Rules
@@ -188,7 +188,7 @@ export function createTreasuryAllocation(token: string | null, body: { chain: st
 }
 
 export function deleteTreasuryAllocation(token: string | null, id: string) {
-  return adminFetch<{ deleted: boolean }>(`/treasury/allocations/${encodeURIComponent(id)}`, { method: 'DELETE', token });
+  return adminFetch<{ deleted: boolean }>(`/treasury/allocations/${encodeURIComponent(id)}`, { method: 'DELETE', token, body: {} });
 }
 
 // Treasury Audit Logs
@@ -289,4 +289,16 @@ export function updateNodeProvider(
     `/settings/nodes/${encodeURIComponent(id)}`,
     { method: 'PATCH', token, body }
   );
+}
+
+export function deleteNodeProvider(token: string | null, id: string) {
+  return adminFetch<{ id: string }>(`/settings/nodes/${encodeURIComponent(id)}`, { method: 'DELETE', token });
+}
+
+export async function getTreasuryReconciliation(token: string | null) {
+  return adminFetch<{
+    matched: boolean;
+    mismatches?: Array<{ chain: string; onChainBalance: string; dbBalance: string; diff: string }>;
+    lastCheckedAt?: string;
+  }>('/treasury/reconciliation', { token });
 }

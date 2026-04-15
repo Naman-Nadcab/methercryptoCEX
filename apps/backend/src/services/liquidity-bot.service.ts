@@ -25,6 +25,7 @@ import {
   setMmEmergencyStopped,
   getMmUserDailyPnlUsd,
 } from './mm-risk.service.js';
+import { setMmCircuitState } from './mm-circuit-breaker.service.js';
 import { aggregateExternalMidPrice } from './external-price-feed.service.js';
 import { getOrderFlowImbalance } from './mm-order-flow.service.js';
 import { getToxicFlowMetrics } from './mm-toxic-flow.service.js';
@@ -441,6 +442,14 @@ export async function runLiquidityBotCycle(): Promise<{ placed: number; errors: 
           error: e instanceof Error ? e.message : String(e),
         });
       }
+      await setMmCircuitState(
+        { tradingPaused: true, orderPlacementBlocked: true },
+        { source: 'auto' }
+      ).catch((circuitErr: unknown) => {
+        logger.warn('Failed to set MM circuit on daily loss halt', {
+          error: circuitErr instanceof Error ? (circuitErr as Error).message : String(circuitErr),
+        });
+      });
       recordLiquidityBotCycleOutcome(false);
       liquidityBotRunsTotal.inc({ result: 'skipped' });
       logger.error('Liquidity bot halted: daily loss exceeded', { pnl, maxDailyLoss });

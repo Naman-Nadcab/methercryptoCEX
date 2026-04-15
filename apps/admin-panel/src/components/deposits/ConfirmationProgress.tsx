@@ -10,15 +10,18 @@ export function ConfirmationProgress({ confirmations, required }: ConfirmationPr
   const r = Math.max(0, Number(required));
   const pct = r > 0 ? Math.min(100, (c / r) * 100) : (c > 0 ? 100 : 0);
 
+  const done = r > 0 && c >= r;
+
   return (
-    <div className="flex min-w-[100px] flex-col gap-1">
-      <span className="tabular-nums text-sm">
-        {r > 0 ? `${c} / ${r} confirmations` : `${c} confirmation${c !== 1 ? 's' : ''}`}
+    <div className="flex min-w-[120px] flex-col gap-1.5">
+      <span className={`text-xs tabular-nums font-medium ${done ? 'text-emerald-400' : 'text-admin-text'}`}>
+        {r > 0 ? `${c} / ${r}` : `${c}`}
+        <span className="ml-1 text-admin-muted font-normal">conf.</span>
       </span>
       {r > 0 && (
-        <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-200">
+        <div className="h-1 w-full overflow-hidden rounded-full bg-white/[0.08]">
           <div
-            className="h-full rounded-full bg-admin-primary transition-[width]"
+            className={`h-full rounded-full transition-[width] ${done ? 'bg-emerald-500' : pct >= 50 ? 'bg-blue-400' : 'bg-amber-400'}`}
             style={{ width: `${pct}%` }}
           />
         </div>

@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/Button';
 import { TableSkeleton } from '@/components/ui';
 import { useAdminWs } from '@/hooks/useAdminWs';
 import { BarChart3, Layers, PauseCircle, Percent, Plus } from 'lucide-react';
+import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 
 export default function MarketsPage() {
   const token = useAdminAuthStore((s) => s.accessToken);
@@ -158,16 +159,11 @@ export default function MarketsPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold text-admin-text">Markets</h1>
-          <p className="text-xs text-admin-muted mt-0.5">View and manage trading pairs.</p>
-        </div>
+    <AdminPageFrame title="Markets" description="View and manage trading pairs." quickActions={
         <Button size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => setShowCreateModal(true)}>
           Create Pair
         </Button>
-      </div>
+      }>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
@@ -250,6 +246,6 @@ export default function MarketsPage() {
         onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget)}
         isLoading={deleteMutation.isPending}
       />
-    </div>
+    </AdminPageFrame>
   );
 }

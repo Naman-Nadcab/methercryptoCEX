@@ -23,6 +23,7 @@ import { TradingControlModal, type ControlAction } from '@/components/trading/Tr
 import { OrderbookSnapshotPanel } from '@/components/trading/OrderbookSnapshotPanel';
 import { useAdminWs } from '@/hooks/useAdminWs';
 import { ProtectedAction } from '@/components/rbac/ProtectedAction';
+import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 import {
   TrendingUp,
   BarChart3,
@@ -176,15 +177,11 @@ export default function TradingPage() {
     if (Number.isNaN(n)) return '$0';
     if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
     if (n >= 1e3) return `$${(n / 1e3).toFixed(2)}K`;
-    return new Intl.NumberFormat('en-US', { style: 'currency', maximumFractionDigits: 0 }).format(n);
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-lg font-semibold text-admin-text">Trading</h1>
-        <p className="text-xs text-admin-muted mt-0.5">Monitor orders, trades, and control market status.</p>
-      </div>
+    <AdminPageFrame title="Trading" description="Monitor orders, trades, and control market status." status="active" error={null}>
 
       {/* Dashboard cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -408,6 +405,6 @@ export default function TradingPage() {
         onConfirm={handleControlConfirm}
         isLoading={haltMutation.isPending || circuitMutation.isPending}
       />
-    </div>
+    </AdminPageFrame>
   );
 }

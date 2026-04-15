@@ -190,10 +190,8 @@ export default async function walletRoutes(app: FastifyInstance) {
     try {
       const { chainId } = request.params;
 
-      // Try cache first
       const cacheKey = `tokens:chain:${chainId}`;
-      const cached = await redis.getJson<TokenDB[]>(cacheKey);
-      
+      const cached = await redis.getJson<TokenDB[]>(cacheKey).catch(() => null);
       if (cached) {
         return { success: true, data: cached };
       }
@@ -208,8 +206,7 @@ export default async function walletRoutes(app: FastifyInstance) {
         ORDER BY COALESCE(t.is_native, false) DESC, t.symbol ASC
       `, [chainId]);
 
-      // Cache for 5 minutes
-      await redis.setJson(cacheKey, result.rows, 300);
+      await redis.setJson(cacheKey, result.rows, 300).catch(() => {});
 
       return { success: true, data: result.rows };
     } catch (error) {
@@ -224,15 +221,12 @@ export default async function walletRoutes(app: FastifyInstance) {
   // Get all UNIQUE tokens (for deposit selection UI - one per symbol)
   app.get('/tokens', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      // Try cache first
       const cacheKey = 'tokens:unique:active';
-      const cached = await redis.getJson<TokenDB[]>(cacheKey);
-      
+      const cached = await redis.getJson<TokenDB[]>(cacheKey).catch(() => null);
       if (cached) {
         return { success: true, data: cached };
       }
 
-      // Get unique tokens by symbol (one per symbol)
       const result = await db.query<TokenDB>(`
         SELECT DISTINCT ON (UPPER(t.symbol)) 
                t.id, t.symbol, 
@@ -247,8 +241,7 @@ export default async function walletRoutes(app: FastifyInstance) {
         ORDER BY UPPER(t.symbol), t.name ASC
       `);
 
-      // Cache for 5 minutes
-      await redis.setJson(cacheKey, result.rows, 300);
+      await redis.setJson(cacheKey, result.rows, 300).catch(() => {});
 
       return { success: true, data: result.rows };
     } catch (error) {
@@ -1071,16 +1064,18 @@ export default async function walletRoutes(app: FastifyInstance) {
       `, [userId]);
 
       const user = userResult.rows[0];
-      const dailyLimit = new Decimal(user?.daily_withdrawal_limit || '1000000').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
-      const monthlyLimit = new Decimal(user?.monthly_withdrawal_limit || '10000000').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+      // Use stored limits; default to standard tier limits if zero (not configured)
+      const rawDaily = new Decimal(user?.daily_withdrawal_limit || '0');
+      const rawMonthly = new Decimal(user?.monthly_withdrawal_limit || '0');
+      const dailyLimit = rawDaily.isZero() ? new Decimal('10000') : rawDaily.toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+      const monthlyLimit = rawMonthly.isZero() ? new Decimal('100000') : rawMonthly.toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
 
-      // Get today's withdrawals
+      // Get today's withdrawals (using actual enum values)
       const todayResult = await db.query<{ total: string }>(`
         SELECT COALESCE(SUM(w.amount), 0) as total
         FROM withdrawals w
-        JOIN tokens t ON w.token_id = t.id
         WHERE w.user_id = $1 
-          AND w.status IN ('pending', 'processing', 'completed')
+          AND w.status IN ('pending_approval', 'pending_email_verify', 'pending_2fa', 'pending_blockchain', 'processing', 'completed')
           AND w.created_at >= CURRENT_DATE
       `, [userId]);
 
@@ -1088,9 +1083,8 @@ export default async function walletRoutes(app: FastifyInstance) {
       const monthResult = await db.query<{ total: string }>(`
         SELECT COALESCE(SUM(w.amount), 0) as total
         FROM withdrawals w
-        JOIN tokens t ON w.token_id = t.id
         WHERE w.user_id = $1 
-          AND w.status IN ('pending', 'processing', 'completed')
+          AND w.status IN ('pending_approval', 'pending_email_verify', 'pending_2fa', 'pending_blockchain', 'processing', 'completed')
           AND w.created_at >= DATE_TRUNC('month', CURRENT_DATE)
       `, [userId]);
 

@@ -81,6 +81,13 @@ export function getControlIncidents(token: string | null, params?: { limit?: num
   });
 }
 
+export function acknowledgeControlIncident(token: string | null, id: string) {
+  return adminFetch<{ acknowledged: boolean }>(`/control/incidents/${encodeURIComponent(id)}/acknowledge`, {
+    method: 'PATCH',
+    token,
+  });
+}
+
 export function resolveControlIncident(token: string | null, id: string) {
   return adminFetch<{ resolved: boolean }>(`/control/incidents/${encodeURIComponent(id)}/resolve`, {
     method: 'PATCH',
@@ -252,5 +259,26 @@ export function patchControlSafetyTriggers(
     method: 'PATCH',
     token,
     body: { triggers },
+  });
+}
+
+export type GlobalActionType =
+  | 'halt_trading'
+  | 'resume_trading'
+  | 'disable_withdrawals'
+  | 'enable_withdrawals'
+  | 'disable_deposits'
+  | 'enable_deposits'
+  | 'pause_market_making'
+  | 'resume_market_making';
+
+export function postControlGlobalAction(
+  token: string | null,
+  body: { action: GlobalActionType; reason?: string; twofa_code?: string },
+) {
+  return adminFetch<{ action: string } & Record<string, unknown>>('/control/global-action', {
+    method: 'POST',
+    token,
+    body,
   });
 }

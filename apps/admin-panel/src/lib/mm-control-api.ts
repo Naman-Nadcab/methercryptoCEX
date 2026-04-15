@@ -56,6 +56,7 @@ export type MmControlStatus = {
     pnl1hUsd: number | null;
     fill_rate?: number;
     toxic_flow?: boolean;
+    is_env_pair?: boolean;
   }>;
 };
 
@@ -87,6 +88,19 @@ export async function postMmControlPair(
 
 export async function getMmControlStatus(token: string | null) {
   return adminFetch<MmControlStatus>('/mm-control/status', { token });
+}
+
+export async function deleteMmControlPair(token: string | null, symbol: string) {
+  return adminFetch<{
+    symbol: string;
+    removed: boolean;
+    isEnvPair: boolean;
+    note: string;
+  }>(`/mm-control/pair/${encodeURIComponent(symbol)}`, {
+    method: 'DELETE',
+    body: {},
+    token,
+  });
 }
 
 export function isMmControlOk<T>(

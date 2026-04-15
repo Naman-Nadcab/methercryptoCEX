@@ -173,6 +173,10 @@ export function updateComplianceIntegration(
   });
 }
 
+export function deleteComplianceIntegration(token: string | null, id: string) {
+  return adminFetch<{ id: string }>(`/settings/integrations/${encodeURIComponent(id)}`, { method: 'DELETE', token });
+}
+
 export function getRiskSanctions(
   token: string | null,
   params?: { limit?: number; offset?: number }

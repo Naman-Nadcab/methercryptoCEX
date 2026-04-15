@@ -11,12 +11,13 @@ import {
 } from 'lucide-react';
 import { useAdminAuthStore } from '@/store/auth';
 import { useQuery } from '@tanstack/react-query';
-import { getTradingHalt, getControlOverview, getSystemHealth } from '@/lib/api';
+import { getTradingHalt, getControlOverview, getSystemHealth, getExchangeHealthTier1 } from '@/lib/api';
 import { useAdminAlertStore } from '@/store/adminAlerts';
 import { useRealtimeStore } from '@/store/realtime';
 import { getPageMeta } from '@/lib/pageMeta';
 import { modKey } from '@/lib/useKeyboardShortcuts';
 import { openCommandPalette } from './GlobalCommandPalette';
+import { TIER1_QUERY_KEY } from '@/components/admin-shell/ExchangeHealthTier1Banner';
 import { cn } from '@/lib/cn';
 
 type SystemState = 'healthy' | 'degraded' | 'halted';
@@ -36,41 +37,61 @@ export function UnifiedTopbar() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
 
+  const refetchBar = (ms: number) => () =>
+    typeof document !== 'undefined' && document.visibilityState === 'visible' ? ms : false;
+
   const { data: haltData } = useQuery({
     queryKey: ['admin', 'trading-halt', token],
     queryFn: () => getTradingHalt(token),
     enabled: !!token,
-    staleTime: 10000,
-    refetchInterval: 15000,
+    staleTime: 15_000,
+    refetchInterval: refetchBar(30_000),
   });
 
   const { data: controlData } = useQuery({
     queryKey: ['admin', 'control', token],
     queryFn: () => getControlOverview(token),
     enabled: !!token,
-    staleTime: 10000,
-    refetchInterval: 15000,
+    staleTime: 15_000,
+    refetchInterval: refetchBar(30_000),
   });
 
   const { data: healthData } = useQuery({
     queryKey: ['admin', 'system-health', token],
     queryFn: () => getSystemHealth(token),
     enabled: !!token,
-    staleTime: 10000,
-    refetchInterval: 15000,
+    staleTime: 15_000,
+    refetchInterval: refetchBar(30_000),
+  });
+
+  const { data: tier1Res } = useQuery({
+    queryKey: ['admin', TIER1_QUERY_KEY, token],
+    queryFn: () => getExchangeHealthTier1(token),
+    enabled: !!token,
+    staleTime: 15_000,
+    refetchInterval: refetchBar(30_000),
   });
 
   const halted = haltData?.data?.halted ?? false;
   const settlement = (controlData?.data?.settlement as { status?: string })?.status;
   const health = healthData?.data as { database?: { status?: string }; redis?: { status?: string } } | undefined;
+  const tier1Overall = tier1Res?.data?.overall;
 
   const engineState = useMemo<SystemState>(() => {
-    if (!health) return 'healthy';
-    const dbOk = health.database?.status === 'healthy' || health.database?.status === 'ok';
-    const redisOk = health.redis?.status === 'healthy' || health.redis?.status === 'ok';
-    if (!dbOk || !redisOk) return 'degraded';
-    return 'healthy';
-  }, [health]);
+    const infraOk = (s?: string) => {
+      const x = s?.toLowerCase();
+      return x === 'healthy' || x === 'ok' || x === 'up';
+    };
+    let base: SystemState = 'healthy';
+    if (health) {
+      const dbOk = infraOk(health.database?.status);
+      const redisOk = infraOk(health.redis?.status);
+      if (!dbOk || !redisOk) base = 'degraded';
+    }
+    if (tier1Overall === 'RED') return 'halted';
+    if (tier1Overall === 'YELLOW') return base === 'healthy' ? 'degraded' : base;
+    return base;
+  }, [health, tier1Overall]);
 
   const tradingState = useMemo<SystemState>(() => halted ? 'halted' : 'healthy', [halted]);
 

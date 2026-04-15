@@ -17,7 +17,6 @@ import { computeHealthScore, type ExchangeMetrics } from '@/components/admin-v2/
 import { useAnomalyDetector } from '@/components/admin-v2/useAnomalyDetector';
 import { SmartTooltip } from '@/components/admin-v2/SmartTooltip';
 import { Button } from '@/components/ui/Button';
-import { Badge } from '@/components/ui/Badge';
 import { StatusBadge } from '@/components/dashboard/StatusBadge';
 import { InfrastructureControlModal, type InfrastructureAction } from '@/components/monitoring/InfrastructureControlModal';
 import { RpcPriorityModal } from '@/components/monitoring/RpcPriorityModal';
@@ -27,12 +26,14 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import {
-  Activity, Database, Server, Radio, Boxes, Cpu, HardDrive, MemoryStick,
+  Activity, Server, Radio, Boxes, Cpu,
   PlayCircle, Cog, Pencil, RefreshCw, Timer, ChevronDown, Info,
-  Shield, Zap, Gauge, Globe, AlertTriangle,
+  Shield, Zap, Gauge, Globe, AlertTriangle, ArrowRight, Clock, LayoutGrid,
+  Inbox, Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { TableSkeleton } from '@/components/ui';
+import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 
 type MonitoringTab = 'overview' | 'history';
 type RefreshRate = 5000 | 10000 | 15000 | 30000;
@@ -44,11 +45,88 @@ const REFRESH_OPTIONS: { label: string; value: RefreshRate }[] = [
   { label: '30s', value: 30000 },
 ];
 
+const CHART_GRID = '#1F2A37';
+const CHART_TICK = '#9BA7B4';
+const CHART_TOOLTIP_BG = '#141A21';
+const CHART_TOOLTIP_BORDER = '#2A3441';
+
 function Tip({ content, danger }: { content: string; danger?: string }) {
   return (
     <SmartTooltip content={content} danger={danger}>
-      <Info className="h-3 w-3 text-admin-muted/60 cursor-help" />
+      <Info className="h-3 w-3 text-admin-muted/60 cursor-help shrink-0" />
     </SmartTooltip>
+  );
+}
+
+/** Unified panel chrome — Tier-1 consistent cards */
+function MonitorPanel({
+  icon: Icon,
+  title,
+  description,
+  iconTint,
+  action,
+  children,
+  className,
+  bodyClassName,
+}: {
+  icon: React.ElementType;
+  title: string;
+  description?: string;
+  iconTint: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+  bodyClassName?: string;
+}) {
+  return (
+    <div className={cn('flex h-full min-h-[200px] flex-col rounded-xl border border-admin-border bg-admin-card overflow-hidden', className)}>
+      <div className="flex items-start justify-between gap-2 border-b border-admin-border bg-white/[0.02] px-4 py-3">
+        <div className="flex min-w-0 items-start gap-2.5">
+          <div className={cn('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', iconTint)}>
+            <Icon className="h-4 w-4" />
+          </div>
+          <div className="min-w-0">
+            <h3 className="text-sm font-bold text-admin-text leading-tight">{title}</h3>
+            {description ? <p className="mt-0.5 text-[11px] text-admin-muted leading-snug">{description}</p> : null}
+          </div>
+        </div>
+        {action}
+      </div>
+      <div className={cn('flex flex-1 flex-col p-4', bodyClassName)}>{children}</div>
+    </div>
+  );
+}
+
+function EmptyState({
+  icon: Icon,
+  title,
+  hint,
+  href,
+  hrefLabel,
+}: {
+  icon: React.ElementType;
+  title: string;
+  hint: string;
+  href?: string;
+  hrefLabel?: string;
+}) {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-2 py-8 text-center">
+      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/[0.03] border border-admin-border">
+        <Icon className="h-5 w-5 text-admin-muted/50" />
+      </div>
+      <p className="text-xs font-semibold text-admin-text">{title}</p>
+      <p className="max-w-[220px] text-[11px] leading-relaxed text-admin-muted">{hint}</p>
+      {href && hrefLabel ? (
+        <Link
+          href={href}
+          className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-admin-primary hover:text-admin-primary-hover"
+        >
+          {hrefLabel}
+          <ArrowRight className="h-3 w-3" />
+        </Link>
+      ) : null}
+    </div>
   );
 }
 
@@ -185,7 +263,6 @@ export default function MonitoringPage() {
 
   const apiAnomaly = useMemo(() => detectAnomaly('mon-api-lat', apiLatency), [detectAnomaly, apiLatency]);
   const dbAnomaly = useMemo(() => detectAnomaly('mon-db-lat', dbLatency), [detectAnomaly, dbLatency]);
-  const queueAnomaly = useMemo(() => detectAnomaly('mon-queue', queues?.withdrawal_pending ?? 0), [detectAnomaly, queues]);
 
   const healthScore = useMemo<number>(() => {
     const metrics: ExchangeMetrics = {
@@ -206,29 +283,34 @@ export default function MonitoringPage() {
   const handleConfirmAction = () => { if (controlModal) actionMutation.mutate(controlModal); };
 
   const hasCriticalResource = (cpuPct !== null && cpuPct > 90) || (memPct !== null && memPct > 90);
+  const healthLevel = healthScore >= 90 ? 'healthy' : healthScore >= 70 ? 'degraded' : 'critical';
 
   return (
-    <div className="space-y-5">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold text-admin-text">System Monitoring</h1>
-          <p className="text-xs text-admin-muted mt-0.5">Infrastructure health, queues, resources, and operational controls</p>
-        </div>
-        <div className="flex items-center gap-2">
+    <AdminPageFrame
+      title="System Monitoring"
+      description="Live telemetry, SLOs, queues, and safe infrastructure actions."
+      quickActions={
+        <div className="flex flex-wrap items-center gap-2">
           <div className="relative">
             <Button variant="secondary" size="sm" onClick={() => setRefreshDropdownOpen((s) => !s)}>
-              <Timer className="h-3.5 w-3.5 mr-1" />
+              <Timer className="mr-1 h-3.5 w-3.5" />
               {REFRESH_OPTIONS.find((o) => o.value === refreshRate)?.label}
-              <ChevronDown className="h-3 w-3 ml-1" />
+              <ChevronDown className="ml-1 h-3 w-3" />
             </Button>
             {refreshDropdownOpen && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setRefreshDropdownOpen(false)} />
-                <div className="absolute right-0 mt-1 z-20 bg-admin-card border border-admin-border rounded-lg shadow-dropdown py-1 min-w-[80px]">
+                <div className="absolute right-0 z-20 mt-1 min-w-[88px] rounded-lg border border-admin-border bg-admin-card py-1 shadow-dropdown">
                   {REFRESH_OPTIONS.map((opt) => (
-                    <button key={opt.value} onClick={() => { setRefreshRate(opt.value); setRefreshDropdownOpen(false); }}
-                      className={cn('w-full text-left px-3 py-1.5 text-xs transition-colors', refreshRate === opt.value ? 'text-admin-primary bg-admin-primary/5' : 'text-admin-text hover:bg-white/[0.02]')}>
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => { setRefreshRate(opt.value); setRefreshDropdownOpen(false); }}
+                      className={cn(
+                        'w-full px-3 py-1.5 text-left text-xs transition-colors',
+                        refreshRate === opt.value ? 'bg-admin-primary/10 text-admin-primary' : 'text-admin-text hover:bg-white/[0.02]',
+                      )}
+                    >
                       {opt.label}
                     </button>
                   ))}
@@ -236,276 +318,373 @@ export default function MonitoringPage() {
               </>
             )}
           </div>
-          <Button variant="secondary" size="sm" icon={<RefreshCw className="h-3.5 w-3.5" />} onClick={handleRefreshAll}>Refresh</Button>
+          <Button variant="secondary" size="sm" icon={<RefreshCw className="h-3.5 w-3.5" />} onClick={handleRefreshAll}>
+            Refresh
+          </Button>
           <Link href="/monitoring/alert-rules">
-            <Button variant="secondary" size="sm" icon={<Cog className="h-3.5 w-3.5" />}>Alert Rules</Button>
+            <Button variant="secondary" size="sm" icon={<Cog className="h-3.5 w-3.5" />}>
+              Alert rules
+            </Button>
           </Link>
         </div>
-      </div>
-
-      {/* Critical Resource Alert Banner */}
-      {hasCriticalResource && (
-        <div className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-5 py-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-100 shrink-0">
-            <AlertTriangle className="h-4 w-4 text-red-600" />
+      }
+    >
+      <div className="mx-auto max-w-[1440px] space-y-6">
+        {/* Compact severity strip — dark-theme aligned (no light red box) */}
+        {hasCriticalResource && (
+          <div
+            className="flex items-center gap-3 rounded-xl border border-red-500/30 bg-gradient-to-r from-red-500/10 via-red-500/5 to-transparent px-4 py-3"
+            role="alert"
+          >
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-500/15">
+              <AlertTriangle className="h-4 w-4 text-red-400" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold text-red-300">High resource usage</p>
+              <p className="mt-0.5 text-[11px] text-admin-muted">
+                {cpuPct !== null && cpuPct > 90 ? <span className="text-red-400/90">CPU {cpuPct}%</span> : null}
+                {cpuPct !== null && cpuPct > 90 && memPct !== null && memPct > 90 ? ' · ' : ''}
+                {memPct !== null && memPct > 90 ? <span className="text-red-400/90">Memory {memPct}%</span> : null}
+                <span className="text-admin-muted"> — scale or investigate workers.</span>
+              </p>
+            </div>
+            <Link href="/operations" className="shrink-0 text-[11px] font-semibold text-admin-primary hover:text-admin-primary-hover">
+              Ops triage <ArrowRight className="inline h-3 w-3" />
+            </Link>
           </div>
-          <div>
-            <p className="text-sm font-semibold text-red-800">Resource Usage Critical</p>
-            <p className="text-xs text-red-600">
-              {cpuPct !== null && cpuPct > 90 ? `CPU at ${cpuPct}% ` : ''}
-              {memPct !== null && memPct > 90 ? `Memory at ${memPct}%` : ''}
-              — Immediate attention required.
+        )}
+
+        {/* Snapshot row — unified dark cards */}
+        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:items-stretch">
+          <div
+            className={cn(
+              'flex min-h-[140px] items-center gap-4 rounded-xl border p-4 ring-1',
+              healthLevel === 'healthy' && 'border-emerald-500/20 bg-gradient-to-br from-emerald-500/5 to-admin-card ring-emerald-500/10',
+              healthLevel === 'degraded' && 'border-amber-500/25 bg-gradient-to-br from-amber-500/8 to-admin-card ring-amber-500/10',
+              healthLevel === 'critical' && 'border-red-500/25 bg-gradient-to-br from-red-500/10 to-admin-card ring-red-500/15',
+            )}
+          >
+            <div
+              className={cn(
+                'flex h-14 w-14 shrink-0 items-center justify-center rounded-full border-[3px]',
+                healthLevel === 'healthy' && 'border-emerald-500/50 text-emerald-400',
+                healthLevel === 'degraded' && 'border-amber-500/50 text-amber-400',
+                healthLevel === 'critical' && 'border-red-500/50 text-red-400',
+              )}
+            >
+              <span className="text-xl font-black tabular-nums">{healthScore}</span>
+            </div>
+            <div className="min-w-0">
+              <p className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-admin-muted">
+                Health score
+                <Tip content="Composite score from infrastructure metrics." danger="Below 70 = degraded. Below 50 = critical." />
+              </p>
+              <p
+                className={cn(
+                  'mt-1 text-sm font-bold',
+                  healthLevel === 'healthy' && 'text-emerald-400',
+                  healthLevel === 'degraded' && 'text-amber-400',
+                  healthLevel === 'critical' && 'text-red-400',
+                )}
+              >
+                {healthLevel === 'healthy' ? 'Healthy' : healthLevel === 'degraded' ? 'Degraded' : 'Critical'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex min-h-[140px] flex-col justify-center rounded-xl border border-admin-border bg-admin-card p-4">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-admin-muted">Uptime</p>
+            <p className="mt-1 text-2xl font-black tabular-nums text-admin-text">{formatUptime(uptimeSec)}</p>
+            <p className="mt-1 text-[11px] text-admin-muted">
+              <Radio className="mr-1 inline h-3 w-3 align-middle text-admin-primary/80" />
+              {wsConns} WebSocket connections
             </p>
           </div>
-        </div>
-      )}
 
-      {/* === Health Score + Key Metrics === */}
-      <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Health Score */}
-        <div className={cn('rounded-xl border p-4 flex items-center gap-4 ring-1',
-          healthScore >= 90 ? 'bg-emerald-50 border-emerald-200 ring-emerald-500/20' :
-          healthScore >= 70 ? 'bg-amber-50 border-amber-200 ring-amber-500/20' :
-          'bg-red-50 border-red-200 ring-red-500/20'
-        )}>
-          <div className={cn('flex h-14 w-14 items-center justify-center rounded-full border-[3px] shrink-0',
-            healthScore >= 90 ? 'text-emerald-600 border-emerald-400' :
-            healthScore >= 70 ? 'text-amber-600 border-amber-400' :
-            'text-red-600 border-red-400'
-          )}>
-            <span className="text-xl font-bold tabular-nums">{healthScore}</span>
-          </div>
-          <div>
-            <p className="text-xs font-medium text-admin-muted flex items-center gap-1">Health Score <Tip content="Composite score from all infrastructure metrics." danger="Below 70 = degraded. Below 50 = critical." /></p>
-            <p className={cn('text-sm font-semibold', healthScore >= 90 ? 'text-emerald-600' : healthScore >= 70 ? 'text-amber-600' : 'text-red-600')}>
-              {healthScore >= 90 ? 'Healthy' : healthScore >= 70 ? 'Degraded' : 'Critical'}
-            </p>
-          </div>
-        </div>
-
-        {/* Uptime */}
-        <div className="rounded-xl border border-admin-border bg-admin-card p-4">
-          <p className="text-xs font-medium text-admin-muted mb-1">Uptime</p>
-          <p className="text-2xl font-bold tabular-nums text-admin-text">{formatUptime(uptimeSec)}</p>
-          <p className="text-xs text-admin-muted mt-0.5">{wsConns} WebSocket connections</p>
-        </div>
-
-        {/* Resources */}
-        <div className="rounded-xl border border-admin-border bg-admin-card p-4">
-          <p className="text-xs font-medium text-admin-muted mb-2">System Resources</p>
-          <div className="space-y-2">
-            <ResourceBar label="CPU" value={cpuPct} />
-            <ResourceBar label="Memory" value={memPct} />
-            <ResourceBar label="Disk" value={diskPct} />
-          </div>
-        </div>
-
-        {/* Queues Summary */}
-        <div className="rounded-xl border border-admin-border bg-admin-card p-4">
-          <p className="text-xs font-medium text-admin-muted mb-2">Processing Queues</p>
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-admin-muted">Withdrawals</span>
-              <span className={cn('font-semibold tabular-nums', (queues?.withdrawal_pending ?? 0) > 50 ? 'text-amber-600' : 'text-admin-text')}>{queues?.withdrawal_pending ?? 0}</span>
-            </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-admin-muted">Settlement</span>
-              <span className={cn('font-semibold tabular-nums', queues?.settlement_delayed ? 'text-amber-600' : 'text-admin-text')}>{queues?.settlement_pending ?? 0}</span>
-            </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-admin-muted">Matching Engine</span>
-              <span className="font-semibold tabular-nums text-admin-text">{queues?.matching_engine_pending ?? 0}</span>
+          <div className="flex min-h-[140px] flex-col justify-center rounded-xl border border-admin-border bg-admin-card p-4">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-admin-muted">Resources</p>
+            <div className="mt-2 space-y-2">
+              <ResourceBar label="CPU" value={cpuPct} />
+              <ResourceBar label="Memory" value={memPct} />
+              <ResourceBar label="Disk" value={diskPct} />
             </div>
           </div>
-        </div>
-      </section>
 
-      {/* === Latency Metrics === */}
-      <section>
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-admin-muted mb-2 pl-0.5">Latency Metrics</p>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <LatencyCard label="API Latency" value={apiLatency} unit="ms" threshold={[200, 500]} anomaly={apiAnomaly} />
-          <LatencyCard label="Database" value={dbLatency} unit="ms" threshold={[50, 100]} anomaly={dbAnomaly} />
-          <LatencyCard label="Redis" value={redisLatency} unit="ms" threshold={[20, 50]} />
-          <LatencyCard label="Heap Memory" value={Math.round(memoryMb)} unit="MB" threshold={[512, 1024]} />
-        </div>
-      </section>
+          <div className="flex min-h-[140px] flex-col justify-center rounded-xl border border-admin-border bg-admin-card p-4">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-admin-muted">Queues</p>
+            <div className="mt-2 space-y-2">
+              <QueueRow label="Withdrawals" value={queues?.withdrawal_pending ?? 0} warnAt={50} />
+              <QueueRow
+                label="Settlement"
+                value={queues?.settlement_pending ?? 0}
+                warnAt={100}
+                highlight={queues?.settlement_delayed}
+              />
+              <QueueRow label="Matching" value={queues?.matching_engine_pending ?? 0} warnAt={500} />
+            </div>
+          </div>
+        </section>
 
-      {/* Tabs */}
-      <div className="border-b border-admin-border">
-        <nav className="flex gap-1">
+        {/* SLO / latency strip */}
+        <section>
+          <div className="mb-2 flex items-center gap-2 pl-0.5">
+            <LayoutGrid className="h-3.5 w-3.5 text-admin-muted" />
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-admin-muted">Latency & memory (SLO view)</p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <LatencyCard label="API" value={apiLatency} unit="ms" threshold={[200, 500]} anomaly={apiAnomaly} />
+            <LatencyCard label="Database" value={dbLatency} unit="ms" threshold={[50, 100]} anomaly={dbAnomaly} />
+            <LatencyCard label="Redis" value={redisLatency} unit="ms" threshold={[20, 50]} />
+            <LatencyCard label="Heap" value={Math.round(memoryMb)} unit="MB" threshold={[512, 1024]} />
+          </div>
+        </section>
+
+        {/* Tabs — pill style */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-admin-border pb-3">
           {(['overview', 'history'] as const).map((tab) => (
-            <button key={tab} type="button" onClick={() => setActiveTab(tab)}
-              className={cn('border-b-2 px-4 py-2 text-xs font-medium transition-colors capitalize',
-                activeTab === tab ? 'border-admin-primary text-admin-primary' : 'border-transparent text-admin-muted hover:text-admin-text')}>
-              {tab === 'overview' ? 'Overview' : 'History Charts'}
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setActiveTab(tab)}
+              className={cn(
+                'rounded-lg px-4 py-2 text-xs font-semibold transition-all',
+                activeTab === tab
+                  ? 'bg-admin-primary/15 text-admin-primary ring-1 ring-admin-primary/30'
+                  : 'text-admin-muted hover:bg-white/[0.03] hover:text-admin-text',
+              )}
+            >
+              {tab === 'overview' ? 'Overview' : 'History charts'}
             </button>
           ))}
-        </nav>
-      </div>
-
-      {/* History Tab */}
-      {activeTab === 'history' && (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <HistoryChart title="API Latency (24h)" data={historyApi?.data?.points} color="#6366F1" unit="ms" />
-          <HistoryChart title="Database Latency (24h)" data={historyDb?.data?.points} color="#10B981" unit="ms" />
-          <HistoryChart title="Redis Latency (24h)" data={historyRedis?.data?.points} color="#F59E0B" unit="ms" />
-          <HistoryChart title="Queue Size (24h)" data={historyQueue?.data?.points} color="#64748B" unit="" />
         </div>
-      )}
 
-      {/* Overview Tab */}
-      {activeTab === 'overview' && (
-        <>
-          {/* RPC + Infrastructure Control + Rate Limits */}
-          <div className="grid gap-4 lg:grid-cols-3">
-            {/* RPC Providers */}
-            <div className="rounded-xl border border-admin-border bg-admin-card lg:col-span-1">
-              <div className="px-5 py-3 border-b border-admin-border">
-                <h3 className="text-sm font-semibold text-admin-text flex items-center gap-2"><Globe className="h-4 w-4 text-admin-muted" /> RPC Providers</h3>
-              </div>
-              <div className="px-5 py-3">
+        {activeTab === 'history' && (
+          <div className="grid gap-4 lg:grid-cols-2">
+            <HistoryChart title="API latency (24h)" data={historyApi?.data?.points} color="#818CF8" unit="ms" />
+            <HistoryChart title="Database latency (24h)" data={historyDb?.data?.points} color="#34D399" unit="ms" />
+            <HistoryChart title="Redis latency (24h)" data={historyRedis?.data?.points} color="#FBBF24" unit="ms" />
+            <HistoryChart title="Queue size (24h)" data={historyQueue?.data?.points} color="#94A3B8" unit="" />
+          </div>
+        )}
+
+        {activeTab === 'overview' && (
+          <>
+            <div className="grid gap-4 lg:grid-cols-3 lg:items-stretch">
+              <MonitorPanel
+                icon={Globe}
+                title="RPC providers"
+                description="Chain RPC health & priority"
+                iconTint="bg-sky-500/10 text-sky-400"
+                className="min-h-[320px]"
+                bodyClassName="!p-0"
+              >
                 {rpcProviders.length === 0 ? (
-                  <p className="py-4 text-center text-xs text-admin-muted">No RPC providers configured.</p>
+                  <EmptyState
+                    icon={Globe}
+                    title="No RPC providers"
+                    hint="Add and prioritize RPC endpoints for reliable chain reads."
+                    href="/settings/infrastructure"
+                    hrefLabel="Open infrastructure"
+                  />
                 ) : (
-                  <div className="space-y-2">
+                  <div className="max-h-[280px] flex-1 space-y-2 overflow-y-auto overscroll-contain px-4 py-3">
                     {rpcProviders.map((row) => (
-                      <div key={row.id} className="flex items-center justify-between rounded-lg border border-admin-border/60 px-3 py-2">
+                      <div
+                        key={row.id}
+                        className="flex items-center justify-between gap-2 rounded-lg border border-admin-border/80 bg-white/[0.02] px-3 py-2"
+                      >
                         <div className="min-w-0">
-                          <p className="text-xs font-medium text-admin-text">{row.provider}</p>
-                          <p className="text-[10px] text-admin-muted">{row.network} · {row.latency_ms != null ? `${row.latency_ms}ms` : '—'} · Err {row.error_rate ?? 0}%</p>
+                          <p className="text-xs font-semibold text-admin-text">{row.provider}</p>
+                          <p className="text-[10px] text-admin-muted">
+                            {row.network} · {row.latency_ms != null ? `${row.latency_ms} ms` : '—'} · err {row.error_rate ?? 0}%
+                          </p>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <StatusBadge status={row.status} variant={row.status === 'Healthy' ? 'success' : row.status === 'Slow' ? 'warning' : 'default'} />
-                          <button onClick={() => setRpcPriorityModal(row)} className="text-admin-muted hover:text-admin-muted"><Pencil className="h-3 w-3" /></button>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <StatusBadge
+                            status={row.status}
+                            variant={row.status === 'Healthy' ? 'success' : row.status === 'Slow' ? 'warning' : 'default'}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setRpcPriorityModal(row)}
+                            className="rounded-md p-1 text-admin-muted hover:bg-white/[0.05] hover:text-admin-text"
+                            aria-label="Edit priority"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
-              </div>
-            </div>
+              </MonitorPanel>
 
-            {/* Infrastructure Control */}
-            <div className="rounded-xl border border-admin-border bg-admin-card">
-              <div className="px-5 py-3 border-b border-admin-border">
-                <h3 className="text-sm font-semibold text-admin-text flex items-center gap-2"><Server className="h-4 w-4 text-admin-muted" /> Infrastructure Control</h3>
-              </div>
-              <div className="px-5 py-4">
-                <p className="text-[10px] text-admin-muted mb-3">Each action requires confirmation before execution.</p>
+              <MonitorPanel
+                icon={Server}
+                title="Infrastructure control"
+                description="Destructive — each action confirms before run"
+                iconTint="bg-violet-500/10 text-violet-400"
+                className="min-h-[320px]"
+              >
                 <div className="grid grid-cols-2 gap-2">
                   {[
-                    { action: 'restart_worker', icon: PlayCircle, label: 'Restart Worker' },
-                    { action: 'flush_queue', icon: Boxes, label: 'Flush Queue' },
-                    { action: 'reset_circuit_breaker', icon: Shield, label: 'Reset Breaker' },
-                    { action: 'restart_liquidity_bot', icon: Zap, label: 'Restart Liq Bot' },
-                    { action: 'restart_settlement_worker', icon: PlayCircle, label: 'Restart Settlement' },
-                    { action: 'restart_matching_engine', icon: Zap, label: 'Restart Engine' },
-                    { action: 'restart_websocket_service', icon: Radio, label: 'Restart WS' },
+                    { action: 'restart_worker', icon: PlayCircle, label: 'Restart worker' },
+                    { action: 'flush_queue', icon: Boxes, label: 'Flush queue' },
+                    { action: 'reset_circuit_breaker', icon: Shield, label: 'Reset breaker' },
+                    { action: 'restart_liquidity_bot', icon: Zap, label: 'Liquidity bot' },
+                    { action: 'restart_settlement_worker', icon: PlayCircle, label: 'Settlement' },
+                    { action: 'restart_matching_engine', icon: Zap, label: 'Matching engine' },
+                    { action: 'restart_websocket_service', icon: Radio, label: 'WebSocket' },
                   ].map(({ action, icon: Icon, label }) => (
-                    <button key={action} onClick={() => setControlModal(action as InfrastructureAction)}
-                      className="flex items-center gap-2 rounded-lg border border-admin-border px-3 py-2 text-xs text-admin-text hover:bg-white/[0.02] hover:border-admin-border transition-colors">
-                      <Icon className="h-3.5 w-3.5 text-admin-muted shrink-0" /> {label}
+                    <button
+                      key={action}
+                      type="button"
+                      onClick={() => setControlModal(action as InfrastructureAction)}
+                      className="flex items-center gap-2 rounded-lg border border-admin-border bg-white/[0.02] px-2.5 py-2 text-left text-[11px] font-medium text-admin-text transition-colors hover:border-admin-primary/30 hover:bg-admin-primary/5"
+                    >
+                      <Icon className="h-3.5 w-3.5 shrink-0 text-admin-muted" />
+                      <span className="leading-tight">{label}</span>
                     </button>
                   ))}
                 </div>
-              </div>
-            </div>
+              </MonitorPanel>
 
-            {/* Rate Limits (compact) */}
-            <div className="rounded-xl border border-admin-border bg-admin-card">
-              <div className="px-5 py-3 border-b border-admin-border">
-                <h3 className="text-sm font-semibold text-admin-text flex items-center gap-2"><Gauge className="h-4 w-4 text-admin-muted" /> Rate Limits</h3>
-              </div>
-              <div className="px-5 py-3">
+              <MonitorPanel
+                icon={Gauge}
+                title="Rate limits"
+                description="Gateway enforcement (reference)"
+                iconTint="bg-amber-500/10 text-amber-400"
+                className="min-h-[320px]"
+              >
                 <div className="space-y-2">
                   {[
-                    { label: 'Public API', limit: '100 req/min per IP' },
-                    { label: 'Authenticated', limit: '300 req/min per user' },
-                    { label: 'WebSocket', limit: '5 conn, 100 msg/sec' },
-                    { label: 'Admin API', limit: '200 req/min per admin' },
+                    { label: 'Public API', limit: '100 / min · IP' },
+                    { label: 'Authenticated', limit: '300 / min · user' },
+                    { label: 'WebSocket', limit: '5 conn · 100 msg/s' },
+                    { label: 'Admin API', limit: '200 / min · admin' },
                   ].map(({ label, limit }) => (
-                    <div key={label} className="flex items-center justify-between py-1">
-                      <span className="text-xs text-admin-muted">{label}</span>
+                    <div
+                      key={label}
+                      className="flex items-center justify-between gap-2 rounded-lg border border-admin-border/60 bg-white/[0.02] px-3 py-2"
+                    >
+                      <span className="text-xs text-admin-text">{label}</span>
                       <span className="text-[10px] font-mono text-admin-muted">{limit}</span>
                     </div>
                   ))}
                 </div>
-                <p className="mt-3 text-[10px] text-admin-muted">Enforced at API gateway level.</p>
-              </div>
+                <p className="mt-auto pt-3 text-[10px] text-admin-muted/70">Tuned in API gateway / edge config.</p>
+              </MonitorPanel>
             </div>
-          </div>
 
-          {/* Workers + Timeline + Incidents */}
-          <div className="grid gap-4 lg:grid-cols-3">
-            {/* Workers */}
-            <div className="rounded-xl border border-admin-border bg-admin-card">
-              <div className="px-5 py-3 border-b border-admin-border">
-                <h3 className="text-sm font-semibold text-admin-text">Workers</h3>
-              </div>
-              <div className="px-5 py-3">
+            <div className="grid gap-4 lg:grid-cols-3 lg:items-stretch">
+              <MonitorPanel
+                icon={Cpu}
+                title="Workers"
+                description="Background processors"
+                iconTint="bg-emerald-500/10 text-emerald-400"
+                className="min-h-[280px]"
+                bodyClassName="!p-0"
+              >
                 {workers.length === 0 ? (
-                  <p className="py-4 text-center text-xs text-admin-muted">No worker data.</p>
+                  <EmptyState
+                    icon={Cpu}
+                    title="No worker telemetry"
+                    hint="Worker status appears when the orchestrator reports heartbeats."
+                    href="/operations"
+                    hrefLabel="Operations"
+                  />
                 ) : (
-                  <div className="space-y-2">
+                  <div className="max-h-[240px] flex-1 divide-y divide-admin-border/50 overflow-y-auto overscroll-contain">
                     {workers.map((w) => (
-                      <div key={w.id} className="flex items-center justify-between">
+                      <div key={w.id} className="flex items-center justify-between gap-2 px-4 py-2.5 hover:bg-white/[0.02]">
                         <div className="min-w-0">
-                          <p className="text-xs font-medium text-admin-text truncate">{w.worker_name}</p>
-                          <p className="text-[10px] text-admin-muted">{formatUptime(w.uptime_seconds)} · {w.last_restart_at ? formatTimeAgo(w.last_restart_at) : '—'}</p>
+                          <p className="truncate text-xs font-semibold text-admin-text">{w.worker_name}</p>
+                          <p className="text-[10px] text-admin-muted">
+                            {formatUptime(w.uptime_seconds)} · {w.last_restart_at ? formatTimeAgo(w.last_restart_at) : '—'}
+                          </p>
                         </div>
                         <StatusBadge status={w.status} variant={w.status === 'running' ? 'success' : 'default'} />
                       </div>
                     ))}
                   </div>
                 )}
-              </div>
-            </div>
+              </MonitorPanel>
 
-            {/* Event Timeline */}
-            <div className="rounded-xl border border-admin-border bg-admin-card">
-              <div className="px-5 py-3 border-b border-admin-border">
-                <h3 className="text-sm font-semibold text-admin-text">Event Timeline</h3>
-              </div>
-              <div className="px-5 py-3 max-h-[280px] overflow-y-auto">
+              <MonitorPanel
+                icon={Clock}
+                title="Event timeline"
+                description="Recent infra events"
+                iconTint="bg-indigo-500/10 text-indigo-400"
+                className="min-h-[280px]"
+                bodyClassName="!p-0"
+              >
                 {timelineEvents.length === 0 ? (
-                  <p className="py-4 text-center text-xs text-admin-muted">No recent events.</p>
+                  <EmptyState
+                    icon={Inbox}
+                    title="No recent events"
+                    hint="Alerts, deploys, and control actions will show here as they occur."
+                    href="/operations"
+                    hrefLabel="View operations"
+                  />
                 ) : (
-                  <div className="space-y-2">
-                    {timelineEvents.map((ev) => (
-                      <div key={ev.id} className="flex items-start justify-between gap-2 text-xs">
-                        <div className="min-w-0">
-                          <p className="font-medium text-admin-text">{ev.event_type.replace(/_/g, ' ')}</p>
-                          {ev.message && <p className="text-admin-muted truncate text-[10px]">{ev.message}</p>}
+                  <div className="max-h-[240px] flex-1 space-y-0 overflow-y-auto overscroll-contain px-4 py-2">
+                    {timelineEvents.map((ev, i) => (
+                      <div key={ev.id} className="relative flex gap-3 pb-3 pl-1 last:pb-0">
+                        {i < timelineEvents.length - 1 ? (
+                          <span className="absolute left-[5px] top-2 bottom-0 w-px bg-admin-border" aria-hidden />
+                        ) : null}
+                        <span className="relative z-[1] mt-1 h-2 w-2 shrink-0 rounded-full bg-admin-primary/80" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-medium capitalize text-admin-text">
+                            {ev.event_type.replace(/_/g, ' ')}
+                          </p>
+                          {ev.message ? (
+                            <p className="line-clamp-2 text-[10px] text-admin-muted">{ev.message}</p>
+                          ) : null}
+                          <p className="mt-0.5 text-[10px] text-admin-muted/70">
+                            {ev.created_at ? formatTimeAgo(ev.created_at) : '—'}
+                          </p>
                         </div>
-                        <span className="text-[10px] text-admin-muted shrink-0">{ev.created_at ? formatTimeAgo(ev.created_at) : '—'}</span>
                       </div>
                     ))}
                   </div>
                 )}
-              </div>
-            </div>
+              </MonitorPanel>
 
-            {/* Incidents */}
-            <div className="rounded-xl border border-admin-border bg-admin-card">
-              <div className="px-5 py-3 border-b border-admin-border">
-                <h3 className="text-sm font-semibold text-admin-text">Incidents</h3>
-              </div>
-              <div className="px-5 py-3">
+              <MonitorPanel
+                icon={Activity}
+                title="Incidents"
+                description="Active & recent"
+                iconTint="bg-red-500/10 text-red-400"
+                className="min-h-[280px]"
+                bodyClassName="!p-0"
+              >
                 {incidents.length === 0 ? (
-                  <div className="py-4 text-center">
-                    <Activity className="h-6 w-6 text-emerald-400 mx-auto mb-1" />
-                    <p className="text-xs text-admin-muted">No active incidents</p>
+                  <div className="flex flex-1 flex-col items-center justify-center gap-2 py-8">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-emerald-500/20 bg-emerald-500/10">
+                      <Sparkles className="h-5 w-5 text-emerald-400" />
+                    </div>
+                    <p className="text-xs font-semibold text-emerald-400/90">All clear</p>
+                    <p className="max-w-[200px] text-center text-[11px] text-admin-muted">No open incidents right now.</p>
+                    <Link
+                      href="/incidents"
+                      className="text-[11px] font-semibold text-admin-primary hover:text-admin-primary-hover"
+                    >
+                      Incident history <ArrowRight className="inline h-3 w-3" />
+                    </Link>
                   </div>
                 ) : (
-                  <div className="space-y-2">
-                    {incidents.slice(0, 5).map((row) => (
-                      <div key={row.id} className="flex items-center justify-between rounded-lg border border-admin-border/60 px-3 py-2">
+                  <div className="max-h-[240px] flex-1 space-y-2 overflow-y-auto overscroll-contain px-4 py-3">
+                    {incidents.slice(0, 6).map((row) => (
+                      <div
+                        key={row.id}
+                        className="flex items-center justify-between gap-2 rounded-lg border border-admin-border/80 bg-white/[0.02] px-3 py-2"
+                      >
                         <div className="min-w-0">
-                          <p className="text-xs font-medium text-admin-text">{row.service}</p>
+                          <p className="truncate text-xs font-semibold text-admin-text">{row.service}</p>
                           <p className="text-[10px] text-admin-muted">{row.created_at ? formatTimeAgo(row.created_at) : '—'}</p>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex shrink-0 flex-col items-end gap-1">
                           <StatusBadge status={row.severity} variant={row.severity === 'High' ? 'danger' : 'warning'} />
                           <StatusBadge status={row.status} />
                         </div>
@@ -513,65 +692,114 @@ export default function MonitoringPage() {
                     ))}
                   </div>
                 )}
-              </div>
+              </MonitorPanel>
             </div>
-          </div>
 
-          {/* Infrastructure Alerts (full width at bottom) */}
-          {(alerts.length > 0 || alertsLoading) && (
-            <div className="rounded-xl border border-admin-border bg-admin-card">
-              <div className="px-5 py-3 border-b border-admin-border">
-                <h3 className="text-sm font-semibold text-admin-text">Infrastructure Alerts</h3>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-admin-border text-admin-muted">
-                      <th className="px-5 py-2 font-medium">System</th>
-                      <th className="px-3 py-2 font-medium">Severity</th>
-                      <th className="px-3 py-2 font-medium">Message</th>
-                      <th className="px-3 py-2 font-medium">Created</th>
-                      <th className="px-3 py-2 font-medium">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {alertsLoading ? (
-                      <tr><td colSpan={5} className="p-0"><TableSkeleton rows={3} cols={4} /></td></tr>
-                    ) : alerts.map((row) => (
-                      <tr key={row.id} className="border-b border-admin-border/50 last:border-0 hover:bg-white/[0.02]/50">
-                        <td className="px-5 py-2 font-medium text-admin-text">{row.system}</td>
-                        <td className="px-3 py-2"><StatusBadge status={row.severity} variant={row.severity === 'High' ? 'danger' : row.severity === 'Medium' ? 'warning' : 'default'} /></td>
-                        <td className="px-3 py-2 text-admin-muted max-w-[300px] truncate" title={row.message}>{row.message}</td>
-                        <td className="px-3 py-2 text-admin-muted">{row.created_at ? formatTimeAgo(row.created_at) : '—'}</td>
-                        <td className="px-3 py-2"><StatusBadge status={row.status} /></td>
+            {(alerts.length > 0 || alertsLoading) && (
+              <MonitorPanel
+                icon={AlertTriangle}
+                title="Infrastructure alerts"
+                description={`${alertsTotal} total · paginated`}
+                iconTint="bg-orange-500/10 text-orange-400"
+                bodyClassName="!p-0"
+              >
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-admin-border bg-white/[0.02] text-[10px] font-bold uppercase tracking-wider text-admin-muted">
+                        <th className="px-4 py-2.5">System</th>
+                        <th className="px-3 py-2.5">Severity</th>
+                        <th className="px-3 py-2.5">Message</th>
+                        <th className="px-3 py-2.5">Created</th>
+                        <th className="px-3 py-2.5">Status</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {alertsTotalPages > 1 && (
-                <div className="px-5 py-2 border-t border-admin-border flex items-center justify-between text-xs text-admin-muted">
-                  <span>Page {alertsPage} / {alertsTotalPages} ({alertsTotal} total)</span>
-                  <div className="flex gap-2">
-                    <Button variant="secondary" size="sm" disabled={alertsPage <= 1} onClick={() => setAlertsPage((p) => Math.max(1, p - 1))}>Prev</Button>
-                    <Button variant="secondary" size="sm" disabled={alertsPage >= alertsTotalPages} onClick={() => setAlertsPage((p) => p + 1)}>Next</Button>
-                  </div>
+                    </thead>
+                    <tbody>
+                      {alertsLoading ? (
+                        <tr>
+                          <td colSpan={5} className="p-0">
+                            <TableSkeleton rows={3} cols={4} />
+                          </td>
+                        </tr>
+                      ) : (
+                        alerts.map((row) => (
+                          <tr
+                            key={row.id}
+                            className="border-b border-admin-border/40 transition-colors last:border-0 hover:bg-white/[0.02]"
+                          >
+                            <td className="px-4 py-2.5 font-semibold text-admin-text">{row.system}</td>
+                            <td className="px-3 py-2.5">
+                              <StatusBadge
+                                status={row.severity}
+                                variant={row.severity === 'High' ? 'danger' : row.severity === 'Medium' ? 'warning' : 'default'}
+                              />
+                            </td>
+                            <td className="max-w-[280px] truncate px-3 py-2.5 text-admin-muted" title={row.message}>
+                              {row.message}
+                            </td>
+                            <td className="px-3 py-2.5 text-admin-muted">{row.created_at ? formatTimeAgo(row.created_at) : '—'}</td>
+                            <td className="px-3 py-2.5">
+                              <StatusBadge status={row.status} />
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
                 </div>
-              )}
-            </div>
-          )}
-        </>
-      )}
+                {alertsTotalPages > 1 && (
+                  <div className="flex items-center justify-between border-t border-admin-border px-4 py-2.5 text-[11px] text-admin-muted">
+                    <span>
+                      Page {alertsPage} / {alertsTotalPages} ({alertsTotal} total)
+                    </span>
+                    <div className="flex gap-2">
+                      <Button variant="secondary" size="sm" disabled={alertsPage <= 1} onClick={() => setAlertsPage((p) => Math.max(1, p - 1))}>
+                        Prev
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={alertsPage >= alertsTotalPages}
+                        onClick={() => setAlertsPage((p) => p + 1)}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </MonitorPanel>
+            )}
+          </>
+        )}
+      </div>
 
-      <InfrastructureControlModal open={!!controlModal} action={controlModal} onClose={() => setControlModal(null)} onConfirm={handleConfirmAction} isLoading={actionMutation.isPending} />
-      <RpcPriorityModal open={!!rpcPriorityModal} provider={rpcPriorityModal} onClose={() => setRpcPriorityModal(null)} onSave={(id, priority) => priorityMutation.mutate({ id, priority })} isLoading={priorityMutation.isPending} />
-    </div>
+      <InfrastructureControlModal
+        open={!!controlModal}
+        action={controlModal}
+        onClose={() => setControlModal(null)}
+        onConfirm={handleConfirmAction}
+        isLoading={actionMutation.isPending}
+      />
+      <RpcPriorityModal
+        open={!!rpcPriorityModal}
+        provider={rpcPriorityModal}
+        onClose={() => setRpcPriorityModal(null)}
+        onSave={(id, priority) => priorityMutation.mutate({ id, priority })}
+        isLoading={priorityMutation.isPending}
+      />
+    </AdminPageFrame>
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Sub-components                                                    */
-/* ------------------------------------------------------------------ */
+function QueueRow({ label, value, warnAt, highlight }: { label: string; value: number; warnAt: number; highlight?: boolean }) {
+  const warn = value > warnAt || highlight;
+  return (
+    <div className="flex items-center justify-between text-xs">
+      <span className="text-admin-muted">{label}</span>
+      <span className={cn('font-bold tabular-nums', warn ? 'text-amber-400' : 'text-admin-text')}>{value}</span>
+    </div>
+  );
+}
 
 function ResourceBar({ label, value }: { label: string; value: number | null }) {
   const v = value ?? 0;
@@ -579,34 +807,65 @@ function ResourceBar({ label, value }: { label: string; value: number | null }) 
   const isWarn = v > 75;
   return (
     <div>
-      <div className="flex items-center justify-between mb-0.5">
+      <div className="mb-0.5 flex items-center justify-between">
         <span className="text-[10px] text-admin-muted">{label}</span>
-        <span className={cn('text-[10px] font-bold tabular-nums', isCrit ? 'text-red-600' : isWarn ? 'text-amber-600' : 'text-admin-text')}>{v != null ? `${v}%` : '—'}</span>
+        <span
+          className={cn(
+            'text-[10px] font-bold tabular-nums',
+            isCrit ? 'text-red-400' : isWarn ? 'text-amber-400' : 'text-admin-text',
+          )}
+        >
+          {value != null ? `${v}%` : '—'}
+        </span>
       </div>
-      <div className="h-1.5 w-full rounded-full bg-white/5 overflow-hidden">
-        <div className={cn('h-full rounded-full transition-all', isCrit ? 'bg-red-500' : isWarn ? 'bg-amber-400' : 'bg-emerald-400')}
-          style={{ width: `${Math.min(100, v)}%` }} />
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-admin-border/50">
+        <div
+          className={cn('h-full rounded-full transition-all', isCrit ? 'bg-red-500' : isWarn ? 'bg-amber-500' : 'bg-emerald-500')}
+          style={{ width: `${Math.min(100, v)}%` }}
+        />
       </div>
     </div>
   );
 }
 
-const LatencyCard = memo(function LatencyCard({ label, value, unit, threshold, anomaly }: {
-  label: string; value: number; unit: string; threshold: [number, number];
+const LatencyCard = memo(function LatencyCard({
+  label,
+  value,
+  unit,
+  threshold,
+  anomaly,
+}: {
+  label: string;
+  value: number;
+  unit: string;
+  threshold: [number, number];
   anomaly?: { type: string | null; deltaPercent: number };
 }) {
   const [warn, crit] = threshold;
   const status = value >= crit ? 'crit' : value >= warn ? 'warn' : 'ok';
   return (
-    <div className={cn('rounded-lg border bg-admin-card px-3.5 py-2.5 transition-all',
-      status === 'crit' ? 'border-red-200 bg-red-50/40' : status === 'warn' ? 'border-amber-200 bg-amber-50/40' : 'border-admin-border')}>
-      <p className="text-[10px] font-medium text-admin-muted uppercase tracking-wider mb-1">{label}</p>
-      <div className="flex items-baseline gap-1">
-        <span className={cn('text-lg font-bold tabular-nums', status === 'crit' ? 'text-red-600' : status === 'warn' ? 'text-amber-600' : 'text-admin-text')}>{value}</span>
+    <div
+      className={cn(
+        'rounded-xl border px-3 py-3 transition-all',
+        status === 'crit' && 'border-red-500/25 bg-red-500/5',
+        status === 'warn' && 'border-amber-500/20 bg-amber-500/5',
+        status === 'ok' && 'border-admin-border bg-admin-card',
+      )}
+    >
+      <p className="text-[9px] font-bold uppercase tracking-wider text-admin-muted">{label}</p>
+      <div className="mt-1 flex items-baseline gap-1">
+        <span
+          className={cn(
+            'text-lg font-black tabular-nums',
+            status === 'crit' ? 'text-red-400' : status === 'warn' ? 'text-amber-400' : 'text-admin-text',
+          )}
+        >
+          {value}
+        </span>
         <span className="text-[10px] text-admin-muted">{unit}</span>
       </div>
       {anomaly && anomaly.deltaPercent !== 0 && (
-        <p className={cn('text-[10px] font-medium mt-0.5', anomaly.type === 'spike' ? 'text-red-500' : 'text-emerald-600')}>
+        <p className={cn('mt-0.5 text-[10px] font-semibold', anomaly.type === 'spike' ? 'text-red-400' : 'text-emerald-400')}>
           {anomaly.type === 'spike' ? '↑' : '↓'} {Math.abs(anomaly.deltaPercent).toFixed(1)}%
         </p>
       )}
@@ -614,29 +873,50 @@ const LatencyCard = memo(function LatencyCard({ label, value, unit, threshold, a
   );
 });
 
-const HistoryChart = memo(function HistoryChart({ title, data, color, unit }: {
-  title: string; data?: Array<{ timestamp?: string; value?: number }>; color: string; unit: string;
+const HistoryChart = memo(function HistoryChart({
+  title,
+  data,
+  color,
+  unit,
+}: {
+  title: string;
+  data?: Array<{ timestamp?: string; value?: number }>;
+  color: string;
+  unit: string;
 }) {
-  const points = useMemo(() => (data ?? []).map((p) => ({
-    time: p.timestamp ? new Date(p.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '',
-    value: p.value ?? 0,
-  })), [data]);
+  const points = useMemo(
+    () =>
+      (data ?? []).map((p) => ({
+        time: p.timestamp ? new Date(p.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '',
+        value: p.value ?? 0,
+      })),
+    [data],
+  );
 
   return (
     <div className="rounded-xl border border-admin-border bg-admin-card">
-      <div className="px-5 py-3 border-b border-admin-border">
-        <h3 className="text-sm font-semibold text-admin-text">{title}</h3>
+      <div className="border-b border-admin-border bg-white/[0.02] px-4 py-3">
+        <h3 className="text-sm font-bold text-admin-text">{title}</h3>
       </div>
-      <div className="p-4 h-[220px]">
+      <div className="h-[220px] p-3">
         {points.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-admin-muted text-xs">No data available</div>
+          <div className="flex h-full items-center justify-center text-xs text-admin-muted">No series data yet</div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={points}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
-              <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#94A3B8' }} />
-              <YAxis tick={{ fontSize: 10, fill: '#94A3B8' }} />
-              <RechartsTooltip contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #E2E8F0' }} formatter={(v: number) => [`${v}${unit ? ' ' + unit : ''}`, title.split(' ')[0]]} />
+              <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
+              <XAxis dataKey="time" tick={{ fontSize: 10, fill: CHART_TICK }} stroke={CHART_GRID} />
+              <YAxis tick={{ fontSize: 10, fill: CHART_TICK }} stroke={CHART_GRID} />
+              <RechartsTooltip
+                contentStyle={{
+                  fontSize: 11,
+                  borderRadius: 8,
+                  border: `1px solid ${CHART_TOOLTIP_BORDER}`,
+                  background: CHART_TOOLTIP_BG,
+                  color: '#E6EDF3',
+                }}
+                formatter={(v: number) => [`${v}${unit ? ' ' + unit : ''}`, title.split(' ')[0]]}
+              />
               <Line type="monotone" dataKey="value" stroke={color} strokeWidth={2} dot={false} />
             </LineChart>
           </ResponsiveContainer>
@@ -661,5 +941,7 @@ function formatTimeAgo(iso: string): string {
     if (diff < 60) return `${Math.floor(diff)}m ago`;
     if (diff < 1440) return `${Math.floor(diff / 60)}h ago`;
     return new Date(iso).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
-  } catch { return iso ?? '—'; }
+  } catch {
+    return iso ?? '—';
+  }
 }

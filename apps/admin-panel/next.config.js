@@ -1,7 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  /** Reduce dev races where the server runtime references a chunk that was just deleted mid-recompile. */
+  experimental: {
+    optimizePackageImports: ['lucide-react'],
+  },
   webpack: (config, { dev }) => {
     if (dev) {
       config.watchOptions = {

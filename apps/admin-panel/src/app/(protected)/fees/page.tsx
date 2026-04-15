@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Plus, Pencil, Trash2 } from 'lucide-react';
+import { Loader2, Plus, Pencil, Trash2, AlertTriangle } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent, Button, Tabs, Modal, ModalFooter, Input } from '@/components/ui';
 import { useAdminAuthStore } from '@/store/auth';
 import { cn } from '@/lib/cn';
@@ -18,10 +18,12 @@ import {
   updateFeePromotion,
   deleteFeePromotion,
   getFeeAuditHistory,
+  patchWithdrawalFee,
   type FeeTier,
   type FeePromotion,
 } from '@/lib/admin';
 import { getRevenueBreakdown } from '@/lib/admin/analytics';
+import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 
 type TabId = 'trading' | 'withdrawal';
 
@@ -315,6 +317,8 @@ export default function FeesManagementPage() {
   const [tierModal, setTierModal] = useState<{ open: boolean; tier: FeeTierRow | null }>({ open: false, tier: null });
   const [promoModal, setPromoModal] = useState<{ open: boolean; promo: FeePromotion | null }>({ open: false, promo: null });
   const [deletePromo, setDeletePromo] = useState<FeePromotion | null>(null);
+  const [wdEditTarget, setWdEditTarget] = useState<WithdrawalRow | null>(null);
+  const [wdEditForm, setWdEditForm] = useState({ fee: '', minWd: '', feeType: 'fixed' });
 
   const enabled = !!token;
   const [revQ, tiersQ, tradingQ, wdQ] = useQueries({
@@ -424,6 +428,35 @@ export default function FeesManagementPage() {
     },
   });
 
+  /* -- Withdrawal fee edit -- */
+  const wdEditMut = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: Record<string, unknown> }) =>
+      patchWithdrawalFee(token, id, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'fees', 'withdrawal'] });
+      setWdEditTarget(null);
+    },
+  });
+
+  function openWdEdit(c: WithdrawalRow) {
+    setWdEditTarget(c);
+    const n = c.withdrawal_fee == null ? '' : String(c.withdrawal_fee);
+    const m = c.min_withdrawal == null ? '' : String(c.min_withdrawal);
+    setWdEditForm({ fee: n, minWd: m, feeType: c.withdrawal_fee_type ?? 'fixed' });
+  }
+
+  function submitWdEdit() {
+    if (!wdEditTarget?.id) return;
+    wdEditMut.mutate({
+      id: wdEditTarget.id,
+      body: {
+        withdrawal_fee: wdEditForm.fee,
+        min_withdrawal: wdEditForm.minWd,
+        withdrawal_fee_type: wdEditForm.feeType,
+      },
+    });
+  }
+
   /* -- Derived data -- */
   const rev = revQ.data?.success ? revQ.data.data : undefined;
   const revLoading = revQ.isLoading || revQ.isFetching;
@@ -466,18 +499,15 @@ export default function FeesManagementPage() {
   };
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold text-admin-text">Fee Management</h1>
-          <p className="text-xs text-admin-muted mt-0.5">Revenue KPIs (last 7 days), trading and withdrawal fees.</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <Button variant="outline" size="sm" onClick={() => void qc.invalidateQueries({ queryKey: ['admin', 'fees'] })}>
-            Refresh
-          </Button>
-        </div>
-      </div>
+    <AdminPageFrame
+      title="Fee Management"
+      description="Revenue KPIs (last 7 days), trading and withdrawal fees."
+      quickActions={
+        <Button variant="outline" size="sm" onClick={() => void qc.invalidateQueries({ queryKey: ['admin', 'fees'] })}>
+          Refresh
+        </Button>
+      }
+    >
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {kpis.map((k) => (
@@ -562,17 +592,28 @@ export default function FeesManagementPage() {
                     <th className="px-4 py-3">Asset</th>
                     <th className="px-4 py-3">Withdrawal Fee</th>
                     <th className="px-4 py-3">Min Withdrawal</th>
+                    <th className="px-4 py-3 text-right"> </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-admin-border">
                   {currencies.map((c) => (
-                    <tr key={`${c.id}-${c.chain_symbol ?? ''}`} className="hover:bg-white/5">
+                    <tr key={`${c.id}-${c.chain_symbol ?? ''}`} className="hover:bg-white/[0.03]">
                       <td className="px-4 py-3">
                         <span className="font-medium text-admin-text">{c.symbol}</span>
                         {c.name ? <span className="ml-2 text-xs text-admin-muted">{c.name}</span> : null}
+                        {c.chain_symbol ? <span className="ml-1 rounded bg-white/[0.06] px-1 py-px text-[10px] text-admin-muted">{c.chain_symbol}</span> : null}
                       </td>
                       <td className="px-4 py-3 tabular-nums text-admin-text">{wdFee(c)}</td>
                       <td className="px-4 py-3 tabular-nums text-admin-text">{minWd(c.min_withdrawal, c.symbol)}</td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => openWdEdit(c)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-admin-border/60 px-2.5 py-1 text-xs text-admin-muted hover:text-admin-text hover:border-blue-500/30 hover:bg-blue-950/10 transition-colors"
+                        >
+                          <Pencil className="h-3 w-3" /> Edit
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -797,6 +838,64 @@ export default function FeesManagementPage() {
         onConfirm={() => deletePromo && deletePromoMut.mutate(deletePromo.id)}
         isLoading={deletePromoMut.isPending}
       />
-    </div>
+
+      {/* Withdrawal Fee Edit Modal */}
+      <Modal
+        open={!!wdEditTarget}
+        onClose={() => setWdEditTarget(null)}
+        title={`Edit Withdrawal Fee — ${wdEditTarget?.symbol ?? ''}`}
+        size="sm"
+      >
+        {wdEditTarget && (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-admin-muted mb-1">Fee Type</label>
+              <select
+                value={wdEditForm.feeType}
+                onChange={(e) => setWdEditForm((f) => ({ ...f, feeType: e.target.value }))}
+                className="w-full rounded-lg border border-admin-border bg-admin-surface px-3 py-2 text-sm text-admin-text focus:outline-none focus:ring-1 focus:ring-blue-500/40"
+              >
+                <option value="fixed">Fixed</option>
+                <option value="percentage">Percentage</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-admin-muted mb-1">
+                Withdrawal Fee {wdEditForm.feeType === 'percentage' ? '(decimal, e.g. 0.001 = 0.1%)' : `(${wdEditTarget.symbol} amount)`}
+              </label>
+              <input
+                type="text"
+                value={wdEditForm.fee}
+                onChange={(e) => setWdEditForm((f) => ({ ...f, fee: e.target.value }))}
+                placeholder={wdEditForm.feeType === 'percentage' ? '0.001' : '0.0005'}
+                className="w-full rounded-lg border border-admin-border/60 bg-admin-surface px-3 py-2 text-sm font-mono text-admin-text focus:outline-none focus:ring-1 focus:ring-blue-500/40"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-admin-muted mb-1">Min Withdrawal ({wdEditTarget.symbol})</label>
+              <input
+                type="text"
+                value={wdEditForm.minWd}
+                onChange={(e) => setWdEditForm((f) => ({ ...f, minWd: e.target.value }))}
+                placeholder="0.01"
+                className="w-full rounded-lg border border-admin-border/60 bg-admin-surface px-3 py-2 text-sm font-mono text-admin-text focus:outline-none focus:ring-1 focus:ring-blue-500/40"
+              />
+            </div>
+            {wdEditMut.isError && (
+              <p className="flex items-center gap-1.5 text-xs text-red-400">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                {(wdEditMut.error as Error)?.message ?? 'Failed to save. The backend may not support this endpoint yet.'}
+              </p>
+            )}
+          </div>
+        )}
+        <ModalFooter className="-mx-6 -mb-5 mt-4">
+          <Button variant="secondary" onClick={() => setWdEditTarget(null)}>Cancel</Button>
+          <Button onClick={submitWdEdit} loading={wdEditMut.isPending} disabled={wdEditMut.isPending}>
+            Save
+          </Button>
+        </ModalFooter>
+      </Modal>
+    </AdminPageFrame>
   );
 }
