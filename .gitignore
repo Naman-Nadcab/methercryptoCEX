@@ -72,3 +72,11 @@ Thumbs.db
 
 # Rust
 target/
+
+# Added 2026-04-18 (pre-launch hardening)
+.env.pre_launch_backup_*
+.env.*.backup
+.env.backup_*
+apps/*/tmp_*.ts
+apps/backend/tmp_*.ts
+/tmp_*.ts

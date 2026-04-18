@@ -4,9 +4,10 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
 import { getCurrencyIdBySymbol } from '../lib/currency-resolver.js';
-import { ensureUserBalanceRow, assertUserBalanceUpdated, assertBalanceInvariant, DEFAULT_ACCOUNT_TYPE, CHAIN_ID_GLOBAL } from '../lib/user-balance-helper.js';
+import { ensureUserBalanceRow, ensureUserBalanceRowsBulk, assertUserBalanceUpdated, assertBalanceInvariant, DEFAULT_ACCOUNT_TYPE, CHAIN_ID_GLOBAL } from '../lib/user-balance-helper.js';
 import { insertBalanceLedger } from '../lib/balance-ledger.js';
 import { readUserBalances } from '../services/balance/readUserBalances.js';
+import { getActiveCurrencyIds } from '../lib/active-currencies-cache.js';
 import { walletService } from '../services/wallet.service.js';
 import { logger, auditLog } from '../lib/logger.js';
 import { logWithdrawalLifecycle } from '../lib/withdrawal-audit.js';
@@ -741,39 +742,59 @@ export default async function walletRoutes(app: FastifyInstance) {
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const userId = request.user!.id;
-      const [fundingRows, spotRows, tradingRows, namesResult] = await Promise.all([
-        readUserBalances(userId, 'funding').catch((e) => {
-          logger.warn('Balances: readUserBalances(funding) failed', { userId, err: e instanceof Error ? e.message : String(e) });
-          return [] as Awaited<ReturnType<typeof readUserBalances>>;
-        }),
-        readUserBalances(userId, 'spot').catch((e) => {
-          logger.warn('Balances: readUserBalances(spot) failed', { userId, err: e instanceof Error ? e.message : String(e) });
-          return [] as Awaited<ReturnType<typeof readUserBalances>>;
-        }),
-        readUserBalances(userId, 'trading').catch((e) => {
-          logger.warn('Balances: readUserBalances(trading) failed', { userId, err: e instanceof Error ? e.message : String(e) });
-          return [] as Awaited<ReturnType<typeof readUserBalances>>;
-        }),
-        db.query<{ id: string; symbol: string; name: string }>(`SELECT id, symbol, COALESCE(name, symbol) as name FROM currencies WHERE is_active = TRUE`),
-      ]);
-      const nameById: Record<string, string> = {};
-      namesResult.rows.forEach(row => {
-        nameById[row.id] = row.name || row.symbol;
-      });
-      const allRows = [
-        ...fundingRows.map(r => ({ ...r, account_type: 'funding' as const })),
-        ...spotRows.map(r => ({ ...r, account_type: 'spot' as const })),
-        ...tradingRows.map(r => ({ ...r, account_type: 'trading' as const })),
-      ];
-      const balances = allRows.map(r => {
-        const avail = new Decimal(r.available_balance || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
-        const locked = new Decimal(r.locked_balance || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
-        const balance = avail.plus(locked).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+
+      // Phase 1 (hardening): ensure rows exist for all three account types in parallel,
+      // then do a SINGLE JOIN read covering funding/spot/trading + currency metadata.
+      // Previous implementation issued 3 × (ensure+select) + 1 currencies query = 7
+      // round trips. This path is 3 parallel ensures + 1 combined read.
+      const currencyIds = await getActiveCurrencyIds();
+      if (currencyIds.length > 0) {
+        await Promise.all([
+          ensureUserBalanceRowsBulk(userId, currencyIds, CHAIN_ID_GLOBAL, 'funding').catch((e) => {
+            logger.warn('Balances: ensure(funding) failed', { userId, err: e instanceof Error ? e.message : String(e) });
+          }),
+          ensureUserBalanceRowsBulk(userId, currencyIds, CHAIN_ID_GLOBAL, 'spot').catch((e) => {
+            logger.warn('Balances: ensure(spot) failed', { userId, err: e instanceof Error ? e.message : String(e) });
+          }),
+          ensureUserBalanceRowsBulk(userId, currencyIds, CHAIN_ID_GLOBAL, 'trading').catch((e) => {
+            logger.warn('Balances: ensure(trading) failed', { userId, err: e instanceof Error ? e.message : String(e) });
+          }),
+        ]);
+      }
+
+      const { rows } = await db.query<{
+        currency_id: string;
+        symbol: string;
+        name: string;
+        account_type: string;
+        available_balance: string;
+        locked_balance: string;
+      }>(
+        `SELECT
+           ub.currency_id,
+           c.symbol AS symbol,
+           COALESCE(c.name, c.symbol) AS name,
+           ub.account_type::text AS account_type,
+           COALESCE(ub.available_balance, 0)::text AS available_balance,
+           COALESCE(ub.locked_balance,    0)::text AS locked_balance
+         FROM user_balances ub
+         JOIN currencies   c ON c.id = ub.currency_id
+         WHERE ub.user_id = $1
+           AND c.is_active = TRUE
+           AND ub.account_type::text IN ('funding','spot','trading')
+         ORDER BY c.symbol ASC, ub.account_type::text ASC`,
+        [userId]
+      );
+
+      const balances = rows.map((r) => {
+        const avail  = new Decimal(r.available_balance || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+        const locked = new Decimal(r.locked_balance    || '0').toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
+        const total  = avail.plus(locked).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN);
         return {
           asset: r.symbol,
           currency_id: r.currency_id,
-          name: nameById[r.currency_id] ?? r.symbol,
-          balance: balance.toString(),
+          name: r.name || r.symbol,
+          balance: total.toString(),
           available_balance: avail.toString(),
           locked_balance: locked.toString(),
           account_type: r.account_type,
@@ -2862,7 +2883,9 @@ export default async function walletRoutes(app: FastifyInstance) {
         const chainIdCancel = w.chain_id ?? CHAIN_ID_GLOBAL;
 
         const upd = await client.query(
-          `UPDATE withdrawals SET status = 'cancelled', processed_at = NOW() WHERE id = $1 AND status = 'pending' RETURNING id`,
+          `UPDATE withdrawals SET status = 'cancelled', processed_at = NOW()
+           WHERE id = $1 AND status IN ('pending_approval','pending_email_verify','pending_2fa')
+           RETURNING id`,
           [id]
         );
         if (upd.rowCount === 0) {

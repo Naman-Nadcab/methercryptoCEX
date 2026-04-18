@@ -54,8 +54,8 @@ const FALLBACK_DOWN = { r: 240, g: 74, b: 92 };
 const FALLBACK: TradingChartColors = {
   up: rgba(FALLBACK_UP, 1),
   down: rgba(FALLBACK_DOWN, 1),
-  upVolume: rgba(FALLBACK_UP, 0.45),
-  downVolume: rgba(FALLBACK_DOWN, 0.45),
+  upVolume: rgba(FALLBACK_UP, 0.55),
+  downVolume: rgba(FALLBACK_DOWN, 0.55),
 };
 
 export function getTradingChartColors(): TradingChartColors {
@@ -75,8 +75,8 @@ export function getTradingChartColors(): TradingChartColors {
   return {
     up: rgba(upRgb, 1),
     down: rgba(downRgb, 1),
-    upVolume: rgba(upRgb, 0.45),
-    downVolume: rgba(downRgb, 0.45),
+    upVolume: rgba(upRgb, 0.55),
+    downVolume: rgba(downRgb, 0.55),
   };
 }
 

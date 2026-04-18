@@ -205,5 +205,29 @@ export function useChartAdapter(
     };
   }, [symbol, intervalSeconds, viewMode, retryCount]);
 
+  // Periodic resync: re-fetch the last 5 bars every 30s so closed bars stay accurate.
+  // Uses prependCandles which dedupes by time — safe to call without a full reload.
+  useEffect(() => {
+    if (viewMode === 'depth' || !symbol?.trim()) return;
+    const resync = async () => {
+      const adapter = adapterRef.current;
+      if (!adapter) return;
+      try {
+        const now = Math.floor(Date.now() / 1000);
+        const fresh = await getChartCandles(symbol, intervalSeconds, {
+          to: now,
+          limit: 5,
+          direction: 'desc',
+        });
+        if (!fresh.length) return;
+        adapter.prependCandles?.(fresh);
+      } catch {
+        // Resync failure is silent — live ticks already update the in-flight bar
+      }
+    };
+    const id = window.setInterval(resync, 30_000);
+    return () => window.clearInterval(id);
+  }, [symbol, intervalSeconds, viewMode]);
+
   return { adapterRef, chartError, chartLoading, retryChart };
 }

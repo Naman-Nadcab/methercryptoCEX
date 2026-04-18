@@ -1003,6 +1003,7 @@ export function SpotTradingGridTerminal(props: SpotTradingGridTerminalProps) {
 
           {/* RIGHT SIDEBAR: Binance-style row split — market list / trades / movers (no outer scroll) */}
           <div
+            data-spot-rail
             className="grid min-h-0 min-w-0 overflow-hidden border-b border-l border-solid border-border bg-card"
             style={{
               gridColumn: '3',
@@ -1034,6 +1035,7 @@ export function SpotTradingGridTerminal(props: SpotTradingGridTerminalProps) {
 
           {/* ORDERBOOK */}
           <div
+            data-spot-rail
             className="flex min-w-0 flex-col overflow-hidden border-r border-solid border-border bg-card"
             style={{ gridColumn: '1', gridRow: '3' }}
           >

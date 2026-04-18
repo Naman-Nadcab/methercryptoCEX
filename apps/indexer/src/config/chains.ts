@@ -1,3 +1,6 @@
+import { query } from './database';
+import { logger } from '../utils/logger';
+
 export interface ChainConfig {
   id: number;
   name: string;
@@ -14,6 +17,7 @@ export interface ChainConfig {
  * RPC/WebSocket endpoints – Ankr with API key from env.
  * Set ANKR_API_KEY in .env (get from https://www.ankr.com/rpc/)
  * Override per-chain via: ETH_RPC_URL, ETH_WS_URL, BSC_RPC_URL, BSC_WS_URL, etc.
+ * Final precedence: env override > DB chains table > Ankr default.
  */
 const env = (key: string, fallback: string) => process.env[key] || fallback;
 const ankrKey = process.env.ANKR_API_KEY || '';
@@ -83,6 +87,42 @@ export const CHAIN_CONFIGS: Record<string, ChainConfig> = {
 
 // ERC20 Transfer event signature
 export const ERC20_TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+
+/**
+ * Override hardcoded defaults with RPC URLs from the `chains` DB table.
+ * Only EVM chains are indexed here; non-EVM rows (solana, tron, bitcoin, polkadot) are skipped.
+ * Env variables (ETH_RPC_URL etc.) still take precedence over DB values.
+ */
+export async function loadChainRpcOverridesFromDb(): Promise<void> {
+  try {
+    const res = await query(
+      `SELECT id, type, rpc_url, ws_url FROM chains WHERE is_active = TRUE AND type = 'evm'`
+    );
+    for (const row of res.rows as Array<{ id: string; type: string; rpc_url: string | null; ws_url: string | null }>) {
+      const key = row.id.toLowerCase();
+      const cfg = CHAIN_CONFIGS[key];
+      if (!cfg) continue;
+      // Only override if no explicit env var was set (env takes precedence).
+      const envRpcKey = `${key.toUpperCase()}_RPC_URL`;
+      const envWsKey = `${key.toUpperCase()}_WS_URL`;
+      if (!process.env[envRpcKey] && row.rpc_url) {
+        cfg.rpcUrl = row.rpc_url;
+      }
+      if (!process.env[envWsKey] && row.ws_url) {
+        cfg.wssUrl = row.ws_url;
+      }
+    }
+    logger.info('Chain RPC overrides loaded from DB', {
+      chains: Object.keys(CHAIN_CONFIGS).map((k) => ({
+        chain: k,
+        rpc: CHAIN_CONFIGS[k]!.rpcUrl,
+        ws: CHAIN_CONFIGS[k]!.wssUrl,
+      })),
+    });
+  } catch (error) {
+    logger.warn('Failed to load chain RPC overrides from DB, using defaults', { error });
+  }
+}
 
 // Common token addresses per chain
 export const TOKEN_ADDRESSES: Record<string, Record<string, string>> = {

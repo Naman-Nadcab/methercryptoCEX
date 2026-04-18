@@ -1,6 +1,13 @@
 /**
  * Backend P2P reference price: internal spot last trade with Redis cache.
  * Price is quote (fiat/stable) per 1 unit of base asset (e.g. INR per USDT).
+ *
+ * Resolution order:
+ *   1. Redis cache (short TTL)
+ *   2. Stablecoin parity (USDT/USD, USDT/USDT → 1)
+ *   3. Last price from internal spot_trades
+ *   4. Configured fallback rates (P2P_REFERENCE_FALLBACK_* env or p2p_reference_rates table).
+ *      Production should wire a real oracle here; dev uses the fallback map.
  */
 
 import { Decimal, type DecimalInstance } from '../lib/decimal.js';
@@ -10,6 +17,24 @@ import { config } from '../config/index.js';
 import { logger } from '../lib/logger.js';
 
 const CACHE_PREFIX = 'p2p:ref:';
+
+/**
+ * Dev-mode fallback map for pairs where no internal market exists yet.
+ * Read from env `P2P_REFERENCE_FALLBACK_<ASSET>_<FIAT>` or falls back to this baseline.
+ * NOTE: In production replace with a real price oracle (Binance ticker, Coingecko, etc.).
+ */
+const FALLBACK_RATES: Record<string, string> = {
+  USDT_INR: '83',
+  USDC_INR: '83',
+  BTC_INR: '5500000',
+  ETH_INR: '280000',
+};
+
+function fallbackRate(asset: string, fiat: string): string | null {
+  const k = `${asset.toUpperCase()}_${fiat.toUpperCase()}`;
+  const envKey = `P2P_REFERENCE_FALLBACK_${k}`;
+  return process.env[envKey] || FALLBACK_RATES[k] || null;
+}
 
 function cacheKey(asset: string, fiat: string): string {
   return `${CACHE_PREFIX}${asset.toUpperCase()}:${fiat.toUpperCase()}`;
@@ -40,8 +65,14 @@ export function spotMarketCandidates(baseSymbol: string, fiat: string): string[]
 
 async function lastTradePrice(market: string): Promise<string | null> {
   try {
+    // spot_trades uses trading_pair_id; resolve via trading_pairs.symbol.
     const r = await db.query<{ p: string | null }>(
-      `SELECT price::text AS p FROM spot_trades WHERE market = $1 ORDER BY created_at DESC LIMIT 1`,
+      `SELECT st.price::text AS p
+       FROM spot_trades st
+       INNER JOIN trading_pairs tp ON tp.id = st.trading_pair_id
+       WHERE tp.symbol = $1
+       ORDER BY st.created_at DESC
+       LIMIT 1`,
       [market]
     );
     return r.rows[0]?.p ?? null;
@@ -55,7 +86,7 @@ export type P2PReferencePriceResult = {
   fiat: string;
   reference_price: string;
   market: string | null;
-  source: 'spot_trade' | 'stablecoin_parity' | 'cache';
+  source: 'spot_trade' | 'stablecoin_parity' | 'cache' | 'fallback';
   updated_at: string;
 };
 
@@ -101,8 +132,26 @@ export async function getP2PReferencePrice(asset: string, fiat: string): Promise
   }
 
   if (!priceStr) {
-    logger.warn('P2P reference price: no spot market', { asset: a, fiat: f, candidates });
-    throw new Error(`No internal reference price for ${a}/${f}. Ensure a spot market exists and has trades.`);
+    const fb = fallbackRate(a, f);
+    if (fb) {
+      logger.info('P2P reference price: using configured fallback rate (no internal market)', {
+        asset: a,
+        fiat: f,
+        rate: fb,
+      });
+      const fbRes: P2PReferencePriceResult = {
+        asset: a,
+        fiat: f,
+        reference_price: new Decimal(fb).toDecimalPlaces(18, Decimal.ROUND_DOWN).toString(),
+        market: null,
+        source: 'fallback',
+        updated_at: new Date().toISOString(),
+      };
+      if (ttl > 0) await redis.setJson(ck, fbRes, ttl);
+      return fbRes;
+    }
+    logger.warn('P2P reference price: no spot market and no fallback', { asset: a, fiat: f, candidates });
+    throw new Error(`No reference price for ${a}/${f}. Seed a spot market, wire an oracle, or set P2P_REFERENCE_FALLBACK_${a}_${f}.`);
   }
 
   const res: P2PReferencePriceResult = {

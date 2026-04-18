@@ -52,11 +52,14 @@ async function getMetricValue(metricKey: string): Promise<number> {
 async function getMetricFromDb(metricKey: string): Promise<number | null> {
   try {
     if (metricKey === 'order_queue_length') {
-      const r = await db.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM spot_orders WHERE status IN ('open', 'partially_filled')`);
+      const r = await db.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM spot_orders WHERE status IN ('new', 'partially_filled')`);
       return parseInt(r.rows[0]?.n ?? '0', 10) || 0;
     }
     if (metricKey === 'withdrawal_queue_size') {
-      const r = await db.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM withdrawals WHERE status = 'pending'`);
+      const r = await db.query<{ n: string }>(
+        `SELECT COUNT(*)::text AS n FROM withdrawals
+         WHERE status IN ('pending_approval','pending_email_verify','pending_2fa','processing','pending_blockchain')`
+      );
       return parseInt(r.rows[0]?.n ?? '0', 10) || 0;
     }
     if (metricKey === 'rpc_failure_percentage') {

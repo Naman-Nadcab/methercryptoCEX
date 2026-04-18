@@ -5,6 +5,7 @@ import { setSymbolCircuit, isSymbolCircuitOpen } from '../lib/per-symbol-circuit
 import { logger } from '../lib/logger.js';
 import { getAdminWithPermission } from './admin.fastify.js';
 import { getOrderbookFromDb } from '../services/spot-orderbook-cache.service.js';
+import { invalidateMarketsCache } from '../services/spot-markets-cache.service.js';
 
 const CIRCUIT_KEY_PREFIX = 'spot:circuit:';
 
@@ -147,6 +148,7 @@ export default async function adminSpotRoutes(app: FastifyInstance) {
       await redis.del(`${CIRCUIT_KEY_PREFIX}${symbol}`);
       await setSymbolCircuit(symbol, false); // clear per-symbol halt
       await db.query(`UPDATE spot_markets SET status = 'active', updated_at = NOW() WHERE symbol = $1 RETURNING id, symbol, status`, [symbol]);
+      await invalidateMarketsCache();
       logger.info('admin_spot_circuit_reset', { adminId: admin.adminId, symbol });
       return reply.send({ success: true, data: { symbol, status: 'active' } });
     } catch (error) {
@@ -206,6 +208,7 @@ export default async function adminSpotRoutes(app: FastifyInstance) {
       if (status === 'active') {
         await redis.del(`${CIRCUIT_KEY_PREFIX}${symbol}`);
       }
+      await invalidateMarketsCache();
       logger.info('admin_spot_market_updated', { adminId: admin.adminId, symbol, updates: Object.keys(request.body || {}) });
       return reply.send({ success: true, data: result.rows[0] });
     } catch (error) {

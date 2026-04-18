@@ -15,11 +15,17 @@ export class ChainIndexer {
   private reconnectAttempts: number = 0;
   private maxReconnectAttempts: number = 10;
   private lastProcessedBlock: number = 0;
+  /** HTTP polling fallback: drives block processing + heartbeat when WebSocket is unavailable. */
+  private pollTimer: NodeJS.Timeout | null = null;
+  private readonly pollIntervalMs: number;
 
   constructor(chainKey: string, config: ChainConfig) {
     this.chainKey = chainKey;
     this.config = config;
-    this.httpProvider = new JsonRpcProvider(config.rpcUrl);
+    // Explicit network avoids auto-detection handshake that burns requests on rate-limited RPCs.
+    this.httpProvider = new JsonRpcProvider(config.rpcUrl, config.id, { staticNetwork: true });
+    // Poll ~2x block time so we're responsive but gentle on public RPCs (min 4s, max 30s).
+    this.pollIntervalMs = Math.min(30_000, Math.max(4_000, Math.round((config.blockTime || 12) * 2_000)));
   }
 
   async start(): Promise<void> {
@@ -35,9 +41,19 @@ export class ChainIndexer {
       // Get last processed block
       await this.loadLastProcessedBlock();
       
-      // Connect WebSocket
-      await this.connectWebSocket();
-      
+      // Connect WebSocket (best-effort: some RPCs block WS on free tier).
+      try {
+        await this.connectWebSocket();
+      } catch (error) {
+        logger.warn(`WebSocket unavailable for ${this.config.name}; falling back to HTTP polling`, {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+
+      // Always run HTTP polling fallback; it processes new blocks + refreshes the
+      // indexer_state heartbeat, covering the case where WebSocket is down or rate-limited.
+      this.startHttpPolling();
+
       this.isRunning = true;
       logger.info(`Indexer started for ${this.config.name}`, { 
         watchedAddresses: this.watchedAddresses.size,
@@ -486,14 +502,64 @@ export class ChainIndexer {
 
   async stop(): Promise<void> {
     this.isRunning = false;
-    
+
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
+
     if (this.wsProvider) {
       this.wsProvider.removeAllListeners();
       await this.wsProvider.destroy();
       this.wsProvider = null;
     }
-    
+
     logger.info(`Indexer stopped for ${this.config.name}`);
+  }
+
+  /**
+   * HTTP polling fallback. Keeps indexer_state.updated_at fresh even when WebSocket
+   * is blocked (e.g. Ankr free tier returns 404 on WS), and processes any new blocks.
+   * Uses `safe_block - confirmations` to avoid refetching shallow reorgs.
+   */
+  private startHttpPolling(): void {
+    if (this.pollTimer) return;
+    const tick = async () => {
+      if (!this.isRunning) return;
+      try {
+        const head = await this.httpProvider.getBlockNumber();
+        // Always bump heartbeat so health check sees the indexer as live.
+        await query(
+          `INSERT INTO indexer_state (chain_id, last_block, updated_at)
+           VALUES ($1, $2, NOW())
+           ON CONFLICT (chain_id) DO UPDATE SET last_block = GREATEST(indexer_state.last_block, $2), updated_at = NOW()`,
+          [this.chainKey, Math.max(this.lastProcessedBlock, head - this.config.confirmations)]
+        );
+        // Catch up on any missed blocks (cap per tick to avoid RPC rate-limit blowups).
+        const target = Math.max(0, head - this.config.confirmations);
+        const MAX_PER_TICK = 10;
+        let processed = 0;
+        while (this.lastProcessedBlock < target && processed < MAX_PER_TICK) {
+          const next = this.lastProcessedBlock + 1;
+          try {
+            await this.processBlock(next);
+          } catch (e) {
+            logger.debug(`poll processBlock failed for ${this.config.name}#${next}`, {
+              error: e instanceof Error ? e.message : String(e),
+            });
+            break; // avoid tight loop on persistent errors
+          }
+          processed += 1;
+        }
+      } catch (error) {
+        logger.debug(`HTTP poll tick failed for ${this.config.name}`, {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    };
+    // Fire once immediately so heartbeat updates on startup, then on interval.
+    tick().catch(() => { /* logged inside */ });
+    this.pollTimer = setInterval(tick, this.pollIntervalMs);
   }
 
   getStats(): object {

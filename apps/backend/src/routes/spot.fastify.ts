@@ -33,6 +33,8 @@ import {
 } from '../services/spot-live-market-state.service.js';
 import { broadcastPublicSpotFeeds } from '../services/spot-live-ws-fanout.service.js';
 import { addLiquidity, removeLiquidity, snapshotTop } from '../services/spot-in-memory-orderbook.service.js';
+import { getMarketsCached, invalidateMarketsCache } from '../services/spot-markets-cache.service.js';
+import { markCircuitTripped } from '../services/spot-circuit-auto-recover.service.js';
 import { ensureMemoryBookHydrated } from '../services/spot-memory-hydrate.service.js';
 import {
   applyInlineEngineEvents,
@@ -188,9 +190,13 @@ async function pushSpotUpdates(symbol: string, userId: string, orderPayload: obj
 async function recordCircuitBreaker(symbol: string): Promise<void> {
   const key = `${CIRCUIT_KEY_PREFIX}${symbol}`;
   const n = await redis.incr(key);
-  await redis.expire(key, 3600);
+  // Counter lives for 10 minutes; once it expires the auto-recover sweeper can
+  // safely reopen the market (see spot-circuit-auto-recover.service.ts).
+  await redis.expire(key, 600);
   if (n >= CIRCUIT_BREAKER_THRESHOLD) {
     await db.query(`UPDATE spot_markets SET status = 'maintenance', updated_at = NOW() WHERE symbol = $1`, [symbol]);
+    await markCircuitTripped(symbol);
+    await invalidateMarketsCache();
     logger.warn('spot_circuit_breaker_trip', { symbol, count: n });
   }
 }
@@ -213,52 +219,15 @@ function displayStatus(status: string): string {
 }
 
 export default async function spotRoutes(app: FastifyInstance) {
-  // GET /spot/markets (includes maker_fee, taker_fee, last_price, volume_24h, change_pct)
+  // GET /spot/markets — cache owned by services/spot-markets-cache.service.ts so admin
+  // mutation routes can call invalidateMarketsCache() without touching this handler.
   app.get('/markets', async (_request, reply) => {
     try {
-      const result = await db.query(`
-        SELECT m.id, m.symbol, m.base_asset, m.quote_asset, m.status, m.min_qty, m.min_notional, m.price_precision, m.qty_precision,
-               COALESCE(m.maker_fee, 0.001)::text as maker_fee, COALESCE(m.taker_fee, 0.001)::text as taker_fee,
-               COALESCE(mp.price, candle_1m.close_price, candle_1d.close_price)::text as last_price,
-               COALESCE(candle_24.volume, '0')::text as volume_24h,
-               candle_24.open_price::text as open_24h,
-               candle_24.high_price::text as high_24h,
-               candle_24.low_price::text as low_24h
-        FROM spot_markets m
-        LEFT JOIN LATERAL (
-          SELECT mp2.price FROM market_prices mp2
-          WHERE mp2.base_currency_id = m.base_currency_id AND mp2.quote_currency_id = m.quote_currency_id
-          LIMIT 1
-        ) mp ON TRUE
-        LEFT JOIN LATERAL (
-          SELECT oc.close_price FROM ohlcv_candles oc
-          JOIN trading_pairs tp2 ON tp2.id = oc.trading_pair_id
-          WHERE tp2.symbol = m.symbol AND oc.interval_type = '1m'
-          ORDER BY oc.open_time DESC LIMIT 1
-        ) candle_1m ON TRUE
-        LEFT JOIN LATERAL (
-          SELECT oc.close_price FROM ohlcv_candles oc
-          JOIN trading_pairs tp2 ON tp2.id = oc.trading_pair_id
-          WHERE tp2.symbol = m.symbol AND oc.interval_type = '1d'
-          ORDER BY oc.open_time DESC LIMIT 1
-        ) candle_1d ON TRUE
-        LEFT JOIN LATERAL (
-          SELECT oc.open_price, oc.high_price, oc.low_price, oc.volume
-          FROM ohlcv_candles oc
-          JOIN trading_pairs tp2 ON tp2.id = oc.trading_pair_id
-          WHERE tp2.symbol = m.symbol AND oc.interval_type = '1d'
-          ORDER BY oc.open_time DESC LIMIT 1
-        ) candle_24 ON TRUE
-        WHERE m.status IN ('active', 'maintenance')
-        ORDER BY m.symbol
-      `);
-      const markets = result.rows.map((r: any) => {
-        const open = r.open_24h ? parseFloat(r.open_24h) : NaN;
-        const last = r.last_price ? parseFloat(r.last_price) : NaN;
-        const changePct = Number.isFinite(open) && open > 0 && Number.isFinite(last) ? Math.round(((last - open) / open) * 10000) / 100 : null;
-        return { ...r, change_pct: changePct };
-      });
-      reply.header('Cache-Control', 'public, max-age=10');
+      const markets = await getMarketsCached();
+      // CDN/edge cache: 60s fresh + 30s stale-while-revalidate keeps the origin under
+      // light load even when 1000s of clients poll. Server-side in-process memo (3s)
+      // plus Redis (10s) still protect against stale spikes after invalidation.
+      reply.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=30');
       return reply.send({ success: true, data: markets });
     } catch (error) {
       if (error instanceof AsyncTimeoutError) {
@@ -1489,7 +1458,11 @@ export default async function spotRoutes(app: FastifyInstance) {
         return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Order not found' } });
       }
       const o = order.rows[0]!;
-      if (o.status !== 'OPEN' && o.status !== 'PARTIALLY_FILLED' && o.status !== 'PENDING_TRIGGER') {
+      // Accept both legacy uppercase ('OPEN', 'PARTIALLY_FILLED', 'PENDING_TRIGGER') and the
+      // canonical DB enum values ('new', 'partially_filled', 'pending_trigger'). Earlier revisions
+      // of this check rejected every cancel because the DB stores lowercase enum text.
+      const statusLower = (o.status || '').toLowerCase();
+      if (!['new', 'open', 'partially_filled', 'pending_trigger'].includes(statusLower)) {
         return reply.status(400).send({
           success: false,
           error: { code: 'ORDER_NOT_CANCELLABLE', message: 'Order cannot be cancelled' },
@@ -1524,7 +1497,7 @@ export default async function spotRoutes(app: FastifyInstance) {
       }
 
       await db.transaction(async (client) => {
-        await client.query(`UPDATE spot_orders SET status = 'CANCELLED', updated_at = NOW() WHERE id = $1`, [orderId]);
+        await client.query(`UPDATE spot_orders SET status = 'cancelled', updated_at = NOW() WHERE id = $1`, [orderId]);
         await unlockTradingBalance(userId, unlockCurrencyId, unlockAmount, client);
       });
 
@@ -1628,7 +1601,7 @@ export default async function spotRoutes(app: FastifyInstance) {
           const unlockAmount = o.side === 'buy'
             ? unlockAmountQuote(priceForUnlock, remainingQty.toString(), 8)
             : unlockAmountBase(remainingQty.toString(), 8);
-          await client.query(`UPDATE spot_orders SET status = 'CANCELLED', updated_at = NOW() WHERE id = $1`, [o.id]);
+          await client.query(`UPDATE spot_orders SET status = 'cancelled', updated_at = NOW() WHERE id = $1`, [o.id]);
           await unlockTradingBalance(userId, unlockCurrencyId, unlockAmount, client);
         }
       });
@@ -1719,19 +1692,35 @@ export default async function spotRoutes(app: FastifyInstance) {
     const offset = (page - 1) * limit;
     const market = request.query.market?.toUpperCase().replace(/-/g, '_');
     try {
-      let q = `SELECT id, market, side, type, price, quantity, filled_quantity, status, created_at, updated_at FROM spot_orders WHERE user_id = $1`;
+      // spot_orders schema uses trading_pair_id + order_type; resolve market name via join.
+      let q = `
+        SELECT o.id, tp.symbol AS market, o.side, o.order_type AS type,
+               o.price::text AS price, o.quantity::text AS quantity,
+               o.filled_quantity::text AS filled_quantity, o.status,
+               o.created_at, o.updated_at
+        FROM spot_orders o
+        JOIN trading_pairs tp ON tp.id = o.trading_pair_id
+        WHERE o.user_id = $1`;
       const params: unknown[] = [userId];
       if (market) {
         params.push(market);
-        q += ` AND market = $${params.length}`;
+        q += ` AND tp.symbol = $${params.length}`;
       }
-      q += ` ORDER BY created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+      q += ` ORDER BY o.created_at DESC LIMIT $${params.length + 1}::int OFFSET $${params.length + 2}::int`;
       params.push(limit, offset);
       const result = await db.query(q, params);
-      const countResult = await db.query<{ count: string }>(
-        `SELECT COUNT(*)::text as count FROM spot_orders WHERE user_id = $1 ${market ? 'AND market = $2' : ''}`,
-        market ? [userId, market] : [userId]
-      );
+
+      let countSql = `SELECT COUNT(*)::text as count FROM spot_orders o WHERE o.user_id = $1`;
+      const countParams: unknown[] = [userId];
+      if (market) {
+        countSql = `
+          SELECT COUNT(*)::text as count
+          FROM spot_orders o
+          JOIN trading_pairs tp ON tp.id = o.trading_pair_id
+          WHERE o.user_id = $1 AND tp.symbol = $2`;
+        countParams.push(market);
+      }
+      const countResult = await db.query<{ count: string }>(countSql, countParams);
       const total = parseInt(countResult.rows[0]?.count || '0');
       const data = result.rows.map((r) => {
         const row = r as { quantity: string; filled_quantity: string; status: string };
@@ -2322,7 +2311,10 @@ export default async function spotRoutes(app: FastifyInstance) {
         return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Order not found' } });
       }
       const o = orderRow.rows[0]!;
-      if (o.status !== 'OPEN' && o.status !== 'PARTIALLY_FILLED' && o.status !== 'PENDING_TRIGGER') {
+      // Case-insensitive match. DB enum stores lowercase ('new', 'partially_filled', …) while
+      // older code paths used uppercase tags. Accept both so cancels actually work end-to-end.
+      const statusLower = (o.status || '').toLowerCase();
+      if (!['new', 'open', 'partially_filled', 'pending_trigger'].includes(statusLower)) {
         return reply.status(400).send({ success: false, error: { code: 'ORDER_NOT_CANCELLABLE', message: 'Order cannot be cancelled' } });
       }
       const m = await db.query<{ base_currency_id: string | null; quote_currency_id: string | null; base_asset: string; quote_asset: string }>(
@@ -2353,7 +2345,7 @@ export default async function spotRoutes(app: FastifyInstance) {
       }
 
       await db.transaction(async (client) => {
-        await client.query(`UPDATE spot_orders SET status = 'CANCELLED', updated_at = NOW() WHERE id = $1`, [orderId]);
+        await client.query(`UPDATE spot_orders SET status = 'cancelled', updated_at = NOW() WHERE id = $1`, [orderId]);
         await unlockTradingBalance(userId, unlockCurrencyId, unlockAmount, client);
       });
 

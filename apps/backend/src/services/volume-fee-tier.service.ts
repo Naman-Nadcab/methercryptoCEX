@@ -16,10 +16,12 @@ const DEFAULT_TAKER = '0.001';
  * Get 30-day spot trading volume (quote amount) for a user.
  */
 export async function getUser30dVolume(userId: string): Promise<string> {
+  // spot_trades stores both sides: sum volume where user was maker or taker.
   const r = await db.query<{ volume: string }>(
     `SELECT COALESCE(SUM(price::numeric * quantity::numeric), 0)::text as volume
      FROM spot_trades
-     WHERE user_id = $1 AND created_at >= NOW() - INTERVAL '30 days'`,
+     WHERE (maker_user_id = $1 OR taker_user_id = $1)
+       AND created_at >= NOW() - INTERVAL '30 days'`,
     [userId]
   );
   return r.rows[0]?.volume ?? '0';

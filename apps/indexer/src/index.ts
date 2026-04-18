@@ -3,7 +3,7 @@ import path from 'path';
 
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 
-import { CHAIN_CONFIGS } from './config/chains';
+import { CHAIN_CONFIGS, loadChainRpcOverridesFromDb } from './config/chains';
 import { query } from './config/database';
 import { ChainIndexer } from './services/ChainIndexer';
 import { ConfirmationTracker } from './services/ConfirmationTracker';
@@ -21,10 +21,13 @@ class IndexerManager {
 
   async initialize(): Promise<void> {
     logger.info('🚀 Starting EVM Indexer...');
-    
+
     // Ensure database tables exist
     await this.initializeDatabase();
-    
+
+    // Override hardcoded RPC/WS URLs with values from the `chains` DB table.
+    await loadChainRpcOverridesFromDb();
+
     // Initialize indexers for all chains
     for (const [chainKey, config] of Object.entries(CHAIN_CONFIGS)) {
       const indexer = new ChainIndexer(chainKey, config);

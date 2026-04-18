@@ -9,7 +9,7 @@ import { redis } from '../lib/redis.js';
 import { refundFromEscrow } from './p2p-escrow.service.js';
 import { logger } from '../lib/logger.js';
 
-const P2P_ORDER_STATUS_PAYMENT_PENDING = 'payment_pending';
+const P2P_ORDER_STATUS_PAYMENT_PENDING = 'awaiting_payment';
 const P2P_EXPIRY_LOCK_KEY = 'p2p_expiry:run';
 const P2P_EXPIRY_LOCK_TTL_MS = 120_000; // 2 minutes
 

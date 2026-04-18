@@ -110,6 +110,42 @@ export function rateLimitByIp(
 }
 
 /**
+ * PreHandler: rate limit by a caller-supplied identifier extracted from the request
+ * body (or headers). Useful for pre-auth endpoints like /auth/login where we want
+ * to throttle an attacker who rotates IPs against a single email/phone. Requests
+ * with no extractable identifier are allowed through (fall back to IP limiter).
+ *
+ * Key: rate:{scope}:id:{identifier}
+ */
+export function rateLimitByIdentifier(
+  scope: string,
+  limit: number,
+  windowSeconds: number,
+  extract: (request: FastifyRequest) => string | null | undefined,
+  options?: RateLimitOptions
+): (request: FastifyRequest, reply: FastifyReply) => Promise<void> {
+  const failClosed = options?.failClosed ?? false;
+  return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    const raw = extract(request);
+    const identifier = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+    if (!identifier) return; // nothing to limit against; let IP limiter handle it
+    const key = buildKey(scope, `id:${identifier}`);
+    const result = await checkLimit(key, limit, windowSeconds, failClosed);
+    if (!result.allowed) {
+      if (result.unavailable) {
+        sendRateLimitUnavailable(reply);
+      } else {
+        sendRateLimitExceeded(reply, scope, `id:${identifier}`);
+      }
+      return;
+    }
+    reply.header('X-RateLimit-Limit', limit);
+    reply.header('X-RateLimit-Remaining', result.remaining);
+    reply.header('X-RateLimit-Reset', Math.ceil(result.resetAt / 1000));
+  };
+}
+
+/**
  * PreHandler: rate limit by authenticated user ID.
  * Requires request.user (run after authenticate).
  * Key: rate:{scope}:user:{userId}

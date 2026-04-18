@@ -12,6 +12,7 @@ import { getTwoFaPolicy, updateTwoFaPolicy } from '../services/twofa-enforcement
 import { listHotWallets } from '../services/hot-wallet.service.js';
 import { getSettlementCircuitOpen } from '../lib/trading-halt.js';
 import { logAuditFromRequest } from '../services/audit-log.service.js';
+import { invalidateMarketsCache } from '../services/spot-markets-cache.service.js';
 import { logger } from '../lib/logger.js';
 
 const OPEN_ORDER_STATUSES = ['OPEN', 'PARTIALLY_FILLED'];
@@ -215,6 +216,7 @@ export default async function adminPhase24Routes(app: FastifyInstance): Promise<
         if (result.rows.length === 0) {
           return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Market not found' } });
         }
+        await invalidateMarketsCache();
         logAuditFromRequest(request, {
           actorType: 'admin', actorId: admin.adminId,
           action: 'market_listing_status_updated', resourceType: 'spot_markets', resourceId: symbol,

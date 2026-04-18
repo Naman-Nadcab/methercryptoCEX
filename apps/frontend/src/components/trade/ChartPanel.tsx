@@ -52,6 +52,8 @@ const INTERVALS: { label: string; seconds: number }[] = [
   { label: '1H', seconds: 3600 },
   { label: '4H', seconds: 14400 },
   { label: '1D', seconds: 86400 },
+  { label: '1W', seconds: 604800 },
+  { label: '1M', seconds: 2592000 },
 ];
 
 /** Toolbar segmented control — app tokens (aligned with markets tabs / primary). */

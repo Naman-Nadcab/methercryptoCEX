@@ -31,6 +31,7 @@ import { registerAdminConnection, unregisterAdminConnection, publishKycStatusCha
 import { registerAdminEventsConnection, unregisterAdminEventsConnection, broadcastAdminControlEvent } from '../services/admin-events-ws.service.js';
 import { applyTierLimitsToUser } from '../services/withdrawal-tier-limits.service.js';
 import { getHotWalletsIdModeCached } from '../lib/hot-wallets-schema-cache.js';
+import { invalidateMarketsCache } from '../services/spot-markets-cache.service.js';
 const ADMIN_CREDIT_IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60;
 const ADMIN_CREDIT_IDEMPOTENCY_LOCK_TTL_SECONDS = 30;
 const WITHDRAW_APPROVE_IDEMPOTENCY_TTL = 24 * 60 * 60;
@@ -4341,7 +4342,8 @@ export default async function adminRoutes(app: FastifyInstance) {
       const settlement_pending = parseInt(s ?? '0', 10) || 0;
       const matching_engine_pending = parseInt(m ?? '0', 10) || 0;
       const withdrawalFromDb = await db.query<{ count: string }>(
-        `SELECT COUNT(*)::text AS count FROM withdrawals WHERE status IN ('pending','pending_approval')`
+        `SELECT COUNT(*)::text AS count FROM withdrawals
+         WHERE status IN ('pending_approval','pending_email_verify','pending_2fa','processing','pending_blockchain')`
       ).catch(() => ({ rows: [{ count: '0' }] }));
       const withdrawalDb = parseInt(withdrawalFromDb.rows[0]?.count ?? '0', 10) || 0;
       let settlementLagSec = 0;
@@ -11006,6 +11008,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         INSERT INTO spot_markets (symbol, base_asset, quote_asset, status, maker_fee, taker_fee, price_precision, qty_precision)
         VALUES ($1, $2, $3, 'active', $4, $5, $6, $7)
       `, [symbol, base_asset, quote_asset, maker_fee, taker_fee, price_precision, qty_precision]);
+      await invalidateMarketsCache();
       logger.info('admin_market_created', { adminId: admin.adminId, symbol });
       return reply.send({ success: true, data: { symbol, base_asset, quote_asset, status: 'active' } });
     } catch (e) {
@@ -11091,6 +11094,7 @@ export default async function adminRoutes(app: FastifyInstance) {
             /* best-effort */
           }
         }
+        await invalidateMarketsCache();
         logger.info('admin_market_updated', { adminId: admin.adminId, symbol });
         return reply.send({ success: true, data: result.rows[0] });
       }

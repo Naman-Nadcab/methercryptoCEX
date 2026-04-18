@@ -197,6 +197,31 @@ input[type="number"] {
   }
 }
 
+/* Responsive rail widths: shrink rails as viewport narrows */
+@media (max-width: 1400px) {
+  :root {
+    --spot-terminal-rail-width: 230px;
+  }
+}
+
+@media (max-width: 1100px) {
+  :root {
+    --spot-terminal-rail-width: 200px;
+  }
+}
+
+@media (max-width: 900px) {
+  :root {
+    /* Collapse rails entirely on small screens — chart + order form take full width */
+    --spot-terminal-rail-width: 0px;
+  }
+  /* Hide overflow so 0px rails don't show scrollbars or content bleed */
+  [data-spot-rail] {
+    overflow: hidden !important;
+    pointer-events: none;
+  }
+}
+
 /* Animations */
 @keyframes flash-green {
   0%, 100% { background-color: transparent; }

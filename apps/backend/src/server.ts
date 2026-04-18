@@ -102,9 +102,26 @@ export async function buildServer(): Promise<FastifyInstance> {
     }
   });
 
-  // CORS: dev-safe — allow all origins so localhost requests pass
+  // CORS: allow-list only. Reflecting arbitrary Origin + credentials=true is a CSRF risk; we now
+  // check each request's Origin against CORS_ORIGINS (plus localhost defaults in dev).
+  const corsAllowList = new Set(config.security.corsOrigins);
+  if (config.env === 'development') {
+    for (const dev of [
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'http://127.0.0.1:3000',
+      'http://127.0.0.1:3001',
+    ]) {
+      corsAllowList.add(dev);
+    }
+  }
   await app.register(cors, {
-    origin: true,
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true); // native apps, curl, server-to-server
+      if (corsAllowList.has(origin) || corsAllowList.has('*')) return cb(null, true);
+      logger.warn('CORS rejected origin', { origin });
+      return cb(null, false);
+    },
     credentials: true,
   });
 
@@ -180,8 +197,17 @@ export async function buildServer(): Promise<FastifyInstance> {
     });
   });
 
-  // Health check — DB + Redis required; NATS/engine probes always included when configured; gates control 503.
-  app.get('/health', async (_request, reply) => {
+  // Fast liveness probe — no downstream calls. Use this for Kubernetes liveness probes
+  // so a temporarily unreachable database cannot cause pod restarts. For readiness /
+  // real ops observability use /health or /health/deep.
+  app.get('/health/live', async (_request, reply) => {
+    reply.status(200);
+    return { status: 'alive', timestamp: new Date().toISOString() };
+  });
+
+  // Deep health check — DB + Redis required; NATS/engine probes always included when configured; gates control 503.
+  // Exposed at both /health (historical) and /health/deep (explicit name for dashboards / k8s readiness probes).
+  const deepHealthHandler = async (_request: FastifyRequest, reply: FastifyReply) => {
     const { withTimeout } = await import('./lib/async-timeout.js');
     const { pingDatabaseWithRetries } = await import('./lib/health-db-ping.js');
 
@@ -365,7 +391,9 @@ export async function buildServer(): Promise<FastifyInstance> {
       ...(staleMarkets.length > 0 && { stale_markets: staleMarkets }),
       ...(orderbookWriter && { orderbook_writer: orderbookWriter }),
     };
-  });
+  };
+  app.get('/health', deepHealthHandler);
+  app.get('/health/deep', deepHealthHandler);
 
   // Prometheus metrics (GET /metrics) — includes SLO gauges + exchange-domain metrics
   app.get('/metrics', async (_request, reply) => {
@@ -885,6 +913,7 @@ async function start() {
       logger.info(`   Base URL: http://localhost:${port}`);
       void import('./lib/liquidity-bot-rate-limit.js').then((m) => m.warmLiquidityBotUserCache());
       startPortfolioSnapshotCron();
+      void import('./services/spot-circuit-auto-recover.service.js').then((m) => m.startSpotCircuitAutoRecover());
       void import('./services/settlement-pipeline-health.service.js').then(async (m) => {
         const backlog = await m.refreshSettlementBacklogSnapshot().catch(() => ({ pendingCount: 0, oldestPendingAgeSeconds: 0 }));
         const { settlementPendingGauge, settlementOldestPendingAgeSeconds, settlementLagSeconds } = await import('./lib/prometheus-metrics.js');

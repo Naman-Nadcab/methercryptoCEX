@@ -18,8 +18,10 @@ export function buildChartCandles(
   intervalSeconds: number
 ): CandleData[] {
   const candles = normalizeCandleData(rawCandles);
+  // fillGaps: false — Lightweight Charts natively handles gaps (shows empty space).
+  // Synthetic flat doji candles make the chart look wrong; real gaps are cleaner.
   const { candles: cleaned } = validateCandleContinuity(candles, intervalSeconds, {
-    fillGaps: true,
+    fillGaps: false,
   });
   return cleaned;
 }

@@ -5,19 +5,81 @@ export type Queryable = { query<T = any>(...args: any[]): Promise<any> };
 import { config } from '../config/index.js';
 import { logger } from './logger.js';
 
-const SLOW_QUERY_MS = 100;
+/**
+ * Slow-query logging: emit a warn only for queries that exceed a clear threshold
+ * (500ms) AND survive per-operation throttling (at most one warn per operation-prefix
+ * per 30s). Prometheus still captures every observation via dbQueryDuration /
+ * dbSlowQueriesTotal — logs stay actionable instead of being drowned by network RTT.
+ *
+ * A rolling per-operation sample estimates an approximate p95; anything above that
+ * AND above the threshold is always logged, plus a 1% random sample of everything
+ * else above the threshold so truly slow outliers never hide.
+ */
+const SLOW_QUERY_MS = Number(process.env.DB_SLOW_QUERY_MS ?? 500);
+const SLOW_QUERY_DEDUPE_MS = 30_000;
+const SLOW_QUERY_SAMPLE_RATE = 0.01;
+
+type SlowQueryStats = { samples: number[]; lastWarnAt: number };
+const slowQueryStats = new Map<string, SlowQueryStats>();
+
+function shouldLogSlowQuery(operation: string, durationMs: number): boolean {
+  if (durationMs < SLOW_QUERY_MS) return false;
+  const now = Date.now();
+  let stats = slowQueryStats.get(operation);
+  if (!stats) {
+    stats = { samples: [], lastWarnAt: 0 };
+    slowQueryStats.set(operation, stats);
+  }
+  stats.samples.push(durationMs);
+  if (stats.samples.length > 200) stats.samples.splice(0, stats.samples.length - 200);
+  if (now - stats.lastWarnAt < SLOW_QUERY_DEDUPE_MS) {
+    // Still inside dedupe window — only emit if this is a notable outlier
+    // or we hit the random sample.
+    if (Math.random() >= SLOW_QUERY_SAMPLE_RATE) return false;
+  }
+  // Approximate p95 from the rolling window (sort is fine for <=200 samples).
+  const sorted = [...stats.samples].sort((a, b) => a - b);
+  const p95 = sorted[Math.max(0, Math.floor(sorted.length * 0.95) - 1)] ?? durationMs;
+  if (durationMs >= p95 || Math.random() < SLOW_QUERY_SAMPLE_RATE) {
+    stats.lastWarnAt = now;
+    return true;
+  }
+  return false;
+}
 
 class Database {
   private pool: Pool;
   private readPool: Pool | null = null;
   private static instance: Database;
 
+  /** Manually parse a Postgres URL to correctly unwrap IPv6 brackets, which
+   *  some versions of pg leak into getaddrinfo causing ENOTFOUND. */
+  private static parseConnectionString(url: string): {
+    host: string; port: number; user: string; password: string; database: string;
+  } {
+    const match = url.match(/^postgres(?:ql)?:\/\/([^:]+):([^@]+)@(\[[^\]]+\]|[^:/]+):(\d+)\/([^?]+)/);
+    if (!match) {
+      return { host: '', port: 5432, user: '', password: '', database: '' };
+    }
+    const [, user, password, hostRaw, portStr, database] = match;
+    const host = hostRaw!.startsWith('[') ? hostRaw!.slice(1, -1) : hostRaw!;
+    return {
+      host,
+      port: parseInt(portStr!, 10),
+      user: decodeURIComponent(user!),
+      password: decodeURIComponent(password!),
+      database: database!,
+    };
+  }
+
   private constructor() {
     const sslConfig = config.database.url.includes('localhost') || config.database.url.includes('127.0.0.1')
       ? false
       : { rejectUnauthorized: config.database.sslRejectUnauthorized };
+    // Parse connection string to handle IPv6 literals correctly (pg library issue: brackets leak into getaddrinfo).
+    const poolConfig = Database.parseConnectionString(config.database.url);
     this.pool = new Pool({
-      connectionString: config.database.url,
+      ...poolConfig,
       min: Math.max(config.database.poolMin, 5),
       max: Math.max(config.database.poolMax, 50),
       idleTimeoutMillis: 60000,
@@ -38,8 +100,9 @@ class Database {
       const readSsl = config.database.readReplicaUrl.includes('localhost') || config.database.readReplicaUrl.includes('127.0.0.1')
         ? false
         : { rejectUnauthorized: config.database.sslRejectUnauthorized };
+      const readCfg = Database.parseConnectionString(config.database.readReplicaUrl);
       this.readPool = new Pool({
-        connectionString: config.database.readReplicaUrl,
+        ...readCfg,
         min: Math.max(1, Math.floor(config.database.poolMin / 2)),
         max: config.database.poolMax,
         idleTimeoutMillis: 30000,
@@ -88,7 +151,9 @@ class Database {
         dbQueryDuration.observe({ operation: operation || 'query' }, durationSec);
         if (duration >= SLOW_QUERY_MS) {
           dbSlowQueriesTotal.inc({ operation: operation || 'query' });
-          logger.warn('Slow query', { operation, duration_ms: duration, rows: result.rowCount });
+          if (shouldLogSlowQuery(operation || 'query', duration)) {
+            logger.warn('Slow query', { operation, duration_ms: duration, rows: result.rowCount });
+          }
         }
       } catch {
         /* metrics optional */

@@ -21,7 +21,7 @@ import {
   logUserActivity,
   getDeviceIdFromRequest,
 } from '../services/activity-monitor.service.js';
-import { rateLimitByIp } from '../lib/rate-limit-fastify.js';
+import { rateLimitByIp, rateLimitByIdentifier } from '../lib/rate-limit-fastify.js';
 import { getClientIp } from '../lib/client-ip.js';
 import { config } from '../config/index.js';
 import {
@@ -1165,7 +1165,21 @@ export default async function authRoutes(app: FastifyInstance) {
       otp: string;
     };
   }>('/login', {
-    preHandler: [rateLimitByIp('auth:login', 5, 60, { failClosed: false })],
+    preHandler: [
+      rateLimitByIp('auth:login', 5, 60, { failClosed: false }),
+      // Identifier-scoped limit defends against attackers rotating source IPs against
+      // a single account: 10 login attempts per email/phone per minute, regardless of IP.
+      rateLimitByIdentifier(
+        'auth:login',
+        10,
+        60,
+        (req) => {
+          const body = (req.body as { email?: string; phone?: string } | undefined) || {};
+          return body.email || body.phone || null;
+        },
+        { failClosed: false }
+      ),
+    ],
     schema: {
       body: {
         type: 'object',

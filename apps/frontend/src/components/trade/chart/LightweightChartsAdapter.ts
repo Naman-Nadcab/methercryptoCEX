@@ -176,9 +176,11 @@ export class LightweightChartsAdapter implements ChartAdapter {
     this.series = this.chart.addCandlestickSeries({
       upColor: colors.up,
       downColor: colors.down,
+      // Solid body, no border — Binance/Bybit style
       borderVisible: false,
-      wickUpColor: colors.up,
-      wickDownColor: colors.down,
+      // Wicks slightly dimmed so the body stays visually dominant
+      wickUpColor: colors.upVolume,
+      wickDownColor: colors.downVolume,
       priceLineVisible: true,
       lastValueVisible: true,
       priceLineWidth: 1,
@@ -188,7 +190,8 @@ export class LightweightChartsAdapter implements ChartAdapter {
     this.volumeSeries = this.chart.addHistogramSeries({
       priceFormat: { type: 'volume' },
       priceScaleId: '',
-      color: 'rgba(156, 163, 175, 0.25)',
+      // Per-bar color set in setCandles/applyTick via volColor()
+      color: 'rgba(156, 163, 175, 0.2)',
     });
     this.volumeSeries.priceScale().applyOptions({
       scaleMargins: { top: 0.82, bottom: 0 },
@@ -513,8 +516,8 @@ export class LightweightChartsAdapter implements ChartAdapter {
     this.series?.applyOptions({
       upColor: colors.up,
       downColor: colors.down,
-      wickUpColor: colors.up,
-      wickDownColor: colors.down,
+      wickUpColor: colors.upVolume,
+      wickDownColor: colors.downVolume,
       ...this.priceFormatOptions(),
     });
     this.updatePriceLineColor();
