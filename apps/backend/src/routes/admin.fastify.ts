@@ -7037,8 +7037,12 @@ export default async function adminRoutes(app: FastifyInstance) {
         ORDER BY b.chain_name, c.symbol
       `).catch((e) => { logger.warn('Funds summary: ledger query failed', { error: e instanceof Error ? e.message : String(e) }); return { rows: [] as any[] }; }),
 
-      db.query<{ chain_id: string; balance_cache: string | null; cold_wallet_address: string | null }>(
-        'SELECT chain_id, balance_cache, cold_wallet_address FROM hot_wallets WHERE is_active = TRUE ORDER BY chain_id'
+      db.query<{ chain_id: string; chain_name: string | null; balance_cache: string | null; cold_wallet_address: string | null }>(
+        `SELECT hw.chain_id, COALESCE(b.chain_name, c.name, hw.chain_id) AS chain_name, hw.balance_cache, hw.cold_wallet_address
+         FROM hot_wallets hw
+         LEFT JOIN blockchains b ON b.id = hw.chain_id
+         LEFT JOIN chains c ON c.id = hw.chain_id
+         WHERE hw.is_active = TRUE ORDER BY hw.chain_id`
       ).catch(() => ({ rows: [] as any[] })),
 
       db.query<{ id: string; name: string; decimals: number | null; type: string | null }>(
@@ -7061,26 +7065,36 @@ export default async function adminRoutes(app: FastifyInstance) {
     blockchainRows = Array.isArray(blockResult.rows) ? blockResult.rows : [];
     usersWithBalance = uwbResult.rows[0]?.n ?? '0';
 
-    // Build chain map from chains table
+    // Build chain map from both chains table AND blockchains table (hot_wallets.chain_id can reference either)
     chainMap = Object.fromEntries(
       (chainsResult.rows || []).map((r: { id: string; name: string; decimals: number | null; type: string | null }) => [
         r.id, { name: r.name, decimals: r.decimals ?? 18, type: r.type ?? undefined },
       ])
     );
+    // Merge blockchains entries (id → chain_name) so blockchain-UUID chain_ids resolve correctly
+    for (const b of (blockResult.rows || [])) {
+      if (!chainMap[b.id]) {
+        chainMap[b.id] = { name: b.chain_name, decimals: 18 };
+      }
+      // Also allow lookups by chain_symbol and lowercased chain_name as fallback keys
+      if (b.chain_symbol && !chainMap[b.chain_symbol]) {
+        chainMap[b.chain_symbol] = { name: b.chain_name, decimals: 18 };
+      }
+    }
     (chainsResult.rows || []).forEach((r: { id: string; decimals: number | null }) => {
       const d = r.decimals;
       decimalsByChainId[r.id] = typeof d === 'number' && !Number.isNaN(d) ? d : 18;
     });
 
-    // Build hot/cold rows from combined query
+    // Build hot/cold rows — prefer SQL-joined chain_name, fall back to chainMap, then raw id
     hotRows = (hotResult.rows || []).map((r) => ({
-      chain_id: String(r.chain_id),
-      chain_name: chainMap[r.chain_id]?.name ?? String(r.chain_id),
+      chain_id: String(r.chain_id ?? ''),
+      chain_name: r.chain_name ?? chainMap[String(r.chain_id)]?.name ?? (r.chain_id ? String(r.chain_id) : 'Unknown'),
       balance: r.balance_cache != null && String(r.balance_cache).trim() !== '' ? String(r.balance_cache).trim() : '0',
     }));
     coldRows = (hotResult.rows || []).map((r) => ({
-      chain_id: String(r.chain_id),
-      chain_name: chainMap[r.chain_id]?.name ?? String(r.chain_id),
+      chain_id: String(r.chain_id ?? ''),
+      chain_name: r.chain_name ?? chainMap[String(r.chain_id)]?.name ?? (r.chain_id ? String(r.chain_id) : 'Unknown'),
       address: r.cold_wallet_address != null ? String(r.cold_wallet_address) : null,
       balance: null as string | null,
     }));
@@ -7142,6 +7156,19 @@ export default async function adminRoutes(app: FastifyInstance) {
 
     const status = mismatches.length === 0 ? 'MATCH' : 'MISMATCH';
 
+    // Build asset_breakdown: total value per token symbol (from ledger_totals)
+    const assetBreakdownMap: Record<string, number> = {};
+    for (const lt of ledgerTotals) {
+      const sym = lt.token_symbol || 'UNKNOWN';
+      const amt = parseFloat(lt.amount ?? '0');
+      if (Number.isFinite(amt) && amt > 0) {
+        assetBreakdownMap[sym] = (assetBreakdownMap[sym] ?? 0) + amt;
+      }
+    }
+    const asset_breakdown = Object.entries(assetBreakdownMap)
+      .map(([asset, total]) => ({ asset, total }))
+      .sort((a, b) => b.total - a.total);
+
     try {
       return reply.send({
         success: true,
@@ -7150,6 +7177,7 @@ export default async function adminRoutes(app: FastifyInstance) {
           on_chain_totals: onChainTotals,
           reconciliation: { status, mismatches: mismatches.length > 0 ? mismatches : undefined },
           users_with_balance: usersWithBalance,
+          asset_breakdown,
         },
       });
     } catch (error) {

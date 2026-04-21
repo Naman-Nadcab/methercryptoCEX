@@ -254,11 +254,12 @@ export default function TreasuryPage() {
           className={statsLoading ? 'animate-pulse' : undefined}
         />
         <StatCard
-          title="Cold Wallet Balance"
+          title="Cold Balance (Ledger Est.)"
           value={statsLoading ? '...' : stats ? formatReserves(stats.cold_balance) : 'N/A'}
           icon={Snowflake}
           iconBg="bg-blue-100 text-blue-700"
           className={statsLoading ? 'animate-pulse' : undefined}
+          tooltip="Estimated as total user ledger minus hot wallet balance. Verify against cold wallet addresses on-chain."
         />
         <StatCard
           title="Pending Sweeps"
@@ -326,7 +327,7 @@ export default function TreasuryPage() {
         <div className="rounded-xl border border-admin-border bg-admin-card p-4 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-admin-text">Cold Storage Ratio</p>
+              <p className="text-sm font-medium text-admin-text">Cold Storage Ratio (Est.)</p>
               <p className="text-2xl font-semibold text-admin-text">{stats?.cold_storage_ratio ?? 0}%</p>
             </div>
             {(stats?.cold_storage_ratio ?? 0) >= 90 && (

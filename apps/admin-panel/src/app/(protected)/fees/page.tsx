@@ -351,10 +351,12 @@ export default function FeesManagementPage() {
       adminFetch('/withdrawals/limits', { method: 'PATCH', token, body: { tiers } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'withdrawals', 'limits'] }),
   });
-  // Sync form when data arrives
-  if (wdLimitsQ.data?.data?.tiers && wdLimitsForm.length === 0) {
-    setWdLimitsForm(wdLimitsQ.data.data.tiers.map(t => ({ ...t })));
-  }
+  // Sync form when data arrives (useEffect to avoid setState-during-render React warning)
+  useEffect(() => {
+    if (wdLimitsQ.data?.data?.tiers && wdLimitsQ.data.data.tiers.length > 0) {
+      setWdLimitsForm(wdLimitsQ.data.data.tiers.map(t => ({ ...t })));
+    }
+  }, [wdLimitsQ.data]);
 
   const [revQ, tiersQ, tradingQ, wdQ] = useQueries({
     queries: [

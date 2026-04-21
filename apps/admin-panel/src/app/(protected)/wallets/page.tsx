@@ -81,7 +81,12 @@ export default function WalletsPage() {
       if (Number.isFinite(n)) a += n;
     }
     let hot = 0;
-    for (const row of d?.on_chain_totals?.hot_wallets ?? []) {
+    const hotWalletRows = d?.on_chain_totals?.hot_wallets ?? [];
+    const anyHotSynced = hotWalletRows.some((r) => {
+      const n = parseFloat(r.balance ?? '0');
+      return Number.isFinite(n) && n > 0;
+    });
+    for (const row of hotWalletRows) {
       const n = parseFloat(row.balance ?? '0');
       if (Number.isFinite(n)) hot += n;
     }
@@ -96,7 +101,8 @@ export default function WalletsPage() {
     }
     return {
       aum: fmtAmount(String(a)),
-      hotTotal: fmtAmount(String(hot)),
+      // Show 0 only if wallets exist and any is synced; otherwise "—" to indicate awaiting sync
+      hotTotal: hotWalletRows.length === 0 ? '—' : anyHotSynced ? fmtAmount(String(hot)) : fmtAmount('0'),
       coldTotal: coldAny ? fmtAmount(String(cold)) : '—',
       usersWithBalance: d?.users_with_balance ?? '—',
     };
@@ -183,21 +189,32 @@ export default function WalletsPage() {
       {hotWallets.length > 0 && (
         <Card>
           <CardHeader>
-            <div className="flex items-center gap-2">
-              <Thermometer className="h-4 w-4 text-orange-400" />
-              <CardTitle>Hot Wallet — Per Chain</CardTitle>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Thermometer className="h-4 w-4 text-orange-400" />
+                <CardTitle>Hot Wallet — Per Chain</CardTitle>
+              </div>
+              <span className="text-xs text-admin-muted">
+                Balances reflect last on-chain sync. Refresh each wallet from Treasury to update.
+              </span>
             </div>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
-              {hotWallets.map((hw) => {
+              {hotWallets.map((hw, idx) => {
                 const n = parseFloat(hw.balance ?? '0');
+                const isZero = !Number.isFinite(n) || n === 0;
                 return (
-                  <div key={hw.chain} className="rounded-lg border border-orange-500/20 bg-orange-950/10 p-3">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-orange-400/80">{hw.chain}</p>
-                    <p className="mt-1 font-mono text-sm font-bold text-admin-text tabular-nums">
+                  <div key={hw.chain_id ?? `${hw.chain}-${idx}`} className="rounded-lg border border-orange-500/20 bg-orange-950/10 p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-orange-400/80">
+                      {hw.chain || hw.chain_id || 'Unknown'}
+                    </p>
+                    <p className={`mt-1 font-mono text-sm font-bold tabular-nums ${isZero ? 'text-admin-muted' : 'text-admin-text'}`}>
                       {Number.isFinite(n) ? fmtAmount(hw.balance) : '—'}
                     </p>
+                    {isZero && (
+                      <p className="mt-0.5 text-[9px] text-admin-muted">Not synced</p>
+                    )}
                   </div>
                 );
               })}

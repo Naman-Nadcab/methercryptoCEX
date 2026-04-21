@@ -66,7 +66,11 @@ export function HotWalletsTable({ rows, availableFamilies }: HotWalletsTableProp
     setToast({ type, message });
     setTimeout(() => setToast(null), 4000);
   };
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['admin', 'treasury'] });
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['admin', 'treasury'] });
+    queryClient.invalidateQueries({ queryKey: ['admin', 'funds-summary'] });
+    queryClient.invalidateQueries({ queryKey: ['admin', 'hot-wallets-crud'] });
+  };
 
   const createMut = useMutation({
     mutationFn: () => createHotWallet(token, { chainFamily: selectedFamily }),
@@ -198,17 +202,25 @@ export function HotWalletsTable({ rows, availableFamilies }: HotWalletsTableProp
                 className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
               >
                 <option value="">Select chain family…</option>
-                {(availableFamilies ?? []).filter(f => f.creationSupported).map((f) => (
-                  <option key={f.type} value={f.type}>{f.label}</option>
-                ))}
-                {(!availableFamilies || availableFamilies.length === 0) && (
-                  <>
-                    <option value="evm">EVM (Ethereum, BSC, Polygon, etc.)</option>
-                    <option value="solana">Solana</option>
-                    <option value="tron">Tron</option>
-                    <option value="bitcoin">Bitcoin</option>
-                  </>
-                )}
+                {(() => {
+                  // Show supported families from API; fall back to hardcoded list if none available
+                  const supported = (availableFamilies ?? []).filter(f => f.creationSupported);
+                  if (supported.length > 0) {
+                    return supported.map((f) => (
+                      <option key={f.type} value={f.type}>{f.label}</option>
+                    ));
+                  }
+                  // Fallback: all known chain families (admin can still create additional wallets per chain if needed)
+                  return (
+                    <>
+                      <option value="evm">EVM (Ethereum, BSC, Polygon, Arbitrum, etc.)</option>
+                      <option value="bitcoin">Bitcoin</option>
+                      <option value="solana">Solana</option>
+                      <option value="tron">Tron</option>
+                      <option value="polkadot">Polkadot</option>
+                    </>
+                  );
+                })()}
               </select>
             </div>
             <div className="mt-6 flex justify-end gap-2">
