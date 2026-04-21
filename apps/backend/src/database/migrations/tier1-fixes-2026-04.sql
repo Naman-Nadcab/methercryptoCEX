@@ -95,3 +95,27 @@ BEGIN
     ALTER TABLE settlement_events ADD COLUMN error_message TEXT;
   END IF;
 END $$;
+
+-- 6. activity_type enum: ensure all values used by application code exist.
+-- Missing values were causing 500 "Failed to create account" / passkey register silent failures
+-- because the handler inserts into user_activity_logs AFTER committing the main row and the
+-- enum violation threw a late, post-commit error.
+DO $$
+DECLARE
+  needed TEXT[] := ARRAY[
+    'signup',
+    'email_change', 'phone_change',
+    'passkey_registered', 'passkey_login', 'passkey_deleted'
+  ];
+  v TEXT;
+BEGIN
+  FOREACH v IN ARRAY needed LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_enum e
+      JOIN pg_type t ON t.oid = e.enumtypid
+      WHERE t.typname = 'activity_type' AND e.enumlabel = v
+    ) THEN
+      EXECUTE format('ALTER TYPE activity_type ADD VALUE %L', v);
+    END IF;
+  END LOOP;
+END $$;

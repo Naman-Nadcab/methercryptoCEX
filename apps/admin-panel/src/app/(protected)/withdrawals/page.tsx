@@ -138,7 +138,9 @@ export default function WithdrawalsPage() {
   const total        = pagination?.total ?? 0;
   const totalPages   = pagination?.totalPages ?? 1;
   const pendingCount = stats?.pending_approval ?? 0;
-  const failedCount  = stats?.failed ?? 0;
+  /** Prefer 24h bucket when the KPI says "(24h)"; fall back to all-time count. */
+  const completed24h = stats?.completed_24h ?? stats?.completed ?? 0;
+  const failedCount  = stats?.failed_24h ?? stats?.failed ?? 0;
 
   const kpis: Omit<KpiProps, 'loading'>[] = [
     {
@@ -162,7 +164,7 @@ export default function WithdrawalsPage() {
     },
     {
       label: 'Completed (24h)',
-      value: stats?.completed ?? 0,
+      value: completed24h,
       sub: 'settled successfully',
       icon: <CheckCircle2 className="h-4 w-4 text-emerald-400" />,
       accent: 'bg-gradient-to-r from-emerald-500/50 to-transparent',

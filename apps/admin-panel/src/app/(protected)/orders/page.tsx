@@ -20,12 +20,18 @@ import { cn as _cn } from '@/lib/cn';
 
 const PAGE_SIZE = 20;
 
+/**
+ * Backend enum is lowercase. The legacy uppercase values were silently failing
+ * the status filter (SQL rejects unknown enum labels). We keep labels the same
+ * but use the enum values the DB actually recognizes. `open` is a pseudo status
+ * that the backend expands to ('new','partially_filled').
+ */
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All Statuses' },
-  { value: 'OPEN', label: 'Open' },
-  { value: 'FILLED', label: 'Filled' },
-  { value: 'PARTIALLY_FILLED', label: 'Partially Filled' },
-  { value: 'CANCELLED', label: 'Cancelled' },
+  { value: 'open', label: 'Open' },
+  { value: 'filled', label: 'Filled' },
+  { value: 'partially_filled', label: 'Partially Filled' },
+  { value: 'cancelled', label: 'Cancelled' },
 ];
 
 const SIDE_OPTIONS = [

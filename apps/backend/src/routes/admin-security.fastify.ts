@@ -110,7 +110,19 @@ export default async function adminSecurityRoutes(app: FastifyInstance): Promise
         hasRiskEvents ? safeCount(`SELECT COUNT(*) AS count FROM security_risk_events WHERE decision = 'challenge' AND created_at > ${INTERVAL_24H}`) : 0,
         hasActivityLogs ? safeCount(`SELECT COUNT(*) AS count FROM user_activity_logs WHERE activity_type = 'access_blocked' AND created_at > ${INTERVAL_24H}`) : 0,
         hasAuditLogs ? safeCount(`SELECT COUNT(*) AS count FROM audit_logs_immutable WHERE action ILIKE '%vpn%' AND created_at > ${INTERVAL_24H}`) : 0,
-        safeCount(`SELECT COUNT(*) AS count FROM withdrawals WHERE status = 'blocked'`),
+        /**
+         * `withdrawal_status` enum does NOT contain `'blocked'`. Security-blocked
+         * withdrawals surface as `rejected` (manual rejection) or `failed` with a
+         * sanctions/compliance reason in `failed_reason` / `rejection_reason`.
+         * Querying `status='blocked'` silently returned 0 and the KPI card always
+         * read "0 blocked" even after compliance rejected dozens of attempts.
+         */
+        safeCount(`SELECT COUNT(*) AS count FROM withdrawals
+                   WHERE status IN ('rejected', 'failed')
+                     AND (
+                       rejection_reason ILIKE '%sanction%' OR rejection_reason ILIKE '%block%' OR rejection_reason ILIKE '%risk%' OR rejection_reason ILIKE '%compliance%' OR
+                       failed_reason ILIKE '%sanction%' OR failed_reason ILIKE '%block%' OR failed_reason ILIKE '%risk%' OR failed_reason ILIKE '%compliance%'
+                     )`),
         safeCount(`SELECT COUNT(*) AS count FROM withdrawals WHERE status = 'pending_approval'`),
         safeCount(`SELECT COUNT(*) AS count FROM users WHERE locked_until > NOW() AND deleted_at IS NULL`),
         hasActivityLogs ? safeCount(`SELECT COUNT(*) AS count FROM user_activity_logs WHERE activity_type = 'login_failed' AND created_at > ${INTERVAL_24H}`) : 0,

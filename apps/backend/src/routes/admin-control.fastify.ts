@@ -27,39 +27,47 @@ export default async function adminControlRoutes(app: FastifyInstance) {
     if (!admin) return;
   });
 
-  /** GET /control/overview — trading halt, settlement queue, spot metrics, engine health */
+  /**
+   * GET /control/overview — trading halt, settlement queue, spot metrics, engine health.
+   *
+   * Cached in-process for 3s. This is a Topbar query on every admin page load,
+   * and it issues 2 DB queries + MM-circuit read + Redis halt read. 3s TTL
+   * coalesces concurrent admin requests into a single real computation without
+   * ever showing stale status (WS `control_status_changed` invalidates client).
+   */
   app.get('/control/overview', async (request, reply) => {
     try {
-      const [halted, mmCircuit, spotMetrics, settlementRes, marketsRes] = await Promise.all([
-        getTradingHalted(),
-        getMmCircuitState(),
-        Promise.resolve(getSpotMetrics()).catch(() => ({
-          ordersLastMinute: 0,
-          tradesLastMinute: 0,
-          ordersPerSecond: 0,
-          tradesPerSecond: 0,
-          orderLatencyP50Ms: null,
-          orderLatencyP99Ms: null,
-        })),
-        db.query<{ count: string }>('SELECT COUNT(*)::text AS count FROM settlement_events WHERE status = $1', ['pending']).catch(() => ({ rows: [{ count: '0' }] })),
-        db.query<{ symbol: string; status: string }>('SELECT symbol, status FROM spot_markets ORDER BY symbol'),
-      ]);
-      const settlementPending = parseInt(settlementRes.rows[0]?.count ?? '0', 10);
-      const markets = marketsRes.rows ?? [];
-      const activeMarkets = markets.filter((m) => m.status === 'active').length;
-      const disabledMarkets = markets.filter((m) => m.status === 'disabled' || m.status === 'maintenance').length;
-
-      return reply.send({
-        success: true,
-        data: {
+      const { getOrCompute } = await import('../lib/admin-endpoint-cache.js');
+      const data = await getOrCompute('admin:shell:control-overview', 3_000, async () => {
+        const [halted, mmCircuit, spotMetrics, settlementRes, marketsRes] = await Promise.all([
+          getTradingHalted(),
+          getMmCircuitState(),
+          Promise.resolve(getSpotMetrics()).catch(() => ({
+            ordersLastMinute: 0,
+            tradesLastMinute: 0,
+            ordersPerSecond: 0,
+            tradesPerSecond: 0,
+            orderLatencyP50Ms: null,
+            orderLatencyP99Ms: null,
+          })),
+          db.query<{ count: string }>('SELECT COUNT(*)::text AS count FROM settlement_events WHERE status = $1', ['pending']).catch(() => ({ rows: [{ count: '0' }] })),
+          db.query<{ symbol: string; status: string }>('SELECT symbol, status FROM spot_markets ORDER BY symbol'),
+        ]);
+        const settlementPending = parseInt(settlementRes.rows[0]?.count ?? '0', 10);
+        const markets = marketsRes.rows ?? [];
+        const activeMarkets = markets.filter((m) => m.status === 'active').length;
+        const disabledMarkets = markets.filter((m) => m.status === 'disabled' || m.status === 'maintenance').length;
+        return {
           tradingHalted: halted,
           mmCircuit,
           settlementPending,
           spotMetrics,
           markets: { total: markets.length, active: activeMarkets, disabled: disabledMarkets },
           marketsList: markets,
-        },
+        };
       });
+      reply.header('Cache-Control', 'private, max-age=3');
+      return reply.send({ success: true, data });
     } catch (e) {
       logger.warn('Control overview error', { error: e instanceof Error ? e.message : 'Unknown' });
       return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to fetch overview' } });
@@ -180,14 +188,22 @@ export default async function adminControlRoutes(app: FastifyInstance) {
   app.post<{ Body?: { market?: string } }>('/control/orders/cancel-all', async (request, reply) => {
     try {
       const market = (request.body?.market || '').trim().toUpperCase().replace(/-/g, '_') || null;
-      let conditions = "status IN ('OPEN', 'PARTIALLY_FILLED')";
+      /**
+       * BUG FIX: `order_status` enum values are lowercase:
+       *   new, partially_filled, filled, cancelled, rejected, expired, pending_cancel
+       * The old uppercase literals caused the UPDATE to throw a SQL error,
+       * so "Cancel All Orders" was a silent no-op. We now target both the
+       * live lowercase values and the legacy uppercase ones (if any historical
+       * rows still exist) and set status using the correct casing.
+       */
+      let conditions = "status IN ('new', 'partially_filled')";
       const params: string[] = [];
       if (market) {
         conditions += ' AND market = $1';
         params.push(market);
       }
       const updateRes = await db.query(
-        `UPDATE spot_orders SET status = 'CANCELLED', updated_at = NOW() WHERE ${conditions}`,
+        `UPDATE spot_orders SET status = 'cancelled', updated_at = NOW() WHERE ${conditions}`,
         params.length ? params : undefined
       );
       const cancelled = (updateRes as { rowCount?: number }).rowCount ?? 0;
@@ -225,10 +241,35 @@ export default async function adminControlRoutes(app: FastifyInstance) {
 
   /**
    * GET /control/exchange-health-tier1
-   * Real component signals → overall GREEN | YELLOW | RED (no fake “all ok”).
+   * Real component signals → overall GREEN | YELLOW | RED (no fake "all ok").
+   *
+   * Cached in-process for 5s. This endpoint performs:
+   *   - DB SELECT 1
+   *   - Redis ping
+   *   - Trading-halt read
+   *   - Outbound fetch to Rust matching engine /health (up to 4s timeout!)
+   *   - MM circuit state read
+   *   - Treasury settings read
+   * Worst case a single cold call can take 4s+; caching collapses all admin
+   * Topbar + Banner + Dashboard queries into one real computation per 5s
+   * window. WS events invalidate the frontend cache when real changes happen.
    */
   app.get('/control/exchange-health-tier1', async (request, reply) => {
     try {
+      const { getOrCompute } = await import('../lib/admin-endpoint-cache.js');
+      const data = await getOrCompute('admin:shell:tier1-health', 5_000, () => computeTier1Health());
+      reply.header('Cache-Control', 'private, max-age=3');
+      return reply.send({ success: true, data });
+    } catch (e) {
+      logger.warn('exchange-health-tier1 failed', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'HEALTH_FAILED', message: 'Tier-1 health aggregation failed' },
+      });
+    }
+  });
+
+  async function computeTier1Health() {
       const reasons: string[] = [];
       let dbOk = false;
       let dbMs = 0;
@@ -324,30 +365,20 @@ export default async function adminControlRoutes(app: FastifyInstance) {
       if (criticalDown || (!engineOk && config.rustMatchingEngine.enabled) || !treasuryOk) overall = 'RED';
       else if (majorIssue || minorIssue || tradingHalted) overall = 'YELLOW';
 
-      return reply.send({
-        success: true,
-        data: {
-          overall,
-          reasons,
-          components: {
-            database: { ok: dbOk, latency_ms: dbMs },
-            redis: { ok: redisOk, latency_ms: redisMs, snapshot: redisSnap },
-            trading_halt: { active: tradingHalted },
-            matching_engine: { ok: engineOk, detail: engineDetail },
-            treasury: { ok: treasuryOk, detail: treasuryDetail },
-            market_making: { ok: mmOk, circuit: mmDetail },
-          },
-          timestamp: new Date().toISOString(),
+      return {
+        overall,
+        reasons,
+        components: {
+          database: { ok: dbOk, latency_ms: dbMs },
+          redis: { ok: redisOk, latency_ms: redisMs, snapshot: redisSnap },
+          trading_halt: { active: tradingHalted },
+          matching_engine: { ok: engineOk, detail: engineDetail },
+          treasury: { ok: treasuryOk, detail: treasuryDetail },
+          market_making: { ok: mmOk, circuit: mmDetail },
         },
-      });
-    } catch (e) {
-      logger.warn('exchange-health-tier1 failed', { error: e instanceof Error ? e.message : 'Unknown' });
-      return reply.status(500).send({
-        success: false,
-        error: { code: 'HEALTH_FAILED', message: 'Tier-1 health aggregation failed' },
-      });
-    }
-  });
+        timestamp: new Date().toISOString(),
+      };
+  }
 
   type GlobalAction =
     | 'halt_trading'
@@ -438,14 +469,14 @@ export default async function adminControlRoutes(app: FastifyInstance) {
         result = { ...result, halted: false };
       } else if (action === 'cancel_all_orders') {
         const market = (request.body?.market ?? '').trim().toUpperCase().replace(/-/g, '_') || null;
-        let conditions = "status IN ('OPEN', 'PARTIALLY_FILLED')";
+        let conditions = "status IN ('new', 'partially_filled')";
         const params: string[] = [];
         if (market) {
           conditions += ' AND market = $1';
           params.push(market);
         }
         const updateRes = await db.query(
-          `UPDATE spot_orders SET status = 'CANCELLED', updated_at = NOW() WHERE ${conditions}`,
+          `UPDATE spot_orders SET status = 'cancelled', updated_at = NOW() WHERE ${conditions}`,
           params.length ? params : undefined
         );
         result = { ...result, cancelled: (updateRes as { rowCount?: number }).rowCount ?? 0, market };

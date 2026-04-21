@@ -69,6 +69,8 @@ import adminPhase1ComplianceRoutes from './routes/admin-phase1-compliance.fastif
 import adminPhase24Routes from './routes/admin-phase2-4.fastify.js';
 import adminMmControlRoutes from './routes/admin-mm-control.fastify.js';
 import observabilityRoutes from './routes/observability.fastify.js';
+import pushRoutes from './routes/push.fastify.js';
+import supportUserRoutes from './routes/support-user.fastify.js';
 import internalEngineRoutes from './routes/internal-engine.fastify.js';
 import latencyTracePlugin from './plugins/latencyTrace.plugin.js';
 import authDecisionPlugin from './plugins/authDecision.plugin.js';
@@ -669,6 +671,8 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(adminPhase24Routes, { prefix: '/api/v1/admin' });
   await app.register(adminMmControlRoutes, { prefix: '/api/v1/admin' });
   await app.register(observabilityRoutes, { prefix: '/api/v1/observability' });
+  await app.register(pushRoutes, { prefix: '/api/v1/push' });
+  await app.register(supportUserRoutes, { prefix: '/api/v1/support' });
   await app.register(
     async (scope) => {
       const { internalEngineSecurityPreHandler } = await import(

@@ -25,6 +25,60 @@ export class AdminApiError extends Error {
   }
 }
 
+/**
+ * Error codes returned by the backend that indicate the admin's access token
+ * is no longer usable — stale signature (JWT_SECRET rotated), revoked session,
+ * IP/UA bind mismatch, expired session etc. When we see any of these, we
+ * wipe the auth store and bounce the user to /login.
+ *
+ * Without this, the shell stays mounted, React Query retries keep firing the
+ * same dead token, and every page shows "Invalid or expired token" banners
+ * forever — which is what we hit after a backend restart.
+ */
+const AUTH_FATAL_CODES = new Set([
+  'INVALID_TOKEN',
+  'SESSION_EXPIRED',
+  'UNAUTHORIZED',
+  'SESSION_BINDING_MISMATCH',
+  'BREAK_GLASS_DISABLED',
+]);
+
+/**
+ * Guarded once-per-load redirect so that 10 parallel React Query fetches
+ * failing at the same moment don't each kick off their own navigation.
+ */
+let authFailureHandled = false;
+function handleAuthFailure(): void {
+  if (typeof window === 'undefined') return;
+  if (authFailureHandled) return;
+  authFailureHandled = true;
+  try {
+    const raw = window.localStorage.getItem('admin-auth');
+    if (raw) {
+      const parsed = JSON.parse(raw) as { state?: Record<string, unknown>; version?: number };
+      if (parsed?.state) {
+        parsed.state.accessToken = null;
+        parsed.state.admin = null;
+        window.localStorage.setItem('admin-auth', JSON.stringify(parsed));
+      } else {
+        window.localStorage.removeItem('admin-auth');
+      }
+    }
+  } catch {
+    try { window.localStorage.removeItem('admin-auth'); } catch { /* ignore */ }
+  }
+  const current = `${window.location.pathname}${window.location.search}`;
+  if (window.location.pathname === '/login') return;
+  const next = encodeURIComponent(current);
+  window.location.assign(`/login?next=${next}&reason=session_expired`);
+}
+
+/**
+ * Default per-request timeout (ms). Protects the UI from a single hung admin
+ * endpoint blocking a page forever. Overridable via options.timeoutMs.
+ */
+const DEFAULT_TIMEOUT_MS = 15_000;
+
 export async function adminFetch<T = unknown>(
   path: string,
   options: {
@@ -33,9 +87,13 @@ export async function adminFetch<T = unknown>(
     token: string | null;
     params?: Record<string, string | number | boolean | undefined>;
     headers?: Record<string, string>;
+    /** AbortSignal (e.g. React Query passes one per queryFn). */
+    signal?: AbortSignal;
+    /** Override default 15s timeout. Set to 0/Infinity to disable. */
+    timeoutMs?: number;
   }
 ): Promise<AdminApiResponse<T>> {
-  const { method = 'GET', body, token, params, headers: customHeaders } = options;
+  const { method = 'GET', body, token, params, headers: customHeaders, signal: externalSignal, timeoutMs } = options;
   if (!token) {
     throw new AdminApiError('No token', 'UNAUTHORIZED', 401);
   }
@@ -58,27 +116,79 @@ export async function adminFetch<T = unknown>(
   if (hasBody) {
     headers['Content-Type'] = 'application/json';
   }
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: hasBody ? JSON.stringify(body) : undefined,
-  });
-  const json = (await res.json().catch(() => ({}))) as AdminApiResponse<T>;
-  if (!res.ok) {
-    throw new AdminApiError(
-      json.error?.message ?? res.statusText,
-      json.error?.code ?? 'REQUEST_FAILED',
-      res.status,
-    );
+
+  /**
+   * Compose a single AbortSignal from:
+   *  - caller-provided signal (React Query per-query signal → cancels on nav/unmount)
+   *  - timeout controller (guards against hung endpoints)
+   */
+  const timeout = timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const timeoutCtrl = timeout > 0 && Number.isFinite(timeout) ? new AbortController() : null;
+  const timer = timeoutCtrl ? setTimeout(() => timeoutCtrl.abort(), timeout) : null;
+
+  const combinedSignal = combineSignals(externalSignal, timeoutCtrl?.signal);
+
+  try {
+    const res = await fetch(url, {
+      method,
+      headers,
+      body: hasBody ? JSON.stringify(body) : undefined,
+      signal: combinedSignal,
+    });
+    const json = (await res.json().catch(() => ({}))) as AdminApiResponse<T>;
+    if (!res.ok) {
+      const code = json.error?.code ?? 'REQUEST_FAILED';
+      /**
+       * 401 with a known fatal auth code → stale JWT / revoked session.
+       * Fire handler immediately so all in-flight queries fail the same way
+       * and only ONE page-wide redirect happens.
+       */
+      if (res.status === 401 && AUTH_FATAL_CODES.has(code)) {
+        handleAuthFailure();
+      }
+      throw new AdminApiError(
+        json.error?.message ?? res.statusText,
+        code,
+        res.status,
+      );
+    }
+    if (json.success === false) {
+      throw new AdminApiError(
+        json.error?.message ?? 'Request failed',
+        json.error?.code ?? 'API_ERROR',
+        res.status,
+      );
+    }
+    return json;
+  } catch (err) {
+    /** Normalize abort → cleaner error for React Query; keep original for timeout. */
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      if (timeoutCtrl?.signal.aborted && !(externalSignal?.aborted)) {
+        throw new AdminApiError(`Request timed out after ${timeout}ms`, 'TIMEOUT', 408);
+      }
+      throw err;
+    }
+    throw err;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  if (json.success === false) {
-    throw new AdminApiError(
-      json.error?.message ?? 'Request failed',
-      json.error?.code ?? 'API_ERROR',
-      res.status,
-    );
-  }
-  return json;
+}
+
+/**
+ * Combine 0–2 AbortSignals into a single one. Returns the parent if only one
+ * is defined, creates a pass-through when both are present.
+ */
+function combineSignals(a?: AbortSignal, b?: AbortSignal): AbortSignal | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  const ctrl = new AbortController();
+  const onAbortA = () => ctrl.abort(a.reason);
+  const onAbortB = () => ctrl.abort(b.reason);
+  if (a.aborted) ctrl.abort(a.reason);
+  else a.addEventListener('abort', onAbortA, { once: true });
+  if (b.aborted) ctrl.abort(b.reason);
+  else b.addEventListener('abort', onAbortB, { once: true });
+  return ctrl.signal;
 }
 
 export async function getDashboardStats(token: string | null) {
@@ -99,8 +209,8 @@ export interface DashboardSummary {
   health: Record<string, unknown>;
 }
 
-export async function getDashboardSummary(token: string | null) {
-  return adminFetch<DashboardSummary>('/dashboard-summary', { token });
+export async function getDashboardSummary(token: string | null, signal?: AbortSignal) {
+  return adminFetch<DashboardSummary>('/dashboard-summary', { token, signal });
 }
 
 /* ---- Audit APIs ---- */
@@ -163,18 +273,18 @@ export async function getAdminRoles(token: string | null) {
   return adminFetch<{ roles: { role: string; permissions: string[]; isSuperRole: boolean }[]; permissionMatrix: Record<string, string[]> }>('/roles', { token });
 }
 
-export async function getSystemHealth(token: string | null) {
+export async function getSystemHealth(token: string | null, signal?: AbortSignal) {
   return adminFetch<{
     database?: { latencyMs?: number; status?: string };
     redis?: { latencyMs?: number; status?: string };
     websocket?: { connections?: number; status?: string };
     queue?: { depth?: number; status?: string };
     node?: { uptime?: number; memory?: number };
-  }>('/system-health', { token });
+  }>('/system-health', { token, signal });
 }
 
-export async function getTradingHalt(token: string | null) {
-  return adminFetch<{ halted: boolean }>('/trading-halt', { token });
+export async function getTradingHalt(token: string | null, signal?: AbortSignal) {
+  return adminFetch<{ halted: boolean }>('/trading-halt', { token, signal });
 }
 
 export async function getWithdrawals(
@@ -187,8 +297,8 @@ export async function getWithdrawals(
   });
 }
 
-export async function getControlOverview(token: string | null) {
-  return adminFetch<{ markets?: { total?: number; active?: number }; settlement?: unknown }>('/control/overview', { token });
+export async function getControlOverview(token: string | null, signal?: AbortSignal) {
+  return adminFetch<{ markets?: { total?: number; active?: number }; settlement?: unknown }>('/control/overview', { token, signal });
 }
 
 export type ExchangeHealthTier1 = {
@@ -198,8 +308,8 @@ export type ExchangeHealthTier1 = {
   timestamp: string;
 };
 
-export async function getExchangeHealthTier1(token: string | null) {
-  return adminFetch<ExchangeHealthTier1>('/control/exchange-health-tier1', { token });
+export async function getExchangeHealthTier1(token: string | null, signal?: AbortSignal) {
+  return adminFetch<ExchangeHealthTier1>('/control/exchange-health-tier1', { token, signal });
 }
 
 export async function postGlobalControlAction(

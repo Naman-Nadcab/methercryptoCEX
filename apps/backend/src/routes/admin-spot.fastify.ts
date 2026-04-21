@@ -94,7 +94,7 @@ export default async function adminSpotRoutes(app: FastifyInstance) {
         // ignore
       }
       const [openOrdersRes, statsRes, symbolHalted] = await Promise.all([
-        db.query<{ count: string }>(`SELECT COUNT(*)::text as count FROM spot_orders WHERE market = $1 AND status IN ('OPEN', 'PARTIALLY_FILLED')`, [symbol]),
+        db.query<{ count: string }>(`SELECT COUNT(*)::text as count FROM spot_orders WHERE market = $1 AND status IN ('new', 'partially_filled')`, [symbol]),
         db.query<{ volume_24h: string; last_price: string }>(
           `SELECT COALESCE(SUM(quantity * price), 0)::text as volume_24h,
                   (SELECT price::text FROM spot_trades WHERE market = $1 ORDER BY created_at DESC LIMIT 1) as last_price`,

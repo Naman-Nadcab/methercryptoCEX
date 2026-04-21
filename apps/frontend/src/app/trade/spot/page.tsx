@@ -2,9 +2,13 @@
 
 /**
  * Canonical spot terminal. Same implementation as /dashboard/spot.
+ *
+ * Perf: `SpotTradingGrid` pulls in `lightweight-charts` (~250 KB gz) plus the
+ * orderbook/order-form widgets. We load it via `dynamic()` so the terminal's
+ * route bundle is tiny — user sees the skeleton immediately, the chart JS
+ * streams in the background. `ssr: false` because the chart needs the DOM.
  */
-import { Suspense } from 'react';
-import { SpotTradingGrid } from '@/components/trade/SpotTradingGrid';
+import dynamic from 'next/dynamic';
 import { Skeleton } from '@/components/ui/Skeleton';
 
 function SpotPageSkeleton() {
@@ -25,10 +29,11 @@ function SpotPageSkeleton() {
   );
 }
 
+const SpotTradingGrid = dynamic(
+  () => import('@/components/trade/SpotTradingGrid').then((m) => m.SpotTradingGrid),
+  { ssr: false, loading: () => <SpotPageSkeleton /> }
+);
+
 export default function TradeSpotPage() {
-  return (
-    <Suspense fallback={<SpotPageSkeleton />}>
-      <SpotTradingGrid />
-    </Suspense>
-  );
+  return <SpotTradingGrid />;
 }

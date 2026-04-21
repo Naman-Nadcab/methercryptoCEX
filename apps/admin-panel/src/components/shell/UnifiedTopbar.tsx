@@ -37,36 +37,50 @@ export function UnifiedTopbar() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [quickActionsOpen, setQuickActionsOpen] = useState(false);
 
-  const refetchBar = (ms: number) => () =>
-    typeof document !== 'undefined' && document.visibilityState === 'visible' ? ms : false;
+  const wsConnectionState = useRealtimeStore((s) => s.connectionState);
+  const shouldPoll = useRealtimeStore((s) => s.shouldPoll);
+
+  /**
+   * Polling policy for shell status badges:
+   *  - WS connected → `useRealtime` invalidates these queryKeys on relevant events
+   *    (control_status_changed, health_score_updated, etc.), so polling is
+   *    REDUNDANT. We disable it to save ~4 HTTP calls / 30s per admin session.
+   *  - WS disconnected OR explicitly forcing polling → fall back to 30s poll.
+   *  - Tab hidden → skip either way.
+   */
+  const refetchBar = (ms: number) => () => {
+    if (typeof document === 'undefined' || document.visibilityState !== 'visible') return false;
+    const wsUp = wsConnectionState === 'connected' && !shouldPoll;
+    return wsUp ? false : ms;
+  };
 
   const { data: haltData } = useQuery({
-    queryKey: ['admin', 'trading-halt', token],
-    queryFn: () => getTradingHalt(token),
+    queryKey: ['admin', 'trading-halt'],
+    queryFn: ({ signal }) => getTradingHalt(token, signal),
     enabled: !!token,
     staleTime: 15_000,
     refetchInterval: refetchBar(30_000),
   });
 
   const { data: controlData } = useQuery({
-    queryKey: ['admin', 'control', token],
-    queryFn: () => getControlOverview(token),
+    queryKey: ['admin', 'control'],
+    queryFn: ({ signal }) => getControlOverview(token, signal),
     enabled: !!token,
     staleTime: 15_000,
     refetchInterval: refetchBar(30_000),
   });
 
   const { data: healthData } = useQuery({
-    queryKey: ['admin', 'system-health', token],
-    queryFn: () => getSystemHealth(token),
+    queryKey: ['admin', 'system-health'],
+    queryFn: ({ signal }) => getSystemHealth(token, signal),
     enabled: !!token,
     staleTime: 15_000,
     refetchInterval: refetchBar(30_000),
   });
 
   const { data: tier1Res } = useQuery({
-    queryKey: ['admin', TIER1_QUERY_KEY, token],
-    queryFn: () => getExchangeHealthTier1(token),
+    queryKey: ['admin', TIER1_QUERY_KEY],
+    queryFn: ({ signal }) => getExchangeHealthTier1(token, signal),
     enabled: !!token,
     staleTime: 15_000,
     refetchInterval: refetchBar(30_000),
@@ -103,7 +117,7 @@ export function UnifiedTopbar() {
     return 'healthy';
   }, [settlement]);
 
-  const wsState = useRealtimeStore((s) => s.connectionState);
+  const wsState = wsConnectionState;
   const pageMeta = getPageMeta(pathname);
   const mod = modKey();
 

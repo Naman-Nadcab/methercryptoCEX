@@ -78,6 +78,11 @@ const envSchema = z.object({
   EMAIL_FROM: z.string().optional(),
   SMTP_FROM: z.string().optional(),
 
+  // Web Push (VAPID) — self-hosted, no 3rd-party dependency
+  VAPID_PUBLIC_KEY: z.string().optional(),
+  VAPID_PRIVATE_KEY: z.string().optional(),
+  VAPID_SUBJECT: z.string().default('mailto:support@example.com'),
+
   // SMS
   SMS_PROVIDER: z.enum(['twilio', 'sns', 'mock']).default('mock'),
   TWILIO_ACCOUNT_SID: z.string().optional(),
@@ -106,6 +111,8 @@ const envSchema = z.object({
   BITCOIN_RPC_USER: z.string().optional(),
   BITCOIN_RPC_PASSWORD: z.string().optional(),
   BITCOIN_NETWORK: z.enum(['mainnet', 'testnet']).default('mainnet'),
+  BLOCKCYPHER_TOKEN: z.string().optional(),
+  BLOCKCYPHER_BASE_URL: z.string().default('https://api.blockcypher.com/v1/btc/main'),
 
   // Application
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -888,6 +895,13 @@ export const config = {
     },
   },
 
+  webPush: {
+    publicKey: parsed.data.VAPID_PUBLIC_KEY,
+    privateKey: parsed.data.VAPID_PRIVATE_KEY,
+    subject: parsed.data.VAPID_SUBJECT,
+    enabled: Boolean(parsed.data.VAPID_PUBLIC_KEY && parsed.data.VAPID_PRIVATE_KEY),
+  },
+
   kyc: {
     provider: parsed.data.KYC_PROVIDER,
     digilockerDemoAutoApprove: parsed.data.KYC_DIGILOCKER_DEMO_AUTO_APPROVE,
@@ -915,6 +929,9 @@ export const config = {
       rpcUser: parsed.data.BITCOIN_RPC_USER,
       rpcPassword: parsed.data.BITCOIN_RPC_PASSWORD,
       network: parsed.data.BITCOIN_NETWORK,
+      blockcypherToken: parsed.data.BLOCKCYPHER_TOKEN,
+      blockcypherBaseUrl: parsed.data.BLOCKCYPHER_BASE_URL,
+      blockcypherEnabled: Boolean(parsed.data.BLOCKCYPHER_TOKEN),
     },
   },
 

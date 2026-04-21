@@ -15,7 +15,12 @@ import { logAuditFromRequest } from '../services/audit-log.service.js';
 import { invalidateMarketsCache } from '../services/spot-markets-cache.service.js';
 import { logger } from '../lib/logger.js';
 
-const OPEN_ORDER_STATUSES = ['OPEN', 'PARTIALLY_FILLED'];
+/**
+ * `order_status` enum is lowercase: new, partially_filled, filled, cancelled,
+ * rejected, expired, pending_cancel. Keep legacy uppercase values for rows
+ * that predate the schema change so historical audit queries still match.
+ */
+const OPEN_ORDER_STATUSES = ['new', 'partially_filled'];
 
 export default async function adminPhase24Routes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', async (request, reply) => {

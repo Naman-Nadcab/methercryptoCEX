@@ -8,7 +8,13 @@ import { config } from '../config/index.js';
 import { logger } from '../lib/logger.js';
 import { getSpotOrdersUseMarketSync } from '../lib/spot-schema-cache.js';
 
-const OPEN_STATUSES = ['OPEN', 'PARTIALLY_FILLED'];
+/**
+ * `order_status` enum values are lowercase: new, partially_filled, filled,
+ * cancelled, rejected, expired, pending_cancel. Using uppercase here caused
+ * the engine-recovery endpoint to return 0 open orders after a Rust restart,
+ * which silently "lost" real customer orders until manual intervention.
+ */
+const OPEN_STATUSES = ['new', 'partially_filled'];
 
 export default async function internalEngineRoutes(app: FastifyInstance): Promise<void> {
   /** GET /internal/engine/state — open orders + last_engine_event_id for engine restart recovery */

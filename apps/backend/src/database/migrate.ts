@@ -2948,6 +2948,23 @@ const migrations = [
   `CREATE INDEX IF NOT EXISTS idx_ticket_messages_ticket ON support_ticket_messages(ticket_id);`,
 
   // ============================================
+  // WEB PUSH (VAPID) SUBSCRIPTIONS
+  // ============================================
+  `CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    endpoint TEXT NOT NULL,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    user_agent TEXT,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    last_used_at TIMESTAMPTZ,
+    disabled_at TIMESTAMPTZ,
+    UNIQUE(user_id, endpoint)
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id) WHERE disabled_at IS NULL;`,
+
+  // ============================================
   // PHASE 7: P2P Merchant Applications
   // ============================================
   `CREATE TABLE IF NOT EXISTS p2p_merchant_applications (

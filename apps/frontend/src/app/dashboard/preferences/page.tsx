@@ -5,6 +5,14 @@ import { useAuthStore } from '@/store/auth';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { ChevronDown, ChevronUp, Loader2, Info, Settings, Bell, Mail, Globe, DollarSign, TrendingUp, Wallet, MessageCircle, Check } from 'lucide-react';
 import { notifyError } from '@/lib/notifyError';
+import {
+  disablePushNotifications,
+  enablePushNotifications,
+  getPushStatus,
+  isPushSupported,
+  sendTestPush,
+  type PushStatus,
+} from '@/lib/pushNotifications';
 
 interface PreferenceSettings {
   // General Settings
@@ -97,6 +105,48 @@ export default function PreferencesPage() {
   // Collapsible sections
   const [eventsRemindersExpanded, setEventsRemindersExpanded] = useState(true);
   const [generalAnnouncementExpanded, setGeneralAnnouncementExpanded] = useState(true);
+
+  // Browser push (VAPID) state
+  const [pushStatus, setPushStatus] = useState<PushStatus>({ supported: false, permission: 'default', subscribed: false });
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushNotice, setPushNotice] = useState<string | null>(null);
+
+  const refreshPushStatus = async () => setPushStatus(await getPushStatus());
+
+  useEffect(() => {
+    if (isPushSupported()) refreshPushStatus();
+  }, []);
+
+  const handleEnablePush = async () => {
+    if (!accessToken) return;
+    setPushBusy(true);
+    setPushNotice(null);
+    const r = await enablePushNotifications(accessToken);
+    setPushNotice(r.ok ? 'Push notifications enabled on this device' : (r.error || 'Failed'));
+    await refreshPushStatus();
+    setPushBusy(false);
+  };
+
+  const handleDisablePush = async () => {
+    if (!accessToken) return;
+    setPushBusy(true);
+    setPushNotice(null);
+    const r = await disablePushNotifications(accessToken);
+    setPushNotice(r.ok ? 'Push notifications disabled on this device' : (r.error || 'Failed'));
+    await refreshPushStatus();
+    setPushBusy(false);
+  };
+
+  const handleTestPush = async () => {
+    if (!accessToken) return;
+    setPushBusy(true);
+    setPushNotice(null);
+    const r = await sendTestPush(accessToken);
+    if (!r.ok) setPushNotice(r.error || 'Test failed');
+    else if ((r.sent ?? 0) === 0) setPushNotice('No active device subscriptions to notify');
+    else setPushNotice(`Test push sent to ${r.sent} device(s)`);
+    setPushBusy(false);
+  };
 
   const [settings, setSettings] = useState<PreferenceSettings>({
     equivalentCurrency: 'USD',
@@ -613,6 +663,73 @@ export default function PreferencesPage() {
                         </div>
                       )}
                     </div>
+                  </div>
+                </div>
+
+                {/* Browser Push Subscription */}
+                <div className="bg-card rounded-xl border border-border overflow-hidden">
+                  <div className="px-6 py-4 border-b border-border flex items-center gap-3">
+                    <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center">
+                      <Bell className="w-5 h-5 text-primary" />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-semibold text-foreground">Browser Push</h2>
+                      <p className="text-xs text-muted-foreground">Get deposit, withdrawal, and security alerts even when the tab is closed</p>
+                    </div>
+                  </div>
+                  <div className="p-6 space-y-4">
+                    {!pushStatus.supported && (
+                      <p className="text-sm text-muted-foreground">
+                        This browser doesn't support web push notifications. Use a recent Chrome, Edge, Firefox, or Safari 16+.
+                      </p>
+                    )}
+                    {pushStatus.supported && pushStatus.permission === 'denied' && (
+                      <p className="text-sm text-destructive">
+                        Notifications are blocked in your browser settings. Unblock them for this site and reload.
+                      </p>
+                    )}
+                    {pushStatus.supported && pushStatus.permission !== 'denied' && (
+                      <div className="flex flex-wrap gap-3 items-center">
+                        <div className="flex items-center gap-2 text-sm">
+                          <span className={`w-2 h-2 rounded-full ${pushStatus.subscribed ? 'bg-success' : 'bg-muted-foreground/40'}`} />
+                          <span className="text-muted-foreground">
+                            Status: <span className="font-semibold text-foreground">{pushStatus.subscribed ? 'Enabled on this device' : 'Not enabled'}</span>
+                          </span>
+                        </div>
+                        <div className="flex gap-2 ml-auto">
+                          {!pushStatus.subscribed ? (
+                            <button
+                              onClick={handleEnablePush}
+                              disabled={pushBusy}
+                              className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 flex items-center gap-2"
+                            >
+                              {pushBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bell className="w-4 h-4" />}
+                              Enable notifications
+                            </button>
+                          ) : (
+                            <>
+                              <button
+                                onClick={handleTestPush}
+                                disabled={pushBusy}
+                                className="px-4 py-2 rounded-lg bg-muted text-foreground text-sm font-semibold hover:bg-accent disabled:opacity-60"
+                              >
+                                Send test
+                              </button>
+                              <button
+                                onClick={handleDisablePush}
+                                disabled={pushBusy}
+                                className="px-4 py-2 rounded-lg border border-destructive/40 text-destructive text-sm font-semibold hover:bg-destructive/10 disabled:opacity-60"
+                              >
+                                Disable
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    {pushNotice && (
+                      <p className="text-sm text-muted-foreground border-t border-border pt-3">{pushNotice}</p>
+                    )}
                   </div>
                 </div>
 

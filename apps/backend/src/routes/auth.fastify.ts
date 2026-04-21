@@ -1102,17 +1102,33 @@ export default async function authRoutes(app: FastifyInstance) {
         sessionId,
       });
 
-      // Set initial last_login_at and log activity
-      await db.query(
-        `UPDATE users SET last_login_at = NOW() WHERE id = $1`,
-        [user.id]
-      );
+      // Set initial last_login_at and log activity — best-effort: signup already succeeded at this
+      // point (users/wallets/session rows committed), so a failure here must NOT leak as a 500 and
+      // leave an orphan account that blocks retry with USER_EXISTS.
+      try {
+        await db.query(
+          `UPDATE users SET last_login_at = NOW() WHERE id = $1`,
+          [user.id]
+        );
+      } catch (err) {
+        logger.warn('Signup: last_login_at update failed (continuing)', {
+          userId: user.id,
+          error: err instanceof Error ? err.message : 'Unknown',
+        });
+      }
 
-      await db.query(
-        `INSERT INTO user_activity_logs (user_id, session_id, activity_type, ip_address, user_agent)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [user.id, sessionId, 'signup', getClientIp(request), request.headers['user-agent']]
-      );
+      try {
+        await db.query(
+          `INSERT INTO user_activity_logs (user_id, session_id, activity_type, ip_address, user_agent)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [user.id, sessionId, 'signup', getClientIp(request), request.headers['user-agent']]
+        );
+      } catch (err) {
+        logger.warn('Signup: activity_log insert failed (continuing)', {
+          userId: user.id,
+          error: err instanceof Error ? err.message : 'Unknown',
+        });
+      }
 
       // Clear the verified OTP flag (best effort)
       try {
@@ -1415,17 +1431,30 @@ export default async function authRoutes(app: FastifyInstance) {
 
       logger.info('Token generated for login', { userId: user.id });
 
-      // Update last_login_at and log activity
-      await db.query(
-        `UPDATE users SET last_login_at = NOW() WHERE id = $1`,
-        [user.id]
-      );
+      // Update last_login_at and log activity — best-effort. Login tokens already issued;
+      // a late audit-write failure must NOT degrade the user's login response to a 500.
+      try {
+        await db.query(
+          `UPDATE users SET last_login_at = NOW() WHERE id = $1`,
+          [user.id]
+        );
+      } catch (err) {
+        logger.warn('login: last_login_at update failed (continuing)', {
+          userId: user.id, error: err instanceof Error ? err.message : 'Unknown',
+        });
+      }
 
-      await db.query(
-        `INSERT INTO user_activity_logs (user_id, session_id, activity_type, ip_address, user_agent)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [user.id, sessionId, 'login', getClientIp(request), request.headers['user-agent']]
-      );
+      try {
+        await db.query(
+          `INSERT INTO user_activity_logs (user_id, session_id, activity_type, ip_address, user_agent)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [user.id, sessionId, 'login', getClientIp(request), request.headers['user-agent']]
+        );
+      } catch (err) {
+        logger.warn('login: activity_log insert failed (continuing)', {
+          userId: user.id, error: err instanceof Error ? err.message : 'Unknown',
+        });
+      }
 
       logger.info('User logged in (no additional verification)', { userId: user.id });
 
@@ -1686,17 +1715,30 @@ export default async function authRoutes(app: FastifyInstance) {
 
       logger.info('Token generated for verify-step login', { userId: user.id });
 
-      // Update last_login_at and log activity
-      await db.query(
-        `UPDATE users SET last_login_at = NOW() WHERE id = $1`,
-        [user.id]
-      );
+      // Update last_login_at and log activity — best-effort. Login has already succeeded
+      // (tokens issued); a late failure here must NOT surface as a 500 to the caller.
+      try {
+        await db.query(
+          `UPDATE users SET last_login_at = NOW() WHERE id = $1`,
+          [user.id]
+        );
+      } catch (err) {
+        logger.warn('multi-step login: last_login_at update failed (continuing)', {
+          userId: user.id, error: err instanceof Error ? err.message : 'Unknown',
+        });
+      }
 
-      await db.query(
-        `INSERT INTO user_activity_logs (user_id, session_id, activity_type, ip_address, user_agent)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [user.id, sessionId, 'login', getClientIp(request), request.headers['user-agent']]
-      );
+      try {
+        await db.query(
+          `INSERT INTO user_activity_logs (user_id, session_id, activity_type, ip_address, user_agent)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [user.id, sessionId, 'login', getClientIp(request), request.headers['user-agent']]
+        );
+      } catch (err) {
+        logger.warn('multi-step login: activity_log insert failed (continuing)', {
+          userId: user.id, error: err instanceof Error ? err.message : 'Unknown',
+        });
+      }
 
       logger.info('Multi-step login completed', { userId: user.id });
 
@@ -2218,6 +2260,45 @@ export default async function authRoutes(app: FastifyInstance) {
         success: false,
         error: { code: 'INTERNAL_ERROR', message: 'Failed to verify passkey registration' },
       });
+    }
+  });
+
+  // ===============================
+  // PASSKEY AVAILABILITY PROBE
+  // ===============================
+  // Returns { available: boolean } only; always 200 OK with the same shape so callers
+  // cannot distinguish "user exists" from "user does not exist". Used by the login UI
+  // to only show the "Login with Passkey" button for identifiers that actually have a
+  // passkey enrolled — instead of showing it to every user and failing at click time.
+  app.post('/passkey/available', {
+    preHandler: [rateLimitByIp('auth:passkey-probe', 30, 60, { failClosed: false })],
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { email, phone } = (request.body || {}) as { email?: string; phone?: string };
+      if (!email && !phone) return reply.send({ success: true, data: { available: false } });
+
+      const type = email ? 'email' : 'phone';
+      const identifier = email ? email.trim().toLowerCase() : normalizePhoneNumber(phone!);
+      if (!identifier || identifier.length < 3) {
+        return reply.send({ success: true, data: { available: false } });
+      }
+
+      const r = await db.query<{ has_passkey: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1 FROM user_passkeys p
+           JOIN users u ON u.id = p.user_id
+           WHERE u.${type} = $1 AND u.deleted_at IS NULL
+             AND p.deleted_at IS NULL
+             AND COALESCE(u.passkeys_enabled, FALSE) = TRUE
+         ) AS has_passkey`,
+        [identifier]
+      );
+      return reply.send({ success: true, data: { available: !!r.rows[0]?.has_passkey } });
+    } catch (error) {
+      logger.warn('Passkey availability probe failed', {
+        error: error instanceof Error ? error.message : 'Unknown',
+      });
+      return reply.send({ success: true, data: { available: false } });
     }
   });
 

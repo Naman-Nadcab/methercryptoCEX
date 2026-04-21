@@ -20,8 +20,30 @@ const DEPRECATED_LOG = process.env.ENABLE_DEPRECATED_ROUTE_LOG === 'true';
 /** 308 = permanent redirect, preserves method (GET); safe for bookmarked URLs. */
 const REDIRECT_STATUS = 308;
 
+/**
+ * Precomputed O(1) map: `from` path → `{ to, note }`. Built once at module
+ * evaluation so each request is a single `Map.get` instead of an array scan.
+ * Edge-runtime hot path — every navigation goes through this function.
+ */
+const EXACT_REDIRECT_MAP: Map<string, { to: string; note?: string }> = (() => {
+  const m = new Map<string, { to: string; note?: string }>();
+  for (const { from, to, note } of CANONICAL_REDIRECTS_EXACT) {
+    if (to !== from) m.set(from, { to, note });
+  }
+  return m;
+})();
+
 export function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
+
+  /**
+   * Fast-path: if canonical rewrites are disabled AND deprecated logging is
+   * off, every request collapses to `NextResponse.next()` without touching
+   * the lookup tables at all. This is the common prod config.
+   */
+  if (!CANONICAL_ENABLED && !DEPRECATED_LOG) {
+    return NextResponse.next();
+  }
 
   if (DEPRECATED_LOG && isDeprecatedRoutePath(pathname)) {
     console.info(
@@ -37,24 +59,23 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  for (const { from, to, note } of CANONICAL_REDIRECTS_EXACT) {
-    if (pathname === from && to !== from) {
-      const url = request.nextUrl.clone();
-      url.pathname = to;
-      url.search = search;
-      if (DEPRECATED_LOG) {
-        console.info(
-          JSON.stringify({
-            event: 'canonical_redirect',
-            from: pathname,
-            to,
-            note,
-            ts: new Date().toISOString(),
-          })
-        );
-      }
-      return NextResponse.redirect(url, REDIRECT_STATUS);
+  const exactHit = EXACT_REDIRECT_MAP.get(pathname);
+  if (exactHit) {
+    const url = request.nextUrl.clone();
+    url.pathname = exactHit.to;
+    url.search = search;
+    if (DEPRECATED_LOG) {
+      console.info(
+        JSON.stringify({
+          event: 'canonical_redirect',
+          from: pathname,
+          to: exactHit.to,
+          note: exactHit.note,
+          ts: new Date().toISOString(),
+        })
+      );
     }
+    return NextResponse.redirect(url, REDIRECT_STATUS);
   }
 
   const legacyMapped = mapLegacyDashboardPathToCanonical(pathname);

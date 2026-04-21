@@ -7,11 +7,16 @@ import { CHAIN_CONFIGS, loadChainRpcOverridesFromDb } from './config/chains';
 import { query } from './config/database';
 import { ChainIndexer } from './services/ChainIndexer';
 import { ConfirmationTracker } from './services/ConfirmationTracker';
+import { BitcoinIndexer } from './services/BitcoinIndexer';
+import { TronIndexer } from './services/TronIndexer';
 import { startApiServer } from './api/server';
 import { logger } from './utils/logger';
 
+type NonEvmIndexer = BitcoinIndexer | TronIndexer;
+
 class IndexerManager {
   private indexers: Map<string, ChainIndexer> = new Map();
+  private nonEvmIndexers: Map<string, NonEvmIndexer> = new Map();
   private confirmationTracker: ConfirmationTracker;
   private isShuttingDown: boolean = false;
 
@@ -46,6 +51,10 @@ class IndexerManager {
 
     await Promise.all(startPromises);
 
+    // Start non-EVM indexers (Bitcoin / Tron). These are gated internally by
+    // presence of BLOCKCYPHER_TOKEN / TRON_API_KEY + active chain row in DB.
+    await this.startNonEvmIndexers();
+
     // Start confirmation tracker
     await this.confirmationTracker.start();
 
@@ -54,6 +63,40 @@ class IndexerManager {
     
     logger.info('🎉 All indexers started successfully!');
     this.printStatus();
+  }
+
+  private async startNonEvmIndexers(): Promise<void> {
+    // Only bring a chain up if its row is active. Avoids polling disabled chains.
+    const active = await query(
+      `SELECT id FROM chains WHERE is_active = TRUE AND id IN ('bitcoin', 'tron')`
+    );
+    const activeIds = new Set(active.rows.map((r: any) => r.id));
+
+    if (activeIds.has('bitcoin')) {
+      const btc = new BitcoinIndexer();
+      try {
+        await btc.start();
+        this.nonEvmIndexers.set('bitcoin', btc);
+        logger.info('✅ Bitcoin indexer started');
+      } catch (e) {
+        logger.error('❌ Failed to start Bitcoin indexer', { error: e instanceof Error ? e.message : String(e) });
+      }
+    } else {
+      logger.info('Bitcoin chain not active in DB — skipping Bitcoin indexer');
+    }
+
+    if (activeIds.has('tron')) {
+      const tron = new TronIndexer();
+      try {
+        await tron.start();
+        this.nonEvmIndexers.set('tron', tron);
+        logger.info('✅ Tron indexer started');
+      } catch (e) {
+        logger.error('❌ Failed to start Tron indexer', { error: e instanceof Error ? e.message : String(e) });
+      }
+    } else {
+      logger.info('Tron chain not active in DB — skipping Tron indexer');
+    }
   }
 
   private async initializeDatabase(): Promise<void> {
@@ -114,6 +157,17 @@ class IndexerManager {
     Last Block: ${stats.lastProcessedBlock}
 `);
     }
+    for (const [chainKey, indexer] of this.nonEvmIndexers) {
+      const stats = indexer.getStats() as any;
+      console.log(`
+  ${stats.chain}:
+    Chain ID: ${stats.chainId}
+    Status: ${stats.isRunning ? '🟢 Running' : '🔴 Stopped'}
+    Watched Addresses: ${stats.watchedAddresses}
+    Token Contracts: ${stats.tokenContracts}
+    Last Block/Height: ${stats.lastProcessedBlock}
+`);
+    }
     console.log('='.repeat(60) + '\n');
   }
 
@@ -126,8 +180,11 @@ class IndexerManager {
     // Stop confirmation tracker
     await this.confirmationTracker.stop();
     
-    // Stop all indexers
-    const stopPromises = Array.from(this.indexers.values()).map(indexer => indexer.stop());
+    // Stop all indexers (EVM + non-EVM)
+    const stopPromises: Promise<void>[] = [
+      ...Array.from(this.indexers.values()).map((indexer) => indexer.stop()),
+      ...Array.from(this.nonEvmIndexers.values()).map((indexer) => indexer.stop()),
+    ];
     await Promise.all(stopPromises);
     
     logger.info('All indexers stopped');
@@ -136,23 +193,30 @@ class IndexerManager {
 
   // API methods for external control
   async addWatchedAddress(chainId: string, address: string): Promise<boolean> {
-    const indexer = this.indexers.get(chainId);
-    if (!indexer) {
-      logger.warn(`No indexer for chain ${chainId}`);
-      return false;
+    const evm = this.indexers.get(chainId);
+    if (evm) {
+      await evm.addWatchedAddress(address);
+      return true;
     }
-    
-    await indexer.addWatchedAddress(address);
-    return true;
+    const nonEvm = this.nonEvmIndexers.get(chainId);
+    if (nonEvm) {
+      await nonEvm.addWatchedAddress(address);
+      return true;
+    }
+    logger.warn(`No indexer for chain ${chainId}`);
+    return false;
   }
 
   getStats(): object {
     const stats: Record<string, object> = {};
-    
+
     for (const [chainKey, indexer] of this.indexers) {
       stats[chainKey] = indexer.getStats();
     }
-    
+    for (const [chainKey, indexer] of this.nonEvmIndexers) {
+      stats[chainKey] = indexer.getStats();
+    }
+
     return stats;
   }
 }

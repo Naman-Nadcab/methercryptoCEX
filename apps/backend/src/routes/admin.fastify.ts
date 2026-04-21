@@ -1334,7 +1334,21 @@ export default async function adminRoutes(app: FastifyInstance) {
         db.query<Record<string, string>>(sql).then(r => r.rows[0] ?? ({} as Record<string, string>)).catch(() => ({} as Record<string, string>));
 
       const [userRow, sessionRow, kycRow, p2pAdsRow, p2pOrdersRow, disputeRow, referralRow] = await Promise.all([
-        safeCount(`SELECT COUNT(*) as total_users, COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours') as new_users_24h, COUNT(*) FILTER (WHERE status = 'active') as active_users, COUNT(*) FILTER (WHERE email_verified = true OR phone_verified = true) as verified_users FROM users WHERE deleted_at IS NULL`),
+        /**
+         * `users.status` is the enum `user_status` with values
+         *   pending, active, suspended, banned, deleted.
+         * We count each so the admin Users KPI cards are accurate.
+         * Older code only returned total/newToday/active/verified, which
+         * is why the Suspended/Banned tile always showed 0 on the Users page.
+         */
+        safeCount(`SELECT COUNT(*) as total_users,
+                          COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours') as new_users_24h,
+                          COUNT(*) FILTER (WHERE status = 'active') as active_users,
+                          COUNT(*) FILTER (WHERE status = 'pending') as pending_users,
+                          COUNT(*) FILTER (WHERE status = 'suspended') as suspended_users,
+                          COUNT(*) FILTER (WHERE status = 'banned') as banned_users,
+                          COUNT(*) FILTER (WHERE email_verified = true OR phone_verified = true) as verified_users
+                   FROM users WHERE deleted_at IS NULL`),
         safeCount(`SELECT COUNT(DISTINCT user_id) as active_sessions FROM user_sessions WHERE is_active = true AND expires_at > NOW()`),
         safeCount(`SELECT COUNT(*) FILTER (WHERE status = 'pending') as pending_kyc, COUNT(*) FILTER (WHERE status = 'under_review') as review_kyc, COUNT(*) FILTER (WHERE status = 'approved' AND reviewed_at > NOW() - INTERVAL '24 hours') as approved_today, COUNT(*) FILTER (WHERE status = 'rejected' AND reviewed_at > NOW() - INTERVAL '24 hours') as rejected_today FROM kyc_applications`),
         safeCount(`SELECT COUNT(*) FILTER (WHERE status = 'active') as active_ads FROM p2p_ads`),
@@ -1348,6 +1362,12 @@ export default async function adminRoutes(app: FastifyInstance) {
           total: parseInt(userRow.total_users || '0'),
           newToday: parseInt(userRow.new_users_24h || '0'),
           active: parseInt(sessionRow.active_sessions || '0'),
+          activeUsers: parseInt(userRow.active_users || '0'),
+          pending: parseInt(userRow.pending_users || '0'),
+          suspended: parseInt(userRow.suspended_users || '0'),
+          banned: parseInt(userRow.banned_users || '0'),
+          /** Legacy alias — frontend still reads `locked` in several places. */
+          locked: parseInt(userRow.banned_users || '0'),
           verified: parseInt(userRow.verified_users || '0'),
         },
         kyc: {
@@ -1406,7 +1426,14 @@ export default async function adminRoutes(app: FastifyInstance) {
         userRow, sessionRow, kycRow, p2pAdsRow, p2pOrdersRow, disputeRow, referralRow,
         haltedRaw, wdRow, analyticsRow, healthRow,
       ] = await Promise.all([
-        safeRow(`SELECT COUNT(*) as total_users, COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours') as new_users_24h, COUNT(*) FILTER (WHERE status = 'active') as active_users, COUNT(*) FILTER (WHERE email_verified = true OR phone_verified = true) as verified_users FROM users WHERE deleted_at IS NULL`),
+        safeRow(`SELECT COUNT(*) as total_users,
+                        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours') as new_users_24h,
+                        COUNT(*) FILTER (WHERE status = 'active') as active_users,
+                        COUNT(*) FILTER (WHERE status = 'pending') as pending_users,
+                        COUNT(*) FILTER (WHERE status = 'suspended') as suspended_users,
+                        COUNT(*) FILTER (WHERE status = 'banned') as banned_users,
+                        COUNT(*) FILTER (WHERE email_verified = true OR phone_verified = true) as verified_users
+                 FROM users WHERE deleted_at IS NULL`),
         safeRow(`SELECT COUNT(DISTINCT user_id) as active_sessions FROM user_sessions WHERE is_active = true AND expires_at > NOW()`),
         safeRow(`SELECT COUNT(*) FILTER (WHERE status = 'pending') as pending_kyc, COUNT(*) FILTER (WHERE status = 'under_review') as review_kyc, COUNT(*) FILTER (WHERE status = 'approved' AND reviewed_at > NOW() - INTERVAL '24 hours') as approved_today, COUNT(*) FILTER (WHERE status = 'rejected' AND reviewed_at > NOW() - INTERVAL '24 hours') as rejected_today FROM kyc_applications`),
         safeRow(`SELECT COUNT(*) FILTER (WHERE status = 'active') as active_ads FROM p2p_ads`),
@@ -1421,7 +1448,17 @@ export default async function adminRoutes(app: FastifyInstance) {
 
       const summary = {
         stats: {
-          users: { total: parseInt(userRow.total_users || '0'), newToday: parseInt(userRow.new_users_24h || '0'), active: parseInt(sessionRow.active_sessions || '0'), verified: parseInt(userRow.verified_users || '0') },
+          users: {
+            total: parseInt(userRow.total_users || '0'),
+            newToday: parseInt(userRow.new_users_24h || '0'),
+            active: parseInt(sessionRow.active_sessions || '0'),
+            activeUsers: parseInt(userRow.active_users || '0'),
+            pending: parseInt(userRow.pending_users || '0'),
+            suspended: parseInt(userRow.suspended_users || '0'),
+            banned: parseInt(userRow.banned_users || '0'),
+            locked: parseInt(userRow.banned_users || '0'),
+            verified: parseInt(userRow.verified_users || '0'),
+          },
           kyc: { pending: parseInt(kycRow.pending_kyc || '0'), underReview: parseInt(kycRow.review_kyc || '0'), approvedToday: parseInt(kycRow.approved_today || '0'), rejectedToday: parseInt(kycRow.rejected_today || '0') },
           p2p: { activeAds: parseInt(p2pAdsRow.active_ads || '0'), activeOrders: parseInt(p2pOrdersRow.active_orders || '0'), openDisputes: parseInt(disputeRow.open_disputes || '0') },
           referrals: { totalCodes: parseInt(referralRow.total_codes || '0'), activeCodes: parseInt(referralRow.active_codes || '0') },
@@ -1499,13 +1536,18 @@ export default async function adminRoutes(app: FastifyInstance) {
       const topDepositAssets: { asset: string; amount_usd: number }[] = [];
       const topWithdrawalAssets: { asset: string; amount_usd: number }[] = [];
       try {
-        const dRes = await db.query<{ sum: string }>(`SELECT COALESCE(SUM(amount::numeric), 0)::text AS sum FROM deposits WHERE status = 'confirmed' AND created_at > NOW() - INTERVAL '30 days'`).catch(() => ({ rows: [{ sum: '0' }] }));
+        /**
+         * BUG FIX: enum `deposit_status` has values `pending, confirming,
+         * completed, failed, cancelled` — NOT `confirmed`. Old query silently
+         * threw an SQL error and returned 0 for every admin. Use 'completed'.
+         */
+        const dRes = await db.query<{ sum: string }>(`SELECT COALESCE(SUM(amount::numeric), 0)::text AS sum FROM deposits WHERE status = 'completed' AND created_at > NOW() - INTERVAL '30 days'`).catch(() => ({ rows: [{ sum: '0' }] }));
         depositsTotal = parseFloat(dRes.rows[0]?.sum ?? '0');
         const wRes = await db.query<{ sum: string }>(`SELECT COALESCE(SUM(amount::numeric), 0)::text AS sum FROM withdrawals WHERE status = 'completed' AND created_at > NOW() - INTERVAL '30 days'`).catch(() => ({ rows: [{ sum: '0' }] }));
         withdrawalsTotal = parseFloat(wRes.rows[0]?.sum ?? '0');
         const byDepAsset = await db.query<{ asset: string; amt: string }>(`
           SELECT COALESCE(t.symbol, 'USDT') AS asset, COALESCE(SUM(d.amount::numeric), 0)::text AS amt FROM deposits d
-          LEFT JOIN tokens t ON t.id = d.token_id WHERE d.status = 'confirmed' AND d.created_at > NOW() - INTERVAL '30 days'
+          LEFT JOIN tokens t ON t.id = d.token_id WHERE d.status = 'completed' AND d.created_at > NOW() - INTERVAL '30 days'
           GROUP BY COALESCE(t.symbol, 'USDT') ORDER BY SUM(d.amount::numeric) DESC LIMIT 5
         `).catch(() => ({ rows: [] }));
         topDepositAssets.push(...(byDepAsset.rows ?? []).map((r) => ({ asset: r.asset, amount_usd: parseFloat(r.amt ?? '0') })));
@@ -1759,7 +1801,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         `).catch(() => ({ rows: [] }));
         const deposits = await db.query<{ hour: number; dow: number; cnt: string }>(`
           SELECT EXTRACT(HOUR FROM created_at)::int AS hour, EXTRACT(DOW FROM created_at)::int AS dow, COUNT(*)::text AS cnt
-          FROM deposits WHERE status = 'confirmed' AND created_at > NOW() - INTERVAL '7 days'
+          FROM deposits WHERE status = 'completed' AND created_at > NOW() - INTERVAL '7 days'
           GROUP BY EXTRACT(HOUR FROM created_at), EXTRACT(DOW FROM created_at)
         `).catch(() => ({ rows: [] }));
         const tMap: Record<string, number> = {};
@@ -3807,9 +3849,21 @@ export default async function adminRoutes(app: FastifyInstance) {
   app.get('/trading-halt', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
-    const { getTradingHalted } = await import('../lib/trading-halt.js');
-    const halted = await getTradingHalted();
-    return reply.send({ success: true, data: { halted } });
+    /**
+     * Cached in-process for 3s. This endpoint is hit by every admin tab's
+     * Topbar on every page navigation — hot path. Staleness risk is zero
+     * because WS broadcasts `control_status_changed` on mutation, and the
+     * frontend invalidates its cache on that event. 3s floor is indistinguishable
+     * from real-time to humans.
+     */
+    const { getOrCompute } = await import('../lib/admin-endpoint-cache.js');
+    const data = await getOrCompute('admin:shell:trading-halt', 3_000, async () => {
+      const { getTradingHalted } = await import('../lib/trading-halt.js');
+      const halted = await getTradingHalted();
+      return { halted };
+    });
+    reply.header('Cache-Control', 'private, max-age=3');
+    return reply.send({ success: true, data });
   });
   app.post<{ Body: { halted: boolean; reason?: string; admin_note?: string } }>('/trading-halt', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
@@ -4021,18 +4075,38 @@ export default async function adminRoutes(app: FastifyInstance) {
   app.get('/system-health', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
-    const start = Date.now();
+    /**
+     * Cached in-process for 3s. Every admin Topbar hits this on every page
+     * load, and the body runs DB ping + Redis ping + 2 DB count queries + WS
+     * stats — measurable cost under concurrent admin load. 3s TTL collapses
+     * N admins × M tabs into one real computation per 3s window.
+     */
     try {
-      const dbStart = Date.now();
-      let dbOk = false;
-      let dbLatencyMs = 0;
-      try {
-        await db.query('SELECT 1');
-        dbOk = true;
-        dbLatencyMs = Math.round(Date.now() - dbStart);
-      } catch {
-        /* db failed */
-      }
+      const { getOrCompute } = await import('../lib/admin-endpoint-cache.js');
+      const data = await getOrCompute('admin:shell:system-health', 3_000, async () => buildSystemHealth());
+      reply.header('Cache-Control', 'private, max-age=3');
+      return reply.send({ success: true, data });
+    } catch (e) {
+      logger.warn('Admin system-health failed', { error: e instanceof Error ? e.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'HEALTH_CHECK_FAILED', message: 'System health check failed' },
+      });
+    }
+  });
+
+  async function buildSystemHealth() {
+    const start = Date.now();
+    const dbStart = Date.now();
+    let dbOk = false;
+    let dbLatencyMs = 0;
+    try {
+      await db.query('SELECT 1');
+      dbOk = true;
+      dbLatencyMs = Math.round(Date.now() - dbStart);
+    } catch {
+      /* db failed */
+    }
 
       const redisStart = Date.now();
       let redisOk = false;
@@ -4093,48 +4167,38 @@ export default async function adminRoutes(app: FastifyInstance) {
         /* optional */
       }
 
-      return reply.send({
-        success: true,
-        data: {
-          timestamp: new Date().toISOString(),
-          api_latency_ms: apiLatencyMs,
-          database: {
-            status: dbOk ? 'up' : 'down',
-            latency_ms: dbLatencyMs,
-          },
-          redis: {
-            status: redisOk ? 'up' : 'down',
-            latency_ms: redisLatencyMs,
-          },
-          websocket: {
-            connections: wsStats.connections,
-            authenticated: wsStats.withUser,
-            status: 'up',
-          },
-          node: {
-            uptime_sec: nodeUptimeSec,
-            memory_heap_mb: nodeMemoryMb,
-            status: 'up',
-          },
-          queue: {
-            settlement_pending: settlementPending,
-            settlement_lag_sec: settlementLagSec,
-            settlement_delayed: settlementPending > 0 && settlementLagSec >= 30,
-            withdrawal_pending: queuePending,
-            withdrawal_signing: queueSigning,
-            withdrawal_broadcast: queueBroadcast,
-            total_withdrawal_queue: queuePending + queueSigning + queueBroadcast,
-          },
+      return {
+        timestamp: new Date().toISOString(),
+        api_latency_ms: apiLatencyMs,
+        database: {
+          status: dbOk ? 'up' : 'down',
+          latency_ms: dbLatencyMs,
         },
-      });
-    } catch (e) {
-      logger.warn('Admin system-health failed', { error: e instanceof Error ? e.message : 'Unknown' });
-      return reply.status(500).send({
-        success: false,
-        error: { code: 'HEALTH_CHECK_FAILED', message: 'System health check failed' },
-      });
-    }
-  });
+        redis: {
+          status: redisOk ? 'up' : 'down',
+          latency_ms: redisLatencyMs,
+        },
+        websocket: {
+          connections: wsStats.connections,
+          authenticated: wsStats.withUser,
+          status: 'up',
+        },
+        node: {
+          uptime_sec: nodeUptimeSec,
+          memory_heap_mb: nodeMemoryMb,
+          status: 'up',
+        },
+        queue: {
+          settlement_pending: settlementPending,
+          settlement_lag_sec: settlementLagSec,
+          settlement_delayed: settlementPending > 0 && settlementLagSec >= 30,
+          withdrawal_pending: queuePending,
+          withdrawal_signing: queueSigning,
+          withdrawal_broadcast: queueBroadcast,
+          total_withdrawal_queue: queuePending + queueSigning + queueBroadcast,
+        },
+      };
+  }
 
   /**
    * GET /admin/monitoring/counters
@@ -5152,8 +5216,10 @@ export default async function adminRoutes(app: FastifyInstance) {
       let paramIndex = 1;
 
       if (status && status !== 'all') {
+        /** Legacy frontend sends `locked`; DB enum uses `banned`. */
+        const dbStatusFilter = status === 'locked' ? 'banned' : status;
         query += ` AND u.status = $${paramIndex++}`;
-        params.push(status);
+        params.push(dbStatusFilter);
       }
 
       if (search) {
@@ -5194,10 +5260,33 @@ export default async function adminRoutes(app: FastifyInstance) {
         };
       });
 
-      // Get total count
-      const countResult = await db.query(
-        'SELECT COUNT(*) FROM users WHERE deleted_at IS NULL'
-      );
+      // Get filtered total count (reuse same WHERE conditions without LIMIT/OFFSET)
+      let countQuery = `
+        SELECT COUNT(DISTINCT u.id) 
+        FROM users u
+        LEFT JOIN user_balances ub ON u.id = ub.user_id
+        LEFT JOIN kyc_applications k ON u.id = k.user_id
+        WHERE u.deleted_at IS NULL
+      `;
+      const countParams: any[] = [];
+      let countIdx = 1;
+
+      if (status && status !== 'all') {
+        const dbStatusFilter = status === 'locked' ? 'banned' : status;
+        countQuery += ` AND u.status = $${countIdx++}`;
+        countParams.push(dbStatusFilter);
+      }
+      if (search) {
+        countQuery += ` AND (u.email ILIKE $${countIdx} OR u.phone ILIKE $${countIdx} OR u.username ILIKE $${countIdx})`;
+        countParams.push(`%${search}%`);
+        countIdx++;
+      }
+      if (kycLevel && kycLevel !== 'all') {
+        countQuery += ` AND u.tier_level = $${countIdx++}`;
+        countParams.push(parseInt(kycLevel));
+      }
+
+      const countResult = await db.query(countQuery, countParams);
 
       return reply.send({
         success: true,
@@ -5207,6 +5296,7 @@ export default async function adminRoutes(app: FastifyInstance) {
             page: parseInt(page),
             limit: parseInt(limit),
             total: parseInt(countResult.rows[0]?.count ?? '0'),
+            totalPages: Math.ceil(parseInt(countResult.rows[0]?.count ?? '0') / parseInt(limit)) || 1,
           },
         },
       });
@@ -5481,13 +5571,20 @@ export default async function adminRoutes(app: FastifyInstance) {
       const { id } = request.params as { id: string };
       const { status, reason } = request.body as { status: string; reason?: string };
 
-      const allowedStatuses = ['active', 'suspended', 'locked'];
+      /**
+       * DB enum `user_status` values are: pending, active, suspended, banned, deleted.
+       * The frontend historically uses the label `locked` to mean "banned". Accept
+       * both at the API boundary, map `locked` → `banned` before touching the DB.
+       * Without this mapping, clicking "Ban" in the UI silently threw an SQL error.
+       */
+      const allowedStatuses = ['active', 'suspended', 'banned', 'locked'];
       if (typeof status !== 'string' || !allowedStatuses.includes(status)) {
         return reply.status(400).send({
           success: false,
           error: { code: 'INVALID_STATUS', message: 'Invalid user status' },
         });
       }
+      const dbStatus = status === 'locked' ? 'banned' : status;
 
       const prevRow = await db.query<{ status: string }>('SELECT status FROM users WHERE id = $1', [id]);
       const previousStatus = prevRow.rows[0]?.status ?? null;
@@ -5495,7 +5592,7 @@ export default async function adminRoutes(app: FastifyInstance) {
       const reasonTrimmed = typeof reason === 'string' ? reason.trim() || null : null;
       const result = await db.query(
         'UPDATE users SET status = $1, status_reason = $2, updated_at = NOW() WHERE id = $3',
-        [status, reasonTrimmed, id]
+        [dbStatus, reasonTrimmed, id]
       );
 
       if (result.rowCount === 0) {
@@ -5518,7 +5615,7 @@ export default async function adminRoutes(app: FastifyInstance) {
           resourceType: 'user',
           resourceId: id,
           oldValue: previousStatus ? { status: previousStatus } : undefined,
-          newValue: { status, reason: reasonTrimmed ?? undefined },
+          newValue: { status: dbStatus, reason: reasonTrimmed ?? undefined },
         });
       } catch {
         /* best-effort */
@@ -5526,7 +5623,7 @@ export default async function adminRoutes(app: FastifyInstance) {
 
       return reply.send({
         success: true,
-        data: { message: `User status updated to ${status}` },
+        data: { message: `User status updated to ${dbStatus}` },
       });
 
     } catch (error) {
@@ -5573,13 +5670,15 @@ export default async function adminRoutes(app: FastifyInstance) {
     if (!requirePermission(admin, 'users:edit', reply)) return;
     try {
       const { user_ids, status, reason } = request.body ?? {};
-      const allowedStatuses = ['active', 'suspended', 'locked'];
+      /** Accept legacy `locked` alias; DB enum uses `banned`. */
+      const allowedStatuses = ['active', 'suspended', 'banned', 'locked'];
       if (!Array.isArray(user_ids) || user_ids.length === 0 || typeof status !== 'string' || !allowedStatuses.includes(status)) {
         return reply.status(400).send({
           success: false,
-          error: { code: 'INVALID_INPUT', message: 'user_ids (array) and status (active|suspended|locked) required' },
+          error: { code: 'INVALID_INPUT', message: 'user_ids (array) and status (active|suspended|banned) required' },
         });
       }
+      const dbStatus = status === 'locked' ? 'banned' : status;
       const ids = user_ids.filter((id): id is string => typeof id === 'string' && id.length > 0).slice(0, 100);
       if (ids.length === 0) {
         return reply.status(400).send({
@@ -5592,7 +5691,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         `UPDATE users SET status = $1, status_reason = $2, updated_at = NOW()
          WHERE id = ANY($3::uuid[])
          RETURNING id`,
-        [status, reasonTrimmed, ids]
+        [dbStatus, reasonTrimmed, ids]
       );
       const updated = result.rowCount ?? 0;
       for (const id of ids) {
@@ -5605,12 +5704,12 @@ export default async function adminRoutes(app: FastifyInstance) {
           action: 'admin_users_bulk_status',
           resourceType: 'users',
           resourceId: ids.join(','),
-          newValue: { status, reason: reasonTrimmed, count: updated },
+          newValue: { status: dbStatus, reason: reasonTrimmed, count: updated },
         });
       } catch { /* best-effort */ }
       return reply.send({
         success: true,
-        data: { updated, message: `Status updated to ${status} for ${updated} user(s)` },
+        data: { updated, message: `Status updated to ${dbStatus} for ${updated} user(s)` },
       });
     } catch (error) {
       return reply.status(500).send({
@@ -5960,7 +6059,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         FROM kyc_applications
       `);
 
-      // Get applications
+      // Get applications with filtered count
       let query = `
         SELECT 
           ka.*,
@@ -5982,6 +6081,16 @@ export default async function adminRoutes(app: FastifyInstance) {
 
       const result = await db.query(query, params);
 
+      // Use filtered count for pagination when status filter is applied
+      let paginationTotal = parseInt(stats.rows[0]?.total || '0');
+      if (status && status !== 'all') {
+        const statusKey = status as keyof typeof stats.rows[0];
+        const statusCount = stats.rows[0]?.[statusKey];
+        if (statusCount !== undefined) {
+          paginationTotal = parseInt(String(statusCount) || '0');
+        }
+      }
+
       return reply.send({
         success: true,
         data: {
@@ -5990,7 +6099,8 @@ export default async function adminRoutes(app: FastifyInstance) {
           pagination: {
             page: parseInt(page),
             limit: parseInt(limit),
-            total: parseInt(stats.rows[0]?.total || '0'),
+            total: paginationTotal,
+            totalPages: Math.ceil(paginationTotal / parseInt(limit)) || 1,
           },
         },
       });
@@ -6236,7 +6346,12 @@ export default async function adminRoutes(app: FastifyInstance) {
 
       const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-      // Stats: global counts (unfiltered) for UI badges + 24h and volume
+      /**
+       * Stats: global counts + 24h rollups.
+       * The Deposits admin page shows cards labeled "Failed (24h)" and
+       * "Completed (24h)" — previously these read the all-time counter which
+       * never decayed. Also expose `completed_24h` for parity with withdrawals.
+       */
       const stats = await db.query<{
         total: string;
         pending: string;
@@ -6245,6 +6360,8 @@ export default async function adminRoutes(app: FastifyInstance) {
         failed: string;
         flagged: string;
         total_24h: string;
+        completed_24h: string;
+        failed_24h: string;
         volume_24h: string;
       }>(`
         SELECT 
@@ -6255,6 +6372,8 @@ export default async function adminRoutes(app: FastifyInstance) {
           COUNT(*) FILTER (WHERE status = 'failed')::text as failed,
           COUNT(*) FILTER (WHERE COALESCE(is_flagged, false) = true)::text as flagged,
           COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours')::text as total_24h,
+          COUNT(*) FILTER (WHERE status = 'completed' AND COALESCE(credited_at, created_at) > NOW() - INTERVAL '24 hours')::text as completed_24h,
+          COUNT(*) FILTER (WHERE status = 'failed' AND updated_at > NOW() - INTERVAL '24 hours')::text as failed_24h,
           COALESCE(SUM(amount) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours'), 0)::text as volume_24h
         FROM deposits
       `);
@@ -7192,7 +7311,13 @@ export default async function adminRoutes(app: FastifyInstance) {
 
       const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-      // Stats: global counts (unfiltered) for UI badges
+      /**
+       * Stats: global counts for queue KPIs + 24h totals for "Completed / Failed / Volume (24h)" tiles.
+       * The frontend renders cards labeled "Completed (24h)", "Failed (24h)" and "Volume (24h)".
+       * Earlier the query only returned all-time counts and never returned `volume_24h`, so those
+       * tiles displayed wrong numbers (or blanks for volume). Now we return both the queue-wide
+       * counts (used for the Pending/Processing tiles + pagination badges) AND the 24h rollups.
+       */
       const stats = await db.query<{
         total: string;
         pending_approval: string;
@@ -7201,6 +7326,9 @@ export default async function adminRoutes(app: FastifyInstance) {
         completed: string;
         failed: string;
         cancelled: string;
+        completed_24h: string;
+        failed_24h: string;
+        volume_24h: string;
       }>(`
         SELECT 
           COUNT(*)::text as total,
@@ -7209,7 +7337,10 @@ export default async function adminRoutes(app: FastifyInstance) {
           COUNT(*) FILTER (WHERE status = 'processing')::text as processing,
           COUNT(*) FILTER (WHERE status = 'completed')::text as completed,
           COUNT(*) FILTER (WHERE status = 'failed')::text as failed,
-          COUNT(*) FILTER (WHERE status IN ('cancelled','rejected'))::text as cancelled
+          COUNT(*) FILTER (WHERE status IN ('cancelled','rejected'))::text as cancelled,
+          COUNT(*) FILTER (WHERE status = 'completed' AND COALESCE(completed_at, created_at) > NOW() - INTERVAL '24 hours')::text as completed_24h,
+          COUNT(*) FILTER (WHERE status IN ('failed','rejected') AND updated_at > NOW() - INTERVAL '24 hours')::text as failed_24h,
+          COALESCE(SUM(amount::numeric) FILTER (WHERE status = 'completed' AND COALESCE(completed_at, created_at) > NOW() - INTERVAL '24 hours'), 0)::text as volume_24h
         FROM withdrawals
       `);
 
@@ -10383,8 +10514,20 @@ export default async function adminRoutes(app: FastifyInstance) {
       let p = 1;
 
       if (status && status !== 'all') {
-        conds.push(`o.status = $${p++}`);
-        whereParams.push(status);
+        /**
+         * `order_status` enum is lowercase: new, partially_filled, filled,
+         * cancelled, rejected, expired, pending_cancel. Legacy admin UI sends
+         * values like `OPEN`, `FILLED`, `PARTIALLY_FILLED`, `CANCELLED`. Normalize
+         * and expand `open` → both 'new' and 'partially_filled' (resting book).
+         */
+        const norm = String(status).toLowerCase();
+        if (norm === 'open') {
+          conds.push(`o.status = ANY($${p++}::order_status[])`);
+          whereParams.push(['new', 'partially_filled']);
+        } else {
+          conds.push(`o.status = $${p++}`);
+          whereParams.push(norm);
+        }
       }
       const marketQ = market?.trim();
       if (marketQ) {

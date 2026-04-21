@@ -80,11 +80,12 @@ class Database {
     const poolConfig = Database.parseConnectionString(config.database.url);
     this.pool = new Pool({
       ...poolConfig,
-      min: Math.max(config.database.poolMin, 5),
-      max: Math.max(config.database.poolMax, 50),
-      idleTimeoutMillis: 60000,
+      min: config.database.poolMin,
+      max: config.database.poolMax,
+      idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 15000,
       statement_timeout: 30000,
+      application_name: 'exchange-api',
       ...(sslConfig && { ssl: sslConfig }),
     });
 

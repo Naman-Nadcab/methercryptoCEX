@@ -6,17 +6,29 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { RefreshCw, AlertTriangle, CheckCircle2, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { useRealtimeStore } from '@/store/realtime';
 
 const TIER1_QUERY_KEY = 'exchange-health-tier1' as const;
 
 export function ExchangeHealthTier1Banner({ token, className }: { token: string | null; className?: string }) {
+  const wsConnectionState = useRealtimeStore((s) => s.connectionState);
+  const shouldPoll = useRealtimeStore((s) => s.shouldPoll);
+
+  /**
+   * Dedup with UnifiedTopbar: same queryKey shape (no token), so both mounts
+   * share the cache. Polling is disabled while WS is connected — useRealtime
+   * invalidates this key on `health_score_updated` / `control_status_changed`.
+   */
   const q = useQuery({
-    queryKey: ['admin', TIER1_QUERY_KEY, token],
-    queryFn: () => getExchangeHealthTier1(token),
+    queryKey: ['admin', TIER1_QUERY_KEY],
+    queryFn: ({ signal }) => getExchangeHealthTier1(token, signal),
     enabled: !!token,
     staleTime: 15_000,
-    refetchInterval: () =>
-      typeof document !== 'undefined' && document.visibilityState === 'visible' ? 30_000 : false,
+    refetchInterval: () => {
+      if (typeof document === 'undefined' || document.visibilityState !== 'visible') return false;
+      const wsUp = wsConnectionState === 'connected' && !shouldPoll;
+      return wsUp ? false : 30_000;
+    },
   });
 
   const tier = q.data?.data;

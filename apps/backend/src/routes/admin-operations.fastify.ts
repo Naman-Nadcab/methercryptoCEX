@@ -170,7 +170,7 @@ export default async function adminOperationsRoutes(app: FastifyInstance) {
                   status, created_at
            FROM spot_orders
            WHERE created_at > NOW() - ($1::text || ' hours')::interval
-             AND status IN ('OPEN', 'PARTIALLY_FILLED')
+             AND status IN ('new', 'partially_filled')
              AND (quantity::numeric * price::numeric) >= $2
            ORDER BY (quantity::numeric * price::numeric) DESC LIMIT $3`,
           [String(hours), threshold, limit]

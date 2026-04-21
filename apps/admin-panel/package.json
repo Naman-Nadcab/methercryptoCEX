@@ -4,9 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3001",
+    "dev:turbo": "next dev -p 3001 --turbo",
     "dev:clean": "npm run clean && next dev -p 3001",
     "build": "next build",
-    "start": "next start -p 3001",
+    "start": "NODE_ENV=production next start -p 3001",
+    "start:prod": "npm run build && npm run start",
     "lint": "next lint",
     "clean": "rm -rf .next"
   },

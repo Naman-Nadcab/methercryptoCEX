@@ -22,13 +22,16 @@ CREATE TYPE user_status AS ENUM ('pending', 'active', 'suspended', 'banned', 'de
 CREATE TYPE account_type AS ENUM ('individual', 'corporate', 'institutional');
 CREATE TYPE device_type AS ENUM ('web', 'ios', 'android', 'api');
 CREATE TYPE activity_type AS ENUM (
+    'signup',
     'login', 'logout', 'login_failed',
     'password_change', 'password_reset',
+    'email_change', 'phone_change',
     '2fa_enable', '2fa_disable',
     'api_key_create', 'api_key_delete',
     'withdrawal_address_add', 'withdrawal_address_delete',
     'kyc_submit', 'settings_change',
-    'device_trust', 'device_untrust'
+    'device_trust', 'device_untrust',
+    'passkey_registered', 'passkey_login', 'passkey_deleted'
 );
 
 -- KYC enums

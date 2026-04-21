@@ -44,6 +44,7 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [countdown, setCountdown] = useState(0);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
+  const [passkeyAvailable, setPasskeyAvailable] = useState(false);
 
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
   const formRef = useRef<HTMLFormElement>(null);
@@ -65,6 +66,33 @@ export default function LoginPage() {
   useEffect(() => {
     if (step === 'otp') router.prefetch(getStoredRedirect() || '/dashboard');
   }, [step, router]);
+
+  // Probe whether this identifier has a passkey enrolled. Only show the Login with Passkey
+  // button when backend confirms availability — otherwise clicking would always 400 and the
+  // button would mislead users who never enrolled a passkey.
+  useEffect(() => {
+    if (step !== 'identifier') { setPasskeyAvailable(false); return; }
+    const trimmed = identifier.trim();
+    const minLen = type === 'phone' ? 6 : 5;
+    if (trimmed.length < minLen) { setPasskeyAvailable(false); return; }
+    if (type === 'email' && !trimmed.includes('@')) { setPasskeyAvailable(false); return; }
+
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API}/api/v1/auth/passkey/available`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ [type]: trimmed }),
+        });
+        const data = await res.json().catch(() => null);
+        if (!cancelled) setPasskeyAvailable(Boolean(data?.data?.available));
+      } catch {
+        if (!cancelled) setPasskeyAvailable(false);
+      }
+    }, 400);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [identifier, type, step]);
 
   useEffect(() => {
     const code = otp.join('');
@@ -260,7 +288,7 @@ export default function LoginPage() {
             />
           </div>
 
-          {identifier.length >= 5 && (
+          {passkeyAvailable && (
             <>
               <div className="rounded-xl p-4 bg-muted/50 border border-border">
                 <button type="button" onClick={passkeyLogin} disabled={passkeyLoading || loading} className="w-full py-3 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-semibold flex items-center justify-center gap-2 disabled:opacity-60 transition-all shadow-lg shadow-primary/20">

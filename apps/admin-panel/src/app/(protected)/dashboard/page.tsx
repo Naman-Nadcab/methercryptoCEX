@@ -107,33 +107,40 @@ export default function DashboardPage() {
     []
   );
 
+  /**
+   * NOTE: queryKeys intentionally DO NOT include `token`. The three shell-shared
+   * queries (`dashboard-summary`, `system-health`, `control`) are also fetched
+   * by `UnifiedTopbar` / `ExchangeHealthTier1Banner`; sharing the key lets
+   * React Query dedup the request and serve the topbar's cache instantly on
+   * dashboard mount (and vice versa). Token is injected via queryFn only.
+   */
   const { data: summaryRes, isLoading: statsLoading } = useResilientQuery({
-    queryKey: ['admin', 'dashboard-summary', token],
-    queryFn: () => getDashboardSummary(token),
+    queryKey: ['admin', 'dashboard-summary'],
+    queryFn: ({ signal }) => getDashboardSummary(token, signal),
     enabled: !!token,
     refetchInterval: refetchWhenVisible(globalRefresh),
     staleTime: 60_000,
   });
 
   const { data: healthRes } = useResilientQuery({
-    queryKey: ['admin', 'system-health', token],
-    queryFn: () => getSystemHealth(token),
+    queryKey: ['admin', 'system-health'],
+    queryFn: ({ signal }) => getSystemHealth(token, signal),
     enabled: !!token,
     refetchInterval: refetchWhenVisible(Math.min(globalRefresh, 30_000)),
     staleTime: 60_000,
   });
 
   const { data: controlRes } = useResilientQuery({
-    queryKey: ['admin', 'control', token],
-    queryFn: () => getControlOverview(token),
+    queryKey: ['admin', 'control'],
+    queryFn: ({ signal }) => getControlOverview(token, signal),
     enabled: !!token,
     refetchInterval: refetchWhenVisible(Math.min(globalRefresh, 30_000)),
     staleTime: 60_000,
   });
 
   const { data: revenueRes } = useResilientQuery({
-    queryKey: ['admin', 'analytics-revenue-7d', token],
-    queryFn: () => adminFetch<{ buckets: unknown[]; total_revenue_24h: number; trading_fee_revenue: number; withdrawal_fee_revenue: number; other_fees: number }>('/analytics/revenue?period=7d', { token }),
+    queryKey: ['admin', 'analytics-revenue-7d'],
+    queryFn: ({ signal }) => adminFetch<{ buckets: unknown[]; total_revenue_24h: number; trading_fee_revenue: number; withdrawal_fee_revenue: number; other_fees: number }>('/analytics/revenue?period=7d', { token, signal }),
     enabled: !!token,
     refetchInterval: refetchWhenVisible(60_000),
     staleTime: 120_000,

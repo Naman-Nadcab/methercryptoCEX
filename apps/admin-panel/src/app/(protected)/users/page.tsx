@@ -50,7 +50,7 @@ function fmtRelative(val: string | null | undefined): string {
 }
 function displayStatus(status: string): string {
   const s = (status ?? '').toLowerCase();
-  if (s === 'locked') return 'Banned';
+  if (s === 'locked' || s === 'banned') return 'Banned';
   return status ? status.charAt(0).toUpperCase() + status.slice(1) : '—';
 }
 function downloadCsv(rows: AdminUserRow[]) {
@@ -123,15 +123,25 @@ function KycBadge({ level, status }: { level?: number | null; status?: string | 
 }
 
 function StatusPill({ status }: { status: string }) {
+  /**
+   * Accept both the DB enum value (`banned`) and the legacy UI alias (`locked`).
+   * Without this, rows with `status='banned'` from the API were falling through
+   * to the neutral "unknown" style.
+   */
   const s = (status ?? '').toLowerCase();
+  const isBanned = s === 'banned' || s === 'locked';
   return (
     <span className={cn('inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold',
       s === 'active' ? 'border-emerald-500/30 bg-emerald-950/20 text-emerald-400' :
       s === 'suspended' ? 'border-amber-500/30 bg-amber-950/20 text-amber-400' :
-      s === 'locked' ? 'border-red-500/30 bg-red-950/20 text-red-400' :
+      s === 'pending' ? 'border-blue-500/30 bg-blue-950/20 text-blue-400' :
+      isBanned ? 'border-red-500/30 bg-red-950/20 text-red-400' :
       'border-admin-border/50 bg-white/[0.03] text-admin-muted')}>
       <span className={cn('h-1.5 w-1.5 rounded-full',
-        s === 'active' ? 'bg-emerald-400' : s === 'suspended' ? 'bg-amber-400' : s === 'locked' ? 'bg-red-400' : 'bg-admin-muted/30')} />
+        s === 'active' ? 'bg-emerald-400' :
+        s === 'suspended' ? 'bg-amber-400' :
+        s === 'pending' ? 'bg-blue-400' :
+        isBanned ? 'bg-red-400' : 'bg-admin-muted/30')} />
       {displayStatus(status)}
     </span>
   );
@@ -238,7 +248,7 @@ export default function UsersPage() {
     queryFn: () => getDashboardStats(token),
     enabled: !!token, staleTime: 30_000,
   });
-  const us = statsData?.data?.users as { total?: number; newToday?: number; active?: number; suspended?: number; locked?: number } | undefined;
+  const us = statsData?.data?.users as { total?: number; newToday?: number; active?: number; activeUsers?: number; pending?: number; suspended?: number; banned?: number; locked?: number; verified?: number } | undefined;
 
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ['admin', 'users', token, queryParams],
@@ -291,9 +301,9 @@ export default function UsersPage() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard label="Total Users"       value={us?.total    ?? '—'} icon={Users}     accent="border-indigo-500/20" />
         <KpiCard label="New Today"         value={us?.newToday ?? 0}   icon={TrendingUp} accent="border-emerald-500/20" />
-        <KpiCard label="Active"            value={us?.active   ?? '—'} icon={UserCheck}  accent="border-blue-500/20" />
+        <KpiCard label="Active"            value={us?.activeUsers ?? us?.active ?? '—'} icon={UserCheck}  accent="border-blue-500/20" />
         <KpiCard label="Suspended / Banned"
-          value={`${us?.suspended ?? 0} / ${us?.locked ?? 0}`}
+          value={`${us?.suspended ?? 0} / ${(us?.banned ?? 0) + (us?.locked ?? 0)}`}
           icon={UserX} accent="border-red-500/20"
           alert={(us?.suspended ?? 0) > 0 || (us?.locked ?? 0) > 0} />
       </div>
@@ -359,11 +369,12 @@ export default function UsersPage() {
               ) : users.map((u) => {
                 const name = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.username || '—';
                 const st   = (u.status ?? '').toLowerCase();
+                const isBannedRow = st === 'banned' || st === 'locked';
                 return (
                   <tr key={u.id}
                     onClick={() => router.push(`/users/${u.id}`)}
                     className={cn('cursor-pointer border-b border-admin-border/25 transition-colors hover:bg-white/[0.02]',
-                      st === 'locked' && 'bg-red-950/[0.04]',
+                      isBannedRow && 'bg-red-950/[0.04]',
                       st === 'suspended' && 'bg-amber-950/[0.03]')}>
                     {/* User */}
                     <td className="px-4 py-3">
@@ -393,19 +404,19 @@ export default function UsersPage() {
                           className="p-1.5 rounded-lg text-admin-muted hover:text-blue-400 hover:bg-blue-950/15 transition-colors">
                           <Eye className="h-3.5 w-3.5" />
                         </button>
-                        {(st === 'suspended' || st === 'locked') && (
+                        {(st === 'suspended' || isBannedRow) && (
                           <button onClick={() => updateStatus.mutate({ id: u.id, status: 'active' })} title="Reactivate"
                             className="p-1.5 rounded-lg text-admin-muted hover:text-emerald-400 hover:bg-emerald-950/15 transition-colors">
                             <Check className="h-3.5 w-3.5" />
                           </button>
                         )}
-                        {st !== 'suspended' && st !== 'locked' && (
+                        {st !== 'suspended' && !isBannedRow && (
                           <button onClick={() => setConfirmModal({ user: u, action: 'suspended' })} title="Suspend"
                             className="p-1.5 rounded-lg text-admin-muted hover:text-amber-400 hover:bg-amber-950/15 transition-colors">
                             <ShieldOff className="h-3.5 w-3.5" />
                           </button>
                         )}
-                        {st !== 'locked' && (
+                        {!isBannedRow && (
                           <button onClick={() => setConfirmModal({ user: u, action: 'locked' })} title="Ban"
                             className="p-1.5 rounded-lg text-admin-muted hover:text-red-400 hover:bg-red-950/15 transition-colors">
                             <Ban className="h-3.5 w-3.5" />

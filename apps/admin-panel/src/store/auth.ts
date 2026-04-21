@@ -12,8 +12,16 @@ export interface AdminUser {
 interface AdminAuthState {
   accessToken: string | null;
   admin: AdminUser | null;
+  /**
+   * `_hasHydrated` flips to true once Zustand persist finishes reading localStorage.
+   * Critical for avoiding a "flash of unauthenticated state" on first paint —
+   * the protected layout uses this to defer the `!accessToken ⇒ /login` redirect
+   * until after rehydration completes.
+   */
+  _hasHydrated: boolean;
   setTokens: (accessToken: string, admin: AdminUser) => void;
   logout: () => void;
+  setHasHydrated: (v: boolean) => void;
 }
 
 export function hasAdminPermission(admin: AdminUser | null, permission: string): boolean {
@@ -28,6 +36,7 @@ export const useAdminAuthStore = create<AdminAuthState>()(
     (set) => ({
       accessToken: null,
       admin: null,
+      _hasHydrated: false,
       setTokens: (accessToken, admin) => set({
         accessToken,
         admin: {
@@ -39,7 +48,16 @@ export const useAdminAuthStore = create<AdminAuthState>()(
         },
       }),
       logout: () => set({ accessToken: null, admin: null }),
+      setHasHydrated: (v) => set({ _hasHydrated: v }),
     }),
-    { name: 'admin-auth' }
+    {
+      name: 'admin-auth',
+      /** Don't persist the hydration flag itself — it's derived state. */
+      partialize: (state) => ({ accessToken: state.accessToken, admin: state.admin }),
+      /** Zustand calls this once rehydration finishes; flip the flag so gated UI can decide. */
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      },
+    }
   )
 );

@@ -162,7 +162,8 @@ export default function DepositsPage() {
   const totalPages = pagination?.totalPages ?? 1;
 
   const pendingCount = Number(stats?.pending ?? 0);
-  const failedCount = Number(stats?.failed ?? 0);
+  /** Use 24h bucket for the "Failed (24h)" tile; fall back to all-time if backend hasn't caught up yet. */
+  const failedCount = Number(stats?.failed_24h ?? stats?.failed ?? 0);
 
   const kpis: KpiConfig[] = [
     {

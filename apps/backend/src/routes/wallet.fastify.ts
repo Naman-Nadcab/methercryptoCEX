@@ -162,9 +162,21 @@ interface DepositDB {
 }
 
 export default async function walletRoutes(app: FastifyInstance) {
-  // Get all active chains (DB-only; no Redis dependency)
+  /**
+   * GET /wallet/chains — active chain list. Reference data that changes rarely
+   * (admin adds a chain or toggles `is_active`). Serve from Redis with a short
+   * TTL; emit `Cache-Control` so React Query + browser HTTP cache both cooperate.
+   * On cache miss we still protect the DB with a 5-minute TTL.
+   */
   app.get('/chains', async (request: FastifyRequest, reply: FastifyReply) => {
+    const cacheKey = 'wallet:chains:active:v1';
     try {
+      const cached = await redis.getJson<ChainDB[]>(cacheKey).catch(() => null);
+      if (Array.isArray(cached)) {
+        reply.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
+        return { success: true, data: cached };
+      }
+
       const result = await db.query<ChainDB>(`
         SELECT c.id, c.id as id_text, c.name, c.type, c.native_currency, c.decimals,
                c.rpc_url, c.explorer_url, c.is_active,
@@ -173,6 +185,8 @@ export default async function walletRoutes(app: FastifyInstance) {
         WHERE c.is_active = TRUE
         ORDER BY c.name ASC
       `);
+      await redis.setJson(cacheKey, result.rows, 300).catch(() => {});
+      reply.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
       return { success: true, data: result.rows };
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
@@ -194,6 +208,7 @@ export default async function walletRoutes(app: FastifyInstance) {
       const cacheKey = `tokens:chain:${chainId}`;
       const cached = await redis.getJson<TokenDB[]>(cacheKey).catch(() => null);
       if (cached) {
+        reply.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
         return { success: true, data: cached };
       }
 
@@ -208,7 +223,7 @@ export default async function walletRoutes(app: FastifyInstance) {
       `, [chainId]);
 
       await redis.setJson(cacheKey, result.rows, 300).catch(() => {});
-
+      reply.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
       return { success: true, data: result.rows };
     } catch (error) {
       logger.error('Failed to get tokens', { error: error instanceof Error ? error.message : 'Unknown' });
@@ -225,6 +240,7 @@ export default async function walletRoutes(app: FastifyInstance) {
       const cacheKey = 'tokens:unique:active';
       const cached = await redis.getJson<TokenDB[]>(cacheKey).catch(() => null);
       if (cached) {
+        reply.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
         return { success: true, data: cached };
       }
 
@@ -243,7 +259,7 @@ export default async function walletRoutes(app: FastifyInstance) {
       `);
 
       await redis.setJson(cacheKey, result.rows, 300).catch(() => {});
-
+      reply.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
       return { success: true, data: result.rows };
     } catch (error) {
       logger.error('Failed to get tokens', { error: error instanceof Error ? error.message : 'Unknown' });
@@ -263,6 +279,7 @@ export default async function walletRoutes(app: FastifyInstance) {
     try {
       const cached = await redis.getJson<ChainDB[]>(cacheKey);
       if (cached && Array.isArray(cached)) {
+        reply.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
         return { success: true, data: cached };
       }
     } catch (_) {
@@ -286,6 +303,7 @@ export default async function walletRoutes(app: FastifyInstance) {
       } catch (_) {
         /* ignore */
       }
+      reply.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
       return { success: true, data: result.rows };
     } catch (error) {
       logger.error('Failed to get chains for token', { error: error instanceof Error ? error.message : 'Unknown' });

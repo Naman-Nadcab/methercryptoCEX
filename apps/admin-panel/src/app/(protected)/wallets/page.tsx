@@ -115,8 +115,12 @@ export default function WalletsPage() {
   }, [holdings]);
 
   // Per-chain hot wallet strip from fundsData
-  const hotWallets: Array<{ chain: string; balance: string }> = useMemo(() => {
-    return (fundsSummary?.on_chain_totals?.hot_wallets ?? []) as Array<{ chain: string; balance: string }>;
+  const hotWallets: Array<{ chain: string; chain_id?: string; chain_name?: string; balance: string }> = useMemo(() => {
+    return ((fundsSummary?.on_chain_totals?.hot_wallets ?? []) as Array<{ chain?: string; chain_id?: string; chain_name?: string; balance?: string }>).map((hw) => ({
+      ...hw,
+      chain: hw.chain ?? hw.chain_name ?? hw.chain_id ?? 'Unknown',
+      balance: hw.balance ?? '0',
+    }));
   }, [fundsSummary]);
 
   // Client-side asset filter on top of server results

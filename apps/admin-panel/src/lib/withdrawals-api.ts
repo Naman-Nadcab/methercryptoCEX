@@ -29,11 +29,17 @@ export interface WithdrawalDetailResponse {
 
 export function getWithdrawalsList(
   token: string | null,
-  params?: { page?: number; limit?: number; status?: string; user?: string }
+  params?: { page?: number; limit?: number; status?: string; user?: string; search?: string }
 ) {
+  // Backend uses `user` param for search; map `search` → `user` for compatibility
+  const { search, ...rest } = params ?? {};
+  const finalParams = {
+    ...rest,
+    ...(search?.trim() ? { user: search.trim() } : {}),
+  };
   return adminFetch<WithdrawalsListResponse>('/withdrawals', {
     token,
-    params: params as Record<string, string | number | undefined>,
+    params: finalParams as Record<string, string | number | undefined>,
   });
 }
 
