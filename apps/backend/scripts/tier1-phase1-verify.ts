@@ -34,6 +34,51 @@ async function main(): Promise<void> {
   const mc = mismatch.rows[0]?.n ?? '?';
   console.log('trading_balance_mismatch_count', mc);
 
+  if (mc !== '0' && mc !== '?') {
+    const sample = await pool.query<{
+      user_id: string;
+      currency_id: string;
+      ub_avail: string;
+      ub_lock: string;
+      ledger_avail: string | null;
+      ledger_lock: string | null;
+    }>(
+      `WITH ledger_sums AS (
+         SELECT user_id, currency_id,
+           COALESCE(SUM(CASE WHEN balance_type = 'available' THEN credit::numeric - debit::numeric ELSE 0 END), 0) AS avail_sum,
+           COALESCE(SUM(CASE WHEN balance_type = 'locked' THEN credit::numeric - debit::numeric ELSE 0 END), 0) AS lock_sum
+         FROM balance_ledger
+         WHERE description LIKE '%account_type=trading%'
+         GROUP BY user_id, currency_id
+       )
+       SELECT ub.user_id::text, ub.currency_id::text,
+         ub.available_balance::text AS ub_avail, ub.locked_balance::text AS ub_lock,
+         ls.avail_sum::text AS ledger_avail, ls.lock_sum::text AS ledger_lock
+       FROM user_balances ub
+       LEFT JOIN ledger_sums ls ON ub.user_id = ls.user_id AND ub.currency_id = ls.currency_id
+       WHERE ub.account_type = 'trading' AND COALESCE(ub.chain_id, '') = ''
+         AND (
+           COALESCE(ls.avail_sum, 0) != COALESCE(ub.available_balance, 0)::numeric
+           OR COALESCE(ls.lock_sum, 0) != COALESCE(ub.locked_balance, 0)::numeric
+         )
+       LIMIT 25`
+    );
+    console.error('--- trading vs balance_ledger mismatch sample (up to 25 rows) ---');
+    for (const r of sample.rows) {
+      console.error(
+        JSON.stringify({
+          user_id: r.user_id,
+          currency_id: r.currency_id,
+          user_balances_available: r.ub_avail,
+          user_balances_locked: r.ub_lock,
+          ledger_available_sum: r.ledger_avail,
+          ledger_locked_sum: r.ledger_lock,
+        })
+      );
+    }
+    console.error('--- fix: reconcile trading ledger vs user_balances (spot settlement / admin tools) ---');
+  }
+
   const chain = await pool.query<{ broken: string }>(
     `WITH ordered AS (
        SELECT id, prev_hash, entry_hash,

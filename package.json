@@ -33,6 +33,7 @@
     "load:docker:health": "docker run --rm -i --add-host=host.docker.internal:host-gateway -e BASE_URL=http://host.docker.internal:4000 grafana/k6:latest run - < load/k6-health-markets.js",
     "qa:provision-traders": "cd apps/backend && npx tsx ../../scripts/dev-provision-qa-traders.ts",
     "qa:e2e-credentials": "cd apps/backend && npx tsx scripts/e2e-provision-credentials.ts",
+    "prelive:verify": "npm run prelaunch:db --workspace=@exchange/backend && npm run tier1:release-check:full --workspace=@exchange/backend",
     "prelaunch:db": "npm run prelaunch:db --workspace=@exchange/backend",
     "tier1:phase1-verify": "npm run tier1:phase1-verify --workspace=@exchange/backend",
     "tier1:phase2-verify": "npm run tier1:phase2-verify --workspace=@exchange/backend",
