@@ -302,6 +302,41 @@ export async function createHotWalletByFamily(
 /**
  * Check if a chain family already has a hot wallet (any chain of that type).
  */
+/**
+ * Map blockchains.chain_symbol (e.g. ETH, ARB, BTC) to chains.type family (evm, bitcoin, …).
+ * Used when hot_wallets rows use blockchain_id instead of chain_id.
+ */
+export function blockchainSymbolToFamily(chainSymbol: string): string | null {
+  const s = (chainSymbol || '').toUpperCase().trim();
+  if (!s) return null;
+  if (s === 'BTC') return 'bitcoin';
+  if (s === 'TRX') return 'tron';
+  if (s === 'SOL') return 'solana';
+  if (s === 'DOT' || s === 'KSM') return 'polkadot';
+  const evmSymbols = new Set([
+    'ETH', 'BSC', 'MATIC', 'POL', 'ARB', 'OP', 'AVAX', 'BASE', 'FTM', 'CRONOS', 'GNOSIS',
+    'ZKSYNC', 'LINEA', 'SCROLL', 'MANTA', 'CELO', 'MOVR', 'GLMR', 'METIS', 'BLAST', 'MODE',
+  ]);
+  if (evmSymbols.has(s)) return 'evm';
+  return null;
+}
+
+/** Which chain families (chains.type) already have an active hot wallet when table uses blockchain_id. */
+export async function listFamiliesWithHotWalletBlockchainMode(): Promise<Set<string>> {
+  const rows = await db.query<{ sym: string }>(
+    `SELECT DISTINCT UPPER(TRIM(b.chain_symbol)) AS sym
+     FROM hot_wallets hw
+     INNER JOIN blockchains b ON b.id = hw.blockchain_id
+     WHERE hw.is_active = TRUE AND COALESCE(b.is_active, TRUE) = TRUE`
+  ).catch(() => ({ rows: [] as { sym: string }[] }));
+  const out = new Set<string>();
+  for (const r of rows.rows) {
+    const fam = blockchainSymbolToFamily(r.sym);
+    if (fam) out.add(fam);
+  }
+  return out;
+}
+
 export async function familyHasHotWallet(chainFamily: string): Promise<boolean> {
   const family = chainFamily.trim().toLowerCase();
   const result = await db.query<{ chain_id: string }>(

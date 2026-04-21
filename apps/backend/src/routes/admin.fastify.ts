@@ -9622,9 +9622,17 @@ export default async function adminRoutes(app: FastifyInstance) {
           hasWallet: hasType.has(String(f.type).toLowerCase()),
         }));
       } else {
-        familyHasWallet = await Promise.all(
-          familiesInDb.map(async (f) => ({ ...f, hasWallet: await hotWalletService.familyHasHotWallet(f.type) }))
-        );
+        // blockchain_id mode: hot_wallets.chain_id join to chains.id is wrong — use blockchains.chain_symbol → family
+        const familiesWithWallet = await hotWalletService.listFamiliesWithHotWalletBlockchainMode();
+        familyHasWallet = familiesInDb.map((f) => {
+          const t = String(f.type).toLowerCase();
+          // Legacy rows sometimes use type "crypto" for EVM L2s — treat like evm for presence
+          const familyKey = t === 'crypto' || t === 'layer2' ? 'evm' : t;
+          return {
+            ...f,
+            hasWallet: familiesWithWallet.has(familyKey),
+          };
+        });
       }
       const availableFamilies = familyHasWallet
         .filter((f) => !f.hasWallet)

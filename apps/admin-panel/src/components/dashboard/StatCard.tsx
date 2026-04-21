@@ -13,6 +13,8 @@ export interface StatCardProps {
   iconBg?: string;
   href?: string;
   className?: string;
+  /** Native tooltip on the title row (e.g. explain estimated vs on-chain metrics). */
+  tooltip?: string;
 }
 
 export function StatCard({
@@ -24,6 +26,7 @@ export function StatCard({
   iconBg = 'bg-admin-primary/15 text-admin-primary',
   href,
   className,
+  tooltip,
 }: StatCardProps) {
   return (
     <div className={cn(
@@ -32,7 +35,7 @@ export function StatCard({
       className
     )}>
       <div className="flex items-center justify-between mb-2">
-        <p className="text-[10px] font-medium uppercase tracking-wider text-admin-muted">{title}</p>
+        <p className="text-[10px] font-medium uppercase tracking-wider text-admin-muted" title={tooltip}>{title}</p>
         <div className={cn('flex h-7 w-7 items-center justify-center rounded-lg', iconBg)}>
           <Icon className="h-3.5 w-3.5" />
         </div>

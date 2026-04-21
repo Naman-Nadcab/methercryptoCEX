@@ -49,12 +49,23 @@ type ModalState =
   | { type: 'rotate'; chainId: string; chainName: string }
   | { type: 'edit'; chainId: string; chainName: string; coldWalletAddress: string; maxSingleTx: string; maxDailyOutflow: string };
 
+/** Standard hot-wallet chain families (matches backend createHotWalletByFamily). */
+const ALL_CHAIN_FAMILY_OPTIONS: Array<{ type: string; label: string }> = [
+  { type: 'evm', label: 'EVM (Ethereum, BSC, Polygon, Arbitrum, …)' },
+  { type: 'bitcoin', label: 'Bitcoin' },
+  { type: 'solana', label: 'Solana' },
+  { type: 'tron', label: 'Tron' },
+  { type: 'polkadot', label: 'Polkadot' },
+];
+
 export interface HotWalletsTableProps {
   rows: HotWalletRow[];
   availableFamilies?: Array<{ type: string; label: string; creationSupported: boolean }>;
+  /** From GET /hot-wallets — includes hasWallet per family; drives disabled options in Create modal */
+  allFamilies?: Array<{ type: string; label?: string; creationSupported?: boolean; hasWallet?: boolean }>;
 }
 
-export function HotWalletsTable({ rows, availableFamilies }: HotWalletsTableProps) {
+export function HotWalletsTable({ rows, availableFamilies, allFamilies }: HotWalletsTableProps) {
   const token = useAdminAuthStore((s) => s.accessToken);
   const queryClient = useQueryClient();
   const [modal, setModal] = useState<ModalState>(null);
@@ -202,25 +213,32 @@ export function HotWalletsTable({ rows, availableFamilies }: HotWalletsTableProp
                 className="mt-1 w-full rounded-lg border border-admin-border px-3 py-2 text-sm"
               >
                 <option value="">Select chain family…</option>
-                {(() => {
-                  // Show supported families from API; fall back to hardcoded list if none available
-                  const supported = (availableFamilies ?? []).filter(f => f.creationSupported);
-                  if (supported.length > 0) {
-                    return supported.map((f) => (
-                      <option key={f.type} value={f.type}>{f.label}</option>
-                    ));
-                  }
-                  // Fallback: all known chain families (admin can still create additional wallets per chain if needed)
+                {ALL_CHAIN_FAMILY_OPTIONS.map((def) => {
+                  const api = allFamilies?.find((a) => {
+                    const at = String(a.type).toLowerCase();
+                    if (at === def.type) return true;
+                    // DB sometimes uses type "crypto" / "layer2" for EVM-compatible chains
+                    if (def.type === 'evm' && (at === 'crypto' || at === 'layer2')) return true;
+                    return false;
+                  });
+                  const af = availableFamilies?.find((a) => {
+                    const at = String(a.type).toLowerCase();
+                    if (at === def.type) return true;
+                    if (def.type === 'evm' && (at === 'crypto' || at === 'layer2')) return true;
+                    return false;
+                  });
+                  const creationSupported = api?.creationSupported ?? af?.creationSupported ?? true;
+                  const hasWallet = api?.hasWallet === true;
+                  const disabled = hasWallet || !creationSupported;
+                  let suffix = '';
+                  if (hasWallet) suffix = ' — already configured';
+                  else if (!creationSupported) suffix = ' — not supported for this DB';
                   return (
-                    <>
-                      <option value="evm">EVM (Ethereum, BSC, Polygon, Arbitrum, etc.)</option>
-                      <option value="bitcoin">Bitcoin</option>
-                      <option value="solana">Solana</option>
-                      <option value="tron">Tron</option>
-                      <option value="polkadot">Polkadot</option>
-                    </>
+                    <option key={def.type} value={def.type} disabled={disabled}>
+                      {def.label}{suffix}
+                    </option>
                   );
-                })()}
+                })}
               </select>
             </div>
             <div className="mt-6 flex justify-end gap-2">

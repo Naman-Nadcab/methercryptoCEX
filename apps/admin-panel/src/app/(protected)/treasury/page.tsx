@@ -20,7 +20,7 @@ import { StatCard } from '@/components/dashboard/StatCard';
 import { StatusBadge } from '@/components/dashboard/StatusBadge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
-import { HotWalletsTable } from '@/components/treasury/HotWalletsTable';
+import { HotWalletsTable, type HotWalletsTableProps } from '@/components/treasury/HotWalletsTable';
 import { ColdWalletsTable } from '@/components/treasury/ColdWalletsTable';
 import { SweepsTable } from '@/components/treasury/SweepsTable';
 import { WalletTransactionsTable } from '@/components/treasury/WalletTransactionsTable';
@@ -89,8 +89,8 @@ export default function TreasuryPage() {
     queryKey: ['admin', 'hot-wallets-crud', token],
     queryFn: () => getHotWallets(token),
     enabled: !!token && deferHotWalletMeta,
-    staleTime: 300_000,
-    refetchOnWindowFocus: false,
+    staleTime: 60_000,
+    refetchOnWindowFocus: true,
   });
 
   const { data: sweepsData, isLoading: sweepsLoading } = useQuery({
@@ -412,7 +412,8 @@ export default function TreasuryPage() {
           ) : (
             <HotWalletsTable
               rows={hotWallets}
-              availableFamilies={(hotWalletsCrud as any)?.availableFamilies}
+              availableFamilies={(hotWalletsCrud as Record<string, unknown>)?.availableFamilies as HotWalletsTableProps['availableFamilies']}
+              allFamilies={(hotWalletsCrud as Record<string, unknown>)?.allFamilies as HotWalletsTableProps['allFamilies']}
             />
           )}
         </CardContent>
