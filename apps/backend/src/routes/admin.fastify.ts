@@ -12337,6 +12337,9 @@ export default async function adminRoutes(app: FastifyInstance) {
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       `, [id, tier_name, tier_level, min_trading_volume, min_token_holding, spot_maker_fee, spot_taker_fee, withdrawal_fee_discount]);
       const row = await db.query('SELECT * FROM fee_tiers WHERE id = $1', [id]);
+      await db.query(`INSERT INTO admin_activity_logs (admin_id, action, details, ip_address) VALUES ($1, $2, $3::jsonb, $4)`, [
+        admin.id, 'fee_tier_created', JSON.stringify({ resource_type: 'fee_tier', resource_id: id, new_value: { tier_name, tier_level, spot_maker_fee, spot_taker_fee } }), (request.ip || null),
+      ]).catch(() => {/* non-fatal */});
       return reply.status(201).send({ success: true, data: { tier: row.rows[0] } });
     } catch (error: any) {
       if (error.code === '23505') {
@@ -12377,6 +12380,9 @@ export default async function adminRoutes(app: FastifyInstance) {
       if (row.rows.length === 0) {
         return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Tier not found' } });
       }
+      await db.query(`INSERT INTO admin_activity_logs (admin_id, action, details, ip_address) VALUES ($1, $2, $3::jsonb, $4)`, [
+        admin.id, 'fee_tier_updated', JSON.stringify({ resource_type: 'fee_tier', resource_id: id, new_value: body }), (request.ip || null),
+      ]).catch(() => {/* non-fatal */});
       return reply.send({ success: true, data: { tier: row.rows[0] } });
     } catch (error) {
       logger.error('Update fee tier error', { error: error instanceof Error ? error.message : 'Unknown' });
@@ -12479,21 +12485,25 @@ export default async function adminRoutes(app: FastifyInstance) {
     if (!admin) return;
     try {
       const { id } = request.params as { id: string };
-      const body = request.body as { withdrawal_fee?: number; withdrawal_fee_type?: 'fixed' | 'percentage' };
-      if (body.withdrawal_fee == null && body.withdrawal_fee_type == null) {
-        return reply.status(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'withdrawal_fee or withdrawal_fee_type required' } });
+      const body = request.body as { withdrawal_fee?: number | string; withdrawal_fee_type?: 'fixed' | 'percentage'; min_withdrawal?: number | string };
+      if (body.withdrawal_fee == null && body.withdrawal_fee_type == null && body.min_withdrawal == null) {
+        return reply.status(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'withdrawal_fee, min_withdrawal, or withdrawal_fee_type required' } });
       }
       const updates: string[] = [];
       const values: unknown[] = [];
       let idx = 1;
       if (body.withdrawal_fee != null) { updates.push(`withdrawal_fee = $${idx}`); values.push(body.withdrawal_fee); idx++; }
       if (body.withdrawal_fee_type != null) { updates.push(`withdrawal_fee_type = $${idx}`); values.push(body.withdrawal_fee_type); idx++; }
+      if (body.min_withdrawal != null) { updates.push(`min_withdrawal = $${idx}`); values.push(body.min_withdrawal); idx++; }
       values.push(id);
       await db.query(`UPDATE currencies SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${idx}`, values);
-      const row = await db.query('SELECT id, symbol, withdrawal_fee, withdrawal_fee_type FROM currencies WHERE id = $1', [id]);
+      const row = await db.query('SELECT id, symbol, withdrawal_fee, withdrawal_fee_type, min_withdrawal FROM currencies WHERE id = $1', [id]);
       if (row.rows.length === 0) {
         return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Currency not found' } });
       }
+      await db.query(`INSERT INTO admin_activity_logs (admin_id, action, details, ip_address) VALUES ($1, $2, $3::jsonb, $4)`, [
+        admin.id, 'fee_withdrawal_updated', JSON.stringify({ resource_type: 'withdrawal_fee', resource_id: id, new_value: body }), (request.ip || null),
+      ]).catch(() => {/* non-fatal */});
       return reply.send({ success: true, data: { currency: row.rows[0] } });
     } catch (error) {
       logger.error('Update withdrawal fee error', { error: error instanceof Error ? error.message : 'Unknown' });
@@ -12561,6 +12571,9 @@ export default async function adminRoutes(app: FastifyInstance) {
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       `, [id, name, description || null, promotion_type, discount_type, discount_value, min_volume_30d, start_date, end_date, is_active]);
       const row = await db.query('SELECT * FROM fee_promotions WHERE id = $1', [id]);
+      await db.query(`INSERT INTO admin_activity_logs (admin_id, action, details, ip_address) VALUES ($1, $2, $3::jsonb, $4)`, [
+        admin.id, 'fee_promotion_created', JSON.stringify({ resource_type: 'fee_promotion', resource_id: id, new_value: { name, promotion_type, discount_value } }), (request.ip || null),
+      ]).catch(() => {/* non-fatal */});
       return reply.status(201).send({ success: true, data: { promotion: row.rows[0] } });
     } catch (error: any) {
       logger.error('Create fee promotion error', { error: error?.message });
@@ -12598,6 +12611,9 @@ export default async function adminRoutes(app: FastifyInstance) {
       if (row.rows.length === 0) {
         return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Promotion not found' } });
       }
+      await db.query(`INSERT INTO admin_activity_logs (admin_id, action, details, ip_address) VALUES ($1, $2, $3::jsonb, $4)`, [
+        admin.id, 'fee_promotion_updated', JSON.stringify({ resource_type: 'fee_promotion', resource_id: id, new_value: body }), (request.ip || null),
+      ]).catch(() => {/* non-fatal */});
       return reply.send({ success: true, data: { promotion: row.rows[0] } });
     } catch (error) {
       logger.error('Update fee promotion error', { error: error instanceof Error ? error.message : 'Unknown' });

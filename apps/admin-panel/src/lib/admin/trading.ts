@@ -47,7 +47,8 @@ export async function patchWithdrawalFee(
   id: string,
   body: { withdrawal_fee?: string | number; min_withdrawal?: string | number; withdrawal_fee_type?: string }
 ) {
-  return adminFetch(`/fees/withdrawal/${encodeURIComponent(id)}`, { method: 'PATCH', token, body });
+  // Backend route is /fees/withdrawal/currency/:id (not /fees/withdrawal/:id)
+  return adminFetch(`/fees/withdrawal/currency/${encodeURIComponent(id)}`, { method: 'PATCH', token, body });
 }
 
 /* ---- Fee Tier CRUD ---- */
@@ -71,9 +72,17 @@ export interface FeeTier {
 
 export async function createFeeTier(
   token: string | null,
-  body: { name: string; min_volume: number; maker_fee: number; taker_fee: number }
+  body: { name: string; min_volume: number; maker_fee: number; taker_fee: number; tier_level?: number }
 ) {
-  return adminFetch<FeeTier>('/fees/tiers', { method: 'POST', token, body });
+  // Map frontend field names to backend expected fields
+  const mappedBody = {
+    tier_name: body.name,
+    tier_level: body.tier_level ?? 1,
+    min_trading_volume: body.min_volume,
+    spot_maker_fee: body.maker_fee,
+    spot_taker_fee: body.taker_fee,
+  };
+  return adminFetch<FeeTier>('/fees/tiers', { method: 'POST', token, body: mappedBody });
 }
 
 export async function updateFeeTier(
@@ -81,7 +90,13 @@ export async function updateFeeTier(
   id: string,
   body: { name?: string; min_volume?: number; maker_fee?: number; taker_fee?: number }
 ) {
-  return adminFetch<FeeTier>(`/fees/tiers/${encodeURIComponent(id)}`, { method: 'PATCH', token, body });
+  // Map frontend field names to backend expected fields
+  const mappedBody: Record<string, unknown> = {};
+  if (body.name !== undefined) mappedBody.tier_name = body.name;
+  if (body.min_volume !== undefined) mappedBody.min_trading_volume = body.min_volume;
+  if (body.maker_fee !== undefined) mappedBody.spot_maker_fee = body.maker_fee;
+  if (body.taker_fee !== undefined) mappedBody.spot_taker_fee = body.taker_fee;
+  return adminFetch<FeeTier>(`/fees/tiers/${encodeURIComponent(id)}`, { method: 'PATCH', token, body: mappedBody });
 }
 
 /* ---- Fee Promotion CRUD ---- */
@@ -89,15 +104,29 @@ export async function updateFeeTier(
 export interface FeePromotion {
   id: string;
   name?: string;
-  code?: string;
-  maker_fee_override?: string | number | null;
-  taker_fee_override?: string | number | null;
-  discount_pct?: string | number | null;
-  starts_at?: string;
-  ends_at?: string;
+  description?: string;
+  promotion_type?: string;
+  discount_type?: string;
+  discount_value?: string | number | null;
+  min_volume_30d?: string | number | null;
+  start_date?: string;
+  end_date?: string;
   is_active?: boolean;
   created_at?: string;
+  updated_at?: string;
 }
+
+export type FeePromotionInput = {
+  name: string;
+  promotion_type: string;
+  discount_value: number;
+  start_date?: string;
+  end_date?: string;
+  description?: string;
+  discount_type?: string;
+  min_volume_30d?: number;
+  is_active?: boolean;
+};
 
 export async function getFeePromotions(token: string | null) {
   return adminFetch<{ promotions: FeePromotion[] }>('/fees/promotions', { token });
@@ -105,15 +134,7 @@ export async function getFeePromotions(token: string | null) {
 
 export async function createFeePromotion(
   token: string | null,
-  body: {
-    name: string;
-    code?: string;
-    maker_fee_override?: number;
-    taker_fee_override?: number;
-    discount_pct?: number;
-    starts_at?: string;
-    ends_at?: string;
-  }
+  body: FeePromotionInput
 ) {
   return adminFetch<FeePromotion>('/fees/promotions', { method: 'POST', token, body });
 }
@@ -121,15 +142,7 @@ export async function createFeePromotion(
 export async function updateFeePromotion(
   token: string | null,
   id: string,
-  body: {
-    name?: string;
-    code?: string;
-    maker_fee_override?: number;
-    taker_fee_override?: number;
-    discount_pct?: number;
-    starts_at?: string;
-    ends_at?: string;
-  }
+  body: Partial<FeePromotionInput>
 ) {
   return adminFetch<FeePromotion>(`/fees/promotions/${encodeURIComponent(id)}`, { method: 'PATCH', token, body });
 }
@@ -144,21 +157,34 @@ export async function getFeeAuditHistory(
   token: string | null,
   params?: { limit?: number; offset?: number }
 ) {
-  return adminFetch<{ logs: Array<{
+  // Use /audit/activity filtered by fee-related actions for real fee change history
+  const result = await adminFetch<{ logs: Array<{
     id: string;
+    admin_id?: string;
+    admin_name?: string;
     action: string;
-    resource_type?: string;
-    resource_id?: string;
-    old_value?: string | null;
-    new_value?: string | null;
-    actor_id?: string;
-    actor_type?: string;
+    details?: Record<string, unknown> | null;
     ip_address?: string | null;
     created_at: string;
-  }>; total: number }>('/audit/config', {
+  }>; total: number }>('/audit/activity', {
     token,
-    params: { ...params, resource_type: 'fee' } as Record<string, string | number | boolean | undefined>,
+    params: { ...params, action: 'fee', limit: params?.limit ?? 50 } as Record<string, string | number | boolean | undefined>,
   });
+
+  // Normalize to shape expected by the fee history table
+  if (result.success && result.data?.logs) {
+    result.data.logs = result.data.logs.map((log) => ({
+      ...log,
+      actor_id: log.admin_id,
+      actor_type: 'admin',
+      resource_type: (log.details as Record<string, unknown> | null)?.resource_type as string ?? 'fee',
+      resource_id: (log.details as Record<string, unknown> | null)?.resource_id as string ?? '',
+      old_value: JSON.stringify((log.details as Record<string, unknown> | null)?.old_value ?? null) || null,
+      new_value: JSON.stringify((log.details as Record<string, unknown> | null)?.new_value ?? null) || null,
+    })) as typeof result.data.logs;
+  }
+
+  return result;
 }
 
 export async function getMonitoringCounters(token: string | null) {

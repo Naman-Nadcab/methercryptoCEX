@@ -173,18 +173,25 @@ function TierModal({
 /*  Promotion Modal                                                     */
 /* ------------------------------------------------------------------ */
 
+const PROMOTION_TYPES = [
+  { value: 'trading_fee', label: 'Trading Fee Discount' },
+  { value: 'withdrawal_fee', label: 'Withdrawal Fee Discount' },
+  { value: 'maker_fee', label: 'Maker Fee Discount' },
+  { value: 'taker_fee', label: 'Taker Fee Discount' },
+  { value: 'all_fees', label: 'All Fees Discount' },
+];
+
 interface PromoFormData {
   name: string;
-  code: string;
-  maker_fee_override: string;
-  taker_fee_override: string;
-  discount_pct: string;
-  starts_at: string;
-  ends_at: string;
+  promotion_type: string;
+  discount_value: string;
+  start_date: string;
+  end_date: string;
+  description: string;
 }
 
 const PROMO_INITIAL: PromoFormData = {
-  name: '', code: '', maker_fee_override: '', taker_fee_override: '', discount_pct: '', starts_at: '', ends_at: '',
+  name: '', promotion_type: 'trading_fee', discount_value: '0', start_date: '', end_date: '', description: '',
 };
 
 function PromotionModal({
@@ -198,12 +205,12 @@ function PromotionModal({
   onClose: () => void;
   onConfirm: (data: {
     name: string;
-    code?: string;
-    maker_fee_override?: number;
-    taker_fee_override?: number;
-    discount_pct?: number;
-    starts_at?: string;
-    ends_at?: string;
+    promotion_type: string;
+    discount_value: number;
+    start_date?: string;
+    end_date?: string;
+    description?: string;
+    discount_type: string;
   }) => void;
   isLoading?: boolean;
   promo?: FeePromotion | null;
@@ -214,38 +221,36 @@ function PromotionModal({
   useEffect(() => {
     if (!open) return;
     if (promo) {
-      const m = promo.maker_fee_override != null ? parseFloat(String(promo.maker_fee_override)) : NaN;
-      const t = promo.taker_fee_override != null ? parseFloat(String(promo.taker_fee_override)) : NaN;
-      const d = promo.discount_pct != null ? parseFloat(String(promo.discount_pct)) : NaN;
+      const dv = promo.discount_value != null ? parseFloat(String(promo.discount_value)) : 0;
       setForm({
         name: promo.name ?? '',
-        code: promo.code ?? '',
-        maker_fee_override: Number.isFinite(m) ? (m * 100).toFixed(3) : '',
-        taker_fee_override: Number.isFinite(t) ? (t * 100).toFixed(3) : '',
-        discount_pct: Number.isFinite(d) ? (d * 100).toFixed(1) : '',
-        starts_at: promo.starts_at ? promo.starts_at.slice(0, 16) : '',
-        ends_at: promo.ends_at ? promo.ends_at.slice(0, 16) : '',
+        promotion_type: promo.promotion_type ?? 'trading_fee',
+        discount_value: Number.isFinite(dv) ? (dv * 100).toFixed(2) : '0',
+        start_date: promo.start_date ? promo.start_date.slice(0, 16) : '',
+        end_date: promo.end_date ? promo.end_date.slice(0, 16) : '',
+        description: promo.description ?? '',
       });
     } else {
       setForm(PROMO_INITIAL);
     }
   }, [open, promo]);
 
-  const valid = form.name.trim().length > 0;
+  const discountVal = parseFloat(form.discount_value);
+  const valid =
+    form.name.trim().length > 0 &&
+    form.promotion_type.length > 0 &&
+    Number.isFinite(discountVal) && discountVal >= 0 && discountVal <= 100;
 
   const handleConfirm = () => {
     if (!valid) return;
-    const m = parseFloat(form.maker_fee_override);
-    const t = parseFloat(form.taker_fee_override);
-    const d = parseFloat(form.discount_pct);
     onConfirm({
       name: form.name.trim(),
-      code: form.code.trim() || undefined,
-      maker_fee_override: Number.isFinite(m) ? m / 100 : undefined,
-      taker_fee_override: Number.isFinite(t) ? t / 100 : undefined,
-      discount_pct: Number.isFinite(d) ? d / 100 : undefined,
-      starts_at: form.starts_at || undefined,
-      ends_at: form.ends_at || undefined,
+      promotion_type: form.promotion_type,
+      discount_value: discountVal / 100,
+      discount_type: 'percentage',
+      start_date: form.start_date || undefined,
+      end_date: form.end_date || undefined,
+      description: form.description.trim() || undefined,
     });
   };
 
@@ -254,16 +259,26 @@ function PromotionModal({
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <Input label="Name" value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} placeholder="e.g. Launch Week" />
-          <Input label="Code (optional)" value={form.code} onChange={(e) => setForm((p) => ({ ...p, code: e.target.value }))} placeholder="e.g. LAUNCH2026" />
-        </div>
-        <div className="grid grid-cols-3 gap-4">
-          <Input label="Maker Override (%)" type="number" min={0} max={100} step={0.001} value={form.maker_fee_override} onChange={(e) => setForm((p) => ({ ...p, maker_fee_override: e.target.value }))} placeholder="—" />
-          <Input label="Taker Override (%)" type="number" min={0} max={100} step={0.001} value={form.taker_fee_override} onChange={(e) => setForm((p) => ({ ...p, taker_fee_override: e.target.value }))} placeholder="—" />
-          <Input label="Discount (%)" type="number" min={0} max={100} step={0.1} value={form.discount_pct} onChange={(e) => setForm((p) => ({ ...p, discount_pct: e.target.value }))} placeholder="—" />
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Promotion Type</label>
+            <select
+              className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={form.promotion_type}
+              onChange={(e) => setForm((p) => ({ ...p, promotion_type: e.target.value }))}
+            >
+              {PROMOTION_TYPES.map((pt) => (
+                <option key={pt.value} value={pt.value}>{pt.label}</option>
+              ))}
+            </select>
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-4">
-          <Input label="Starts At" type="datetime-local" value={form.starts_at} onChange={(e) => setForm((p) => ({ ...p, starts_at: e.target.value }))} />
-          <Input label="Ends At" type="datetime-local" value={form.ends_at} onChange={(e) => setForm((p) => ({ ...p, ends_at: e.target.value }))} />
+          <Input label="Discount Value (%)" type="number" min={0} max={100} step={0.01} value={form.discount_value} onChange={(e) => setForm((p) => ({ ...p, discount_value: e.target.value }))} placeholder="e.g. 10" />
+          <Input label="Description (optional)" value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} placeholder="—" />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <Input label="Start Date" type="datetime-local" value={form.start_date} onChange={(e) => setForm((p) => ({ ...p, start_date: e.target.value }))} />
+          <Input label="End Date" type="datetime-local" value={form.end_date} onChange={(e) => setForm((p) => ({ ...p, end_date: e.target.value }))} />
         </div>
       </div>
       <ModalFooter className="-mx-6 -mb-5 mt-4">
@@ -505,7 +520,11 @@ export default function FeesManagementPage() {
     if (t?.id) {
       updateTierMut.mutate({ id: t.id, body: data });
     } else {
-      createTierMut.mutate(data);
+      // Auto-assign next tier_level based on existing tiers
+      const nextLevel = tiers.length > 0
+        ? Math.max(...tiers.map((tier) => Number(tier.tier_level ?? 0))) + 1
+        : 1;
+      createTierMut.mutate({ ...data, tier_level: nextLevel });
     }
   };
 
@@ -738,11 +757,10 @@ export default function FeesManagementPage() {
                 <thead className="bg-white/[0.02] text-xs font-semibold uppercase tracking-wide text-admin-muted">
                   <tr>
                     <th className="px-3 py-2">Name</th>
-                    <th className="px-3 py-2">Code</th>
-                    <th className="px-3 py-2">Maker</th>
-                    <th className="px-3 py-2">Taker</th>
+                    <th className="px-3 py-2">Type</th>
                     <th className="px-3 py-2">Discount</th>
                     <th className="px-3 py-2">Period</th>
+                    <th className="px-3 py-2">Status</th>
                     <th className="px-3 py-2 text-right">Actions</th>
                   </tr>
                 </thead>
@@ -750,14 +768,17 @@ export default function FeesManagementPage() {
                   {promotions.map((p) => (
                     <tr key={p.id} className="hover:bg-white/5">
                       <td className="px-3 py-2 font-medium text-admin-text">{p.name ?? '—'}</td>
-                      <td className="px-3 py-2 font-mono text-xs text-admin-muted">{p.code || '—'}</td>
-                      <td className="px-3 py-2 tabular-nums">{pctFee(p.maker_fee_override)}</td>
-                      <td className="px-3 py-2 tabular-nums">{pctFee(p.taker_fee_override)}</td>
+                      <td className="px-3 py-2 text-xs text-admin-muted capitalize">{(p.promotion_type ?? '—').replace(/_/g, ' ')}</td>
                       <td className="px-3 py-2 tabular-nums">
-                        {p.discount_pct != null ? `${(Number(p.discount_pct) * 100).toFixed(1)}%` : '—'}
+                        {p.discount_value != null ? `${(Number(p.discount_value) * 100).toFixed(2)}%` : '—'}
                       </td>
                       <td className="px-3 py-2 text-xs text-admin-muted">
-                        {p.starts_at ? formatDate(p.starts_at) : '—'} → {p.ends_at ? formatDate(p.ends_at) : '—'}
+                        {p.start_date ? formatDate(p.start_date) : '—'} → {p.end_date ? formatDate(p.end_date) : '—'}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${p.is_active ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>
+                          {p.is_active ? 'Active' : 'Inactive'}
+                        </span>
                       </td>
                       <td className="px-3 py-2 text-right">
                         <div className="flex items-center justify-end gap-2">

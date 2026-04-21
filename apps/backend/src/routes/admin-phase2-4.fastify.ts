@@ -512,7 +512,7 @@ export default async function adminPhase24Routes(app: FastifyInstance): Promise<
     }
   });
 
-  app.patch<{ Params: { id: string }; Body: { enabled?: boolean; apy_pct?: number; min_stake?: number } }>('/staking/products/:id', async (request, reply) => {
+  app.patch<{ Params: { id: string }; Body: { enabled?: boolean; apy_pct?: number; min_stake?: number; lock_period_days?: number } }>('/staking/products/:id', async (request, reply) => {
     try {
       if (!stakingReady) { await ensureStakingTable(); stakingReady = true; }
       const { id } = request.params;
@@ -523,6 +523,7 @@ export default async function adminPhase24Routes(app: FastifyInstance): Promise<
       if (body.enabled !== undefined) { updates.push(`enabled = $${idx++}`); values.push(body.enabled); }
       if (body.apy_pct !== undefined) { updates.push(`apy_pct = $${idx++}`); values.push(body.apy_pct); }
       if (body.min_stake !== undefined) { updates.push(`min_stake = $${idx++}`); values.push(body.min_stake); }
+      if (body.lock_period_days !== undefined) { updates.push(`lock_period_days = $${idx++}`); values.push(body.lock_period_days); }
       if (updates.length === 0) {
         return reply.status(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'No fields to update' } });
       }
