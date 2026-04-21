@@ -105,7 +105,7 @@ export default function ReferralsPage() {
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ['admin', 'referrals', token, search, suspicious, page],
     staleTime: 30_000,
-    queryFn: () => adminFetch<{ referrals: ReferralRow[]; total: number; stats: { total_referrers: number; total_referrals: number; total_commission_usd: string; suspicious_count: number } }>('/users/referrals', {
+    queryFn: () => adminFetch<{ referrals: ReferralRow[]; total: number; stats: { total_referrers: number; total_referrals: number; total_commission_usd: string; suspicious_count: number } }>('/referrals', {
       token,
       params: {
         page,

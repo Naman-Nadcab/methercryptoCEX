@@ -5192,7 +5192,7 @@ export default async function adminRoutes(app: FastifyInstance) {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
     try {
-      const { page = 1, limit = 20, status, search, kycLevel } = request.query as any;
+      const { page = 1, limit = 20, status, search, kycLevel, riskLevel, joinedWithinDays } = request.query as any;
       const offset = (parseInt(page) - 1) * parseInt(limit);
 
       let query = `
@@ -5231,6 +5231,24 @@ export default async function adminRoutes(app: FastifyInstance) {
       if (kycLevel && kycLevel !== 'all') {
         query += ` AND u.tier_level = $${paramIndex++}`;
         params.push(parseInt(kycLevel));
+      }
+
+      // joinedWithinDays: filter users created within last N days
+      if (joinedWithinDays && parseInt(joinedWithinDays) > 0) {
+        query += ` AND u.created_at >= NOW() - INTERVAL '${parseInt(joinedWithinDays)} days'`;
+      }
+
+      // riskLevel: filter by risk signals (aml alerts / login failures)
+      if (riskLevel && riskLevel !== 'all') {
+        if (riskLevel === 'high') {
+          query += ` AND (SELECT COUNT(*) FROM aml_alerts a WHERE a.user_id = u.id AND a.status IN ('open','reviewing')) > 0`;
+        } else if (riskLevel === 'medium') {
+          query += ` AND (SELECT COUNT(*) FROM user_activity_logs ua WHERE ua.user_id = u.id AND ua.activity_type = 'login_failed' AND ua.created_at > NOW() - INTERVAL '7 days') > 2`;
+          query += ` AND (SELECT COUNT(*) FROM aml_alerts a WHERE a.user_id = u.id AND a.status IN ('open','reviewing')) = 0`;
+        } else if (riskLevel === 'low') {
+          query += ` AND (SELECT COUNT(*) FROM aml_alerts a WHERE a.user_id = u.id AND a.status IN ('open','reviewing')) = 0`;
+          query += ` AND (SELECT COUNT(*) FROM user_activity_logs ua WHERE ua.user_id = u.id AND ua.activity_type = 'login_failed' AND ua.created_at > NOW() - INTERVAL '7 days') <= 2`;
+        }
       }
 
       query += ` GROUP BY u.id, u.email, u.phone, u.username, u.status, u.email_verified, u.phone_verified, u.tier_level, u.created_at, u.last_login_at, k.status, k.kyc_level ORDER BY u.created_at DESC`;
@@ -5284,6 +5302,20 @@ export default async function adminRoutes(app: FastifyInstance) {
       if (kycLevel && kycLevel !== 'all') {
         countQuery += ` AND u.tier_level = $${countIdx++}`;
         countParams.push(parseInt(kycLevel));
+      }
+      if (joinedWithinDays && parseInt(joinedWithinDays) > 0) {
+        countQuery += ` AND u.created_at >= NOW() - INTERVAL '${parseInt(joinedWithinDays)} days'`;
+      }
+      if (riskLevel && riskLevel !== 'all') {
+        if (riskLevel === 'high') {
+          countQuery += ` AND (SELECT COUNT(*) FROM aml_alerts a WHERE a.user_id = u.id AND a.status IN ('open','reviewing')) > 0`;
+        } else if (riskLevel === 'medium') {
+          countQuery += ` AND (SELECT COUNT(*) FROM user_activity_logs ua WHERE ua.user_id = u.id AND ua.activity_type = 'login_failed' AND ua.created_at > NOW() - INTERVAL '7 days') > 2`;
+          countQuery += ` AND (SELECT COUNT(*) FROM aml_alerts a WHERE a.user_id = u.id AND a.status IN ('open','reviewing')) = 0`;
+        } else if (riskLevel === 'low') {
+          countQuery += ` AND (SELECT COUNT(*) FROM aml_alerts a WHERE a.user_id = u.id AND a.status IN ('open','reviewing')) = 0`;
+          countQuery += ` AND (SELECT COUNT(*) FROM user_activity_logs ua WHERE ua.user_id = u.id AND ua.activity_type = 'login_failed' AND ua.created_at > NOW() - INTERVAL '7 days') <= 2`;
+        }
       }
 
       const countResult = await db.query(countQuery, countParams);
@@ -11736,6 +11768,97 @@ export default async function adminRoutes(app: FastifyInstance) {
       return reply.status(500).send({
         success: false,
         error: { code: 'FETCH_FAILED', message: 'Failed to fetch referrals data' },
+      });
+    }
+  });
+
+  /**
+   * GET /admin/users/referrals
+   * Aggregated per-referrer view used by the admin Referrals page.
+   * Returns rows grouped by referrer (one row per user who has a referral code).
+   */
+  app.get('/users/referrals', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const { page = 1, limit = 20, search, suspicious } = request.query as any;
+      const offset = (parseInt(page) - 1) * parseInt(limit);
+
+      // Build base query — group by referrer, aggregate referral stats
+      let baseWhere = `WHERE u.deleted_at IS NULL`;
+      const params: any[] = [];
+      let idx = 1;
+
+      if (search?.trim()) {
+        baseWhere += ` AND (u.email ILIKE $${idx} OR u.username ILIKE $${idx} OR rc.code ILIKE $${idx})`;
+        params.push(`%${search.trim()}%`);
+        idx++;
+      }
+
+      // "Suspicious" = multiple referral codes OR self-referral patterns
+      if (suspicious === 'true') {
+        baseWhere += ` AND (
+          (SELECT COUNT(*) FROM referral_codes rc2 WHERE rc2.user_id = u.id AND rc2.is_active = true) > 1
+          OR rc.current_referrals > 50
+        )`;
+      }
+
+      const rowsQ = await db.query(`
+        SELECT
+          u.id                                AS referrer_id,
+          u.email                             AS referrer_email,
+          u.username                          AS referrer_name,
+          rc.code                             AS referral_code,
+          COALESCE(rc.current_referrals, 0)   AS total_referrals,
+          COALESCE(
+            (SELECT COUNT(*)::int FROM referral_relationships rr
+             WHERE rr.referrer_id = u.id AND rr.status = 'active'),
+            0
+          )                                   AS active_referrals,
+          COALESCE(rc.total_earnings, 0)::text AS total_commission_usd,
+          rc.updated_at                       AS last_referral_at,
+          (
+            (SELECT COUNT(*) FROM referral_codes rc2 WHERE rc2.user_id = u.id AND rc2.is_active = true) > 1
+            OR rc.current_referrals > 50
+          )                                   AS is_suspicious
+        FROM referral_codes rc
+        JOIN users u ON u.id = rc.user_id
+        ${baseWhere}
+        ORDER BY rc.current_referrals DESC, rc.created_at DESC
+        LIMIT $${idx} OFFSET $${idx + 1}
+      `, [...params, parseInt(limit), offset]);
+
+      const countQ = await db.query(`
+        SELECT COUNT(DISTINCT u.id) as total
+        FROM referral_codes rc
+        JOIN users u ON u.id = rc.user_id
+        ${baseWhere}
+      `, params);
+
+      const statsQ = await db.query(`
+        SELECT
+          COUNT(DISTINCT rc.user_id)::int                  AS total_referrers,
+          COALESCE(SUM(rc.current_referrals), 0)::int      AS total_referrals,
+          COALESCE(SUM(rc.total_earnings), 0)::text        AS total_commission_usd,
+          COUNT(*) FILTER (WHERE rc.current_referrals > 50)::int AS suspicious_count
+        FROM referral_codes rc
+        JOIN users u ON u.id = rc.user_id
+        WHERE u.deleted_at IS NULL
+      `);
+
+      return reply.send({
+        success: true,
+        data: {
+          referrals: rowsQ.rows,
+          total: parseInt(countQ.rows[0]?.total ?? '0'),
+          stats: statsQ.rows[0],
+        },
+      });
+    } catch (error) {
+      logger.error('Get users/referrals error', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'FETCH_FAILED', message: 'Failed to fetch referral analytics' },
       });
     }
   });
