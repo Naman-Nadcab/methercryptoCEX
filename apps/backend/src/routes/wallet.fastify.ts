@@ -2864,6 +2864,105 @@ export default async function walletRoutes(app: FastifyInstance) {
   });
 
   // Cancel withdrawal (authenticated)
+  /**
+   * POST /wallet/withdrawals/:id/send-email-otp
+   * Send a 6-digit OTP to user's email to confirm a withdrawal.
+   * Only allowed when withdrawal is in `pending_email_verify` status.
+   * Rate-limited: max 3 sends per 10 minutes per withdrawal.
+   */
+  app.post<{ Params: { id: string } }>('/withdrawals/:id/send-email-otp', {
+    preHandler: [app.authenticate, rateLimitByUser('wallet:withdrawal:email-otp', 3, 600, { failClosed: false })]
+  }, async (request, reply) => {
+    try {
+      const userId = request.user!.id;
+      const withdrawalId = request.params.id;
+
+      const wRow = await db.query<{ id: string; status: string; email_verified: boolean; user_id: string }>(
+        `SELECT id, status, email_verified, user_id FROM withdrawals WHERE id = $1`,
+        [withdrawalId]
+      );
+      if (!wRow.rows[0]) return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Withdrawal not found' } });
+      if (wRow.rows[0].user_id !== userId) return reply.status(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Not your withdrawal' } });
+      if (wRow.rows[0].email_verified) return reply.send({ success: true, data: { message: 'Already verified' } });
+      if (!['pending_email_verify', 'pending'].includes(wRow.rows[0].status)) {
+        return reply.status(400).send({ success: false, error: { code: 'INVALID_STATUS', message: 'Withdrawal is not awaiting email verification' } });
+      }
+
+      const userRow = await db.query<{ email: string }>(`SELECT email FROM users WHERE id = $1`, [userId]);
+      const email = userRow.rows[0]?.email;
+      if (!email) return reply.status(400).send({ success: false, error: { code: 'NO_EMAIL', message: 'No email on account' } });
+
+      const otpCode = String(Math.floor(100000 + Math.random() * 900000));
+      const redisKey = `withdrawal:email:otp:${withdrawalId}`;
+      await redis.set(redisKey, otpCode, 600); // 10 minutes
+
+      const { otpService } = await import('../services/otp.service.js');
+      const sent = await otpService.sendEmailOTP(email, otpCode);
+      if (!sent) {
+        await redis.del(redisKey);
+        return reply.status(503).send({ success: false, error: { code: 'EMAIL_FAILED', message: 'Failed to send verification email. Try again shortly.' } });
+      }
+
+      logger.info('Withdrawal email OTP sent', { userId, withdrawalId });
+      return reply.send({ success: true, data: { message: 'Verification code sent to your email', maskedEmail: email.replace(/(.{2}).+(@.+)/, '$1***$2') } });
+    } catch (err) {
+      logger.error('Send withdrawal email OTP error', { error: err instanceof Error ? err.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Failed to send OTP' } });
+    }
+  });
+
+  /**
+   * POST /wallet/withdrawals/:id/verify-email-otp
+   * Verify the 6-digit email OTP. On success, marks email_verified=true and
+   * moves the withdrawal from `pending_email_verify` → `pending` and enqueues it.
+   */
+  app.post<{ Params: { id: string }; Body: { otp: string } }>('/withdrawals/:id/verify-email-otp', {
+    preHandler: [app.authenticate, rateLimitByUser('wallet:withdrawal:verify-otp', 5, 300, { failClosed: false })]
+  }, async (request, reply) => {
+    try {
+      const userId = request.user!.id;
+      const withdrawalId = request.params.id;
+      const { otp } = request.body;
+
+      if (!otp || !/^\d{6}$/.test(otp)) {
+        return reply.status(400).send({ success: false, error: { code: 'INVALID_OTP', message: 'OTP must be 6 digits' } });
+      }
+
+      const wRow = await db.query<{ id: string; status: string; email_verified: boolean; user_id: string; chain_id: string }>(
+        `SELECT id, status, email_verified, user_id, chain_id FROM withdrawals WHERE id = $1`,
+        [withdrawalId]
+      );
+      if (!wRow.rows[0]) return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Withdrawal not found' } });
+      if (wRow.rows[0].user_id !== userId) return reply.status(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Not your withdrawal' } });
+      if (wRow.rows[0].email_verified) return reply.send({ success: true, data: { message: 'Already verified', status: wRow.rows[0].status } });
+
+      const redisKey = `withdrawal:email:otp:${withdrawalId}`;
+      const storedOtp = await redis.get(redisKey);
+      if (!storedOtp) return reply.status(400).send({ success: false, error: { code: 'OTP_EXPIRED', message: 'Verification code expired. Request a new one.' } });
+      if (storedOtp !== otp) return reply.status(400).send({ success: false, error: { code: 'OTP_INVALID', message: 'Incorrect verification code' } });
+
+      // Mark verified and move to pending so the signing queue picks it up
+      await db.query(
+        `UPDATE withdrawals SET email_verified = TRUE, status = CASE WHEN status = 'pending_email_verify' THEN 'pending' ELSE status END, updated_at = NOW() WHERE id = $1`,
+        [withdrawalId]
+      );
+      await redis.del(redisKey);
+
+      // Enqueue for signing if it was pending_email_verify
+      if (wRow.rows[0].status === 'pending_email_verify') {
+        const { enqueueWithdrawal } = await import('../services/withdrawal-signing.service.js');
+        const enq = await enqueueWithdrawal(withdrawalId);
+        logger.info('Withdrawal enqueued after email verify', { userId, withdrawalId, enqueued: enq.enqueued });
+      }
+
+      logger.info('Withdrawal email verified', { userId, withdrawalId });
+      return reply.send({ success: true, data: { message: 'Email verified. Your withdrawal is being processed.', status: 'pending' } });
+    } catch (err) {
+      logger.error('Verify withdrawal email OTP error', { error: err instanceof Error ? err.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Verification failed' } });
+    }
+  });
+
   app.post<{ Params: { id: string } }>('/withdrawals/:id/cancel', {
     preHandler: [app.authenticate]
   }, async (request, reply) => {

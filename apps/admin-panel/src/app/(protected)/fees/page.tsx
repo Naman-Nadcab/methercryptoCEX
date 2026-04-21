@@ -23,6 +23,7 @@ import {
   type FeePromotion,
 } from '@/lib/admin';
 import { getRevenueBreakdown } from '@/lib/admin/analytics';
+import { adminFetch } from '@/lib/api';
 import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 
 type TabId = 'trading' | 'withdrawal';
@@ -321,6 +322,25 @@ export default function FeesManagementPage() {
   const [wdEditForm, setWdEditForm] = useState({ fee: '', minWd: '', feeType: 'fixed' });
 
   const enabled = !!token;
+
+  // Withdrawal tier limits query & mutation
+  const wdLimitsQ = useQuery({
+    queryKey: ['admin', 'withdrawals', 'limits', token],
+    queryFn: () => adminFetch<{ tiers: Array<{ tier: number; dailyLimit: string; monthlyLimit: string }> }>('/withdrawals/limits', { token }),
+    enabled,
+    staleTime: 120_000,
+  });
+  const [wdLimitsForm, setWdLimitsForm] = useState<Array<{ tier: number; dailyLimit: string; monthlyLimit: string }>>([]);
+  const wdLimitsMut = useMutation({
+    mutationFn: (tiers: Array<{ tier: number; dailyLimit: string; monthlyLimit: string }>) =>
+      adminFetch('/withdrawals/limits', { method: 'PATCH', token, body: { tiers } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'withdrawals', 'limits'] }),
+  });
+  // Sync form when data arrives
+  if (wdLimitsQ.data?.data?.tiers && wdLimitsForm.length === 0) {
+    setWdLimitsForm(wdLimitsQ.data.data.tiers.map(t => ({ ...t })));
+  }
+
   const [revQ, tiersQ, tradingQ, wdQ] = useQueries({
     queries: [
       {
@@ -896,6 +916,71 @@ export default function FeesManagementPage() {
           </Button>
         </ModalFooter>
       </Modal>
+
+      {/* ── Withdrawal Tier Limits ── */}
+      <div className="mt-8 rounded-2xl border border-admin-border/50 bg-admin-card p-6">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-admin-text">Withdrawal Tier Limits</h2>
+            <p className="text-xs text-admin-muted mt-0.5">Daily & monthly withdrawal limits per KYC tier. Applied to users when KYC is approved.</p>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => wdLimitsMut.mutate(wdLimitsForm)}
+            disabled={wdLimitsMut.isPending || wdLimitsQ.isLoading}
+          >
+            {wdLimitsMut.isPending ? 'Saving…' : 'Save Limits'}
+          </Button>
+        </div>
+
+        {wdLimitsQ.isLoading ? (
+          <div className="flex items-center gap-2 text-sm text-admin-muted py-4"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead>
+                <tr className="border-b border-admin-border/50">
+                  <th className="py-2 pr-6 text-xs font-semibold uppercase tracking-wider text-admin-muted">KYC Tier</th>
+                  <th className="py-2 pr-6 text-xs font-semibold uppercase tracking-wider text-admin-muted">Daily Limit (USD)</th>
+                  <th className="py-2 text-xs font-semibold uppercase tracking-wider text-admin-muted">Monthly Limit (USD)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(wdLimitsForm.length > 0 ? wdLimitsForm : wdLimitsQ.data?.data?.tiers ?? []).map((t, idx) => (
+                  <tr key={t.tier} className="border-b border-admin-border/30">
+                    <td className="py-3 pr-6 font-medium text-admin-text">
+                      {t.tier === 0 ? 'Tier 0 — No KYC' : `Tier ${t.tier} — KYC Level ${t.tier}`}
+                    </td>
+                    <td className="py-3 pr-6">
+                      <input
+                        type="text"
+                        value={t.dailyLimit}
+                        onChange={(e) => setWdLimitsForm(prev => prev.map((x, i) => i === idx ? { ...x, dailyLimit: e.target.value } : x))}
+                        className="w-36 rounded-lg border border-admin-border/50 bg-white/[0.03] px-3 py-1.5 text-sm text-admin-text focus:outline-none focus:border-blue-500/40"
+                        placeholder="0"
+                      />
+                    </td>
+                    <td className="py-3">
+                      <input
+                        type="text"
+                        value={t.monthlyLimit}
+                        onChange={(e) => setWdLimitsForm(prev => prev.map((x, i) => i === idx ? { ...x, monthlyLimit: e.target.value } : x))}
+                        className="w-36 rounded-lg border border-admin-border/50 bg-white/[0.03] px-3 py-1.5 text-sm text-admin-text focus:outline-none focus:border-blue-500/40"
+                        placeholder="0"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {wdLimitsMut.isSuccess && <p className="mt-2 text-xs text-emerald-400">✓ Limits saved successfully</p>}
+            {wdLimitsMut.isError && <p className="mt-2 text-xs text-red-400">Failed to save. Please retry.</p>}
+          </div>
+        )}
+        <p className="mt-3 text-xs text-admin-muted/60">
+          Tier 0 limit = 0 means no withdrawals for unverified users. Changes affect new withdrawals only; existing pending withdrawals are unaffected.
+        </p>
+      </div>
     </AdminPageFrame>
   );
 }

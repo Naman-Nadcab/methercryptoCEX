@@ -9175,6 +9175,55 @@ export default async function adminRoutes(app: FastifyInstance) {
   });
 
   /**
+   * GET /admin/withdrawals/limits
+   * Return per-tier withdrawal limits (daily + monthly) that admin can adjust.
+   */
+  app.get('/withdrawals/limits', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    try {
+      const { getTierLimitsFromSettings } = await import('../services/withdrawal-tier-limits.service.js');
+      const limits = await getTierLimitsFromSettings();
+      return reply.send({ success: true, data: limits });
+    } catch (err) {
+      logger.error('Get withdrawal limits error', { error: err instanceof Error ? err.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to fetch withdrawal limits' } });
+    }
+  });
+
+  /**
+   * PATCH /admin/withdrawals/limits
+   * Update per-tier withdrawal limits. Super-admin only.
+   * Body: { tiers: [{ tier: 0|1|2|3, dailyLimit: "10000", monthlyLimit: "100000" }] }
+   */
+  app.patch<{ Body: { tiers: Array<{ tier: number; dailyLimit: string; monthlyLimit: string }> } }>('/withdrawals/limits', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, true); // super admin only
+    if (!admin) return;
+    try {
+      const { tiers } = request.body;
+      if (!Array.isArray(tiers) || tiers.length === 0) {
+        return reply.status(400).send({ success: false, error: { code: 'INVALID_INPUT', message: 'tiers array is required' } });
+      }
+      for (const t of tiers) {
+        if (![0, 1, 2, 3].includes(t.tier)) {
+          return reply.status(400).send({ success: false, error: { code: 'INVALID_TIER', message: `Invalid tier: ${t.tier}` } });
+        }
+        if (!/^\d+(\.\d+)?$/.test(t.dailyLimit) || !/^\d+(\.\d+)?$/.test(t.monthlyLimit)) {
+          return reply.status(400).send({ success: false, error: { code: 'INVALID_AMOUNT', message: 'Limits must be numeric strings' } });
+        }
+      }
+      const { updateTierLimits, getTierLimitsFromSettings } = await import('../services/withdrawal-tier-limits.service.js');
+      await updateTierLimits(tiers);
+      const updated = await getTierLimitsFromSettings();
+      logger.info('Withdrawal tier limits updated by admin', { adminId: admin.adminId, tiers });
+      return reply.send({ success: true, data: updated });
+    } catch (err) {
+      logger.error('Update withdrawal limits error', { error: err instanceof Error ? err.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'UPDATE_FAILED', message: 'Failed to update withdrawal limits' } });
+    }
+  });
+
+  /**
    * GET /admin/risk/settings
    * Dynamic risk rules (from risk_settings table or defaults).
    */
