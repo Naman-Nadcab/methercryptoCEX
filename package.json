@@ -33,6 +33,7 @@
     "load:health:quick": "bash scripts/run-k6-health-quick.sh",
     "verify:load-gate": "node scripts/load-gate.mjs",
     "drill:incident": "bash scripts/incident-drill.sh",
+    "audit:ui-sim": "node scripts/ui-audit.mjs",
     "verify:monitoring-slo": "node scripts/monitoring-slo-check.mjs",
     "verify:compliance-signoff": "node scripts/compliance-signoff.mjs",
     "verify:compliance-signoff:strict": "COMPLIANCE_STRICT=1 node scripts/compliance-signoff.mjs",

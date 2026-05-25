@@ -23,7 +23,7 @@ function SmartTooltipInner({ content, danger, children }: SmartTooltipProps) {
   }, []);
 
   return (
-    <div className="relative inline-flex" onMouseEnter={show} onMouseLeave={hide}>
+    <span className="relative inline-flex" onMouseEnter={show} onMouseLeave={hide}>
       {children}
       {visible && (
         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none">
@@ -38,7 +38,7 @@ function SmartTooltipInner({ content, danger, children }: SmartTooltipProps) {
           <div className="w-2 h-2 bg-[#1a1f2e] border-r border-b border-[#2a3040] rotate-45 absolute left-1/2 -translate-x-1/2 -bottom-1" />
         </div>
       )}
-    </div>
+    </span>
   );
 }
 

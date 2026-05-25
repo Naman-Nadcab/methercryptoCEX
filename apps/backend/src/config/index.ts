@@ -165,6 +165,10 @@ const envSchema = z.object({
   ADMIN_LOGIN_RATE_LIMIT_MAX: z.coerce.number().min(1).max(50_000).optional(),
   /** Window in seconds for admin login IP limit (default 300 = 5 min). */
   ADMIN_LOGIN_RATE_LIMIT_WINDOW_SEC: z.coerce.number().min(30).max(86_400).optional(),
+  /** Max authenticated admin API calls per admin/session window. */
+  ADMIN_API_RATE_LIMIT_MAX: z.coerce.number().min(10).max(200_000).optional(),
+  /** Window seconds for authenticated admin API rate limit. */
+  ADMIN_API_RATE_LIMIT_WINDOW_SEC: z.coerce.number().min(10).max(86_400).optional(),
 
   // Security
   CORS_ORIGINS: z.string().default('http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001,http://localhost:4000,http://127.0.0.1:4000'),
@@ -999,6 +1003,10 @@ export const config = {
       parsed.data.ADMIN_LOGIN_RATE_LIMIT_MAX ??
       (parsed.data.NODE_ENV === 'development' ? 120 : 30),
     adminLoginWindowSec: parsed.data.ADMIN_LOGIN_RATE_LIMIT_WINDOW_SEC ?? 300,
+    adminApiMax:
+      parsed.data.ADMIN_API_RATE_LIMIT_MAX ??
+      (parsed.data.NODE_ENV === 'development' ? 1200 : 240),
+    adminApiWindowSec: parsed.data.ADMIN_API_RATE_LIMIT_WINDOW_SEC ?? 60,
   },
 
   security: {
