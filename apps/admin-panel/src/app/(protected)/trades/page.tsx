@@ -241,6 +241,8 @@ export default function TradesPage() {
       title="Trade History"
       description="Executed spot trades with real-time updates, filters, and 15s auto-refresh."
       status="active"
+      error={isError ? 'Failed to load trade history.' : null}
+      onRetry={isError ? () => { void refetch(); } : undefined}
     >
       {/* KPI Cards */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

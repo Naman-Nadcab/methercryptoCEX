@@ -315,6 +315,7 @@ export default function SecurityPage() {
   const [passkeys, setPasskeys] = useState<Array<{ id: string; device_name: string; created_at: string; last_used_at: string | null }>>([]);
   const [registeringPasskey, setRegisteringPasskey] = useState(false);
   const [deletingPasskeyId, setDeletingPasskeyId] = useState<string | null>(null);
+  const [deletePasskeyConfirmId, setDeletePasskeyConfirmId] = useState<string | null>(null);
 
   // Fund Password States
   const [hasFundPassword, setHasFundPassword] = useState(false);
@@ -856,10 +857,6 @@ export default function SecurityPage() {
   };
 
   const deletePasskey = async (passkeyId: string) => {
-    if (!confirm('Are you sure you want to delete this passkey?')) {
-      return;
-    }
-
     setDeletingPasskeyId(passkeyId);
     try {
       const response = await fetch(`${apiUrl}/api/v1/auth/passkeys/${passkeyId}`, {
@@ -869,6 +866,7 @@ export default function SecurityPage() {
       const result = await response.json();
 
       if (result.success) {
+        setDeletePasskeyConfirmId(null);
         await fetchPasskeys();
         toast({ title: 'Success', description: 'Passkey deleted successfully', variant: 'success' });
       } else {
@@ -2143,17 +2141,36 @@ export default function SecurityPage() {
                       </p>
                     </div>
                   </div>
-                  <button
-                    onClick={() => deletePasskey(passkey.id)}
-                    disabled={deletingPasskeyId === passkey.id}
-                    className="rounded-lg px-3 py-2 text-sm font-medium text-sell transition-colors hover:bg-muted"
-                  >
-                    {deletingPasskeyId === passkey.id ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      'Remove'
-                    )}
-                  </button>
+                  {deletePasskeyConfirmId === passkey.id ? (
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setDeletePasskeyConfirmId(null)}
+                        disabled={deletingPasskeyId === passkey.id}
+                        className="rounded-lg px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => void deletePasskey(passkey.id)}
+                        disabled={deletingPasskeyId === passkey.id}
+                        className="rounded-lg px-3 py-2 text-xs font-semibold text-sell transition-colors hover:bg-muted disabled:opacity-50"
+                      >
+                        {deletingPasskeyId === passkey.id ? 'Removing…' : 'Confirm remove'}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setDeletePasskeyConfirmId(passkey.id)}
+                      disabled={deletingPasskeyId === passkey.id}
+                      className="rounded-lg px-3 py-2 text-sm font-medium text-sell transition-colors hover:bg-muted"
+                    >
+                      {deletingPasskeyId === passkey.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        'Remove'
+                      )}
+                    </button>
+                  )}
                 </div>
               ))}
 

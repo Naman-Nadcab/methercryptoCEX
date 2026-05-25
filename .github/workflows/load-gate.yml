@@ -1,0 +1,52 @@
+name: Load Gate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  load-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: docker compose up -d redis postgres rabbitmq nats
+      - run: npm run db:migrate
+      - run: npm run build --workspace=@exchange/backend
+      - name: Start backend
+        run: |
+          EXCHANGE_VERIFY_STACK=1 EXCHANGE_DEV_STACK_BOOT=1 RUN_MODE=api PORT=4000 \
+          DATABASE_URL=postgresql://exchange:exchange_secret@127.0.0.1:5432/exchange \
+          REDIS_URL=redis://127.0.0.1:6379 \
+          RABBITMQ_URL=amqp://exchange:exchange_secret@127.0.0.1:5672 \
+          NATS_URL=nats://127.0.0.1:4222 \
+          JWT_SECRET=dev-jwt-secret-key-must-be-at-least-32-chars-long \
+          JWT_REFRESH_SECRET=dev-refresh-secret-must-be-32-chars-minimum \
+          ENCRYPTION_KEY=01234567890123456789012345678901 \
+          SESSION_SECRET=dev-session-secret-32-chars-minimum-here \
+          CSRF_SECRET=dev-csrf-secret-key-32-chars-minimum-here- \
+          PUBLIC_API_REDIS_RATE_IP_MAX=800 \
+          PUBLIC_API_REDIS_RATE_TOKEN_MAX=400 \
+          npm run dev --workspace=@exchange/backend &
+      - name: Wait for health
+        run: |
+          for i in {1..60}; do
+            curl -sf http://127.0.0.1:4000/health/live >/dev/null && exit 0
+            sleep 2
+          done
+          echo "backend not ready"; exit 1
+      - name: Provision E2E creds
+        run: npm run qa:e2e-credentials:file
+      - name: Run load gate
+        run: |
+          LOAD_GATE_DURATION_SEC=60 \
+          LOAD_GATE_CONCURRENCY=12 \
+          LOAD_GATE_P95_MS=350 \
+          LOAD_GATE_ERROR_PCT=1 \
+          LOAD_GATE_429_PCT=3 \
+          npm run verify:load-gate

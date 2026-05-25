@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Bell, ChevronRight, Loader2 } from 'lucide-react';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { ErrorState } from '@/components/ui/ErrorState';
 
 interface Announcement {
   id: string;
@@ -19,15 +20,26 @@ interface Announcement {
 export default function AnnouncementsListPage() {
   const [list, setList] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const fetchAnnouncements = () => {
+    setLoading(true);
+    setLoadError(null);
     fetch(`${getApiBaseUrl()}/api/v1/user/announcements?limit=50`)
       .then((res) => res.json())
       .then((data) => {
-        if (data?.success && data?.data?.announcements) setList(data.data.announcements);
+        if (data?.success && data?.data?.announcements) {
+          setList(data.data.announcements);
+          return;
+        }
+        setLoadError(data?.error?.message || 'Could not load announcements.');
       })
-      .catch(() => {})
+      .catch(() => setLoadError('Could not load announcements.'))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    fetchAnnouncements();
   }, []);
 
   return (
@@ -46,6 +58,12 @@ export default function AnnouncementsListPage() {
         <div className="flex items-center justify-center py-16">
           <Loader2 className="w-8 h-8 text-primary animate-spin" />
         </div>
+      ) : loadError ? (
+        <ErrorState
+          title="Could not load announcements"
+          message={loadError}
+          onRetry={fetchAnnouncements}
+        />
       ) : list.length === 0 ? (
         <EmptyState
           icon={Bell}

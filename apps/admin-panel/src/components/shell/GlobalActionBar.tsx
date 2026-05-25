@@ -2,12 +2,13 @@
 
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Ban, RefreshCw, PauseCircle, Shield, Loader2 } from 'lucide-react';
+import { Ban, RefreshCw, PauseCircle, Shield } from 'lucide-react';
 import { useAdminAuthStore } from '@/store/auth';
 import { postGlobalControlAction } from '@/lib/api';
-import { Button, Input, Modal, ModalFooter } from '@/components/ui';
+import { Button } from '@/components/ui';
 import { TIER1_QUERY_KEY } from '@/components/admin-shell/ExchangeHealthTier1Banner';
 import { cn } from '@/lib/cn';
+import { ActionAuthModal, type ActionAuthPayload } from '@/components/ops/ActionAuthModal';
 
 type ActionKey =
   | 'halt_trading'
@@ -37,25 +38,40 @@ export function GlobalActionBar() {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<ActionKey | null>(null);
-  const [reason, setReason] = useState('');
-  const [twofa, setTwofa] = useState('');
   const [err, setErr] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const mut = useMutation({
-    mutationFn: async (action: ActionKey) => {
+    mutationFn: async ({
+      action,
+      reason,
+      twofa_code,
+      submit_for_approval,
+    }: {
+      action: ActionKey;
+      reason: string;
+      twofa_code?: string;
+      submit_for_approval?: boolean;
+    }) => {
       const def = ACTIONS.find((a) => a.key === action)!;
       return postGlobalControlAction(token, {
         action,
         reason: def.needsReason ? reason : reason || 'operator_action',
-        twofa_code: twofa.trim() || undefined,
+        twofa_code,
+        submit_for_approval,
       });
     },
-    onSuccess: async () => {
+    onSuccess: async (res, vars) => {
       setOpen(false);
-      setReason('');
-      setTwofa('');
       setPending(null);
       setErr(null);
+      const queued = Boolean((res?.data as { queued_for_approval?: boolean } | undefined)?.queued_for_approval);
+      if (queued) {
+        setNotice(`Action ${vars.action} queued for maker-checker approval.`);
+        await queryClient.invalidateQueries({ queryKey: ['admin', 'approval-requests'] });
+      } else {
+        setNotice(`Action ${vars.action} executed.`);
+      }
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['admin', 'trading-halt'] }),
         queryClient.invalidateQueries({ queryKey: ['admin', 'control'] }),
@@ -72,20 +88,21 @@ export function GlobalActionBar() {
 
   const startAction = (key: ActionKey) => {
     setPending(key);
-    setReason('');
-    setTwofa('');
     setErr(null);
+    setNotice(null);
     setOpen(true);
   };
+  const pendingDef = pending ? ACTIONS.find((a) => a.key === pending) : undefined;
 
-  const confirm = () => {
+  const confirm = async (payload: ActionAuthPayload) => {
     if (!pending) return;
-    const def = ACTIONS.find((a) => a.key === pending);
-    if (def?.needsReason && reason.trim().length < 8) {
-      setErr('Reason must be at least 8 characters.');
-      return;
-    }
-    mut.mutate(pending);
+    setErr(null);
+    mut.mutate({
+      action: pending,
+      reason: payload.reason,
+      twofa_code: payload.twofa_code,
+      submit_for_approval: pendingDef?.needsReason ?? false,
+    });
   };
 
   if (!token) return null;
@@ -122,39 +139,27 @@ export function GlobalActionBar() {
           </Button>
         ))}
       </div>
+      {notice ? (
+        <div className="border-b border-admin-border/60 bg-white/[0.02] px-4 py-1.5 text-xs text-admin-muted">
+          {notice}
+        </div>
+      ) : null}
 
-      <Modal
+      <ActionAuthModal
         open={open}
         onClose={() => !mut.isPending && setOpen(false)}
+        onConfirm={confirm}
         title="Confirm global control action"
-        description={
-          pending
-            ? `Action: ${ACTIONS.find((x) => x.key === pending)?.label}. This is audited with your admin ID and timestamp.`
-            : ''
-        }
-      >
-        <div className="space-y-3">
-          {ACTIONS.find((x) => x.key === pending)?.needsReason ? (
-            <div>
-              <label className="mb-1 block text-xs font-medium text-admin-text">Reason (min 8 chars)</label>
-              <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Incident / change ticket reference" />
-            </div>
-          ) : null}
-          <div>
-            <label className="mb-1 block text-xs font-medium text-admin-text">2FA code (required if 2FA enabled on your account)</label>
-            <Input value={twofa} onChange={(e) => setTwofa(e.target.value)} placeholder="TOTP" autoComplete="one-time-code" />
-          </div>
-          {err ? <p className="text-sm text-admin-danger">{err}</p> : null}
-        </div>
-        <ModalFooter>
-          <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={mut.isPending}>
-            Cancel
-          </Button>
-          <Button type="button" variant="danger" size="sm" onClick={confirm} disabled={mut.isPending}>
-            {mut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Confirm'}
-          </Button>
-        </ModalFooter>
-      </Modal>
+        actionLabel={pendingDef?.label ?? ''}
+        description="This action is audited with your admin ID and timestamp."
+        externalError={err}
+        isPending={mut.isPending}
+        requireReason={pendingDef?.needsReason ?? false}
+        twofaRequired
+        confirmationPhrase={pendingDef?.needsReason && pending ? `CONFIRM ${pending}` : undefined}
+        confirmLabel={mut.isPending ? 'Working…' : 'Confirm'}
+        confirmVariant={pendingDef?.variant === 'danger' ? 'danger' : 'primary'}
+      />
     </>
   );
 }

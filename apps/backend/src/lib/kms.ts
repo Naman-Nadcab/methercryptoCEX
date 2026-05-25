@@ -82,8 +82,9 @@ class AwsKMS implements IKeyManagementService {
     const keyId = config.kms.aws.keyId;
     const region = config.kms.aws.region;
     if (!keyId || !region) {
-      logger.warn('AWS KMS not configured; falling back to local key derivation for DEK');
-      return localKMS.generateDataKey(_keyVersion);
+      throw new Error(
+        'KMS_TYPE=aws requires AWS_KMS_KEY_ID and AWS_REGION. Refusing silent LocalKMS fallback (prevents accidental prod downgrades).'
+      );
     }
     try {
       const { KMSClient, GenerateDataKeyCommand } = await import('@aws-sdk/client-kms');
@@ -110,7 +111,9 @@ class AwsKMS implements IKeyManagementService {
     const keyId = config.kms.aws.keyId;
     const region = config.kms.aws.region;
     if (!keyId || !region) {
-      return localKMS.decryptDEK(encryptedDEK, keyVersion);
+      throw new Error(
+        'KMS_TYPE=aws requires AWS_KMS_KEY_ID and AWS_REGION. Refusing silent LocalKMS fallback on decrypt.'
+      );
     }
     try {
       const { KMSClient, DecryptCommand } = await import('@aws-sdk/client-kms');

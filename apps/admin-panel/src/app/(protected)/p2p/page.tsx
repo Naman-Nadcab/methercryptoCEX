@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Activity,
@@ -36,6 +36,7 @@ import { cn } from '@/lib/cn';
 import { useAdminWs } from '@/hooks/useAdminWs';
 import { AdminPageFrame, type AdminPageStatus } from '@/components/admin-shell/AdminPageFrame';
 import { ProtectedAction } from '@/components/rbac/ProtectedAction';
+import { ActionAuthModal, type ActionAuthPayload } from '@/components/ops/ActionAuthModal';
 
 const REFETCH_MS = 30_000;
 const PAGE_SIZE = 20;
@@ -289,6 +290,7 @@ export default function P2pManagementPage() {
   const [resolveTarget, setResolveTarget] = useState<DisputeRow | null>(null);
   const [resolution, setResolution] = useState<'favor_buyer' | 'favor_seller' | 'cancelled'>('favor_buyer');
   const [resolveNotes, setResolveNotes] = useState('');
+  const [resolveAuthOpen, setResolveAuthOpen] = useState(false);
   const [reviewTarget, setReviewTarget] = useState<MerchantRow | null>(null);
   const [reviewStatus, setReviewStatus] = useState<'approved' | 'rejected'>('approved');
   const [reviewNote, setReviewNote] = useState('');
@@ -296,6 +298,11 @@ export default function P2pManagementPage() {
   const [escrowReason, setEscrowReason] = useState('');
   const [freezeTarget, setFreezeTarget] = useState<{ userId: string; username: string } | null>(null);
   const [freezeReason, setFreezeReason] = useState('');
+
+  useEffect(() => { setOrdersPage(1); }, [ordersSearch]);
+  useEffect(() => { setDisputesPage(1); }, [disputesSearch]);
+  useEffect(() => { setAdsPage(1); }, [adsSearch]);
+  useEffect(() => { setMerchantsPage(1); }, [merchantsSearch]);
 
   // ── Queries ────────────────────────────────────────────────────────────────
   const ov = useQuery({
@@ -310,10 +317,10 @@ export default function P2pManagementPage() {
     refetchInterval: REFETCH_MS,
   });
   const oq = useQuery({
-    queryKey: ['admin', 'p2p', 'orders', token, ordersPage],
+    queryKey: ['admin', 'p2p', 'orders', token, ordersPage, ordersSearch],
     staleTime: 30_000,
     queryFn: async () => {
-      const r = await getP2pOrders(token, { page: ordersPage, limit: PAGE_SIZE });
+      const r = await getP2pOrders(token, { page: ordersPage, limit: PAGE_SIZE, search: ordersSearch.trim() || undefined });
       if (!r.success) throw new Error(r.error?.message ?? 'Orders failed');
       return r.data;
     },
@@ -321,23 +328,34 @@ export default function P2pManagementPage() {
     refetchInterval: REFETCH_MS,
   });
   const dq = useQuery({
-    queryKey: ['admin', 'p2p', 'disputes', token],
+    queryKey: ['admin', 'p2p', 'disputes', token, disputesPage, disputesSearch],
     staleTime: 30_000,
     queryFn: async () => {
-      const r = await getP2pDisputes(token);
+      const r = await getP2pDisputes(token, {
+        limit: PAGE_SIZE,
+        offset: (disputesPage - 1) * PAGE_SIZE,
+        search: disputesSearch.trim() || undefined,
+      });
       if (!r.success) throw new Error(r.error?.message ?? 'Disputes failed');
       const raw = r.data;
       const list = Array.isArray(raw) ? raw : Array.isArray((raw as { disputes?: unknown[] })?.disputes) ? (raw as { disputes: unknown[] }).disputes : [];
-      return list as DisputeRow[];
+      const total = Array.isArray(raw)
+        ? list.length
+        : Number(
+            (raw as { total?: number; pagination?: { total?: number } }).total ??
+            (raw as { total?: number; pagination?: { total?: number } }).pagination?.total ??
+            list.length
+          );
+      return { disputes: list as DisputeRow[], total };
     },
     enabled: !!token,
     refetchInterval: REFETCH_MS,
   });
   const aq = useQuery({
-    queryKey: ['admin', 'p2p', 'ads', token, adsPage],
+    queryKey: ['admin', 'p2p', 'ads', token, adsPage, adsSearch],
     staleTime: 30_000,
     queryFn: async () => {
-      const r = await getP2pAds(token, { page: adsPage, limit: PAGE_SIZE });
+      const r = await getP2pAds(token, { page: adsPage, limit: PAGE_SIZE, search: adsSearch.trim() || undefined });
       if (!r.success) throw new Error(r.error?.message ?? 'Ads failed');
       return r.data;
     },
@@ -345,10 +363,15 @@ export default function P2pManagementPage() {
     refetchInterval: REFETCH_MS,
   });
   const mq = useQuery({
-    queryKey: ['admin', 'p2p', 'merchants', token, merchantsPage, merchantFilter],
+    queryKey: ['admin', 'p2p', 'merchants', token, merchantsPage, merchantFilter, merchantsSearch],
     staleTime: 30_000,
     queryFn: async () => {
-      const r = await getP2pMerchants(token, { page: merchantsPage, limit: PAGE_SIZE, status: merchantFilter !== 'all' ? merchantFilter : undefined });
+      const r = await getP2pMerchants(token, {
+        page: merchantsPage,
+        limit: PAGE_SIZE,
+        status: merchantFilter !== 'all' ? merchantFilter : undefined,
+        search: merchantsSearch.trim() || undefined,
+      });
       if (!r.success) throw new Error(r.error?.message ?? 'Merchants failed');
       return r.data;
     },
@@ -410,9 +433,9 @@ export default function P2pManagementPage() {
   const orders = (oq.data?.orders ?? []) as Record<string, unknown>[];
   const op = oq.data?.pagination;
   const oPages = Math.max(1, Math.ceil((op?.total ?? 0) / PAGE_SIZE));
-  const allD = dq.data ?? [];
-  const dPages = Math.max(1, Math.ceil(allD.length / PAGE_SIZE));
-  const dSlice = useMemo(() => { const s = (disputesPage - 1) * PAGE_SIZE; return allD.slice(s, s + PAGE_SIZE); }, [allD, disputesPage]);
+  const allD = dq.data?.disputes ?? [];
+  const dTotal = dq.data?.total ?? allD.length;
+  const dPages = Math.max(1, Math.ceil(dTotal / PAGE_SIZE));
   const ads = (aq.data?.ads ?? []) as Record<string, unknown>[];
   const ap = aq.data?.pagination;
   const aPages = Math.max(1, Math.ceil((ap?.total ?? 0) / PAGE_SIZE));
@@ -435,10 +458,10 @@ export default function P2pManagementPage() {
     const haystack = JSON.stringify(row).toLowerCase();
     return q.toLowerCase().split(' ').every((w) => haystack.includes(w));
   }
-  const filteredOrders = useMemo(() => orders.filter((r) => matchSearch(r, ordersSearch)), [orders, ordersSearch]);
-  const filteredDisputes = useMemo(() => dSlice.filter((r) => matchSearch(r, disputesSearch)), [dSlice, disputesSearch]);
-  const filteredAds = useMemo(() => ads.filter((r) => matchSearch(r, adsSearch)), [ads, adsSearch]);
-  const filteredMerchants = useMemo(() => merchants.filter((r) => matchSearch(r, merchantsSearch)), [merchants, merchantsSearch]);
+  const filteredOrders = useMemo(() => orders, [orders]);
+  const filteredDisputes = useMemo(() => allD, [allD]);
+  const filteredAds = useMemo(() => ads, [ads]);
+  const filteredMerchants = useMemo(() => merchants, [merchants]);
   const filteredEscrows = useMemo(() => allE.filter((r) => matchSearch(r, escrowsSearch)), [allE, escrowsSearch]);
 
   const p2pPageStatus: AdminPageStatus = ov.isError ? 'risk' : openDisputes > 10 ? 'warning' : 'active';
@@ -696,7 +719,7 @@ export default function P2pManagementPage() {
                     </tbody>
                   </TableWrap>
                   <Pager
-                    page={disputesPage} pages={dPages} total={allD.length} label="disputes"
+                    page={disputesPage} pages={dPages} total={dTotal} label="disputes"
                     busy={dq.isFetching} onPrev={() => setDisputesPage((p) => Math.max(1, p - 1))} onNext={() => setDisputesPage((p) => p + 1)}
                   />
                 </>
@@ -962,18 +985,43 @@ export default function P2pManagementPage() {
             </select>
           </div>
           <div>
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-admin-muted">Audit notes (optional)</label>
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-admin-muted">Audit notes (required)</label>
             <Textarea rows={3} value={resolveNotes} onChange={(e) => setResolveNotes(e.target.value)} disabled={resolveMu.isPending} placeholder="Document your reasoning for audit trail…" />
+            {resolveNotes.trim().length > 0 && resolveNotes.trim().length < 8 && (
+              <p className="mt-1 text-[10px] text-red-400">Minimum 8 characters required</p>
+            )}
           </div>
           {resolveMu.isError && <p className="text-sm text-red-400">{(resolveMu.error as Error).message}</p>}
         </div>
         <ModalFooter className="mt-2 border-0 px-0 pb-0 pt-4">
           <Button variant="outline" onClick={() => setResolveTarget(null)} disabled={resolveMu.isPending}>Cancel</Button>
-          <Button onClick={() => { const id = str(resolveTarget?.id); if (id !== '—') resolveMu.mutate({ id, resolution, notes: resolveNotes }); }} disabled={resolveMu.isPending}>
+          <Button onClick={() => setResolveAuthOpen(true)} disabled={resolveMu.isPending || resolveNotes.trim().length < 8}>
             <Gavel className="h-3.5 w-3.5 mr-1.5" />{resolveMu.isPending ? 'Resolving…' : 'Confirm Resolution'}
           </Button>
         </ModalFooter>
       </Modal>
+      <ActionAuthModal
+        open={resolveAuthOpen}
+        onClose={() => setResolveAuthOpen(false)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          const id = str(resolveTarget?.id);
+          if (id !== '—' && resolveNotes.trim().length >= 8) {
+            resolveMu.mutate({ id, resolution, notes: resolveNotes });
+          }
+          void payload;
+          setResolveAuthOpen(false);
+        }}
+        title="Authorize dispute resolution"
+        actionLabel={resolution === 'favor_buyer' ? 'Release escrow to buyer' : resolution === 'favor_seller' ? 'Release escrow to seller' : 'Cancel disputed order'}
+        description="Dispute resolution moves funds and is fully audited."
+        requireReason
+        twofaRequired
+        confirmationPhrase="CONFIRM DISPUTE_RESOLUTION"
+        externalError={resolveMu.isError ? (resolveMu.error as Error).message : null}
+        isPending={resolveMu.isPending}
+        confirmLabel={resolveMu.isPending ? 'Resolving…' : 'Resolve dispute'}
+        confirmVariant="danger"
+      />
 
       {/* Merchant Review Modal */}
       <Modal open={!!reviewTarget} onClose={() => !reviewMu.isPending && setReviewTarget(null)} title="Review Merchant Application" size="md">

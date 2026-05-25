@@ -18,6 +18,10 @@ import { logger } from './logger.js';
 const SLOW_QUERY_MS = Number(process.env.DB_SLOW_QUERY_MS ?? 500);
 const SLOW_QUERY_DEDUPE_MS = 30_000;
 const SLOW_QUERY_SAMPLE_RATE = 0.01;
+const DB_IDLE_TIMEOUT_MS = Number(process.env.DB_IDLE_TIMEOUT_MS ?? 20_000);
+const DB_CONNECTION_TIMEOUT_MS = Number(process.env.DB_CONNECTION_TIMEOUT_MS ?? 8_000);
+const DB_STATEMENT_TIMEOUT_MS = Number(process.env.DB_STATEMENT_TIMEOUT_MS ?? 20_000);
+const DB_MAX_USES = Number(process.env.DB_MAX_USES ?? 7_500);
 
 type SlowQueryStats = { samples: number[]; lastWarnAt: number };
 const slowQueryStats = new Map<string, SlowQueryStats>();
@@ -82,9 +86,10 @@ class Database {
       ...poolConfig,
       min: config.database.poolMin,
       max: config.database.poolMax,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 15000,
-      statement_timeout: 30000,
+      idleTimeoutMillis: DB_IDLE_TIMEOUT_MS,
+      connectionTimeoutMillis: DB_CONNECTION_TIMEOUT_MS,
+      statement_timeout: DB_STATEMENT_TIMEOUT_MS,
+      maxUses: DB_MAX_USES,
       application_name: 'exchange-api',
       ...(sslConfig && { ssl: sslConfig }),
     });
@@ -106,8 +111,10 @@ class Database {
         ...readCfg,
         min: Math.max(1, Math.floor(config.database.poolMin / 2)),
         max: config.database.poolMax,
-        idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 10000,
+        idleTimeoutMillis: DB_IDLE_TIMEOUT_MS,
+        connectionTimeoutMillis: Math.min(DB_CONNECTION_TIMEOUT_MS, 8_000),
+        statement_timeout: DB_STATEMENT_TIMEOUT_MS,
+        maxUses: DB_MAX_USES,
         ...(readSsl && { ssl: readSsl }),
       });
     }

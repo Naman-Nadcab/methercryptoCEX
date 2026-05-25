@@ -7,6 +7,8 @@ import { useAdminAuthStore } from '@/store/auth';
 import {
   getWithdrawalsList,
   approveWithdrawal,
+  bulkApproveWithdrawals,
+  bulkRejectWithdrawals,
   rejectWithdrawal,
   type WithdrawalRow,
 } from '@/lib/withdrawals-api';
@@ -16,10 +18,12 @@ import { RejectWithdrawalModal } from '@/components/withdrawals/RejectWithdrawal
 import { useAdminWs } from '@/hooks/useAdminWs';
 import {
   ArrowUpFromLine, Clock, XCircle, CheckCircle2, DollarSign,
-  Search, X, RefreshCw, ChevronLeft, ChevronRight, Wifi,
+  Search, X, RefreshCw, ChevronLeft, ChevronRight, Wifi, Download,
 } from 'lucide-react';
 import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 import { cn } from '@/lib/cn';
+import { ActionAuthModal, type ActionAuthPayload } from '@/components/ops/ActionAuthModal';
+import { BulkActionResultPanel } from '@/components/ops/BulkActionResultPanel';
 
 /* ── tiny helpers ────────────────────────────────────── */
 function fmtMoney(n: number | undefined): string {
@@ -28,6 +32,30 @@ function fmtMoney(n: number | undefined): string {
   if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
   if (n >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
   return `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+}
+
+function exportWithdrawalsCsv(rows: WithdrawalRow[]) {
+  const headers = ['Withdrawal ID', 'User', 'Asset', 'Amount', 'Status', 'Address', 'Tx Hash', 'Risk Score', 'Created At'];
+  const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const lines = rows.map((r) => [
+    r.id,
+    r.email ?? r.username ?? r.user_id,
+    r.currency_symbol ?? '',
+    r.amount ?? '',
+    r.status ?? '',
+    r.to_address ?? '',
+    r.tx_hash ?? '',
+    r.risk_score ?? '',
+    r.created_at ?? '',
+  ]);
+  const csv = [headers.join(','), ...lines.map((line) => line.map(esc).join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `withdrawals-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 /* ── KPI card ────────────────────────────────────────── */
@@ -80,6 +108,14 @@ export default function WithdrawalsPage() {
   const [liveFlash, setLiveFlash]     = useState(false);
   const [approveModal, setApproveModal] = useState<WithdrawalRow | null>(null);
   const [rejectModal, setRejectModal]   = useState<WithdrawalRow | null>(null);
+  const [selectedWithdrawalIds, setSelectedWithdrawalIds] = useState<string[]>([]);
+  const [bulkAction, setBulkAction] = useState<'approve' | 'reject' | null>(null);
+  const [exportingCsv, setExportingCsv] = useState(false);
+  const [bulkResult, setBulkResult] = useState<{
+    action: 'approve' | 'reject';
+    successCount: number;
+    failed: Array<{ id: string; code: string; message: string }>;
+  } | null>(null);
 
   useEffect(() => {
     const s = searchParams.get('status');
@@ -87,6 +123,7 @@ export default function WithdrawalsPage() {
   }, [searchParams]);
 
   useEffect(() => { setPage(1); }, [statusFilter, search]);
+  useEffect(() => { setSelectedWithdrawalIds([]); }, [statusFilter, search, page]);
 
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['admin', 'withdrawals', token, page, statusFilter, search],
@@ -122,6 +159,32 @@ export default function WithdrawalsPage() {
       rejectWithdrawal(token, id, { reason, admin_note: adminNote }),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['admin', 'withdrawals'] }); setRejectModal(null); },
   });
+  const bulkMutation = useMutation({
+    mutationFn: async ({ action, reason }: { action: 'approve' | 'reject'; reason: string }) => {
+      if (action === 'approve') {
+        const res = await bulkApproveWithdrawals(token, { withdrawal_ids: selectedWithdrawalIds, admin_note: reason });
+        if (!res.success) throw new Error(res.error?.message ?? 'Bulk approval failed');
+        return {
+          action,
+          successCount: Number(res.data?.approved_count ?? 0),
+          failed: Array.isArray(res.data?.failed) ? res.data.failed : [],
+        };
+      }
+      const res = await bulkRejectWithdrawals(token, { withdrawal_ids: selectedWithdrawalIds, reason });
+      if (!res.success) throw new Error(res.error?.message ?? 'Bulk rejection failed');
+      return {
+        action,
+        successCount: Number(res.data?.rejected_count ?? 0),
+        failed: Array.isArray(res.data?.failed) ? res.data.failed : [],
+      };
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'withdrawals'] });
+      setSelectedWithdrawalIds([]);
+      setBulkAction(null);
+      setBulkResult(result ?? null);
+    },
+  });
 
   const handleApprove = useCallback(
     (adminNote: string) => { if (approveModal) approveMutation.mutate({ id: approveModal.id, adminNote: adminNote || undefined }); },
@@ -133,6 +196,13 @@ export default function WithdrawalsPage() {
   );
 
   const withdrawals  = (data?.data?.withdrawals ?? []) as WithdrawalRow[];
+  const selectableIds = withdrawals
+    .filter((w) => {
+      const s = String(w.status ?? '');
+      return s === 'pending_approval' || s === 'pending';
+    })
+    .map((w) => w.id);
+  const selectedCount = selectedWithdrawalIds.length;
   const stats        = data?.data?.stats as Record<string, number> | undefined;
   const pagination   = data?.data?.pagination as { total?: number; totalPages?: number } | undefined;
   const total        = pagination?.total ?? 0;
@@ -202,11 +272,38 @@ export default function WithdrawalsPage() {
     ['cancelled', 'Cancelled'],
   ];
 
+  const handleExportCsv = useCallback(async () => {
+    if (!token || exportingCsv) return;
+    setExportingCsv(true);
+    try {
+      const all: WithdrawalRow[] = [];
+      let currentPage = 1;
+      let totalPagesForExport = 1;
+      do {
+        const res = await getWithdrawalsList(token, {
+          page: currentPage,
+          limit: 200,
+          status: statusFilter === 'all' ? undefined : statusFilter,
+          ...(search.trim() ? { search: search.trim() } : {}),
+        });
+        const rows = res.data?.withdrawals ?? [];
+        all.push(...rows);
+        totalPagesForExport = Math.max(1, Number(res.data?.pagination?.totalPages ?? 1));
+        currentPage += 1;
+      } while (currentPage <= totalPagesForExport && currentPage <= 200);
+      exportWithdrawalsCsv(all);
+    } finally {
+      setExportingCsv(false);
+    }
+  }, [token, exportingCsv, statusFilter, search]);
+
   return (
     <AdminPageFrame
       title="Withdrawals"
       description="Review, approve, and monitor outgoing withdrawal requests."
       status={failedCount > 5 ? 'warning' : pendingCount > 50 ? 'warning' : 'active'}
+      error={isError ? ((error as { message?: string })?.message ?? 'Failed to load withdrawals') : null}
+      onRetry={() => void refetch()}
       quickActions={
         <div className="flex items-center gap-2">
           <div className={cn(
@@ -222,6 +319,15 @@ export default function WithdrawalsPage() {
           >
             <RefreshCw className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')} />
             Refresh
+          </button>
+          <button
+            type="button"
+            onClick={() => { void handleExportCsv(); }}
+            disabled={exportingCsv}
+            className="flex items-center gap-1.5 rounded-xl border border-admin-border/60 px-3 py-1.5 text-xs text-admin-muted hover:text-admin-text hover:bg-white/[0.04] transition-colors"
+          >
+            <Download className="h-3.5 w-3.5" />
+            {exportingCsv ? 'Exporting…' : 'Export CSV'}
           </button>
         </div>
       }
@@ -271,6 +377,31 @@ export default function WithdrawalsPage() {
             <X className="h-3.5 w-3.5" /> Clear filters
           </button>
         )}
+        <BulkActionResultPanel
+          result={bulkResult ? { kind: 'generic', actionLabel: `Bulk ${bulkResult.action}`, ...bulkResult } : null}
+          onDismiss={() => setBulkResult(null)}
+        />
+        {selectedCount > 0 && (
+          <div className="flex items-center gap-1">
+            <span className="rounded-lg border border-admin-border/40 px-2 py-1 text-[10px] font-semibold text-admin-muted">
+              {selectedCount} selected
+            </span>
+            <button
+              type="button"
+              onClick={() => setBulkAction('approve')}
+              className="rounded-lg border border-emerald-500/30 bg-emerald-950/15 px-2.5 py-1.5 text-xs font-semibold text-emerald-400 hover:bg-emerald-950/25"
+            >
+              Bulk approve
+            </button>
+            <button
+              type="button"
+              onClick={() => setBulkAction('reject')}
+              className="rounded-lg border border-red-500/30 bg-red-950/15 px-2.5 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-950/25"
+            >
+              Bulk reject
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── Table card ── */}
@@ -317,6 +448,15 @@ export default function WithdrawalsPage() {
             rows={withdrawals}
             onApprove={(w) => setApproveModal(w)}
             onReject={(w) => setRejectModal(w)}
+            selectedIds={selectedWithdrawalIds}
+            onToggleSelect={(withdrawalId, checked) => {
+              if (checked) setSelectedWithdrawalIds((prev) => Array.from(new Set([...prev, withdrawalId])));
+              else setSelectedWithdrawalIds((prev) => prev.filter((id) => id !== withdrawalId));
+            }}
+            onToggleSelectAll={(checked) => {
+              if (checked) setSelectedWithdrawalIds(selectableIds);
+              else setSelectedWithdrawalIds([]);
+            }}
           />
         )}
 
@@ -385,6 +525,24 @@ export default function WithdrawalsPage() {
         asset={rejectModal?.currency_symbol}
         amount={rejectModal?.amount}
         isLoading={rejectMutation.isPending}
+      />
+      <ActionAuthModal
+        open={bulkAction !== null}
+        onClose={() => setBulkAction(null)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          if (!bulkAction) return;
+          bulkMutation.mutate({ action: bulkAction, reason: payload.reason });
+        }}
+        title={bulkAction === 'approve' ? 'Bulk approve withdrawals' : 'Bulk reject withdrawals'}
+        actionLabel={`${bulkAction === 'approve' ? 'Approve' : 'Reject'} ${selectedCount} selected withdrawals`}
+        description="Bulk withdrawal moderation is applied server-side and fully audit logged."
+        requireReason
+        twofaRequired
+        confirmationPhrase={bulkAction === 'reject' ? 'CONFIRM BULK_REJECT_WITHDRAWALS' : undefined}
+        externalError={bulkMutation.error instanceof Error ? bulkMutation.error.message : null}
+        isPending={bulkMutation.isPending}
+        confirmLabel={bulkMutation.isPending ? 'Processing…' : 'Apply bulk action'}
+        confirmVariant={bulkAction === 'reject' ? 'danger' : 'primary'}
       />
     </AdminPageFrame>
   );

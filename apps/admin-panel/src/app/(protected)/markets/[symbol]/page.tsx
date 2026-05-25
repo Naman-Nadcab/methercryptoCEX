@@ -44,7 +44,7 @@ export default function MarketDetailPage() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<MarketDetailTab>('overview');
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['admin', 'market', symbol, token],
     queryFn: () => getMarketBySymbol(token, symbol),
     enabled: !!token && !!symbol,
@@ -96,31 +96,34 @@ export default function MarketDetailPage() {
 
   if (!symbol) {
     return (
-      <div className="space-y-5">
-        <p className="text-admin-muted">Missing market symbol.</p>
+      <AdminPageFrame title="Market Details" description="Missing market symbol." error="Market symbol is missing from route.">
         <Link href="/markets">
           <Button variant="secondary">Back to Markets</Button>
         </Link>
-      </div>
+      </AdminPageFrame>
     );
   }
 
   if (isLoading) {
     return (
-      <div className="space-y-5">
+      <AdminPageFrame title="Market Details" description="Loading market detail...">
         <DetailSkeleton rows={8} />
-      </div>
+      </AdminPageFrame>
     );
   }
 
   if (isError || !market) {
     return (
-      <div className="space-y-5">
-        <p className="text-admin-muted">Market not found.</p>
+      <AdminPageFrame
+        title="Market Details"
+        description="Unable to load market detail."
+        error="Market not found or failed to load."
+        onRetry={() => { void refetch(); }}
+      >
         <Link href="/markets">
           <Button variant="secondary">Back to Markets</Button>
         </Link>
-      </div>
+      </AdminPageFrame>
     );
   }
 

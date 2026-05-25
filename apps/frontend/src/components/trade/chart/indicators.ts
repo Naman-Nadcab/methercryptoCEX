@@ -26,11 +26,12 @@ function typicalPrice(c: CandleData): number {
 
 export function computeSma(candles: CandleData[], period: number): { time: number; value: number }[] {
   if (period < 1 || candles.length < period) return [];
+  const sorted = [...candles].sort((a, b) => a.time - b.time);
   const out: { time: number; value: number }[] = [];
-  for (let i = period - 1; i < candles.length; i++) {
+  for (let i = period - 1; i < sorted.length; i++) {
     let s = 0;
-    for (let j = i - period + 1; j <= i; j++) s += candles[j].close;
-    out.push({ time: candles[i].time, value: s / period });
+    for (let j = i - period + 1; j <= i; j++) s += sorted[j].close;
+    out.push({ time: sorted[i].time, value: s / period });
   }
   return out;
 }

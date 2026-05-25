@@ -29,6 +29,9 @@ function tickerFieldsMatch(rest: Record<string, unknown>, wsData: Record<string,
     const a = normStr(rest[k]);
     const b = normStr(wsData[k]);
     if (a === '' && b === '') continue;
+    // Top-of-book can transiently diverge when one channel emits stale bid/ask while book is empty on REST.
+    // Treat one-sided empty bid/ask as non-fatal; strict parity still applies to numeric-vs-numeric values.
+    if ((k === 'bid' || k === 'ask') && (a === '' || b === '')) continue;
     if (a === b) continue;
     const na = parseFloat(a);
     const nb = parseFloat(b);

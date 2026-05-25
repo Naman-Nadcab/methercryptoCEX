@@ -15,6 +15,7 @@ import {
 import { AlertCircle, ChevronDown, ChevronUp, Loader2, Info, TrendingUp } from 'lucide-react';
 import { CoinIcon } from '@/components/ui/CoinIcon';
 import Link from 'next/link';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { SPOT_TRADE_HREF, loginWithRedirect } from '@/lib/routes';
 import { ExchangeHeader } from '@/components/layout/ExchangeHeader';
 import { PairHeader } from './PairHeader';
@@ -90,12 +91,8 @@ function useDayChangePct24h(ticker: ReturnType<typeof useSpotMarketTicker>['tick
     if (Number.isFinite(last) && Number.isFinite(open) && open > 0) {
       return ((last - open) / open) * 100;
     }
-    const low = ticker?.low_24h != null && ticker.low_24h !== '' ? Number(ticker.low_24h) : NaN;
-    if (Number.isFinite(last) && Number.isFinite(low) && low > 0) {
-      return ((last - low) / low) * 100;
-    }
     return null;
-  }, [ticker?.last_price, ticker?.open_24h, ticker?.low_24h]);
+  }, [ticker?.last_price, ticker?.open_24h]);
 }
 
 const SPOT_CHART_SPLIT_STORAGE_KEY = 'spotTerminal.chartSplitChartGrowPct';
@@ -394,7 +391,7 @@ const RecentTradesPanel = memo(function RecentTradesPanel({
               : '';
             return (
               <div
-                key={`${t.time}-${i}`}
+                key={`${t.id || t.time || 'trade'}-${i}`}
                 className="flex shrink-0 items-center px-3 py-1.5 text-label numeric hover:bg-muted/50"
               >
                 <span className={`min-w-0 flex-1 truncate font-semibold ${isBuy ? 'text-buy' : 'text-sell'}`}>
@@ -604,6 +601,7 @@ function BinanceOrderEntrySection({
   baseAsset, quoteAsset, pricePrecision, qtyPrecision,
   isAuth, submitting, handleSubmit, handleSideChange, setQuantity, selectedMarket,
   availableBalance, quoteBalance, baseBalance, side,
+  requireOrderConfirmation, tradingEnabled,
 }: {
   orderType: 'limit' | 'market' | 'stop_loss' | 'stop_limit' | 'trailing_stop_market';
   setOrderType: (t: 'limit' | 'market' | 'stop_loss' | 'stop_limit' | 'trailing_stop_market') => void;
@@ -631,6 +629,8 @@ function BinanceOrderEntrySection({
   quoteBalance: string;
   baseBalance: string;
   side: 'buy' | 'sell';
+  requireOrderConfirmation: boolean;
+  tradingEnabled: boolean;
 }) {
   const { orderbook } = useSpotMarketOrderbook();
   const { ticker } = useSpotMarketTicker();
@@ -638,6 +638,8 @@ function BinanceOrderEntrySection({
   const [sellQty, setSellQty] = useState('');
   const [buySlider, setBuySlider] = useState(0);
   const [sellSlider, setSellSlider] = useState(0);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [pendingOrder, setPendingOrder] = useState<{ side: 'buy' | 'sell'; qty: string } | null>(null);
 
   const lastPrice =
     ticker?.last_price ??
@@ -685,18 +687,45 @@ function BinanceOrderEntrySection({
     }
   };
 
+  const submitOrder = async (orderSide: 'buy' | 'sell', qty: string) => {
+    if (!tradingEnabled) return;
+    handleSideChange(orderSide);
+    setQuantity(qty);
+    try {
+      await handleSubmit(orderSide, qty);
+      if (orderSide === 'buy') {
+        setBuyQty('');
+        setBuySlider(0);
+      } else {
+        setSellQty('');
+        setSellSlider(0);
+      }
+    } catch {
+      /* error toasts handled upstream */
+    } finally {
+      setPendingOrder(null);
+      setConfirmOpen(false);
+    }
+  };
+
   const doBuy = async () => {
     if (!buyQty.trim()) return;
-    handleSideChange('buy');
-    setQuantity(buyQty);
-    try { await handleSubmit('buy', buyQty); setBuyQty(''); setBuySlider(0); } catch { /* toast */ }
+    if (requireOrderConfirmation) {
+      setPendingOrder({ side: 'buy', qty: buyQty.trim() });
+      setConfirmOpen(true);
+      return;
+    }
+    await submitOrder('buy', buyQty.trim());
   };
 
   const doSell = async () => {
     if (!sellQty.trim()) return;
-    handleSideChange('sell');
-    setQuantity(sellQty);
-    try { await handleSubmit('sell', sellQty); setSellQty(''); setSellSlider(0); } catch { /* toast */ }
+    if (requireOrderConfirmation) {
+      setPendingOrder({ side: 'sell', qty: sellQty.trim() });
+      setConfirmOpen(true);
+      return;
+    }
+    await submitOrder('sell', sellQty.trim());
   };
 
   const advancedTypes = ['stop_loss', 'stop_limit', 'trailing_stop_market'] as const;
@@ -791,7 +820,7 @@ function BinanceOrderEntrySection({
             <button
               type="button"
               data-spot-place-order
-              disabled={submitting || !buyQty.trim()}
+              disabled={submitting || !buyQty.trim() || !tradingEnabled}
               onClick={doBuy}
               className="flex h-10 min-h-[40px] items-center justify-center gap-1.5 rounded-lg bg-buy/90 text-price font-semibold tracking-wide text-neutral-950 shadow-sm transition-all hover:bg-buy active:scale-[0.99] active:brightness-95 disabled:pointer-events-none disabled:opacity-40"
             >
@@ -860,7 +889,7 @@ function BinanceOrderEntrySection({
             <button
               type="button"
               data-spot-place-order
-              disabled={submitting || !sellQty.trim()}
+              disabled={submitting || !sellQty.trim() || !tradingEnabled}
               onClick={doSell}
               className="flex h-10 min-h-[40px] items-center justify-center gap-1.5 rounded-lg bg-sell/90 text-price font-semibold tracking-wide text-neutral-950 shadow-sm transition-all hover:bg-sell active:scale-[0.99] active:brightness-95 disabled:pointer-events-none disabled:opacity-40"
             >
@@ -869,6 +898,63 @@ function BinanceOrderEntrySection({
           )}
         </div>
       </div>
+      {!tradingEnabled && (
+        <div className="border-t border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
+          Live market feed is unavailable. Order placement is paused to prevent stale execution.
+        </div>
+      )}
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Confirm order</DialogTitle>
+            <DialogDescription>Review order details before placing.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5 text-sm">
+            <p>
+              <span className="text-muted-foreground">Side:</span>{' '}
+              <span className={pendingOrder?.side === 'buy' ? 'text-buy font-semibold' : 'text-sell font-semibold'}>
+                {(pendingOrder?.side ?? side).toUpperCase()}
+              </span>
+            </p>
+            <p>
+              <span className="text-muted-foreground">Type:</span> {ORDER_TYPE_LABELS[orderType]}
+            </p>
+            {(orderType === 'limit' || orderType === 'stop_limit') && (
+              <p>
+                <span className="text-muted-foreground">Price:</span> {price || '—'} {quoteAsset}
+              </p>
+            )}
+            {(orderType === 'stop_loss' || orderType === 'stop_limit') && (
+              <p>
+                <span className="text-muted-foreground">Trigger:</span> {stopPrice || '—'} {quoteAsset}
+              </p>
+            )}
+            <p>
+              <span className="text-muted-foreground">Quantity:</span> {pendingOrder?.qty || '—'} {baseAsset}
+            </p>
+          </div>
+          <DialogFooter>
+            <button
+              type="button"
+              className="rounded border border-border px-3 py-2 text-sm"
+              onClick={() => setConfirmOpen(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={submitting || !pendingOrder}
+              className="rounded bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+              onClick={() => {
+                if (!pendingOrder) return;
+                void submitOrder(pendingOrder.side, pendingOrder.qty);
+              }}
+            >
+              {submitting ? 'Placing...' : 'Confirm'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -912,6 +998,9 @@ export interface SpotTradingGridTerminalProps {
   availableBalance: string;
   quoteBalance: string;
   baseBalance: string;
+  requireOrderConfirmation: boolean;
+  requireCancelAllConfirmation: boolean;
+  preferencesSyncIssue?: boolean;
 }
 
 export function SpotTradingGridTerminal(props: SpotTradingGridTerminalProps) {
@@ -954,9 +1043,12 @@ export function SpotTradingGridTerminal(props: SpotTradingGridTerminalProps) {
     availableBalance,
     quoteBalance,
     baseBalance,
+    requireOrderConfirmation,
+    requireCancelAllConfirmation,
+    preferencesSyncIssue = false,
   } = props;
 
-  const { reconnectAttempt, streamPhase } = useSpotMarketStream();
+  const { reconnectAttempt, streamPhase, privateChannelsReady, bootstrapIssue } = useSpotMarketStream();
   const { chartGrowPct, splitRootRef, splitBarProps } = useChartOrderVerticalSplit();
   const [topMoversExpanded, setTopMoversExpanded] = useState(false);
 
@@ -1090,6 +1182,8 @@ export function SpotTradingGridTerminal(props: SpotTradingGridTerminalProps) {
                 isAuth={isAuth} submitting={submitting} handleSubmit={handleSubmit} handleSideChange={handleSideChange}
                 setQuantity={setQuantity} selectedMarket={selectedMarket} availableBalance={availableBalance}
                 quoteBalance={quoteBalance} baseBalance={baseBalance} side={side}
+                requireOrderConfirmation={requireOrderConfirmation}
+                tradingEnabled={streamPhase === 'live'}
               />
               </PanelErrorBoundary>
             </div>
@@ -1106,6 +1200,25 @@ export function SpotTradingGridTerminal(props: SpotTradingGridTerminalProps) {
             {streamPhase === 'connecting' && 'Connecting…'}
             {streamPhase === 'reconnecting' && `Reconnecting${reconnectAttempt > 0 ? ` (${reconnectAttempt})` : ''}…`}
             {streamPhase === 'disconnected' && 'Stream unavailable'}
+          </div>
+        )}
+
+        {streamPhase === 'live' && isAuth && !privateChannelsReady && (
+          <div className="pointer-events-none absolute left-[var(--spot-terminal-rail-width)] right-[var(--spot-terminal-rail-width)] top-[calc(60px+2.75rem)] z-10 flex items-center gap-2 bg-amber-950/90 px-3 py-1 text-label font-medium text-amber-200">
+            <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-amber-500" />
+            Account updates are reconnecting. Order/trade status may lag briefly.
+          </div>
+        )}
+        {streamPhase === 'live' && isAuth && preferencesSyncIssue && privateChannelsReady && (
+          <div className="pointer-events-none absolute left-[var(--spot-terminal-rail-width)] right-[var(--spot-terminal-rail-width)] top-[calc(60px+2.75rem)] z-10 flex items-center gap-2 bg-blue-950/90 px-3 py-1 text-label font-medium text-blue-200">
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400" />
+            Preference sync delayed. Default confirmation rules are active for now.
+          </div>
+        )}
+        {streamPhase === 'live' && bootstrapIssue && privateChannelsReady && !preferencesSyncIssue && (
+          <div className="pointer-events-none absolute left-[var(--spot-terminal-rail-width)] right-[var(--spot-terminal-rail-width)] top-[calc(60px+2.75rem)] z-10 flex items-center gap-2 bg-violet-950/90 px-3 py-1 text-label font-medium text-violet-200">
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-violet-400" />
+            {bootstrapIssue}
           </div>
         )}
 
@@ -1127,6 +1240,7 @@ export function SpotTradingGridTerminal(props: SpotTradingGridTerminalProps) {
             isAuth={isAuth}
             ordersVersion={ordersVersion}
             tradesVersion={tradesVersion}
+            promptCancelAllConfirmation={requireCancelAllConfirmation}
             markets={markets.map((m) => ({
               symbol: m.symbol,
               price_precision: m.price_precision,

@@ -211,6 +211,15 @@ export default function TriagePage() {
   const criticalCount = triageItems.filter((i) => i.priority === 'critical' && !i.resolved).length;
   const actionableCount = triageItems.filter((i) => !i.resolved).length;
   const pageStatus = criticalCount > 0 ? 'risk' as const : actionableCount > 0 ? 'warning' as const : 'active' as const;
+  const pageError =
+    (dashQ.isError && (dashQ.error instanceof Error ? dashQ.error.message : 'Failed to load dashboard summary.')) ||
+    (haltQ.isError && (haltQ.error instanceof Error ? haltQ.error.message : 'Failed to load trading halt status.')) ||
+    (healthQ.isError && (healthQ.error instanceof Error ? healthQ.error.message : 'Failed to load system health.')) ||
+    (disputesQ.isError && (disputesQ.error instanceof Error ? disputesQ.error.message : 'Failed to load disputes.')) ||
+    (alertsQ.isError && (alertsQ.error instanceof Error ? alertsQ.error.message : 'Failed to load smart alerts.')) ||
+    (riskQ.isError && (riskQ.error instanceof Error ? riskQ.error.message : 'Failed to load risk data.')) ||
+    (supportQ.isError && (supportQ.error instanceof Error ? supportQ.error.message : 'Failed to load support stats.')) ||
+    null;
 
   const isLoading = dashQ.isLoading || haltQ.isLoading || healthQ.isLoading;
 
@@ -219,6 +228,16 @@ export default function TriagePage() {
       title="Triage Queue"
       description="Priority-sorted view of everything needing attention right now. Auto-refreshes every 15s."
       status={pageStatus}
+      error={pageError}
+      onRetry={pageError ? () => {
+        void dashQ.refetch();
+        void haltQ.refetch();
+        void healthQ.refetch();
+        void disputesQ.refetch();
+        void alertsQ.refetch();
+        void riskQ.refetch();
+        void supportQ.refetch();
+      } : undefined}
     >
       {/* Summary strip */}
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-admin-border bg-admin-card px-4 py-3">

@@ -15,14 +15,23 @@ import { engineHmacRequestHeaders } from './engine-hmac.js';
 const FETCH_TIMEOUT_MS = 5_000;
 
 function pathAndQueryFromUrl(fullUrl: string): string {
+  let pq: string;
   try {
     const u = new URL(fullUrl);
-    return `${u.pathname}${u.search}`;
+    pq = `${u.pathname}${u.search}`;
   } catch {
     const idx = fullUrl.indexOf('/engine/');
-    if (idx >= 0) return fullUrl.slice(idx);
-    return fullUrl.replace(/^https?:\/\/[^/]+/i, '') || '/';
+    if (idx >= 0) {
+      pq = fullUrl.slice(idx);
+    } else {
+      pq = fullUrl.replace(/^https?:\/\/[^/]+/i, '') || '/';
+    }
   }
+  // Rust Axum nests under `/engine`; HMAC middleware compares the inner path only (/matches, /place).
+  if (pq.startsWith('/engine/')) {
+    pq = pq.slice('/engine'.length) || '/';
+  }
+  return pq;
 }
 
 function engineAuthHeaders(

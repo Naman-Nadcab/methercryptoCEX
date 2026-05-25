@@ -5,6 +5,9 @@ export type ParsedEliteSymbol = {
   executionEfficiency: number | null;
   avgSlippageBps: number | null;
   inventoryBase: number | null;
+  oracleMid: number | null;
+  benchmarkPrice1h: number | null;
+  unrealizedVsBenchmarkQuote: number | null;
 };
 
 export function parseEliteSymbolMetrics(raw: unknown): ParsedEliteSymbol | null {
@@ -23,6 +26,9 @@ export function parseEliteSymbolMetrics(raw: unknown): ParsedEliteSymbol | null 
     executionEfficiency: num(fq?.executionEfficiency),
     avgSlippageBps: num(fq?.avgSlippageBps),
     inventoryBase: num(mtm?.inventoryBase),
+    oracleMid: num(mtm?.oracleMid),
+    benchmarkPrice1h: num(mtm?.benchmarkPrice1h),
+    unrealizedVsBenchmarkQuote: num(mtm?.unrealizedVsBenchmarkQuote),
   };
 }
 

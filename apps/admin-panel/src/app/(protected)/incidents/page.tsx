@@ -34,7 +34,7 @@ import {
 export default function IncidentsPage() {
   const token = useAdminAuthStore((s) => s.accessToken);
 
-  const { data: allIncData } = useQuery({
+  const { data: allIncData, isError: allIncIsError, error: allIncError, refetch: refetchAllInc } = useQuery({
     queryKey: ['admin', 'monitoring-incidents-all', token],
     queryFn: () => getMonitoringIncidents(token, { limit: 200, offset: 0 }),
     enabled: !!token,
@@ -42,7 +42,7 @@ export default function IncidentsPage() {
     refetchInterval: 15_000,
   });
 
-  const { data: healthData } = useQuery({
+  const { data: healthData, isError: healthIsError, error: healthError, refetch: refetchHealth } = useQuery({
     queryKey: ['admin', 'monitoring-health-incidents', token],
     queryFn: () => getMonitoringHealth(token),
     enabled: !!token,
@@ -50,7 +50,7 @@ export default function IncidentsPage() {
     refetchInterval: 30_000,
   });
 
-  const { data: timelineData } = useQuery({
+  const { data: timelineData, isError: timelineIsError, error: timelineError, refetch: refetchTimeline } = useQuery({
     queryKey: ['admin', 'monitoring-timeline', token],
     queryFn: () => getMonitoringTimeline(token, 20),
     enabled: !!token,
@@ -58,7 +58,7 @@ export default function IncidentsPage() {
     refetchInterval: 30_000,
   });
 
-  const { data: eventsData } = useQuery({
+  const { data: eventsData, isError: eventsIsError, error: eventsError, refetch: refetchEvents } = useQuery({
     queryKey: ['admin', 'control-events-incidents', token],
     queryFn: () => getControlEvents(token, 15),
     enabled: !!token,
@@ -77,12 +77,27 @@ export default function IncidentsPage() {
   const events = eventsData?.data?.events ?? [];
 
   const pageStatus = criticalCount > 0 ? 'risk' as const : openCount > 0 ? 'warning' as const : 'active' as const;
+  const pageError =
+    (allIncIsError && (allIncError instanceof Error ? allIncError.message : 'Failed to load incidents.')) ||
+    (healthIsError && (healthError instanceof Error ? healthError.message : 'Failed to load incident health.')) ||
+    (timelineIsError && (timelineError instanceof Error ? timelineError.message : 'Failed to load timeline.')) ||
+    (eventsIsError && (eventsError instanceof Error ? eventsError.message : 'Failed to load control events.')) ||
+    null;
+
+  const retryAll = () => {
+    void refetchAllInc();
+    void refetchHealth();
+    void refetchTimeline();
+    void refetchEvents();
+  };
 
   return (
     <AdminPageFrame
       title="Incident Workspace"
       description="Monitor, create, acknowledge, and resolve incidents across all exchange services."
       status={pageStatus}
+      error={pageError}
+      onRetry={pageError ? retryAll : undefined}
       metrics={
         <>
           <KpiCard label="Open" value={openCount} icon={<Siren className="h-3.5 w-3.5" />}

@@ -7,6 +7,8 @@ import { adminFetch } from '@/lib/api';
 import { useAdminAuthStore } from '@/store/auth';
 import { cn } from '@/lib/cn';
 import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
+import { ProtectedAction } from '@/components/rbac/ProtectedAction';
+import { ActionAuthModal, type ActionAuthPayload } from '@/components/ops/ActionAuthModal';
 
 /* ── constants ─────────────────────────────────────────────────────── */
 const EVENT_TYPES = [
@@ -68,6 +70,8 @@ export default function NotificationsPage() {
   const [saveError,   setSaveError]   = useState('');
   const [testingCh,   setTestingCh]   = useState<ChannelKey | null>(null);
   const [testResult,  setTestResult]  = useState<{ ch: ChannelKey; ok: boolean; msg: string } | null>(null);
+  const [pendingSaveAuth, setPendingSaveAuth] = useState(false);
+  const [pendingTestAuth, setPendingTestAuth] = useState<ChannelKey | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin', 'notification-prefs', token],
@@ -159,16 +163,18 @@ export default function NotificationsPage() {
                         count > 0 ? 'border-emerald-500/30 bg-emerald-950/15 text-emerald-400' : 'border-admin-border/40 text-admin-muted')}>
                         {count}/{EVENT_TYPES.length} events
                       </span>
-                      <button type="button"
-                        onClick={() => handleTestSend(channel)}
-                        disabled={testingCh !== null}
-                        className="flex items-center gap-1.5 rounded-lg border border-admin-border/40 px-3 py-1.5 text-[10px] font-semibold text-admin-muted hover:text-admin-text hover:border-admin-border disabled:opacity-40 transition-colors">
-                        {testingCh === channel ? (
-                          <><RefreshCw className="h-3 w-3 animate-spin" /> Testing…</>
-                        ) : (
-                          <><Send className="h-3 w-3" /> Test Send</>
-                        )}
-                      </button>
+                      <ProtectedAction permission="settings:edit" fallback="disabled">
+                        <button type="button"
+                          onClick={() => setPendingTestAuth(channel)}
+                          disabled={testingCh !== null}
+                          className="flex items-center gap-1.5 rounded-lg border border-admin-border/40 px-3 py-1.5 text-[10px] font-semibold text-admin-muted hover:text-admin-text hover:border-admin-border disabled:opacity-40 transition-colors">
+                          {testingCh === channel ? (
+                            <><RefreshCw className="h-3 w-3 animate-spin" /> Testing…</>
+                          ) : (
+                            <><Send className="h-3 w-3" /> Test Send</>
+                          )}
+                        </button>
+                      </ProtectedAction>
                     </div>
                   </div>
 
@@ -220,13 +226,15 @@ export default function NotificationsPage() {
                 Discard
               </button>
             )}
-            <button type="button"
-              onClick={() => saveMut.mutate(prefs)}
-              disabled={saveMut.isPending || !isDirty}
-              className={cn('flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold text-white transition-all disabled:opacity-40',
-                isDirty ? 'bg-blue-600 hover:bg-blue-500' : 'bg-white/5 cursor-default')}>
-              {saveMut.isPending ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…</> : saved ? <><CheckCircle2 className="h-3.5 w-3.5" /> Saved</> : 'Save Preferences'}
-            </button>
+            <ProtectedAction permission="settings:edit" fallback="disabled">
+              <button type="button"
+                onClick={() => setPendingSaveAuth(true)}
+                disabled={saveMut.isPending || !isDirty}
+                className={cn('flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold text-white transition-all disabled:opacity-40',
+                  isDirty ? 'bg-blue-600 hover:bg-blue-500' : 'bg-white/5 cursor-default')}>
+                {saveMut.isPending ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…</> : saved ? <><CheckCircle2 className="h-3.5 w-3.5" /> Saved</> : 'Save Preferences'}
+              </button>
+            </ProtectedAction>
           </div>
           {saveError && <p className="rounded-lg border border-red-500/25 bg-red-950/10 px-3 py-2 text-xs text-red-400">{saveError}</p>}
 
@@ -264,6 +272,45 @@ export default function NotificationsPage() {
           </div>
         </>
       )}
+      <ActionAuthModal
+        open={pendingSaveAuth}
+        onClose={() => setPendingSaveAuth(false)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          void payload;
+          saveMut.mutate(prefs);
+          setPendingSaveAuth(false);
+        }}
+        title="Authorize notification preferences update"
+        actionLabel="Save notification routing preferences"
+        description="This change impacts incident and compliance communications."
+        requireReason
+        twofaRequired
+        confirmationPhrase="CONFIRM NOTIFICATIONS_UPDATE"
+        externalError={saveError || (saveMut.error instanceof Error ? saveMut.error.message : null)}
+        isPending={saveMut.isPending}
+        confirmLabel={saveMut.isPending ? 'Saving…' : 'Save preferences'}
+        confirmVariant="primary"
+      />
+      <ActionAuthModal
+        open={pendingTestAuth !== null}
+        onClose={() => setPendingTestAuth(null)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          const ch = pendingTestAuth;
+          void payload;
+          if (ch) void handleTestSend(ch);
+          setPendingTestAuth(null);
+        }}
+        title="Authorize notification test"
+        actionLabel={pendingTestAuth ? `Send test notification via ${pendingTestAuth}` : 'Send test notification'}
+        description="Test sends are audit-logged and can trigger on-call integrations."
+        requireReason
+        twofaRequired
+        confirmationPhrase="CONFIRM TEST_NOTIFICATION"
+        externalError={testResult && !testResult.ok ? testResult.msg : null}
+        isPending={testingCh !== null}
+        confirmLabel={testingCh ? 'Testing…' : 'Send test'}
+        confirmVariant="primary"
+      />
     </AdminPageFrame>
   );
 }

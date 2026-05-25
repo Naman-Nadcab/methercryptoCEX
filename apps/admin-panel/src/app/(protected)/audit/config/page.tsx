@@ -171,7 +171,8 @@ export default function AuditConfigPage() {
       title="Config Changes"
       description="Audit trail of all configuration changes — system settings, feature flags, and profile updates."
       status="active"
-      error={null}
+      error={isError ? (error instanceof Error ? error.message : 'Failed to load config audit logs.') : null}
+      onRetry={isError ? () => { void refetch(); } : undefined}
       quickActions={
         <>
           <button type="button" disabled={isFetching} onClick={() => refetch()}

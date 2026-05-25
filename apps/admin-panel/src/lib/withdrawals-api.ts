@@ -62,3 +62,35 @@ export function rejectWithdrawal(token: string | null, id: string, body: { reaso
     body,
   });
 }
+
+export function bulkApproveWithdrawals(
+  token: string | null,
+  body: { withdrawal_ids: string[]; admin_note: string }
+) {
+  return adminFetch<{
+    approved_count: number;
+    failed_count: number;
+    approved_ids: string[];
+    failed: Array<{ id: string; code: string; message: string }>;
+  }>('/withdrawals/bulk-approve', {
+    method: 'POST',
+    token,
+    body,
+  });
+}
+
+export function bulkRejectWithdrawals(
+  token: string | null,
+  body: { withdrawal_ids: string[]; reason: string; admin_note?: string }
+) {
+  return adminFetch<{
+    rejected_count: number;
+    failed_count: number;
+    rejected_ids: string[];
+    failed: Array<{ id: string; code: string; message: string }>;
+  }>('/withdrawals/bulk-reject', {
+    method: 'POST',
+    token,
+    body,
+  });
+}

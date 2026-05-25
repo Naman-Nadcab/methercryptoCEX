@@ -43,11 +43,23 @@ export interface WithdrawalsTableProps {
   rows: WithdrawalRow[];
   onApprove: (w: WithdrawalRow) => void;
   onReject: (w: WithdrawalRow) => void;
+  selectedIds?: string[];
+  onToggleSelect?: (withdrawalId: string, checked: boolean) => void;
+  onToggleSelectAll?: (checked: boolean) => void;
 }
 
-export function WithdrawalsTable({ rows, onApprove, onReject }: WithdrawalsTableProps) {
+export function WithdrawalsTable({
+  rows,
+  onApprove,
+  onReject,
+  selectedIds = [],
+  onToggleSelect,
+  onToggleSelectAll,
+}: WithdrawalsTableProps) {
   const router = useRouter();
   const needsAction = (s: string) => s === 'pending_approval' || s === 'pending';
+  const selectableRows = rows.filter((w) => needsAction(String(w.status ?? '')));
+  const allSelected = selectableRows.length > 0 && selectableRows.every((w) => selectedIds.includes(w.id));
 
   if (rows.length === 0) {
     return (
@@ -63,9 +75,17 @@ export function WithdrawalsTable({ rows, onApprove, onReject }: WithdrawalsTable
       <table className="w-full min-w-[960px] text-sm">
         <thead>
           <tr className="border-b border-admin-border/50 bg-white/[0.015]">
-            {['ID', 'User', 'Asset', 'Amount', 'Destination', 'Risk', 'Status', 'Time', ''].map((h) => (
+            {['', 'ID', 'User', 'Asset', 'Amount', 'Destination', 'Risk', 'Status', 'Time', ''].map((h, idx) => (
               <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-admin-muted last:text-right">
-                {h}
+                {idx === 0 ? (
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={(e) => onToggleSelectAll?.(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-admin-border/60 bg-transparent"
+                    aria-label="Select all actionable withdrawals"
+                  />
+                ) : h}
               </th>
             ))}
           </tr>
@@ -87,6 +107,16 @@ export function WithdrawalsTable({ rows, onApprove, onReject }: WithdrawalsTable
                   isHighRisk && 'bg-red-950/[0.05]',
                 )}
               >
+                <td className="px-4 py-3.5" onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(w.id)}
+                    disabled={!canAct}
+                    onChange={(e) => onToggleSelect?.(w.id, e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-admin-border/60 bg-transparent disabled:opacity-30"
+                    aria-label={`Select withdrawal ${w.id}`}
+                  />
+                </td>
                 {/* ID */}
                 <td className="group px-4 py-3.5 whitespace-nowrap">
                   <div className="flex items-center gap-1">

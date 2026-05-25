@@ -466,3 +466,60 @@ export const balanceIntegrityMinorMismatchTotal = new Counter({
   help: 'Sell-lock delta within tolerance (logged, no freeze)',
   registers: [register],
 });
+
+export const hedgeExposureUsdGauge = new Gauge({
+  name: 'hedge_open_jobs_notional_usd',
+  help: 'Sum of hedge_jobs notional_usd pending+processing',
+  registers: [register],
+});
+
+export const hedgePnlDailyGauge = new Gauge({
+  name: 'hedge_realized_pnl_usd_today',
+  help: 'Signed realized hedge PnL (USD) aggregated for UTC day bucket',
+  registers: [register],
+});
+
+export const hedgeRealizedPnlTotalGauge = new Gauge({
+  name: 'hedge_realized_pnl_usd_positions_sum',
+  help: 'Sum of hedge_positions.realized_pnl (USD)',
+  registers: [register],
+});
+
+export const hedgeKillSwitchGauge = new Gauge({
+  name: 'hedge_emergency_stop_active',
+  help: '1 if hedge_emergency_stop system setting true',
+  registers: [register],
+});
+
+export const hedgeJobsCompletedTotal = new Counter({
+  name: 'hedge_jobs_completed_total',
+  help: 'Hedge jobs completed successfully',
+  registers: [register],
+});
+
+export const hedgeJobsFailedTotal = new Counter({
+  name: 'hedge_jobs_failed_total',
+  help: 'Hedge jobs failed after max retries',
+  registers: [register],
+});
+
+export const hedgeJobsSkippedTotal = new Counter({
+  name: 'hedge_jobs_skipped_total',
+  help: 'Hedges skipped due to limits or killswitch',
+  labelNames: ['reason'],
+  registers: [register],
+});
+
+export const p2pExpiryFailuresTotal = new Counter({
+  name: 'p2p_expiry_failures_total',
+  help: 'P2P expiry worker failures',
+  labelNames: ['stage'],
+  registers: [register],
+});
+
+/** 1 when the latest P2P expiry run completed without errors, else 0. */
+export const p2pExpiryLastRunOk = new Gauge({
+  name: 'p2p_expiry_last_run_ok',
+  help: 'Last P2P expiry worker run health status',
+  registers: [register],
+});

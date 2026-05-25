@@ -56,7 +56,7 @@ export async function issueSpotWsTicket(
   const key = `${KEY_PREFIX}${id}`;
   const payload: TicketPayload = {
     k: 'spot',
-    ip: clientIp.trim(),
+    ip: normalizeWsTicketIp(clientIp),
     u: userId.trim(),
     sid: sessionId.trim(),
   };
@@ -76,7 +76,7 @@ export async function issueAdminWsTicket(
   const key = `${KEY_PREFIX}${id}`;
   const payload: TicketPayload = {
     k: 'admin',
-    ip: clientIp.trim(),
+    ip: normalizeWsTicketIp(clientIp),
     a: adminId.trim(),
     s: sessionId.trim(),
   };
@@ -86,6 +86,15 @@ export async function issueAdminWsTicket(
 
 export function hashClientIpForLog(ip: string): string {
   return createHash('sha256').update(ip.trim(), 'utf8').digest('hex').slice(0, 16);
+}
+
+/** Align loopback representations so WS upgrade matches REST ticket issue (HTTP vs upgrade peer may differ). */
+function normalizeWsTicketIp(ip: string): string {
+  const t = ip.trim();
+  if (t === '::1') return '127.0.0.1';
+  if (t.startsWith('::ffff:') && t.includes('.')) return t.slice(7);
+  if (t === '0.0.0.0') return '127.0.0.1';
+  return t;
 }
 
 export async function consumeWsTicket(
@@ -122,8 +131,8 @@ export async function consumeWsTicket(
   if (parsed.k !== expectedKind) {
     return { ok: false, reason: 'wrong_ticket_kind' };
   }
-  const bound = (parsed.ip || '').trim();
-  const current = clientIp.trim();
+  const bound = normalizeWsTicketIp(parsed.ip || '');
+  const current = normalizeWsTicketIp(clientIp);
   if (!bound || bound !== current) {
     logger.warn('ws_ticket: ip mismatch', {
       kind: expectedKind,

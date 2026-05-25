@@ -66,3 +66,14 @@ export async function reviewKyc(
 ) {
   return adminFetch(`/kyc/${id}/review`, { method: 'PATCH', token, body });
 }
+
+export async function bulkReviewKyc(
+  token: string | null,
+  body: { ids: string[]; action: 'approve' | 'reject'; reason?: string }
+) {
+  return adminFetch<{ updated: number; action: string; ids: string[] }>('/kyc/bulk-review', {
+    method: 'PATCH',
+    token,
+    body,
+  });
+}

@@ -9,29 +9,35 @@
 import 'dotenv/config';
 import { db } from '../src/lib/database.js';
 import { assertZeroPendingSettlement } from './tier1-pending-settlement-gate.js';
+import { reconcileBalanceLedgerTrading } from './reconcile-balance-ledger-trading.js';
 
 async function main(): Promise<void> {
   const pool = db.getPool();
+  const autoReconcile = process.env.TIER1_AUTO_RECONCILE === '1';
 
-  const mismatch = await pool.query<{ n: string }>(
-    `WITH ledger_sums AS (
-       SELECT user_id, currency_id,
-         COALESCE(SUM(CASE WHEN balance_type = 'available' THEN credit::numeric - debit::numeric ELSE 0 END), 0) AS avail_sum,
-         COALESCE(SUM(CASE WHEN balance_type = 'locked' THEN credit::numeric - debit::numeric ELSE 0 END), 0) AS lock_sum
-       FROM balance_ledger
-       WHERE description LIKE '%account_type=trading%'
-       GROUP BY user_id, currency_id
-     )
-     SELECT COUNT(*)::text AS n
-     FROM user_balances ub
-     LEFT JOIN ledger_sums ls ON ub.user_id = ls.user_id AND ub.currency_id = ls.currency_id
-     WHERE ub.account_type = 'trading' AND COALESCE(ub.chain_id, '') = ''
-       AND (
-         COALESCE(ls.avail_sum, 0) != COALESCE(ub.available_balance, 0)::numeric
-         OR COALESCE(ls.lock_sum, 0) != COALESCE(ub.locked_balance, 0)::numeric
-       )`
-  );
-  const mc = mismatch.rows[0]?.n ?? '?';
+  const queryMismatchCount = async (): Promise<string> => {
+    const mismatch = await pool.query<{ n: string }>(
+      `WITH ledger_sums AS (
+         SELECT user_id, currency_id,
+           COALESCE(SUM(CASE WHEN balance_type = 'available' THEN credit::numeric - debit::numeric ELSE 0 END), 0) AS avail_sum,
+           COALESCE(SUM(CASE WHEN balance_type = 'locked' THEN credit::numeric - debit::numeric ELSE 0 END), 0) AS lock_sum
+         FROM balance_ledger
+         WHERE description LIKE '%account_type=trading%'
+         GROUP BY user_id, currency_id
+       )
+       SELECT COUNT(*)::text AS n
+       FROM user_balances ub
+       LEFT JOIN ledger_sums ls ON ub.user_id = ls.user_id AND ub.currency_id = ls.currency_id
+       WHERE ub.account_type = 'trading' AND COALESCE(ub.chain_id, '') = ''
+         AND (
+           COALESCE(ls.avail_sum, 0) != COALESCE(ub.available_balance, 0)::numeric
+           OR COALESCE(ls.lock_sum, 0) != COALESCE(ub.locked_balance, 0)::numeric
+         )`
+    );
+    return mismatch.rows[0]?.n ?? '?';
+  };
+
+  let mc = await queryMismatchCount();
   console.log('trading_balance_mismatch_count', mc);
 
   if (mc !== '0' && mc !== '?') {
@@ -77,6 +83,12 @@ async function main(): Promise<void> {
       );
     }
     console.error('--- fix: reconcile trading ledger vs user_balances (spot settlement / admin tools) ---');
+    if (autoReconcile) {
+      console.error('--- TIER1_AUTO_RECONCILE=1 enabled: applying one-shot reconciliation ---');
+      await reconcileBalanceLedgerTrading({ closePool: false });
+      mc = await queryMismatchCount();
+      console.log('trading_balance_mismatch_count_after_reconcile', mc);
+    }
   }
 
   const chain = await pool.query<{ broken: string }>(

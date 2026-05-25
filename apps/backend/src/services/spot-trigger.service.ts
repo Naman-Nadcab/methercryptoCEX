@@ -73,28 +73,31 @@ export async function processTriggeredStopOrders(): Promise<void> {
     for (const order of pending.rows) {
       const lastPriceStr = priceByMarket.get(order.market);
       if (!lastPriceStr) continue;
-      const lastPrice = parseFloat(lastPriceStr);
-      if (!Number.isFinite(lastPrice)) continue;
+      const lastPriceDec = new Decimal(lastPriceStr);
+      if (!lastPriceDec.isFinite() || lastPriceDec.lte(0)) continue;
+      const lastPrice = lastPriceDec.toNumber();
 
       let triggered: boolean;
       let newBestPrice: string | null = null;
 
       if (order.type === 'trailing_stop_market' && order.trailing_delta) {
-        const delta = parseFloat(order.trailing_delta) / 100;
-        let best = order.trailing_best_price != null ? parseFloat(order.trailing_best_price) : lastPrice;
-        if (!Number.isFinite(best)) best = lastPrice;
+        const delta = new Decimal(order.trailing_delta).div(100);
+        let bestDec =
+          order.trailing_best_price != null ? new Decimal(order.trailing_best_price) : lastPriceDec;
+        if (!bestDec.isFinite() || bestDec.lte(0)) bestDec = lastPriceDec;
         if (order.side === 'sell') {
-          best = Math.max(best, lastPrice);
-          triggered = lastPrice <= best * (1 - delta);
+          bestDec = Decimal.max(bestDec, lastPriceDec);
+          triggered = lastPriceDec.lte(bestDec.times(new Decimal(1).minus(delta)));
         } else {
-          best = Math.min(best, lastPrice);
-          triggered = lastPrice >= best * (1 + delta);
+          bestDec = Decimal.min(bestDec, lastPriceDec);
+          triggered = lastPriceDec.gte(bestDec.times(new Decimal(1).plus(delta)));
         }
-        newBestPrice = best.toFixed(8);
+        newBestPrice = bestDec.toDecimalPlaces(8, Decimal.ROUND_DOWN).toFixed();
       } else {
-        const stopPrice = parseFloat(order.stop_price!);
-        if (!Number.isFinite(stopPrice)) continue;
-        triggered = order.side === 'buy' ? lastPrice >= stopPrice : lastPrice <= stopPrice;
+        const stopPriceDec = new Decimal(order.stop_price!);
+        if (!stopPriceDec.isFinite() || stopPriceDec.lte(0)) continue;
+        triggered =
+          order.side === 'buy' ? lastPriceDec.gte(stopPriceDec) : lastPriceDec.lte(stopPriceDec);
       }
 
       if (!triggered) {
@@ -148,12 +151,25 @@ export async function processTriggeredStopOrders(): Promise<void> {
             remaining: rem.toString(),
             created_at: Math.floor(Date.now() / 1000),
           };
-          const pr = await placeOrderRust(rustOrder, target);
-          return { m, pr };
+          return { m, rustOrder };
         });
 
         if (!txOut) continue;
-        const { m, pr } = txOut;
+        const { m, rustOrder } = txOut;
+        let pr: Awaited<ReturnType<typeof placeOrderRust>>;
+        try {
+          pr = await placeOrderRust(rustOrder, target);
+        } catch (e) {
+          logger.warn('Stop order: engine place failed after OPEN transition; reverting to PENDING_TRIGGER', {
+            orderId: order.id,
+            error: e instanceof Error ? e.message : String(e),
+          });
+          await db.query(
+            `UPDATE spot_orders SET status = 'PENDING_TRIGGER', type = $2, updated_at = NOW() WHERE id = $1 AND status = 'OPEN'`,
+            [order.id, order.type]
+          );
+          continue;
+        }
         const precision = 8;
         const executedTrades =
           pr.events && pr.events.length > 0
@@ -164,6 +180,7 @@ export async function processTriggeredStopOrders(): Promise<void> {
             : await syncEngineMatchesAfterPlace(order.market, m.base_asset, m.quote_asset, precision, {
                 emitPublicWs: false,
                 matchEngineId: target.engineId,
+                pullRetriesOnEmpty: rustOrder.side === 'buy' ? 18 : 8,
               });
         if (!isNatsSpotPipelineConfigured()) {
           flushLivePublicOrderbookAndFeeds(order.market);

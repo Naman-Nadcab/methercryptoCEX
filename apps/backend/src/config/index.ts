@@ -8,9 +8,44 @@ import { parseInternalHmacServiceSecrets } from '../lib/internal-hmac-service-se
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+/**
+ * When set, re-apply selected shell env vars after dotenv loading.
+ * Root/backend `.env` often points Postgres/Redis/NATS/Rabbit at shared or remote hosts; local
+ * verify scripts export Docker URLs in the shell — without restore, Redis connect can hang on
+ * unreachable hosts while logs stay empty (stdio block buffering).
+ */
+const preserveShellStackUrls =
+  process.env.EXCHANGE_PRESERVE_SHELL_DATABASE_URL === '1' ||
+  process.env.EXCHANGE_PRESERVE_DATABASE_URL === '1';
+
+const preservedFromShell = preserveShellStackUrls
+  ? {
+      DATABASE_URL: process.env.DATABASE_URL?.trim() || null,
+      REDIS_URL: process.env.REDIS_URL?.trim() || null,
+      NATS_URL: process.env.NATS_URL?.trim() || null,
+      RABBITMQ_URL: process.env.RABBITMQ_URL?.trim() || null,
+    }
+  : null;
+
 // Root .env (monorepo), then apps/backend/.env (optional overrides — can be a symlink to root)
 dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
-dotenv.config({ path: path.resolve(__dirname, '../../../.env'), override: true });
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+if (preservedFromShell) {
+  if (preservedFromShell.DATABASE_URL) process.env.DATABASE_URL = preservedFromShell.DATABASE_URL;
+  if (preservedFromShell.REDIS_URL) process.env.REDIS_URL = preservedFromShell.REDIS_URL;
+  if (preservedFromShell.NATS_URL) process.env.NATS_URL = preservedFromShell.NATS_URL;
+  if (preservedFromShell.RABBITMQ_URL) process.env.RABBITMQ_URL = preservedFromShell.RABBITMQ_URL;
+}
+
+/**
+ * Relax Tier-1 strict startup (Rust engine wait, etc.) for local verify / monorepo dev scripts.
+ * If shell sets `EXCHANGE_VERIFY_STACK=1`, relax Tier-1 startup guards for local orchestration.
+ * `EXCHANGE_DEV_STACK_BOOT=1` is set by `npm run dev:stack` and is unlikely to appear in .env files.
+ */
+if (process.env.EXCHANGE_VERIFY_STACK === '1' || process.env.EXCHANGE_DEV_STACK_BOOT === '1') {
+  process.env.TIER1_LAUNCH = 'false';
+  process.env.STRICT_DEPENDENCY_STARTUP = 'false';
+}
 
 const envSchema = z.object({
   // Database
@@ -253,6 +288,13 @@ const envSchema = z.object({
   CHAOS_REPORT_DIR: z.string().optional().transform((v) => (v ?? '').trim()),
   TREASURY_ONCHAIN_RECONCILE_INTERVAL_MS: z.coerce.number().min(60_000).max(86_400_000).default(600_000),
   TREASURY_HOT_MONITOR_INTERVAL_MS: z.coerce.number().min(30_000).max(3_600_000).default(120_000),
+  /** Extra quote locked for buy-side stop_loss / trailing_stop_market (slippage buffer, bps). */
+  STOP_ORDER_BUY_SLIPPAGE_BPS: z.coerce.number().min(0).max(10_000).default(500),
+  /**
+   * When true: API-key auth on POST /spot/* mutating routes requires X-TIMESTAMP + X-SIGNATURE (HMAC).
+   * Default: true in production, false in development (set true in dev to test HMAC-only clients).
+   */
+  API_KEY_REQUIRE_HMAC_FOR_TRADE: z.string().optional().transform((v) => (v ?? '').trim().toLowerCase()),
   WITHDRAWAL_TREASURY_VELOCITY_MAX: z.coerce.number().min(1).max(100).default(8),
   WITHDRAWAL_TREASURY_VELOCITY_WINDOW_MIN: z.coerce.number().min(5).max(1440).default(60),
   WITHDRAWAL_TREASURY_AMOUNT_MULTIPLIER_WARN: z.string().default('10'),
@@ -267,6 +309,20 @@ const envSchema = z.object({
   // Phase D: Price oracle (update market_prices from external API)
   PRICE_ORACLE_ENABLED: z.string().transform(v => v === 'true').default('false'),
   PRICE_ORACLE_INTERVAL_SEC: z.coerce.number().min(60).max(3600).default(120),
+
+  /** Master switch: hybrid liquidity config + hedge job enqueue (internal match unchanged). */
+  HYBRID_ENABLED: z.string().transform((v) => v === 'true' || v === '1').default('false'),
+  /** When true, hedge-engine may process pending hedge_jobs (still requires DB hedge_enabled + provider). */
+  HEDGE_ENABLED: z.string().transform((v) => v === 'true' || v === '1').default('false'),
+  /** Interval for hedge worker tick (ms). */
+  HYBRID_HEDGE_WORKER_INTERVAL_MS: z.coerce.number().min(2000).max(120_000).default(10_000),
+  /**
+   * When true: exposes GET /admin/hybrid/decision-test (admin JWT + markets:manage).
+   * Default false — keep off in production unless you explicitly need QA on that host.
+   */
+  HYBRID_DECISION_DEBUG: z.string().transform((v) => v === 'true' || v === '1').default('false'),
+  /** When true with HEDGE_ENABLED: process hedge_jobs and write external_orders but never POST to Binance. */
+  HEDGE_DRY_RUN: z.string().transform((v) => v === 'true' || v === '1').default('false'),
 
   // Phase D: Internal liquidity bot (place/cancel limit orders around mid)
   LIQUIDITY_BOT_ENABLED: z.string().transform(v => v === 'true').default('false'),
@@ -474,7 +530,7 @@ const envSchema = z.object({
   SIGNING_SERVICE_MTLS_CERT_PATH: z.string().optional().transform((v) => (v ?? '').trim() || undefined),
   SIGNING_SERVICE_MTLS_KEY_PATH: z.string().optional().transform((v) => (v ?? '').trim() || undefined),
 
-  PUBLIC_API_FASTIFY_RATE_LIMIT_MAX: z.coerce.number().min(10).max(100_000).default(1000),
+  PUBLIC_API_FASTIFY_RATE_LIMIT_MAX: z.coerce.number().min(10).max(100_000).default(10000),
   PUBLIC_API_REDIS_RATE_ENABLED: z.string().transform((v) => v !== 'false' && v !== '0').default('true'),
   PUBLIC_API_REDIS_RATE_IP_MAX: z.coerce.number().min(1).max(50_000).default(400),
   PUBLIC_API_REDIS_RATE_IP_WINDOW_SEC: z.coerce.number().min(1).max(3600).default(60),
@@ -973,6 +1029,14 @@ export const config = {
       : [],
     /** Admin login requires 2FA to be enabled on the account. Always true when NODE_ENV=production. */
     admin2faMandatory,
+    /**
+     * API keys on POST /api/v1/spot/* (place/cancel) must send HMAC headers when true.
+     * Production default true unless API_KEY_REQUIRE_HMAC_FOR_TRADE=false; dev default false unless =true.
+     */
+    apiKeyRequireHmacForTrade:
+      parsed.data.NODE_ENV === 'production'
+        ? parsed.data.API_KEY_REQUIRE_HMAC_FOR_TRADE !== 'false'
+        : parsed.data.API_KEY_REQUIRE_HMAC_FOR_TRADE === 'true',
   },
 
   auditExport: {
@@ -1148,6 +1212,7 @@ export const config = {
   spot: {
     matchEventPersistRetries: parsed.data.MATCH_EVENT_PERSIST_RETRIES,
     engineWsDedupUseRedis: parsed.data.SPOT_ENGINE_WS_DEDUP_REDIS,
+    stopOrderBuySlippageBps: parsed.data.STOP_ORDER_BUY_SLIPPAGE_BPS,
   },
 
   nats: {
@@ -1197,6 +1262,14 @@ export const config = {
   priceOracle: {
     enabled: parsed.data.PRICE_ORACLE_ENABLED,
     intervalSec: parsed.data.PRICE_ORACLE_INTERVAL_SEC,
+  },
+
+  hybrid: {
+    hybridEnabled: parsed.data.HYBRID_ENABLED,
+    hedgeEnabled: parsed.data.HEDGE_ENABLED,
+    hedgeDryRun: parsed.data.HEDGE_DRY_RUN,
+    hedgeWorkerIntervalMs: parsed.data.HYBRID_HEDGE_WORKER_INTERVAL_MS,
+    decisionDebug: parsed.data.HYBRID_DECISION_DEBUG,
   },
 
   liquidityBot: {

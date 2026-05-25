@@ -21,6 +21,8 @@
     "clean": "rm -rf dist",
     "test:balance": "tsx src/services/balance/balance-read.integration.test.ts",
     "test:p2p-orders": "tsx src/routes/p2p-orders.integration.test.ts",
+    "test:admin-rbac": "tsx src/lib/admin-rbac-routes.test.ts",
+    "test:admin-ops": "tsx src/routes/admin-operations.integration.test.ts",
     "test:tier1-alerts": "tsx scripts/tier1-alert-verify.ts",
     "load-historical-candles": "tsx scripts/load-historical-candles.ts",
     "backfill:opening-ledger": "tsx scripts/backfill-opening-balance-ledger.ts",
@@ -29,6 +31,7 @@
     "tier1:phase1-verify": "tsx scripts/tier1-phase1-verify.ts",
     "tier1:phase2-verify": "tsx scripts/tier1-phase2-verify.ts",
     "tier1:phase3-verify": "tsx scripts/tier1-phase3-verify.ts",
+    "tier1:phase4-verify": "tsx scripts/tier1-phase4-verify.ts",
     "tier1:fiu-readiness": "tsx scripts/tier1-fiu-readiness-verify.ts",
     "tier1:drain-settlement": "tsx scripts/tier1-drain-settlement.ts",
     "tier1:release-check:db": "npm run tier1:phase1-verify && npm run tier1:fiu-readiness",
@@ -40,6 +43,9 @@
     "test:phase2-treasury": "tsx scripts/phase2-treasury-verify.ts",
     "test:phase3-hardening": "tsx scripts/phase3-ultra-hardening-verify.ts",
     "test:launch-validation": "tsx scripts/launch-security-validation.ts",
+    "admin:reset-dev-login": "tsx scripts/reset-admin-dev-login.ts",
+    "qa:database-target": "tsx scripts/print-database-target.ts",
+    "verify:admin-hybrid": "tsx scripts/verify-admin-hybrid.ts",
     "start:signing-service": "node dist/signing/signing-http-main.js"
   },
   "dependencies": {

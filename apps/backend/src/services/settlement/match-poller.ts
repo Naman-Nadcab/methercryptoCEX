@@ -183,6 +183,7 @@ export function startMatchPoller(): void {
   void refreshAllMatchingEngineHealth();
   healthIntervalId = setInterval(() => void refreshAllMatchingEngineHealth(), HEALTH_REFRESH_MS);
   pollIntervalId = setInterval(schedulePoll, POLL_INTERVAL_MS);
+  setTimeout(() => schedulePoll(), 0);
   logger.info('Match poller started (multi-engine aware)');
 }
 

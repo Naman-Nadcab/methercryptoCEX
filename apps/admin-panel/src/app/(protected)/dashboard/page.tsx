@@ -114,7 +114,7 @@ export default function DashboardPage() {
    * React Query dedup the request and serve the topbar's cache instantly on
    * dashboard mount (and vice versa). Token is injected via queryFn only.
    */
-  const { data: summaryRes, isLoading: statsLoading } = useResilientQuery({
+  const { data: summaryRes, isLoading: statsLoading, isError: summaryIsError, error: summaryError, refetch: refetchSummary } = useResilientQuery({
     queryKey: ['admin', 'dashboard-summary'],
     queryFn: ({ signal }) => getDashboardSummary(token, signal),
     enabled: !!token,
@@ -122,7 +122,7 @@ export default function DashboardPage() {
     staleTime: 60_000,
   });
 
-  const { data: healthRes } = useResilientQuery({
+  const { data: healthRes, isError: healthIsError, error: healthError, refetch: refetchHealth } = useResilientQuery({
     queryKey: ['admin', 'system-health'],
     queryFn: ({ signal }) => getSystemHealth(token, signal),
     enabled: !!token,
@@ -130,7 +130,7 @@ export default function DashboardPage() {
     staleTime: 60_000,
   });
 
-  const { data: controlRes } = useResilientQuery({
+  const { data: controlRes, isError: controlIsError, error: controlError, refetch: refetchControl } = useResilientQuery({
     queryKey: ['admin', 'control'],
     queryFn: ({ signal }) => getControlOverview(token, signal),
     enabled: !!token,
@@ -138,7 +138,7 @@ export default function DashboardPage() {
     staleTime: 60_000,
   });
 
-  const { data: revenueRes } = useResilientQuery({
+  const { data: revenueRes, isError: revenueIsError, error: revenueError, refetch: refetchRevenue } = useResilientQuery({
     queryKey: ['admin', 'analytics-revenue-7d'],
     queryFn: ({ signal }) => adminFetch<{ buckets: unknown[]; total_revenue_24h: number; trading_fee_revenue: number; withdrawal_fee_revenue: number; other_fees: number }>('/analytics/revenue?period=7d', { token, signal }),
     enabled: !!token,
@@ -264,9 +264,24 @@ export default function DashboardPage() {
   }), [dbLatency, redisLatency, p50Latency, apiLatency, memoryMb, health?.redis?.status]);
 
   const healthLevel = healthScore >= 90 ? 'healthy' : healthScore >= 70 ? 'degraded' : 'critical';
+  const pageError =
+    (summaryIsError && (summaryError instanceof Error ? summaryError.message : 'Failed to load dashboard summary.')) ||
+    (healthIsError && (healthError instanceof Error ? healthError.message : 'Failed to load system health.')) ||
+    (controlIsError && (controlError instanceof Error ? controlError.message : 'Failed to load control overview.')) ||
+    (revenueIsError && (revenueError instanceof Error ? revenueError.message : 'Failed to load revenue metrics.')) ||
+    null;
 
   return (
-    <AdminPageFrame title="Dashboard">
+    <AdminPageFrame
+      title="Dashboard"
+      error={pageError}
+      onRetry={pageError ? () => {
+        void refetchSummary();
+        void refetchHealth();
+        void refetchControl();
+        void refetchRevenue();
+      } : undefined}
+    >
     <div className="space-y-6">
       {statsBootstrapping && (
         <div className="flex items-center gap-2 rounded-lg border border-admin-border bg-admin-card/80 px-3 py-2 text-sm text-admin-muted animate-fade-in">

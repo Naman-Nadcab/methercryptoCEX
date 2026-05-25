@@ -28,6 +28,7 @@ import {
   Download,
   Settings,
   FileText,
+  HelpCircle,
 } from 'lucide-react';
 import SessionManager from '@/components/SessionManager';
 import ThemeToggle from '@/components/ThemeToggle';
@@ -95,9 +96,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<{ id: string; title: string; message: string; is_read: boolean; created_at: string; notification_type: string }[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [notificationsError, setNotificationsError] = useState<string | null>(null);
+  const [markingNotificationsRead, setMarkingNotificationsRead] = useState(false);
   const [uidCopied, setUidCopied] = useState(false);
-  const [kycVerified, setKycVerified] = useState(true);
+  const [kycVerified, setKycVerified] = useState(false);
   const [kycLoading, setKycLoading] = useState(true);
+  const [kycBannerDismissed, setKycBannerDismissed] = useState(false);
 
   const { data: balanceSummary } = useBalancesSummary(!!_hasHydrated && !!accessToken);
   const { data: balancesByAccount } = useBalancesByAccount(!!_hasHydrated && !!accessToken);
@@ -106,13 +111,27 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const previewBalances = Array.isArray(balancesByAccount) ? balancesByAccount.slice(0, 6) : [];
 
   useEffect(() => {
-    if (!_hasHydrated || !accessToken) { setKycLoading(false); return; }
+    if (typeof window === 'undefined') return;
+    setKycBannerDismissed(window.sessionStorage.getItem('kyc_banner_dismissed') === '1');
+  }, []);
+
+  useEffect(() => {
+    if (!_hasHydrated || !accessToken) {
+      setKycVerified(false);
+      setKycLoading(false);
+      return;
+    }
     (async () => {
       setKycLoading(true);
       try {
         const res = await fetch(`${getApiBaseUrl()}/api/v1/wallet/kyc-status`, { headers: { Authorization: `Bearer ${accessToken}` } });
-        if (res.ok) { const data = await res.json(); if (data.success) setKycVerified(data.data.verified); }
-      } catch { /* keep default */ } finally { setKycLoading(false); }
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success) setKycVerified(Boolean(data.data.verified));
+        }
+      } catch {
+        setKycVerified(false);
+      } finally { setKycLoading(false); }
     })();
   }, [_hasHydrated, accessToken]);
 
@@ -120,20 +139,47 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const fetchNotifications = async () => {
     if (!accessToken) return;
+    setNotificationsLoading(true);
+    setNotificationsError(null);
     try {
       const res = await fetch(`${getApiBaseUrl()}/api/v1/user/notifications?limit=20`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!res.ok) {
+        throw new Error(`Notifications request failed (${res.status})`);
+      }
       const data = await res.json();
-      if (data?.success && data?.data) { setNotifications(data.data.notifications || []); setUnreadCount(data.data.unreadCount ?? 0); }
-    } catch { /* ignore */ }
+      if (data?.success && data?.data) {
+        setNotifications(data.data.notifications || []);
+        setUnreadCount(data.data.unreadCount ?? 0);
+        return;
+      }
+      throw new Error(data?.error?.message || 'Unable to fetch notifications.');
+    } catch {
+      setNotificationsError('Unable to fetch notifications right now.');
+      toast({ title: 'Notifications unavailable', description: 'Unable to fetch notifications. Try again.', variant: 'destructive' });
+    } finally {
+      setNotificationsLoading(false);
+    }
   };
 
   const markAllRead = async () => {
     if (!accessToken) return;
+    setMarkingNotificationsRead(true);
     try {
-      await fetch(`${getApiBaseUrl()}/api/v1/user/notifications/read-all`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
+      const res = await fetch(`${getApiBaseUrl()}/api/v1/user/notifications/read-all`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!res.ok) {
+        throw new Error(`Mark read failed (${res.status})`);
+      }
+      const result = await res.json();
+      if (!result?.success) {
+        throw new Error(result?.error?.message || 'Could not mark notifications as read.');
+      }
       setUnreadCount(0);
       setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
-    } catch { /* ignore */ }
+    } catch {
+      toast({ title: 'Action failed', description: 'Could not mark notifications as read.', variant: 'destructive' });
+    } finally {
+      setMarkingNotificationsRead(false);
+    }
   };
 
   const handleLogout = async () => {
@@ -366,10 +412,32 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <div className="hdr-dropdown fixed right-4 top-14 w-80 bg-card border border-border rounded-xl shadow-xl z-[100] overflow-hidden animate-fade-in">
                 <div className="p-3 border-b border-border flex items-center justify-between">
                   <p className="text-sm font-semibold">Notifications</p>
-                  {unreadCount > 0 && <button type="button" onClick={markAllRead} className="text-xs text-primary hover:underline">Mark all read</button>}
+                  {unreadCount > 0 && (
+                    <button
+                      type="button"
+                      disabled={markingNotificationsRead}
+                      onClick={markAllRead}
+                      className="text-xs text-primary hover:underline disabled:opacity-50"
+                    >
+                      {markingNotificationsRead ? 'Marking…' : 'Mark all read'}
+                    </button>
+                  )}
                 </div>
                 <div className="max-h-80 overflow-y-auto">
-                  {notifications.length === 0 ? (
+                  {notificationsLoading ? (
+                    <div className="p-6 text-center text-sm text-muted-foreground">Loading notifications…</div>
+                  ) : notificationsError ? (
+                    <div className="p-6 text-center">
+                      <p className="text-sm text-muted-foreground">{notificationsError}</p>
+                      <button
+                        type="button"
+                        onClick={() => void fetchNotifications()}
+                        className="mt-2 text-xs font-medium text-primary hover:underline"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  ) : notifications.length === 0 ? (
                     <div className="p-6 text-center text-sm text-muted-foreground">No notifications yet.</div>
                   ) : notifications.map((n) => (
                     <div key={n.id} className={`p-4 border-b border-border last:border-0 ${!n.is_read ? 'bg-primary/5' : ''}`}>
@@ -415,6 +483,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     { href: ROUTES.dashboard.root, label: 'Overview', icon: LayoutDashboard },
                     { href: ROUTES.dashboard.account, label: 'Account', icon: User },
                     { href: ROUTES.dashboard.security, label: 'Security', icon: Shield },
+                  { href: '/dashboard/support', label: 'Support', icon: HelpCircle },
                     { href: ROUTES.dashboard.referral, label: 'Referral', icon: Gift },
                     { href: ROUTES.dashboard.api, label: 'API Management', icon: Key },
                     { href: ROUTES.dashboard.feeRates, label: 'Fee Tier', icon: Receipt },
@@ -434,13 +503,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             )}
           </div>
 
-          {!kycLoading && !kycVerified && (
+          {!kycLoading && !kycVerified && !kycBannerDismissed && (
             <div className="flex items-center justify-between px-4 py-2 bg-primary/5 border-t border-border">
               <div className="flex items-center gap-2 text-sm">
                 <span className="text-muted-foreground">Complete Identity Verification to continue using platform services.</span>
                 <Link href={ROUTES.dashboard.identity} className="text-primary font-medium hover:underline">Verify Now</Link>
               </div>
-              <button onClick={() => setKycVerified(true)} className="text-muted-foreground hover:text-foreground" aria-label="Dismiss"><X className="w-4 h-4" /></button>
+              <button
+                onClick={() => {
+                  setKycBannerDismissed(true);
+                  if (typeof window !== 'undefined') window.sessionStorage.setItem('kyc_banner_dismissed', '1');
+                }}
+                className="text-muted-foreground hover:text-foreground"
+                aria-label="Dismiss"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
           )}
         </header>
@@ -473,6 +551,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   { href: ORDERS_HREF, label: 'Orders', icon: FileText },
                   { href: ROUTES.dashboard.account, label: 'Account', icon: User },
                   { href: ROUTES.dashboard.security, label: 'Security', icon: Shield },
+                  { href: '/dashboard/support', label: 'Support', icon: HelpCircle },
                   { href: ROUTES.dashboard.referral, label: 'Referral', icon: Gift },
                   { href: ROUTES.dashboard.feeRates, label: 'Fees', icon: Receipt },
                 ].map((item) => (

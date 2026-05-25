@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 import { cn } from '@/lib/cn';
+import { ProtectedAction } from '@/components/rbac/ProtectedAction';
+import { ActionAuthModal, type ActionAuthPayload } from '@/components/ops/ActionAuthModal';
 
 /* ------------------------------------------------------------------ */
 /*  Config                                                             */
@@ -65,6 +67,8 @@ export default function ScheduledReportsPage() {
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ScheduledReportRow | null>(null);
+  const [createAuthOpen, setCreateAuthOpen] = useState(false);
+  const [deleteAuthOpen, setDeleteAuthOpen] = useState(false);
 
   const [reportType, setReportType] = useState('trading');
   const [frequency, setFrequency] = useState('daily');
@@ -231,14 +235,16 @@ export default function ScheduledReportsPage() {
                       <span>Last run: {r.last_run_at ? new Date(r.last_run_at).toLocaleString() : 'Never'}</span>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setDeleteTarget(r)}
-                    disabled={isDeleting}
-                    className="flex h-8 w-8 items-center justify-center rounded-lg text-admin-muted hover:bg-red-500/10 hover:text-red-400 transition-colors shrink-0 disabled:opacity-40"
-                  >
-                    {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                  </button>
+                  <ProtectedAction permission="analytics:view" fallback="disabled">
+                    <button
+                      type="button"
+                      onClick={() => setDeleteTarget(r)}
+                      disabled={isDeleting}
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-admin-muted hover:bg-red-500/10 hover:text-red-400 transition-colors shrink-0 disabled:opacity-40"
+                    >
+                      {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                    </button>
+                  </ProtectedAction>
                 </div>
               );
             })}
@@ -334,15 +340,17 @@ export default function ScheduledReportsPage() {
                 <b className="text-admin-text capitalize">{reportType.replace('-', ' ')}</b> report, delivered <b className="text-admin-text">{frequency}</b> as <b className="text-admin-text uppercase">{format}</b>
               </span>
             </div>
-            <button
-              type="button"
-              onClick={handleCreate}
-              disabled={creating || format === 'pdf'}
-              className="flex items-center gap-2 rounded-lg bg-admin-primary/15 border border-admin-primary/30 px-5 py-2 text-xs font-semibold text-admin-primary hover:bg-admin-primary/25 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-              {creating ? 'Creating...' : 'Create Schedule'}
-            </button>
+            <ProtectedAction permission="analytics:view" fallback="disabled">
+              <button
+                type="button"
+                onClick={() => setCreateAuthOpen(true)}
+                disabled={creating || format === 'pdf'}
+                className="flex items-center gap-2 rounded-lg bg-admin-primary/15 border border-admin-primary/30 px-5 py-2 text-xs font-semibold text-admin-primary hover:bg-admin-primary/25 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                {creating ? 'Creating...' : 'Create Schedule'}
+              </button>
+            </ProtectedAction>
           </div>
         </div>
       </div>
@@ -396,7 +404,7 @@ export default function ScheduledReportsPage() {
               </button>
               <button
                 type="button"
-                onClick={handleConfirmDelete}
+                onClick={() => setDeleteAuthOpen(true)}
                 style={{ borderRadius: 8, border: '1px solid rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.15)', padding: '8px 16px', fontSize: 12, fontWeight: 600, color: '#f87171', cursor: 'pointer' }}
               >
                 Delete
@@ -405,6 +413,44 @@ export default function ScheduledReportsPage() {
           </div>
         </div>
       )}
+      <ActionAuthModal
+        open={createAuthOpen}
+        onClose={() => setCreateAuthOpen(false)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          void payload;
+          void handleCreate();
+          setCreateAuthOpen(false);
+        }}
+        title="Authorize report schedule creation"
+        actionLabel={`Create ${reportType.replace('-', ' ')} ${frequency} schedule`}
+        description="Scheduled reports may include sensitive financial and user data."
+        requireReason
+        twofaRequired
+        confirmationPhrase="CONFIRM REPORT_SCHEDULE_CREATE"
+        externalError={toast?.type === 'error' ? toast.msg : null}
+        isPending={creating}
+        confirmLabel={creating ? 'Creating…' : 'Create schedule'}
+        confirmVariant="primary"
+      />
+      <ActionAuthModal
+        open={deleteAuthOpen}
+        onClose={() => setDeleteAuthOpen(false)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          void payload;
+          void handleConfirmDelete();
+          setDeleteAuthOpen(false);
+        }}
+        title="Authorize schedule deletion"
+        actionLabel={deleteTarget ? `Delete ${deleteTarget.report_type.replace('-', ' ')} schedule` : 'Delete schedule'}
+        description="Deleting stops automated delivery for this report schedule."
+        requireReason
+        twofaRequired
+        confirmationPhrase="CONFIRM REPORT_SCHEDULE_DELETE"
+        externalError={toast?.type === 'error' ? toast.msg : null}
+        isPending={deletingId !== null}
+        confirmLabel={deletingId ? 'Deleting…' : 'Delete schedule'}
+        confirmVariant="danger"
+      />
     </AdminPageFrame>
   );
 }

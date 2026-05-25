@@ -29,10 +29,11 @@ export default function GuestOnly({ children }: { children: React.ReactNode }) {
   }, [authResolved, isAuthenticated, router, searchParams]);
 
   if (!authResolved) {
-    if (typeof window !== 'undefined') {
-      console.warn('[GuestOnly] Auth unresolved — fail-open (showing guest UI)');
-    }
-    return <>{children}</>;
+    return (
+      <div className="flex min-h-[30vh] items-center justify-center bg-muted p-6 text-center text-sm text-muted-foreground dark:bg-background dark:text-muted-foreground">
+        Checking your session...
+      </div>
+    );
   }
 
   if (isAuthenticated) {

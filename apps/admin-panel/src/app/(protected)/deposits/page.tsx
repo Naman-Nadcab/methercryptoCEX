@@ -23,6 +23,7 @@ import {
   ChevronRight,
   AlertTriangle,
   Wifi,
+  Download,
 } from 'lucide-react';
 import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 import { cn } from '@/lib/cn';
@@ -35,6 +36,30 @@ function fmtVolume(v: string | number | undefined): string {
   if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
   if (n >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
+}
+
+function exportDepositsCsv(rows: DepositRow[]) {
+  const headers = ['Deposit ID', 'User', 'Asset', 'Amount', 'Status', 'Confirmations', 'Tx Hash', 'Address', 'Created At'];
+  const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const lines = rows.map((r) => [
+    r.deposit_id,
+    r.user_email ?? r.user_id,
+    r.token_symbol ?? '',
+    r.amount ?? '',
+    r.status ?? '',
+    `${r.confirmations ?? 0}/${r.required_confirmations ?? 0}`,
+    r.tx_hash ?? '',
+    r.to_address ?? '',
+    r.created_at ?? '',
+  ]);
+  const csv = [headers.join(','), ...lines.map((line) => line.map(esc).join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `deposits-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 interface KpiConfig {
@@ -84,6 +109,7 @@ export default function DepositsPage() {
   const [manualCreditDeposit, setManualCreditDeposit] = useState<DepositRow | null>(null);
   const [manualCreditError, setManualCreditError] = useState<string | null>(null);
   const [liveFlash, setLiveFlash] = useState(false);
+  const [exportingCsv, setExportingCsv] = useState(false);
   const canManualCredit = hasAdminPermission(admin, 'deposits:credit');
 
   const { data: duplicateData } = useQuery({
@@ -201,11 +227,41 @@ export default function DepositsPage() {
     },
   ];
 
+  const handleExportCsv = useCallback(async () => {
+    if (!token || exportingCsv) return;
+    setExportingCsv(true);
+    try {
+      const all: DepositRow[] = [];
+      let currentPage = 1;
+      let totalPagesForExport = 1;
+      do {
+        const res = await getDepositsList(token, {
+          page: currentPage,
+          limit: 200,
+          ...(search.trim() && { search: search.trim() }),
+          ...(asset && { token: asset }),
+          ...(status && status !== 'all' && { status }),
+          ...(dateFrom && { date_from: dateFrom }),
+          ...(dateTo && { date_to: dateTo }),
+        });
+        const rows = res.data?.deposits ?? [];
+        all.push(...rows);
+        totalPagesForExport = Math.max(1, Number(res.data?.pagination?.totalPages ?? 1));
+        currentPage += 1;
+      } while (currentPage <= totalPagesForExport && currentPage <= 200);
+      exportDepositsCsv(all);
+    } finally {
+      setExportingCsv(false);
+    }
+  }, [token, exportingCsv, search, asset, status, dateFrom, dateTo]);
+
   return (
     <AdminPageFrame
       title="Deposits"
       description="Monitor incoming deposits and blockchain confirmations in real time."
       status={failedCount > 5 ? 'warning' : 'active'}
+      error={isError ? ((error as { message?: string })?.message ?? 'Failed to load deposits') : null}
+      onRetry={() => void refetch()}
       quickActions={
         <div className="flex items-center gap-2">
           {/* Live indicator */}
@@ -225,6 +281,15 @@ export default function DepositsPage() {
           >
             <RefreshCw className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')} />
             Refresh
+          </button>
+          <button
+            type="button"
+            onClick={() => { void handleExportCsv(); }}
+            disabled={exportingCsv}
+            className="flex items-center gap-1.5 rounded-xl border border-admin-border/60 px-3 py-1.5 text-xs text-admin-muted hover:text-admin-text hover:bg-white/[0.04] transition-colors"
+          >
+            <Download className="h-3.5 w-3.5" />
+            {exportingCsv ? 'Exporting…' : 'Export CSV'}
           </button>
         </div>
       }

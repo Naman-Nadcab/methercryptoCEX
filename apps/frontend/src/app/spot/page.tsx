@@ -1,10 +1,6 @@
-'use client';
-
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { redirect } from 'next/navigation';
 
 export default function SpotRedirectPage() {
-  const router = useRouter();
-  useEffect(() => { router.replace('/trade/spot'); }, [router]);
-  return null;
+  // Server-side redirect avoids client boot delays and chunk fetch races on /spot.
+  redirect('/trade/spot');
 }

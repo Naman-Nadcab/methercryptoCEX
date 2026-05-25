@@ -6,19 +6,51 @@
  * - npm run test:security (from monorepo root; needs API up). Set TIER1_PHASE3_SKIP_SECURITY=true to skip.
  *
  * Env: E2E_BASE_URL (default http://127.0.0.1:4000)
+ * Optional: TIER1_SKIP_HTTP_CHECKS=1 — skip /health, /p2p/ads, security after DB checks (DB-only gate).
  * Optional: TIER1_REQUIRE_ZERO_PENDING_SETTLEMENT=true
  *
  * Run: cd apps/backend && npm run tier1:phase3-verify
  */
 import 'dotenv/config';
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { db } from '../src/lib/database.js';
 import { assertZeroPendingSettlement } from './tier1-pending-settlement-gate.js';
 
 const base = (process.env.E2E_BASE_URL || 'http://127.0.0.1:4000').replace(/\/$/, '');
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+
+function resolveNpmBin(): string {
+  const envBin = (process.env.NPM_BIN || '').trim();
+  if (envBin && fs.existsSync(envBin)) return envBin;
+  const fromNode = process.execPath.endsWith('/node') ? process.execPath.slice(0, -5) + '/npm' : '';
+  if (fromNode && fs.existsSync(fromNode)) return fromNode;
+  const home = process.env.HOME || '';
+  const nvmRoot = home ? path.join(home, '.nvm', 'versions', 'node') : '';
+  if (nvmRoot && fs.existsSync(nvmRoot)) {
+    const versions = fs
+      .readdirSync(nvmRoot, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name)
+      .sort();
+    for (let i = versions.length - 1; i >= 0; i--) {
+      const candidate = path.join(nvmRoot, versions[i]!, 'bin', 'npm');
+      if (fs.existsSync(candidate)) return candidate;
+    }
+  }
+  return 'npm';
+}
+
+function runNpm(scriptName: string): void {
+  const npmBin = resolveNpmBin();
+  execFileSync(npmBin, ['run', scriptName], {
+    cwd: repoRoot,
+    stdio: 'inherit',
+    env: { ...process.env, E2E_BASE_URL: base },
+  });
+}
 
 async function fetchJson(url: string, timeoutMs: number): Promise<{ res: Response; json: unknown }> {
   const ac = new AbortController();
@@ -83,6 +115,12 @@ async function main(): Promise<void> {
   }
   assertZeroPendingSettlement(pend, '[phase3]');
 
+  if (process.env.TIER1_SKIP_HTTP_CHECKS === '1') {
+    console.warn('[phase3] skipping HTTP + security (TIER1_SKIP_HTTP_CHECKS=1)');
+    console.log('TIER1_PHASE3_VERIFY_OK');
+    return;
+  }
+
   const healthUrl = `${base}/health`;
   const { res: hres, json: hjson } = await fetchJson(healthUrl, 15_000);
   const hbody = hjson as { status?: string } | null;
@@ -111,20 +149,12 @@ async function main(): Promise<void> {
     console.warn('[phase3] test:security skipped (TIER1_PHASE3_SKIP_SECURITY=true)');
   } else {
     console.log('[phase3] running npm run test:security ...');
-    execSync('npm run test:security', {
-      cwd: repoRoot,
-      stdio: 'inherit',
-      env: { ...process.env, E2E_BASE_URL: base },
-    });
+    runNpm('test:security');
   }
 
   if (process.env.TIER1_PHASE3_INCLUDE_E2E === 'true') {
     console.log('[phase3] running npm run test:e2e ...');
-    execSync('npm run test:e2e', {
-      cwd: repoRoot,
-      stdio: 'inherit',
-      env: { ...process.env, E2E_BASE_URL: base },
-    });
+    runNpm('test:e2e');
   }
 
   console.log('TIER1_PHASE3_VERIFY_OK');

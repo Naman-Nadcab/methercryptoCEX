@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { WalletOperationsShell } from '@/components/wallet/WalletOperationsShell';
 import { api } from '@/lib/api';
+import { toast } from '@/components/ui/toaster';
 
 interface TransferHistory {
   id: string;
@@ -44,6 +45,8 @@ export default function TransferPage() {
   const [selectedToken, setSelectedToken] = useState<{ tokenId: string; symbol: string; name: string; iconUrl: string | null; decimals: number; availableBalance: string } | null>(null);
   const [amount, setAmount] = useState('');
   const [transferHistory, setTransferHistory] = useState<TransferHistory[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
@@ -62,13 +65,24 @@ export default function TransferPage() {
   }, [_hasHydrated, accessToken, fromAccount]);
 
   const fetchTransferHistory = async () => {
+    setHistoryLoading(true);
+    setHistoryError(null);
     try {
       const data = await api.get<TransferHistory[]>('/api/v1/wallet/transfer/history?limit=10');
       if (data.success && data.data) {
         setTransferHistory(data.data);
+      } else {
+        setHistoryError(data.error?.message || 'Could not load transfer history.');
       }
-    } catch (err) {
-      console.error('Failed to fetch history:', err);
+    } catch {
+      setHistoryError('Could not load transfer history. Retry in a moment.');
+      toast({
+        title: 'History unavailable',
+        description: 'Transfer history could not be loaded.',
+        variant: 'destructive',
+      });
+    } finally {
+      setHistoryLoading(false);
     }
   };
 
@@ -546,20 +560,35 @@ export default function TransferPage() {
           </div>
 
           {/* Recent Transfers */}
-          {transferHistory.length > 0 && (
+          {(transferHistory.length > 0 || historyLoading || historyError) && (
             <div className="mt-8">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-semibold text-foreground">Recent Transfers</h2>
-                <Link
-                  href="/wallet/history?tab=transfer"
-                  className="text-sm text-primary hover:text-primary/85 font-medium flex items-center gap-1"
-                >
-                  View All
-                  <ChevronRight className="w-4 h-4" />
-                </Link>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => void fetchTransferHistory()}
+                    disabled={historyLoading}
+                    className="text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                  >
+                    {historyLoading ? 'Refreshing…' : 'Refresh'}
+                  </button>
+                  <Link
+                    href="/wallet/history?tab=transfer"
+                    className="text-sm text-primary hover:text-primary/85 font-medium flex items-center gap-1"
+                  >
+                    View All
+                    <ChevronRight className="w-4 h-4" />
+                  </Link>
+                </div>
               </div>
 
               <div className="bg-card rounded-xl border border-border overflow-hidden">
+                {historyError ? (
+                  <div className="px-6 py-4 text-sm text-destructive">
+                    {historyError}
+                  </div>
+                ) : null}
                 <div className="grid grid-cols-6 gap-4 px-6 py-4 bg-background border-b border-border text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                   <span>Coin</span>
                   <span>From</span>
@@ -569,7 +598,9 @@ export default function TransferPage() {
                   <span>Date</span>
                 </div>
                 <div className="divide-y divide-border">
-                  {transferHistory.map((transfer) => (
+                  {historyLoading && transferHistory.length === 0 ? (
+                    <div className="px-6 py-8 text-sm text-muted-foreground">Loading transfer history…</div>
+                  ) : transferHistory.map((transfer) => (
                     <div key={transfer.id} className="grid grid-cols-6 gap-4 px-6 py-4 text-sm items-center">
                       <div className="flex items-center gap-2">
                         <CoinIcon symbol={transfer.symbol} size={24} />

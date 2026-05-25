@@ -1,6 +1,18 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "globalDependencies": ["**/.env.*local"],
+  "globalPassThroughEnv": [
+    "EXCHANGE_DEV_STACK_BOOT",
+    "EXCHANGE_VERIFY_STACK",
+    "EXCHANGE_PRESERVE_SHELL_DATABASE_URL",
+    "EXCHANGE_PRESERVE_DATABASE_URL",
+    "E2E_BASE_URL",
+    "HYBRID_ENABLED",
+    "HEDGE_ENABLED",
+    "HYBRID_HEDGE_WORKER_INTERVAL_MS",
+    "HEDGE_DRY_RUN",
+    "HYBRID_DECISION_DEBUG"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

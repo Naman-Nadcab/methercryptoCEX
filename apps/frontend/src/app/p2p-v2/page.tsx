@@ -13,6 +13,7 @@ import {
   type P2PPaymentMethodRow,
 } from '@/lib/p2pApi';
 import { api } from '@/lib/api';
+import { toast } from '@/components/ui/toaster';
 import { P2PFilters, type P2PFiltersValue } from '@/components/p2p-v2/P2PFilters';
 import { P2PAdsTable } from '@/components/p2p-v2/P2PAdsTable';
 import {
@@ -200,12 +201,18 @@ export default function P2PV2MarketplacePage() {
 
   /* ── Tickers ── */
   const [tickers, setTickers] = useState<TickerRow[]>([]);
+  const [tickerLoadFailed, setTickerLoadFailed] = useState(false);
 
   const fetchTickers = useCallback(async () => {
     try {
       const r = await api.get<TickerRow[]>('/api/v1/spot/tickers', { skipAuth: true, notifyOnError: false });
-      if (r.success && Array.isArray(r.data)) setTickers(r.data);
-    } catch { /* silent */ }
+      if (r.success && Array.isArray(r.data)) {
+        setTickers(r.data);
+        setTickerLoadFailed(false);
+      }
+    } catch {
+      setTickerLoadFailed(true);
+    }
   }, []);
 
   useEffect(() => {
@@ -314,6 +321,21 @@ export default function P2PV2MarketplacePage() {
       <div className="border-b border-border/10 py-4">
         <P2PFilters value={filters} onChange={setFilters} onRefresh={() => void refetch()} />
       </div>
+      {tickerLoadFailed && (
+        <div className="mt-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
+          Spot reference feed is reconnecting. P2P listing remains available.
+          <button
+            type="button"
+            onClick={() => {
+              void fetchTickers();
+              toast({ title: 'Retrying feed', description: 'Refreshing spot reference prices.', variant: 'default' });
+            }}
+            className="ml-2 font-semibold underline-offset-2 hover:underline"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* ── Sub-bar: quick chips + reference prices ── */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/10 py-3">

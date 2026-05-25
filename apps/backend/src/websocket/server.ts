@@ -6,6 +6,7 @@ import { isSessionValid } from '../services/session.service.js';
 import { logger, securityLog } from '../lib/logger.js';
 import { consumeWsTicket } from '../services/ws-ticket.service.js';
 import { resolvePublicOrderbookSnapshot } from '../services/spot-orderbook-public.service.js';
+import { getClientIpFromIncomingMessage } from '../lib/client-ip.js';
 
 interface WSClient extends WebSocket {
   id: string;
@@ -23,23 +24,12 @@ interface WSMessage {
 }
 
 class WebSocketManager {
-  private clientIpFromRequest(request: IncomingMessage): string {
-    const h = request.headers;
-    const cf = h['cf-connecting-ip'];
-    if (typeof cf === 'string' && cf.trim()) return cf.trim();
-    const xri = h['x-real-ip'];
-    if (typeof xri === 'string' && xri.trim()) return xri.trim();
-    const xff = h['x-forwarded-for'];
-    if (typeof xff === 'string') {
-      const first = xff.split(',')[0]?.trim();
-      if (first) return first;
-    }
-    const ra = request.socket?.remoteAddress || '0.0.0.0';
-    return ra.replace(/^::ffff:/, '');
-  }
-
   private wss: WebSocketServer | null = null;
   private clients: Map<string, WSClient> = new Map();
+  /** Simple per-client message rate limit (M3): max messages per window */
+  private wsMsgBuckets: Map<string, { count: number; resetAt: number }> = new Map();
+  private static readonly WS_MSG_WINDOW_MS = 10_000;
+  private static readonly WS_MSG_MAX_PER_WINDOW = 40;
   private userClients: Map<string, Set<string>> = new Map(); // userId -> clientIds
   private channelSubscribers: Map<string, Set<string>> = new Map(); // channel -> clientIds
   private heartbeatInterval: NodeJS.Timeout | null = null;
@@ -51,7 +41,7 @@ class WebSocketManager {
     this.wss = new WebSocketServer({
       server,
       path: '/api/v1/spot/ws',
-      maxPayload: 1024 * 1024, // 1MB max message size
+      maxPayload: 64 * 1024, // 64 KiB — mitigates large-frame DoS (M3)
     });
 
     this.wss.on('connection', this.handleConnection.bind(this));
@@ -79,7 +69,7 @@ class WebSocketManager {
     client.subscriptions = new Set();
     client.isAlive = true;
     client.lastPing = Date.now();
-    client.connectIp = this.clientIpFromRequest(request);
+    client.connectIp = getClientIpFromIncomingMessage(request);
 
     const url = new URL(request.url || '', `http://${request.headers.host}`);
     if (url.searchParams.has('token')) {
@@ -117,9 +107,25 @@ class WebSocketManager {
   /**
    * Handle incoming message
    */
+  private consumeWsMessageBudget(client: WSClient): boolean {
+    const now = Date.now();
+    let b = this.wsMsgBuckets.get(client.id);
+    if (!b || now >= b.resetAt) {
+      b = { count: 0, resetAt: now + WebSocketManager.WS_MSG_WINDOW_MS };
+      this.wsMsgBuckets.set(client.id, b);
+    }
+    b.count += 1;
+    return b.count <= WebSocketManager.WS_MSG_MAX_PER_WINDOW;
+  }
+
   private async handleMessage(client: WSClient, data: WebSocket.RawData): Promise<void> {
     try {
       const message = JSON.parse(data.toString()) as WSMessage;
+
+      if (!this.consumeWsMessageBudget(client)) {
+        this.send(client, { type: 'error', data: { message: 'Too many messages; slow down' } });
+        return;
+      }
 
       switch (message.type) {
         case 'ping':
@@ -300,6 +306,7 @@ class WebSocketManager {
     }
 
     this.clients.delete(client.id);
+    this.wsMsgBuckets.delete(client.id);
 
     logger.debug('WebSocket client disconnected', { clientId: client.id });
   }

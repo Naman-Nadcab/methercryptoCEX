@@ -5,9 +5,13 @@ import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAdminAuthStore } from '@/store/auth';
 import { getDashboardStats } from '@/lib/api';
-import { getUsers, updateUserStatus, type AdminUserRow } from '@/lib/users-api';
+import { bulkUpdateUserStatus, getUsers, updateUserStatus, type AdminUserRow } from '@/lib/users-api';
 import { RiskBadge } from '@/components/users/RiskBadge';
+import { StatusBadge } from '@/components/dashboard/StatusBadge';
 import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
+import { ActionAuthModal, type ActionAuthPayload } from '@/components/ops/ActionAuthModal';
+import { BulkActionResultPanel } from '@/components/ops/BulkActionResultPanel';
+import { ProtectedAction } from '@/components/rbac/ProtectedAction';
 import { cn } from '@/lib/cn';
 import {
   Users, UserCheck, UserX, TrendingUp, Search, Download, Eye,
@@ -122,31 +126,6 @@ function KycBadge({ level, status }: { level?: number | null; status?: string | 
   return <span className="text-[10px] text-admin-muted/50">—</span>;
 }
 
-function StatusPill({ status }: { status: string }) {
-  /**
-   * Accept both the DB enum value (`banned`) and the legacy UI alias (`locked`).
-   * Without this, rows with `status='banned'` from the API were falling through
-   * to the neutral "unknown" style.
-   */
-  const s = (status ?? '').toLowerCase();
-  const isBanned = s === 'banned' || s === 'locked';
-  return (
-    <span className={cn('inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold',
-      s === 'active' ? 'border-emerald-500/30 bg-emerald-950/20 text-emerald-400' :
-      s === 'suspended' ? 'border-amber-500/30 bg-amber-950/20 text-amber-400' :
-      s === 'pending' ? 'border-blue-500/30 bg-blue-950/20 text-blue-400' :
-      isBanned ? 'border-red-500/30 bg-red-950/20 text-red-400' :
-      'border-admin-border/50 bg-white/[0.03] text-admin-muted')}>
-      <span className={cn('h-1.5 w-1.5 rounded-full',
-        s === 'active' ? 'bg-emerald-400' :
-        s === 'suspended' ? 'bg-amber-400' :
-        s === 'pending' ? 'bg-blue-400' :
-        isBanned ? 'bg-red-400' : 'bg-admin-muted/30')} />
-      {displayStatus(status)}
-    </span>
-  );
-}
-
 function SelectFilter({ options, value, onChange }: { options: { value: string; label: string }[]; value: string; onChange: (v: string) => void }) {
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)}
@@ -181,42 +160,6 @@ function Pager({ page, total, onChange }: { page: number; total: number; onChang
   );
 }
 
-/* ── confirm modal ──────────────────────────────────────────────────── */
-function ConfirmModal({ open, user, action, onClose, onConfirm, loading }: {
-  open: boolean; user: AdminUserRow | null; action: 'suspended' | 'locked' | null;
-  onClose: () => void; onConfirm: () => void; loading: boolean;
-}) {
-  if (!open || !user || !action) return null;
-  const isBan = action === 'locked';
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-sm rounded-2xl border border-admin-border/60 bg-admin-card p-6 shadow-2xl">
-        <div className={cn('mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border',
-          isBan ? 'border-red-500/30 bg-red-950/20' : 'border-amber-500/30 bg-amber-950/20')}>
-          {isBan ? <Ban className="h-6 w-6 text-red-400" /> : <ShieldOff className="h-6 w-6 text-amber-400" />}
-        </div>
-        <h3 className="mb-1 text-center text-sm font-semibold text-admin-text">{isBan ? 'Ban User' : 'Suspend User'}</h3>
-        <p className="mb-5 text-center text-xs text-admin-muted">
-          {isBan ? 'This will permanently ban' : 'This will suspend'} <span className="font-semibold text-admin-text">{user.email ?? user.id.slice(0, 12)}</span>
-          {isBan ? '. They will not be able to login.' : '. They can be reactivated later.'}
-        </p>
-        <div className="flex gap-2">
-          <button onClick={onClose} disabled={loading}
-            className="flex-1 rounded-xl border border-admin-border/50 py-2 text-xs font-medium text-admin-muted hover:text-admin-text transition-colors disabled:opacity-40">
-            Cancel
-          </button>
-          <button onClick={onConfirm} disabled={loading}
-            className={cn('flex-1 rounded-xl py-2 text-xs font-semibold text-white transition-all disabled:opacity-40',
-              isBan ? 'bg-red-600 hover:bg-red-500' : 'bg-amber-600 hover:bg-amber-500')}>
-            {loading ? 'Processing…' : isBan ? 'Ban User' : 'Suspend User'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ── page ───────────────────────────────────────────────────────────── */
 export default function UsersPage() {
   const token = useAdminAuthStore((s) => s.accessToken);
@@ -228,7 +171,11 @@ export default function UsersPage() {
   const [riskFilter,   setRiskFilter]   = useState('all');
   const [dateFilter,   setDateFilter]   = useState('all');
   const [page,         setPage]         = useState(1);
-  const [confirmModal, setConfirmModal] = useState<{ user: AdminUserRow; action: 'suspended' | 'locked' } | null>(null);
+  const [confirmModal, setConfirmModal] = useState<{ user: AdminUserRow; action: 'active' | 'suspended' | 'locked' } | null>(null);
+  const [bulkAction, setBulkAction] = useState<'active' | 'suspended' | 'locked' | null>(null);
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [bulkResult, setBulkResult] = useState<{ action: 'active' | 'suspended' | 'locked'; updated: number } | null>(null);
+  const [exportingCsv, setExportingCsv] = useState(false);
   const pageSize = 20;
 
   useEffect(() => { setPage(1); }, [search, statusFilter, kycFilter, riskFilter, dateFilter]);
@@ -259,12 +206,23 @@ export default function UsersPage() {
   });
 
   const updateStatus = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: 'active' | 'suspended' | 'locked' }) =>
-      updateUserStatus(token, id, { status }),
+    mutationFn: ({ id, status, reason }: { id: string; status: 'active' | 'suspended' | 'locked'; reason?: string }) =>
+      updateUserStatus(token, id, { status, reason }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
       queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard-stats'] });
       setConfirmModal(null);
+    },
+  });
+  const bulkStatus = useMutation({
+    mutationFn: ({ status, reason }: { status: 'active' | 'suspended' | 'locked'; reason?: string }) =>
+      bulkUpdateUserStatus(token, { user_ids: selectedUserIds, status, reason }),
+    onSuccess: (res, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard-stats'] });
+      setSelectedUserIds([]);
+      setBulkAction(null);
+      setBulkResult({ action: vars.status, updated: Number(res.data?.updated ?? 0) });
     },
   });
 
@@ -272,6 +230,42 @@ export default function UsersPage() {
   const total      = data?.data?.pagination?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const hasFilter  = search || statusFilter !== 'all' || kycFilter !== 'all' || riskFilter !== 'all' || dateFilter !== 'all';
+  const allVisibleSelected = users.length > 0 && users.every((u) => selectedUserIds.includes(u.id));
+  const selectedCount = selectedUserIds.length;
+
+  const handleExportCsv = useCallback(async () => {
+    if (!token || exportingCsv) return;
+    setExportingCsv(true);
+    try {
+      const exportParams: Record<string, string> = {};
+      if (search.trim()) exportParams.search = search.trim();
+      if (statusFilter !== 'all') exportParams.status = statusFilter;
+      if (kycFilter !== 'all') exportParams.kycLevel = kycFilter;
+      if (riskFilter !== 'all') exportParams.riskLevel = riskFilter;
+      if (dateFilter !== 'all') exportParams.joinedWithinDays = dateFilter;
+
+      const all: AdminUserRow[] = [];
+      let currentPage = 1;
+      let totalPagesForExport = 1;
+
+      do {
+        const res = await getUsers(token, { ...exportParams, page: currentPage, limit: 200 });
+        const rows = res.data?.users ?? [];
+        all.push(...rows);
+        const total = Number(res.data?.pagination?.total ?? 0);
+        totalPagesForExport = Math.max(1, Math.ceil(total / 200));
+        currentPage += 1;
+      } while (currentPage <= totalPagesForExport && currentPage <= 200);
+
+      downloadCsv(all);
+    } finally {
+      setExportingCsv(false);
+    }
+  }, [token, exportingCsv, search, statusFilter, kycFilter, riskFilter, dateFilter]);
+
+  useEffect(() => {
+    setSelectedUserIds([]);
+  }, [page, search, statusFilter, kycFilter, riskFilter, dateFilter]);
 
   return (
     <AdminPageFrame
@@ -290,9 +284,9 @@ export default function UsersPage() {
             className="flex items-center gap-1.5 rounded-lg border border-admin-border/50 bg-white/[0.02] px-2.5 py-1.5 text-xs font-medium text-admin-muted hover:text-admin-text disabled:opacity-40 transition-colors">
             <RefreshCw className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')} />
           </button>
-          <button type="button" onClick={() => downloadCsv(users)}
+          <button type="button" onClick={() => { void handleExportCsv(); }} disabled={exportingCsv}
             className="flex items-center gap-1.5 rounded-lg border border-admin-border/50 bg-white/[0.02] px-2.5 py-1.5 text-xs font-medium text-admin-muted hover:text-admin-text transition-colors">
-            <Download className="h-3.5 w-3.5" /> Export CSV
+            <Download className="h-3.5 w-3.5" /> {exportingCsv ? 'Exporting…' : 'Export CSV'}
           </button>
         </>
       }
@@ -330,19 +324,71 @@ export default function UsersPage() {
               <X className="h-3 w-3" /> Clear
             </button>
           )}
+          {selectedCount > 0 && (
+            <div className="ml-2 flex items-center gap-1">
+              <span className="rounded-lg border border-admin-border/40 px-2 py-1 text-[10px] font-semibold text-admin-muted">
+                {selectedCount} selected
+              </span>
+              <button
+                type="button"
+                onClick={() => setBulkAction('active')}
+                className="rounded-lg border border-emerald-500/30 bg-emerald-950/10 px-2 py-1 text-[10px] font-semibold text-emerald-400 hover:bg-emerald-950/20"
+              >
+                Reactivate
+              </button>
+              <button
+                type="button"
+                onClick={() => setBulkAction('suspended')}
+                className="rounded-lg border border-amber-500/30 bg-amber-950/10 px-2 py-1 text-[10px] font-semibold text-amber-400 hover:bg-amber-950/20"
+              >
+                Suspend
+              </button>
+              <button
+                type="button"
+                onClick={() => setBulkAction('locked')}
+                className="rounded-lg border border-red-500/30 bg-red-950/10 px-2 py-1 text-[10px] font-semibold text-red-400 hover:bg-red-950/20"
+              >
+                Ban
+              </button>
+            </div>
+          )}
+          <BulkActionResultPanel
+            result={
+              bulkResult
+                ? {
+                    kind: 'generic',
+                    actionLabel: `Bulk ${bulkResult.action}`,
+                    successCount: bulkResult.updated,
+                    failed: [],
+                  }
+                : null
+            }
+            onDismiss={() => setBulkResult(null)}
+          />
           <span className="ml-auto text-xs text-admin-muted">{total.toLocaleString()} users</span>
           {isFetching && <RefreshCw className="h-3.5 w-3.5 animate-spin text-admin-muted" />}
         </div>
 
         {/* table */}
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1000px] text-left text-xs">
+          <table className="w-full min-w-[1040px] text-left text-xs">
             <thead>
               <tr className="border-b border-admin-border/50 bg-white/[0.015]">
-                {['User', 'KYC', 'Balance', 'Risk', '30d Vol', 'Status', 'Country', 'Last Login', 'Joined', 'Actions'].map((h, i) => (
+                {['', 'User', 'KYC', 'Balance', 'Risk', '30d Vol', 'Status', 'Country', 'Last Login', 'Joined', 'Actions'].map((h, i) => (
                   <th key={h} className={cn('px-4 py-3 text-[10px] font-semibold uppercase tracking-wider text-admin-muted',
-                    i >= 2 && i <= 4 ? 'text-right' : i === 9 ? 'text-right' : '')}>
-                    {h}
+                    i >= 3 && i <= 5 ? 'text-right' : i === 10 ? 'text-right' : '')}>
+                    {i === 0 ? (
+                      <input
+                        type="checkbox"
+                        checked={allVisibleSelected}
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedUserIds(users.map((u) => u.id));
+                          else setSelectedUserIds([]);
+                        }}
+                        className="h-3.5 w-3.5 rounded border-admin-border/60 bg-transparent"
+                        aria-label="Select all users on page"
+                      />
+                    ) : h}
                   </th>
                 ))}
               </tr>
@@ -351,14 +397,14 @@ export default function UsersPage() {
               {isLoading ? (
                 Array.from({ length: 6 }).map((_, i) => (
                   <tr key={i} className="border-b border-admin-border/30">
-                    {Array.from({ length: 10 }).map((__, j) => (
+                    {Array.from({ length: 11 }).map((__, j) => (
                       <td key={j} className="px-4 py-3"><div className="h-3 w-16 rounded bg-white/[0.05] animate-pulse" /></td>
                     ))}
                   </tr>
                 ))
               ) : users.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-14 text-center">
+                  <td colSpan={11} className="px-4 py-14 text-center">
                     <div className="flex flex-col items-center gap-2 text-admin-muted">
                       <Shield className="h-8 w-8 opacity-10" />
                       <p className="text-sm">No users found</p>
@@ -376,6 +422,18 @@ export default function UsersPage() {
                     className={cn('cursor-pointer border-b border-admin-border/25 transition-colors hover:bg-white/[0.02]',
                       isBannedRow && 'bg-red-950/[0.04]',
                       st === 'suspended' && 'bg-amber-950/[0.03]')}>
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedUserIds.includes(u.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedUserIds((prev) => Array.from(new Set([...prev, u.id])));
+                          else setSelectedUserIds((prev) => prev.filter((id) => id !== u.id));
+                        }}
+                        className="h-3.5 w-3.5 rounded border-admin-border/60 bg-transparent"
+                        aria-label={`Select user ${u.email ?? u.id}`}
+                      />
+                    </td>
                     {/* User */}
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2.5">
@@ -392,7 +450,9 @@ export default function UsersPage() {
                     <td className="px-4 py-3 text-right tabular-nums font-semibold text-admin-text">{fmtBal(u.total_balance as string | number)}</td>
                     <td className="px-4 py-3"><RiskBadge level={(u.risk_level as 'low' | 'medium' | 'high') ?? 'low'} /></td>
                     <td className="px-4 py-3 text-right tabular-nums text-admin-muted">{fmtBal(u.volume_30d as string | number)}</td>
-                    <td className="px-4 py-3"><StatusPill status={u.status} /></td>
+                    <td className="px-4 py-3">
+                      <StatusBadge status={displayStatus(u.status)} />
+                    </td>
                     <td className="px-4 py-3 text-xs text-admin-muted">{u.country_code || '—'}</td>
                     <td className="px-4 py-3 text-xs text-admin-muted whitespace-nowrap" title={u.last_login_at ?? ''}>
                       {fmtRelative(u.last_login_at)}
@@ -404,24 +464,30 @@ export default function UsersPage() {
                           className="p-1.5 rounded-lg text-admin-muted hover:text-blue-400 hover:bg-blue-950/15 transition-colors">
                           <Eye className="h-3.5 w-3.5" />
                         </button>
-                        {(st === 'suspended' || isBannedRow) && (
-                          <button onClick={() => updateStatus.mutate({ id: u.id, status: 'active' })} title="Reactivate"
-                            className="p-1.5 rounded-lg text-admin-muted hover:text-emerald-400 hover:bg-emerald-950/15 transition-colors">
-                            <Check className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                        {st !== 'suspended' && !isBannedRow && (
-                          <button onClick={() => setConfirmModal({ user: u, action: 'suspended' })} title="Suspend"
-                            className="p-1.5 rounded-lg text-admin-muted hover:text-amber-400 hover:bg-amber-950/15 transition-colors">
-                            <ShieldOff className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                        {!isBannedRow && (
-                          <button onClick={() => setConfirmModal({ user: u, action: 'locked' })} title="Ban"
-                            className="p-1.5 rounded-lg text-admin-muted hover:text-red-400 hover:bg-red-950/15 transition-colors">
-                            <Ban className="h-3.5 w-3.5" />
-                          </button>
-                        )}
+                        <ProtectedAction permission="users:edit" fallback="disabled">
+                          {(st === 'suspended' || isBannedRow) && (
+                            <button onClick={() => setConfirmModal({ user: u, action: 'active' })} title="Reactivate"
+                              className="p-1.5 rounded-lg text-admin-muted hover:text-emerald-400 hover:bg-emerald-950/15 transition-colors">
+                              <Check className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </ProtectedAction>
+                        <ProtectedAction permission="users:edit" fallback="disabled">
+                          {st !== 'suspended' && !isBannedRow && (
+                            <button onClick={() => setConfirmModal({ user: u, action: 'suspended' })} title="Suspend"
+                              className="p-1.5 rounded-lg text-admin-muted hover:text-amber-400 hover:bg-amber-950/15 transition-colors">
+                              <ShieldOff className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </ProtectedAction>
+                        <ProtectedAction permission="users:edit" fallback="disabled">
+                          {!isBannedRow && (
+                            <button onClick={() => setConfirmModal({ user: u, action: 'locked' })} title="Ban"
+                              className="p-1.5 rounded-lg text-admin-muted hover:text-red-400 hover:bg-red-950/15 transition-colors">
+                              <Ban className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </ProtectedAction>
                       </div>
                     </td>
                   </tr>
@@ -443,13 +509,69 @@ export default function UsersPage() {
       </div>
 
       {/* Confirm modal */}
-      <ConfirmModal
+      <ActionAuthModal
         open={!!confirmModal}
-        user={confirmModal?.user ?? null}
-        action={confirmModal?.action ?? null}
         onClose={() => setConfirmModal(null)}
-        onConfirm={() => confirmModal && updateStatus.mutate({ id: confirmModal.user.id, status: confirmModal.action })}
-        loading={updateStatus.isPending}
+        onConfirm={(payload: ActionAuthPayload) => {
+          if (!confirmModal) return;
+          updateStatus.mutate({
+            id: confirmModal.user.id,
+            status: confirmModal.action,
+            reason: payload.reason,
+          });
+        }}
+        title={
+          confirmModal?.action === 'locked'
+            ? 'Ban user account'
+            : confirmModal?.action === 'active'
+              ? 'Reactivate user account'
+              : 'Suspend user account'
+        }
+        actionLabel={
+          confirmModal
+            ? `${confirmModal.action === 'locked' ? 'Ban' : confirmModal.action === 'active' ? 'Reactivate' : 'Suspend'} ${confirmModal.user.email ?? confirmModal.user.id.slice(0, 12)}`
+            : 'Update user status'
+        }
+        description="High-risk account actions require audit reason and 2FA verification."
+        requireReason
+        twofaRequired
+        confirmationPhrase={confirmModal?.action === 'locked' ? 'CONFIRM BAN_USER' : undefined}
+        externalError={updateStatus.error instanceof Error ? updateStatus.error.message : null}
+        isPending={updateStatus.isPending}
+        confirmLabel={
+          updateStatus.isPending
+            ? 'Processing…'
+            : confirmModal?.action === 'locked'
+              ? 'Ban user'
+              : confirmModal?.action === 'active'
+                ? 'Reactivate user'
+                : 'Suspend user'
+        }
+        confirmVariant={confirmModal?.action === 'locked' ? 'danger' : 'primary'}
+      />
+      <ActionAuthModal
+        open={bulkAction !== null}
+        onClose={() => setBulkAction(null)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          if (!bulkAction) return;
+          bulkStatus.mutate({ status: bulkAction, reason: payload.reason });
+        }}
+        title={
+          bulkAction === 'locked'
+            ? 'Bulk ban users'
+            : bulkAction === 'suspended'
+              ? 'Bulk suspend users'
+              : 'Bulk reactivate users'
+        }
+        actionLabel={`${bulkAction === 'locked' ? 'Ban' : bulkAction === 'suspended' ? 'Suspend' : 'Reactivate'} ${selectedCount} selected users`}
+        description="Bulk moderation is audited and applies to all selected accounts."
+        requireReason
+        twofaRequired
+        confirmationPhrase={bulkAction === 'locked' ? 'CONFIRM BULK_BAN' : undefined}
+        externalError={bulkStatus.error instanceof Error ? bulkStatus.error.message : null}
+        isPending={bulkStatus.isPending}
+        confirmLabel={bulkStatus.isPending ? 'Processing…' : 'Apply bulk action'}
+        confirmVariant={bulkAction === 'locked' ? 'danger' : 'primary'}
       />
     </AdminPageFrame>
   );

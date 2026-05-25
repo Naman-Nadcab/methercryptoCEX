@@ -82,6 +82,7 @@ export default function AddressBookPage() {
   // Add address modal states
   const [showAddModal, setShowAddModal] = useState(false);
   const [addingAddress, setAddingAddress] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [addModalTab, setAddModalTab] = useState<'onchain' | 'internal'>('onchain');
   const [walletAddressType, setWalletAddressType] = useState('regular');
   const [saveAsUniversal, setSaveAsUniversal] = useState(false);
@@ -471,8 +472,6 @@ export default function AddressBookPage() {
   };
 
   const handleDeleteAddress = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this address?')) return;
-
     try {
       const response = await fetch(`${apiUrl}/api/v1/auth/withdrawal-addresses/${id}`, {
         method: 'DELETE',
@@ -481,6 +480,7 @@ export default function AddressBookPage() {
       const result = await response.json();
 
       if (result.success) {
+        setDeleteConfirmId(null);
         fetchAddresses();
       } else {
         toast({ title: 'Error', description: result.error?.message || 'Failed to delete address', variant: 'destructive' });
@@ -838,12 +838,29 @@ export default function AddressBookPage() {
                     <td className="py-4 px-6">
                       <div className="flex items-center gap-3">
                         <button className="text-primary hover:text-primary/85 text-sm font-medium">Edit</button>
-                        <button 
-                          onClick={() => handleDeleteAddress(addr.id)}
-                          className="text-sell hover:text-sell/90 text-sm font-medium"
-                        >
-                          Delete
-                        </button>
+                        {deleteConfirmId === addr.id ? (
+                          <>
+                            <button
+                              onClick={() => setDeleteConfirmId(null)}
+                              className="text-muted-foreground hover:text-foreground text-sm font-medium"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              onClick={() => void handleDeleteAddress(addr.id)}
+                              className="text-sell hover:text-sell/90 text-sm font-semibold"
+                            >
+                              Confirm delete
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => setDeleteConfirmId(addr.id)}
+                            className="text-sell hover:text-sell/90 text-sm font-medium"
+                          >
+                            Delete
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

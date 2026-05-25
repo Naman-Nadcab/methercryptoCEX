@@ -1,18 +1,20 @@
 'use client';
 
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 import {
   Activity, Sliders, Siren, Cable, Server, CheckSquare,
   SlidersHorizontal, LayoutGrid, Zap, ShieldCheck, AlertTriangle,
   ArrowRight, Clock, Database, Wifi, Cpu, HardDrive, BarChart3,
   TrendingUp, Wallet, BookOpen, ChevronRight, Radio,
-  RefreshCw, Flame,
+  RefreshCw, Flame, ListOrdered,
 } from 'lucide-react';
-import { adminFetch } from '@/lib/api';
+import { adminFetch, formatAdminError } from '@/lib/api';
 import { useAdminAuthStore } from '@/store/auth';
 import { cn } from '@/lib/cn';
 import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
+import { ActionAuthModal, type ActionAuthPayload } from '@/components/ops/ActionAuthModal';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -31,8 +33,59 @@ interface OpsIncident {
   severity: string;
 }
 
+interface ActionCenterItem {
+  key: string;
+  severity: 'critical' | 'high' | 'medium';
+  title: string;
+  detail: string;
+  count?: number;
+  action_path: string;
+}
+
 interface Playbooks {
   [key: string]: string;
+}
+
+interface JobHealthRow {
+  job_id: string;
+  status: 'healthy' | 'lagging' | 'degraded';
+  lag_seconds: number | null;
+  fail_count: number;
+  queue_depth: number;
+  last_error: string | null;
+  recovery_actions: string[];
+}
+
+interface OpsIntelligenceData {
+  period: string;
+  action_latency_ms: { avg: number; p95: number };
+  incident_frequency: number;
+  provider_failovers: number;
+  failed_action_classes: Array<{ action: string; count: number }>;
+}
+
+interface ConfigSnapshotRow {
+  id: string;
+  scope: string;
+  reason: string;
+  actor_admin_id: string | null;
+  created_at: string;
+}
+
+interface ApprovalPolicyRow {
+  key: string;
+  label: string;
+  mode: 'always_dual' | 'single_allowed';
+  required_approvals: number;
+  require_distinct_role: boolean;
+  allowed_checker_roles: string[];
+}
+
+interface ApprovalPolicyHistoryRow {
+  id: string;
+  actor_id: string | null;
+  created_at: string;
+  details: Record<string, unknown> | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -69,12 +122,24 @@ const HUB_SECTIONS: {
   },
 ];
 
+
 /* ------------------------------------------------------------------ */
 /*  Page component                                                     */
 /* ------------------------------------------------------------------ */
 
 export default function OperationsPage() {
   const token = useAdminAuthStore((s) => s.accessToken);
+  const queryClient = useQueryClient();
+  const [recoveryReason, setRecoveryReason] = useState('');
+  const [configReason, setConfigReason] = useState('');
+  const [rollbackReason, setRollbackReason] = useState('');
+  const [rollbackSnapshotId, setRollbackSnapshotId] = useState('');
+  const [simAction, setSimAction] = useState<'trading_halt' | 'provider_failover' | 'fee_update'>('trading_halt');
+  const [simTargetProvider, setSimTargetProvider] = useState('');
+  const [simMakerBps, setSimMakerBps] = useState('10');
+  const [simTakerBps, setSimTakerBps] = useState('10');
+  const [policyReason, setPolicyReason] = useState('');
+  const [policyDraft, setPolicyDraft] = useState<ApprovalPolicyRow[]>([]);
 
   // System health
   const { data: healthData, isLoading: healthLoading } = useQuery({
@@ -120,6 +185,18 @@ export default function OperationsPage() {
     staleTime: 15_000,
   });
 
+  // Unified action center queue
+  const { data: actionCenterData } = useQuery({
+    queryKey: ['admin', 'operations-action-center', token],
+    queryFn: () =>
+      adminFetch<{
+        items: ActionCenterItem[];
+      }>('/operations/action-center', { token }),
+    enabled: !!token,
+    refetchInterval: 20_000,
+    staleTime: 10_000,
+  });
+
   // Proof of reserves
   const { data: porData } = useQuery({
     queryKey: ['admin', 'operations-por', token],
@@ -137,6 +214,144 @@ export default function OperationsPage() {
     staleTime: 120_000,
   });
 
+  const { data: jobsHealthData } = useQuery({
+    queryKey: ['admin', 'operations-jobs-health', token],
+    queryFn: () => adminFetch<{ generated_at: string; jobs: JobHealthRow[] }>('/operations/jobs/health', { token }),
+    enabled: !!token,
+    refetchInterval: 20_000,
+    staleTime: 10_000,
+  });
+
+  const { data: opsIntelData } = useQuery({
+    queryKey: ['admin', 'operations-intelligence', token],
+    queryFn: () => adminFetch<OpsIntelligenceData>('/operations/intelligence', { token }),
+    enabled: !!token,
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  });
+
+  const { data: snapshotsData } = useQuery({
+    queryKey: ['admin', 'operations-config-snapshots', token],
+    queryFn: () => adminFetch<ConfigSnapshotRow[]>('/operations/config/snapshots?limit=20', { token }),
+    enabled: !!token,
+    refetchInterval: 30_000,
+    staleTime: 10_000,
+  });
+
+  const { data: providersData } = useQuery({
+    queryKey: ['admin', 'external-liquidity-providers-sim', token],
+    queryFn: () => adminFetch<Array<{ id: string; provider_name: string; priority: number }>>('/external-liquidity/providers', { token }),
+    enabled: !!token,
+    staleTime: 20_000,
+  });
+
+  const { data: approvalPoliciesData } = useQuery({
+    queryKey: ['admin', 'operations-approval-policies', token],
+    queryFn: () => adminFetch<ApprovalPolicyRow[]>('/operations/approvals/policies', { token }),
+    enabled: !!token,
+    staleTime: 10_000,
+  });
+
+  const { data: approvalPolicyHistoryData } = useQuery({
+    queryKey: ['admin', 'operations-approval-policies-history', token],
+    queryFn: () => adminFetch<ApprovalPolicyHistoryRow[]>('/operations/approvals/policies/history?limit=10', { token }),
+    enabled: !!token,
+    staleTime: 10_000,
+  });
+
+  useEffect(() => {
+    const rows = approvalPoliciesData?.data ?? [];
+    setPolicyDraft(rows);
+  }, [approvalPoliciesData?.data]);
+
+  const recoverJobMutation = useMutation({
+    mutationFn: async (input: { job_id: string; action: string }) => {
+      const reason = recoveryReason.trim();
+      if (reason.length < 8) throw new Error('Recovery reason must be at least 8 characters.');
+      return adminFetch('/operations/jobs/recovery', {
+        method: 'POST',
+        token,
+        body: {
+          ...input,
+          reason,
+          limit: 200,
+        },
+      });
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'operations-jobs-health'] });
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'operations-action-center'] });
+    },
+  });
+
+  const createSnapshotMutation = useMutation({
+    mutationFn: async () => {
+      const reason = configReason.trim();
+      if (reason.length < 8) throw new Error('Snapshot reason must be at least 8 characters.');
+      return adminFetch('/operations/config/snapshot', {
+        method: 'POST',
+        token,
+        body: { scope: 'global', reason },
+      });
+    },
+    onSuccess: () => {
+      setConfigReason('');
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'operations-config-snapshots'] });
+    },
+  });
+
+  const rollbackSnapshotMutation = useMutation({
+    mutationFn: async (dryRun: boolean) => {
+      const reason = rollbackReason.trim();
+      if (!rollbackSnapshotId) throw new Error('Select snapshot to rollback.');
+      if (reason.length < 8) throw new Error('Rollback reason must be at least 8 characters.');
+      return adminFetch(`/operations/config/snapshots/${encodeURIComponent(rollbackSnapshotId)}/rollback`, {
+        method: 'POST',
+        token,
+        body: { reason, dry_run: dryRun },
+      });
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'operations-config-snapshots'] });
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'operations-action-center'] });
+    },
+  });
+
+  const simulateMutation = useMutation({
+    mutationFn: async () => {
+      if (simAction === 'provider_failover' && !simTargetProvider) {
+        throw new Error('Select provider for failover simulation.');
+      }
+      return adminFetch('/operations/simulate', {
+        method: 'POST',
+        token,
+        body:
+          simAction === 'provider_failover'
+            ? { action: 'provider_failover', params: { to_provider_id: simTargetProvider } }
+            : simAction === 'fee_update'
+              ? { action: 'fee_update', params: { maker_bps: Number(simMakerBps) || 0, taker_bps: Number(simTakerBps) || 0 } }
+              : { action: 'trading_halt' },
+      });
+    },
+  });
+
+  const saveApprovalPoliciesMutation = useMutation({
+    mutationFn: async () => {
+      const reason = policyReason.trim();
+      if (reason.length < 8) throw new Error('Policy update reason must be at least 8 characters.');
+      return adminFetch('/operations/approvals/policies', {
+        method: 'POST',
+        token,
+        body: { reason, policies: policyDraft },
+      });
+    },
+    onSuccess: () => {
+      setPolicyReason('');
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'operations-approval-policies'] });
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'approval-requests'] });
+    },
+  });
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const health = healthData?.success ? (healthData.data as Record<string, any> | undefined) : undefined;
   const dbUp = health?.database?.status === 'up';
@@ -151,9 +366,17 @@ export default function OperationsPage() {
   const alertSummary = alertsData?.data?.summary;
   const reliability = reliabilityData?.data;
   const opsIncidents = incidentsData?.data?.incidents ?? [];
+  const actionCenterItems = actionCenterData?.data?.items ?? [];
   const activeOpsIncidents = opsIncidents.filter((i) => i.count > 0);
   const por = porData?.data;
   const playbooks = playbooksData?.data?.playbooks ?? {};
+  const jobs = jobsHealthData?.data?.jobs ?? [];
+  const opsIntel = opsIntelData?.data;
+  const snapshots = snapshotsData?.data ?? [];
+  const providers = providersData?.data ?? [];
+  const approvalPolicies = policyDraft;
+  const approvalPolicyHistory = approvalPolicyHistoryData?.data ?? [];
+  const simulationResult = simulateMutation.data?.data as Record<string, unknown> | undefined;
 
   const pageStatus = (reliability?.circuitOpen || reliability?.tradingHalted || alerts.some((a) => a.severity === 'critical'))
     ? 'risk' as const
@@ -210,6 +433,57 @@ export default function OperationsPage() {
         <ReliabilityPanel reliability={reliability} />
         <OpsIncidentsPanel incidents={opsIncidents} />
       </div>
+
+      {/* ── Unified Action Center ── */}
+      <ActionCenterPanel items={actionCenterItems} />
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <JobHealthPanel
+          jobs={jobs}
+          onRecover={(jobId, action) => recoverJobMutation.mutate({ job_id: jobId, action })}
+          recovering={recoverJobMutation.isPending}
+          recoveryReason={recoveryReason}
+          setRecoveryReason={setRecoveryReason}
+          recoveryError={recoverJobMutation.isError ? formatAdminError(recoverJobMutation.error, 'Recovery failed') : null}
+        />
+        <OpsIntelligencePanel data={opsIntel} />
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <ConfigControlPanel
+          snapshots={snapshots}
+          configReason={configReason}
+          setConfigReason={setConfigReason}
+          rollbackReason={rollbackReason}
+          setRollbackReason={setRollbackReason}
+          rollbackSnapshotId={rollbackSnapshotId}
+          setRollbackSnapshotId={setRollbackSnapshotId}
+          createSnapshotMutation={createSnapshotMutation}
+          rollbackSnapshotMutation={rollbackSnapshotMutation}
+        />
+        <SimulationPanel
+          simAction={simAction}
+          setSimAction={setSimAction}
+          simTargetProvider={simTargetProvider}
+          setSimTargetProvider={setSimTargetProvider}
+          simMakerBps={simMakerBps}
+          setSimMakerBps={setSimMakerBps}
+          simTakerBps={simTakerBps}
+          setSimTakerBps={setSimTakerBps}
+          providers={providers}
+          simulateMutation={simulateMutation}
+          simulationResult={simulationResult}
+        />
+      </div>
+
+      <ApprovalPolicyPanel
+        policies={approvalPolicies}
+        history={approvalPolicyHistory}
+        setPolicies={setPolicyDraft}
+        reason={policyReason}
+        setReason={setPolicyReason}
+        saveMutation={saveApprovalPoliciesMutation}
+      />
 
       {/* ── Hub navigation grid ── */}
       {HUB_SECTIONS.map((section) => (
@@ -514,6 +788,573 @@ function OpsIncidentsPanel({ incidents }: { incidents: OpsIncident[] }) {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Unified Action Center                                              */
+/* ------------------------------------------------------------------ */
+
+function ActionCenterPanel({ items }: { items: ActionCenterItem[] }) {
+  return (
+    <div className="rounded-xl border border-admin-border bg-admin-card overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-admin-border px-4 py-3">
+        <ListOrdered className="h-4 w-4 text-indigo-400" />
+        <span className="text-xs font-semibold text-admin-text">Unified Action Center</span>
+        <span className="text-[10px] text-admin-muted ml-1">Critical queue sorted by severity</span>
+      </div>
+      {items.length === 0 ? (
+        <div className="px-4 py-8 text-center text-xs text-admin-muted">
+          No urgent actions. Critical operational queue is clear.
+        </div>
+      ) : (
+        <div className="divide-y divide-admin-border/50">
+          {items.map((item) => {
+            const sevTone = item.severity === 'critical'
+              ? 'border-red-500/35 bg-red-500/[0.05] text-red-400'
+              : item.severity === 'high'
+                ? 'border-orange-500/35 bg-orange-500/[0.05] text-orange-400'
+                : 'border-amber-500/35 bg-amber-500/[0.05] text-amber-400';
+            return (
+              <div key={item.key} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-3">
+                <div className="flex items-start gap-2 flex-1">
+                  <AlertTriangle className={cn('mt-0.5 h-3.5 w-3.5 shrink-0', item.severity === 'critical' ? 'text-red-400' : item.severity === 'high' ? 'text-orange-400' : 'text-amber-400')} />
+                  <div className="space-y-0.5">
+                    <p className="text-xs font-semibold text-admin-text">{item.title}</p>
+                    <p className="text-[11px] text-admin-muted leading-relaxed">{item.detail}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 sm:ml-3">
+                  <span className={cn('rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider', sevTone)}>
+                    {item.severity}
+                  </span>
+                  {item.count != null ? (
+                    <span className="text-[11px] font-bold tabular-nums text-admin-text">{item.count}</span>
+                  ) : null}
+                  <Link
+                    href={item.action_path}
+                    className="inline-flex items-center gap-1 rounded-md border border-admin-border px-2 py-1 text-[10px] text-admin-primary hover:bg-admin-muted/10"
+                  >
+                    Open
+                    <ArrowRight className="h-2.5 w-2.5" />
+                  </Link>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Jobs Health Panel                                                  */
+/* ------------------------------------------------------------------ */
+
+function JobHealthPanel({
+  jobs,
+  onRecover,
+  recovering,
+  recoveryReason,
+  setRecoveryReason,
+  recoveryError,
+}: {
+  jobs: JobHealthRow[];
+  onRecover: (jobId: string, action: string) => void;
+  recovering: boolean;
+  recoveryReason: string;
+  setRecoveryReason: (value: string) => void;
+  recoveryError: string | null;
+}) {
+  const [pendingRecovery, setPendingRecovery] = useState<{ jobId: string; action: string } | null>(null);
+  const tone = (status: JobHealthRow['status']) =>
+    status === 'healthy' ? 'text-emerald-400' : status === 'lagging' ? 'text-amber-400' : 'text-red-400';
+
+  return (
+    <div className="rounded-xl border border-admin-border bg-admin-card overflow-hidden">
+      <div className="flex items-center justify-between border-b border-admin-border px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Activity className="h-4 w-4 text-cyan-400" />
+          <span className="text-xs font-semibold text-admin-text">Queue / Cron Health</span>
+        </div>
+        <span className="text-[10px] text-admin-muted">{jobs.length} critical jobs</span>
+      </div>
+      <div className="border-b border-admin-border px-4 py-2.5">
+        <label className="block text-[10px] font-semibold uppercase tracking-wide text-admin-muted">Recovery reason (mandatory)</label>
+        <input
+          value={recoveryReason}
+          onChange={(e) => setRecoveryReason(e.target.value)}
+          placeholder="Incident reference + why this recovery is safe"
+          className="mt-1 w-full rounded-lg border border-admin-border bg-admin-surface px-2 py-1.5 text-xs text-admin-text"
+        />
+        {recoveryError ? <p className="mt-1 text-[11px] text-red-400">{recoveryError}</p> : null}
+      </div>
+      {jobs.length === 0 ? (
+        <p className="px-4 py-4 text-[11px] text-admin-muted">No job telemetry yet.</p>
+      ) : (
+        <div className="divide-y divide-admin-border/50">
+          {jobs.map((j) => (
+            <div key={j.job_id} className="px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-semibold text-admin-text">{j.job_id.replace(/_/g, ' ')}</p>
+                <span className={cn('text-[10px] font-semibold uppercase', tone(j.status))}>{j.status}</span>
+              </div>
+              <p className="mt-1 text-[11px] text-admin-muted">
+                Queue {j.queue_depth} • Failures {j.fail_count} • Lag {j.lag_seconds ?? 0}s
+              </p>
+              {j.last_error ? <p className="mt-1 text-[11px] text-amber-400">{j.last_error}</p> : null}
+              {j.recovery_actions.length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {j.recovery_actions.slice(0, 2).map((action) => (
+                    <button
+                      key={action}
+                      type="button"
+                      disabled={recovering || action === 'investigate'}
+                      onClick={() => setPendingRecovery({ jobId: j.job_id, action })}
+                      className="rounded-md border border-admin-border px-2 py-1 text-[10px] text-admin-primary hover:bg-admin-muted/10 disabled:opacity-40"
+                    >
+                      {action}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      )}
+      <ActionAuthModal
+        open={pendingRecovery !== null}
+        onClose={() => setPendingRecovery(null)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          if (!pendingRecovery) return;
+          onRecover(pendingRecovery.jobId, pendingRecovery.action);
+          void payload;
+          setPendingRecovery(null);
+        }}
+        title="Confirm job recovery action"
+        actionLabel={pendingRecovery ? `${pendingRecovery.action} on ${pendingRecovery.jobId}` : 'Recovery action'}
+        description="Recovery operations can affect queues and workers."
+        requireReason
+        twofaRequired
+        confirmationPhrase="CONFIRM JOB_RECOVERY"
+        externalError={recoveryError}
+        isPending={recovering}
+        confirmLabel={recovering ? 'Executing…' : 'Execute recovery'}
+        confirmVariant="danger"
+      />
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Ops Intelligence Panel                                             */
+/* ------------------------------------------------------------------ */
+
+function OpsIntelligencePanel({ data }: { data?: OpsIntelligenceData }) {
+  return (
+    <div className="rounded-xl border border-admin-border bg-admin-card overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-admin-border px-4 py-3">
+        <TrendingUp className="h-4 w-4 text-indigo-400" />
+        <span className="text-xs font-semibold text-admin-text">Operational Intelligence</span>
+      </div>
+      {!data ? (
+        <p className="px-4 py-4 text-[11px] text-admin-muted">Collecting operational trends...</p>
+      ) : (
+        <div className="space-y-3 px-4 py-3">
+          <div className="grid grid-cols-3 gap-2">
+            <KpiTile label="Avg Action Latency" value={`${Math.round(data.action_latency_ms.avg)}ms`} icon={<Clock className="h-3.5 w-3.5" />} color="text-indigo-300" />
+            <KpiTile label="Incidents (7d)" value={String(data.incident_frequency)} icon={<Flame className="h-3.5 w-3.5" />} color="text-orange-300" />
+            <KpiTile label="Failovers (7d)" value={String(data.provider_failovers)} icon={<RefreshCw className="h-3.5 w-3.5" />} color="text-cyan-300" />
+          </div>
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-admin-muted">Top failing admin actions</p>
+            {data.failed_action_classes.length === 0 ? (
+              <p className="mt-1 text-[11px] text-admin-muted">No failing action class in last 7 days.</p>
+            ) : (
+              <div className="mt-1 space-y-1">
+                {data.failed_action_classes.map((f) => (
+                  <div key={f.action} className="flex items-center justify-between rounded border border-admin-border/60 px-2 py-1 text-[11px]">
+                    <span className="text-admin-muted">{f.action}</span>
+                    <span className="font-semibold tabular-nums text-admin-text">{f.count}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Config + Simulation Panels                                         */
+/* ------------------------------------------------------------------ */
+
+function ConfigControlPanel({
+  snapshots,
+  configReason,
+  setConfigReason,
+  rollbackReason,
+  setRollbackReason,
+  rollbackSnapshotId,
+  setRollbackSnapshotId,
+  createSnapshotMutation,
+  rollbackSnapshotMutation,
+}: {
+  snapshots: ConfigSnapshotRow[];
+  configReason: string;
+  setConfigReason: (value: string) => void;
+  rollbackReason: string;
+  setRollbackReason: (value: string) => void;
+  rollbackSnapshotId: string;
+  setRollbackSnapshotId: (value: string) => void;
+  createSnapshotMutation: { isPending: boolean; isError: boolean; error: unknown; mutate: () => void };
+  rollbackSnapshotMutation: { isPending: boolean; isError: boolean; error: unknown; mutate: (dryRun: boolean) => void };
+}) {
+  const [pendingConfigAction, setPendingConfigAction] = useState<'snapshot' | 'rollback_dry' | 'rollback_exec' | null>(null);
+  const createErr = createSnapshotMutation.isError ? formatAdminError(createSnapshotMutation.error, 'Snapshot creation failed') : null;
+  const rollbackErr = rollbackSnapshotMutation.isError ? formatAdminError(rollbackSnapshotMutation.error, 'Rollback failed') : null;
+  return (
+    <div className="rounded-xl border border-admin-border bg-admin-card p-4 space-y-4">
+      <div className="flex items-center gap-2">
+        <BookOpen className="h-4 w-4 text-purple-400" />
+        <span className="text-xs font-semibold text-admin-text">Config Snapshots & Rollback</span>
+      </div>
+      <div className="space-y-2">
+        <label className="block text-[10px] font-semibold uppercase tracking-wide text-admin-muted">Create snapshot reason</label>
+        <input
+          value={configReason}
+          onChange={(e) => setConfigReason(e.target.value)}
+          placeholder="Why capturing this config state now"
+          className="w-full rounded-lg border border-admin-border bg-admin-surface px-2 py-1.5 text-xs text-admin-text"
+        />
+        <button
+          type="button"
+          onClick={() => setPendingConfigAction('snapshot')}
+          disabled={createSnapshotMutation.isPending}
+          className="rounded-md border border-admin-border px-2 py-1 text-[11px] text-admin-primary hover:bg-admin-muted/10 disabled:opacity-40"
+        >
+          Create Snapshot
+        </button>
+        {createErr ? <p className="text-[11px] text-red-400">{createErr}</p> : null}
+      </div>
+      <div className="space-y-2">
+        <label className="block text-[10px] font-semibold uppercase tracking-wide text-admin-muted">Rollback target snapshot</label>
+        <select
+          value={rollbackSnapshotId}
+          onChange={(e) => setRollbackSnapshotId(e.target.value)}
+          className="w-full rounded-lg border border-admin-border bg-admin-surface px-2 py-1.5 text-xs text-admin-text"
+        >
+          <option value="">Select snapshot</option>
+          {snapshots.map((s) => (
+            <option key={s.id} value={s.id}>
+              {new Date(s.created_at).toLocaleString()} - {s.reason.slice(0, 40)}
+            </option>
+          ))}
+        </select>
+        <input
+          value={rollbackReason}
+          onChange={(e) => setRollbackReason(e.target.value)}
+          placeholder="Why rollback is required"
+          className="w-full rounded-lg border border-admin-border bg-admin-surface px-2 py-1.5 text-xs text-admin-text"
+        />
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setPendingConfigAction('rollback_dry')}
+            disabled={rollbackSnapshotMutation.isPending}
+            className="rounded-md border border-admin-border px-2 py-1 text-[11px] text-admin-primary hover:bg-admin-muted/10 disabled:opacity-40"
+          >
+            Dry Run
+          </button>
+          <button
+            type="button"
+            onClick={() => setPendingConfigAction('rollback_exec')}
+            disabled={rollbackSnapshotMutation.isPending}
+            className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-300 hover:bg-amber-500/20 disabled:opacity-40"
+          >
+            Execute Rollback
+          </button>
+        </div>
+        {rollbackErr ? <p className="text-[11px] text-red-400">{rollbackErr}</p> : null}
+      </div>
+      <ActionAuthModal
+        open={pendingConfigAction !== null}
+        onClose={() => setPendingConfigAction(null)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          if (pendingConfigAction === 'snapshot') {
+            createSnapshotMutation.mutate();
+          } else if (pendingConfigAction === 'rollback_dry') {
+            rollbackSnapshotMutation.mutate(true);
+          } else if (pendingConfigAction === 'rollback_exec') {
+            rollbackSnapshotMutation.mutate(false);
+          }
+          void payload;
+          setPendingConfigAction(null);
+        }}
+        title="Confirm configuration control action"
+        actionLabel={
+          pendingConfigAction === 'snapshot'
+            ? 'Create config snapshot'
+            : pendingConfigAction === 'rollback_dry'
+              ? 'Run rollback dry-run'
+              : 'Execute config rollback'
+        }
+        description="Configuration controls impact live runtime behavior."
+        requireReason
+        twofaRequired
+        confirmationPhrase={pendingConfigAction === 'rollback_exec' ? 'CONFIRM CONFIG_ROLLBACK' : 'CONFIRM CONFIG_ACTION'}
+        externalError={createErr ?? rollbackErr}
+        isPending={createSnapshotMutation.isPending || rollbackSnapshotMutation.isPending}
+        confirmLabel={(createSnapshotMutation.isPending || rollbackSnapshotMutation.isPending) ? 'Executing…' : 'Confirm'}
+        confirmVariant={pendingConfigAction === 'rollback_exec' ? 'danger' : 'primary'}
+      />
+    </div>
+  );
+}
+
+function SimulationPanel({
+  simAction,
+  setSimAction,
+  simTargetProvider,
+  setSimTargetProvider,
+  simMakerBps,
+  setSimMakerBps,
+  simTakerBps,
+  setSimTakerBps,
+  providers,
+  simulateMutation,
+  simulationResult,
+}: {
+  simAction: 'trading_halt' | 'provider_failover' | 'fee_update';
+  setSimAction: (value: 'trading_halt' | 'provider_failover' | 'fee_update') => void;
+  simTargetProvider: string;
+  setSimTargetProvider: (value: string) => void;
+  simMakerBps: string;
+  setSimMakerBps: (value: string) => void;
+  simTakerBps: string;
+  setSimTakerBps: (value: string) => void;
+  providers: Array<{ id: string; provider_name: string; priority: number }>;
+  simulateMutation: { isPending: boolean; isError: boolean; error: unknown; mutate: () => void; data?: { data?: unknown } };
+  simulationResult?: Record<string, unknown>;
+}) {
+  const [pendingSimulation, setPendingSimulation] = useState(false);
+  const simErr = simulateMutation.isError ? formatAdminError(simulateMutation.error, 'Simulation failed') : null;
+  return (
+    <div className="rounded-xl border border-admin-border bg-admin-card p-4 space-y-4">
+      <div className="flex items-center gap-2">
+        <Zap className="h-4 w-4 text-indigo-300" />
+        <span className="text-xs font-semibold text-admin-text">Simulation Mode</span>
+      </div>
+      <select
+        value={simAction}
+        onChange={(e) => setSimAction(e.target.value as 'trading_halt' | 'provider_failover' | 'fee_update')}
+        className="w-full rounded-lg border border-admin-border bg-admin-surface px-2 py-1.5 text-xs text-admin-text"
+      >
+        <option value="trading_halt">Trading halt impact</option>
+        <option value="provider_failover">Provider failover impact</option>
+        <option value="fee_update">Fee update impact</option>
+      </select>
+      {simAction === 'provider_failover' ? (
+        <select
+          value={simTargetProvider}
+          onChange={(e) => setSimTargetProvider(e.target.value)}
+          className="w-full rounded-lg border border-admin-border bg-admin-surface px-2 py-1.5 text-xs text-admin-text"
+        >
+          <option value="">Select provider</option>
+          {providers.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.provider_name} - p{p.priority}
+            </option>
+          ))}
+        </select>
+      ) : null}
+      {simAction === 'fee_update' ? (
+        <div className="grid grid-cols-2 gap-2">
+          <input
+            value={simMakerBps}
+            onChange={(e) => setSimMakerBps(e.target.value)}
+            placeholder="maker bps"
+            className="rounded-lg border border-admin-border bg-admin-surface px-2 py-1.5 text-xs text-admin-text"
+          />
+          <input
+            value={simTakerBps}
+            onChange={(e) => setSimTakerBps(e.target.value)}
+            placeholder="taker bps"
+            className="rounded-lg border border-admin-border bg-admin-surface px-2 py-1.5 text-xs text-admin-text"
+          />
+        </div>
+      ) : null}
+      <button
+        type="button"
+        onClick={() => setPendingSimulation(true)}
+        disabled={simulateMutation.isPending}
+        className="rounded-md border border-indigo-500/40 bg-indigo-500/10 px-2 py-1 text-[11px] text-indigo-300 hover:bg-indigo-500/20 disabled:opacity-40"
+      >
+        Run Simulation
+      </button>
+      {simErr ? <p className="text-[11px] text-red-400">{simErr}</p> : null}
+      {simulationResult ? (
+        <pre className="max-h-52 overflow-auto rounded border border-admin-border bg-admin-surface p-2 text-[10px] text-admin-muted">
+          {JSON.stringify(simulationResult, null, 2)}
+        </pre>
+      ) : null}
+      <ActionAuthModal
+        open={pendingSimulation}
+        onClose={() => setPendingSimulation(false)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          simulateMutation.mutate();
+          void payload;
+          setPendingSimulation(false);
+        }}
+        title="Confirm operational simulation"
+        actionLabel={`Run ${simAction.replace(/_/g, ' ')} simulation`}
+        description="Simulation actions are audited and require explicit authorization."
+        requireReason
+        twofaRequired
+        confirmationPhrase="CONFIRM SIMULATION"
+        externalError={simErr}
+        isPending={simulateMutation.isPending}
+        confirmLabel={simulateMutation.isPending ? 'Running…' : 'Run simulation'}
+        confirmVariant="primary"
+      />
+    </div>
+  );
+}
+
+function ApprovalPolicyPanel({
+  policies,
+  history,
+  setPolicies,
+  reason,
+  setReason,
+  saveMutation,
+}: {
+  policies: ApprovalPolicyRow[];
+  history: ApprovalPolicyHistoryRow[];
+  setPolicies: (rows: ApprovalPolicyRow[]) => void;
+  reason: string;
+  setReason: (value: string) => void;
+  saveMutation: { isPending: boolean; isError: boolean; error: unknown; mutate: () => void };
+}) {
+  const saveErr = saveMutation.isError ? formatAdminError(saveMutation.error, 'Policy update failed') : null;
+
+  return (
+    <div className="rounded-xl border border-admin-border bg-admin-card p-4 space-y-4">
+      <div className="flex items-center gap-2">
+        <ShieldCheck className="h-4 w-4 text-purple-300" />
+        <span className="text-xs font-semibold text-admin-text">Approval Policies</span>
+        <span className="text-[10px] text-admin-muted">maker-checker enforcement per high-risk action</span>
+      </div>
+
+      {policies.length === 0 ? (
+        <p className="text-[11px] text-admin-muted">No policy rows available.</p>
+      ) : (
+        <div className="space-y-2">
+          {policies.map((p) => (
+            <div key={p.key} className="grid grid-cols-1 md:grid-cols-4 gap-2 rounded border border-admin-border/60 p-2">
+              <div className="md:col-span-2">
+                <p className="text-xs font-semibold text-admin-text">{p.label}</p>
+                <p className="text-[10px] text-admin-muted">{p.key}</p>
+              </div>
+              <select
+                value={p.mode}
+                onChange={(e) =>
+                  setPolicies(
+                    policies.map((row) => (row.key === p.key ? { ...row, mode: e.target.value as ApprovalPolicyRow['mode'] } : row))
+                  )
+                }
+                className="rounded-lg border border-admin-border bg-admin-surface px-2 py-1.5 text-xs text-admin-text"
+              >
+                <option value="always_dual">Always dual approval</option>
+                <option value="single_allowed">Single approval allowed</option>
+              </select>
+              <input
+                type="number"
+                min={1}
+                max={5}
+                value={p.required_approvals}
+                onChange={(e) => {
+                  const n = Math.min(5, Math.max(1, parseInt(e.target.value || '2', 10) || 2));
+                  setPolicies(policies.map((row) => (row.key === p.key ? { ...row, required_approvals: n } : row)));
+                }}
+                className="rounded-lg border border-admin-border bg-admin-surface px-2 py-1.5 text-xs text-admin-text"
+              />
+              <label className="flex items-center gap-2 text-[11px] text-admin-muted md:col-span-4">
+                <input
+                  type="checkbox"
+                  checked={p.require_distinct_role}
+                  onChange={(e) =>
+                    setPolicies(
+                      policies.map((row) =>
+                        row.key === p.key ? { ...row, require_distinct_role: e.target.checked } : row
+                      )
+                    )
+                  }
+                />
+                Require checker role distinct from maker role
+              </label>
+              <input
+                value={(p.allowed_checker_roles ?? []).join(',')}
+                onChange={(e) => {
+                  const roles = e.target.value
+                    .split(',')
+                    .map((r) => r.trim().toLowerCase().replace(/\s+/g, '_'))
+                    .filter((r) => r.length > 0);
+                  setPolicies(
+                    policies.map((row) =>
+                      row.key === p.key ? { ...row, allowed_checker_roles: roles } : row
+                    )
+                  );
+                }}
+                placeholder="Allowed checker roles (comma separated, optional)"
+                className="rounded-lg border border-admin-border bg-admin-surface px-2 py-1.5 text-xs text-admin-text md:col-span-4"
+              />
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="space-y-2">
+        <input
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Change reason (required for audit)"
+          className="w-full rounded-lg border border-admin-border bg-admin-surface px-2 py-1.5 text-xs text-admin-text"
+        />
+        <button
+          type="button"
+          onClick={() => saveMutation.mutate()}
+          disabled={saveMutation.isPending}
+          className="rounded-md border border-purple-500/40 bg-purple-500/10 px-2 py-1 text-[11px] text-purple-300 hover:bg-purple-500/20 disabled:opacity-40"
+        >
+          Save Approval Policies
+        </button>
+        {saveErr ? <p className="text-[11px] text-red-400">{saveErr}</p> : null}
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-admin-muted">Recent policy changes</p>
+        {history.length === 0 ? (
+          <p className="text-[11px] text-admin-muted">No policy update history found.</p>
+        ) : (
+          <div className="space-y-1 max-h-44 overflow-auto">
+            {history.map((h) => {
+              const details = (h.details ?? {}) as { reason?: string };
+              return (
+                <div key={h.id} className="rounded border border-admin-border/60 px-2 py-1.5 text-[11px]">
+                  <p className="text-admin-text">{new Date(h.created_at).toLocaleString()}</p>
+                  <p className="text-admin-muted">actor: {h.actor_id ?? 'unknown'}</p>
+                  <p className="text-admin-muted">reason: {details.reason ?? 'n/a'}</p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -27,6 +27,7 @@ import {
   Clock,
 } from 'lucide-react';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { toast } from '@/components/ui/toaster';
 
 interface UserProfile {
   id: string;
@@ -138,6 +139,14 @@ export default function AccountInfoPage() {
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit'
+    });
+  };
+
+  const handleComingSoon = (feature: string) => {
+    toast({
+      title: 'Coming soon',
+      description: `${feature} will be available in an upcoming release.`,
+      variant: 'default',
     });
   };
 
@@ -340,7 +349,7 @@ export default function AccountInfoPage() {
               statusColor="text-buy"
               actionLabel="Settings"
               badge="Soon"
-              action={() => alert('Coming soon')}
+              action={() => handleComingSoon('Profile picture settings')}
             />
             <SettingRow
               icon={Users}
@@ -387,7 +396,7 @@ export default function AccountInfoPage() {
               actionLabel="Settings"
               actionVariant="primary"
               badge="Soon"
-              action={() => alert('Coming soon')}
+              action={() => handleComingSoon('Account linking')}
             />
             <SettingRow
               icon={LineChart}
@@ -395,7 +404,7 @@ export default function AccountInfoPage() {
               description="Link TradingView for automated trading signals"
               actionLabel="View"
               badge="Soon"
-              action={() => alert('Coming soon')}
+              action={() => handleComingSoon('TradingView alerts')}
             />
           </div>
         </div>
@@ -418,7 +427,7 @@ export default function AccountInfoPage() {
               description={loading ? 'Loading...' : `${profileData?.activeDevices || 1} device${(profileData?.activeDevices || 1) > 1 ? 's' : ''} currently logged in`}
               actionLabel="Manage"
               badge="Soon"
-              action={() => alert('Coming soon')}
+              action={() => handleComingSoon('Trusted device management')}
             />
             <SettingRow
               icon={Activity}
@@ -426,7 +435,7 @@ export default function AccountInfoPage() {
               description="View recent account activity"
               actionLabel="View"
               badge="Soon"
-              action={() => alert('Coming soon')}
+              action={() => handleComingSoon('Login history')}
             />
             <div className="flex items-center justify-between p-5 hover:bg-accent/30 transition-colors">
               <div className="flex items-center gap-4">
@@ -440,7 +449,7 @@ export default function AccountInfoPage() {
               </div>
               <div className="flex items-center gap-3">
                 <span className="px-2 py-0.5 bg-muted text-muted-foreground text-xs font-medium rounded-md">Soon</span>
-                <button onClick={() => alert('Coming soon')} className="px-5 py-2.5 text-sm font-medium rounded-xl bg-sell-light hover:bg-sell/20 text-destructive transition-colors">
+                <button onClick={() => handleComingSoon('Account deletion workflow')} className="px-5 py-2.5 text-sm font-medium rounded-xl bg-sell-light hover:bg-sell/20 text-destructive transition-colors">
                   Delete
                 </button>
               </div>

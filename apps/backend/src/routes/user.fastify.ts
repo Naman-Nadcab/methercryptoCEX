@@ -23,7 +23,7 @@ export default async function userRoutes(app: FastifyInstance) {
           u.first_name, u.last_name, u.avatar_url,
           u.status, u.account_type,
           u.email_verified, u.phone_verified,
-          u.two_fa_enabled, u.tier_level,
+          (COALESCE(u.two_fa_enabled, FALSE) OR COALESCE(u.two_factor_enabled, FALSE)) AS two_fa_enabled, u.tier_level,
           u.country_code, u.timezone, u.language,
           u.daily_withdrawal_limit, u.monthly_withdrawal_limit,
           u.default_fiat_currency,

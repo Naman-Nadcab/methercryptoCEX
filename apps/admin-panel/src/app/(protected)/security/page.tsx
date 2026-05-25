@@ -2,16 +2,18 @@
 
 import { useState, useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Globe, Key, Monitor, Plus, Shield, Smartphone, Trash2 } from 'lucide-react';
-import { adminFetch } from '@/lib/api';
+import { ChevronLeft, ChevronRight, Globe, Key, Monitor, Plus, Shield, Smartphone, Trash2 } from 'lucide-react';
+import { adminFetch, formatAdminError } from '@/lib/api';
 import { useAdminAuthStore } from '@/store/auth';
 import { cn } from '@/lib/cn';
 import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input, Modal, ModalFooter, TableSkeleton } from '@/components/ui';
 
 const REFETCH_MS = 30_000;
+const ADMIN_SESSIONS_ENDPOINT = '/admin-sessions';
+const SECURITY_LOG_PAGE_SIZE = 20;
 
-/** Security dashboard aggregates 24h counters; active sessions use `/security/sessions?active=true` for live totals. */
+/** Security dashboard aggregates 24h counters; session controls use a single admin-sessions endpoint path. */
 type SecurityDashboard = {
   risk: { blocksLast24h: number; challengesLast24h: number };
   access: { accessBlockedLast24h: number; vpnTorDetectionsLast24h: number };
@@ -47,6 +49,17 @@ type IpRule = {
   label?: string;
   enabled: boolean;
   created_at?: string;
+};
+
+type DeviceRow = {
+  id: string;
+  user_id: string;
+  device_name: string | null;
+  device_type: string | null;
+  is_trusted: boolean | null;
+  last_seen_at: string | null;
+  ip_address: string | null;
+  location_country: string | null;
 };
 
 function formatActor(row: AuditLogRow): string {
@@ -163,7 +176,7 @@ function TwoFactorCard() {
             />
           </div>
         ) : (
-          <p className="py-6 text-center text-sm text-admin-danger">{setupMut.error?.message ?? 'Failed to generate QR code'}</p>
+          <p className="py-6 text-center text-sm text-admin-danger">{formatAdminError(setupMut.error, 'Failed to generate QR code')}</p>
         )}
         <ModalFooter className="mt-4 border-0 px-0 pb-0 pt-4">
           <Button variant="secondary" onClick={() => setSetupModal(false)}>Cancel</Button>
@@ -183,7 +196,7 @@ function TwoFactorCard() {
             placeholder="000000"
             className="text-center font-mono text-lg tracking-widest"
           />
-          {disableMut.isError && <p className="text-sm text-admin-danger">Invalid code. Try again.</p>}
+          {disableMut.isError && <p className="text-sm text-admin-danger">{formatAdminError(disableMut.error, 'Invalid code. Try again.')}</p>}
         </div>
         <ModalFooter className="mt-4 border-0 px-0 pb-0 pt-4">
           <Button variant="secondary" onClick={() => setDisableModal(false)}>Cancel</Button>
@@ -199,6 +212,7 @@ function TwoFactorCard() {
 export default function SecurityPage() {
   const token = useAdminAuthStore((s) => s.accessToken);
   const queryClient = useQueryClient();
+  const [logsPage, setLogsPage] = useState(1);
 
   const dashboardQ = useQuery({
     queryKey: ['admin', 'security', 'dashboard', token],
@@ -212,7 +226,7 @@ export default function SecurityPage() {
     queryKey: ['admin', 'security', 'sessions-active-total', token],
     staleTime: 30_000,
     queryFn: () =>
-      adminFetch<{ sessions: unknown[]; total: number }>('/admin-sessions', {
+      adminFetch<{ sessions: unknown[]; total: number }>(ADMIN_SESSIONS_ENDPOINT, {
         token,
         params: { active: true, limit: 1 },
       }),
@@ -223,19 +237,27 @@ export default function SecurityPage() {
   const sessionsListQ = useQuery({
     queryKey: ['admin', 'security', 'sessions', token],
     staleTime: 30_000,
-    queryFn: () => adminFetch('/admin-sessions', { token, params: { limit: 20 } }),
+    queryFn: () => adminFetch(ADMIN_SESSIONS_ENDPOINT, { token, params: { limit: 20 } }),
     enabled: !!token,
     refetchInterval: 30000,
   });
   const sessionsData = sessionsListQ.data;
 
+  const devicesQ = useQuery({
+    queryKey: ['admin', 'security', 'devices', token],
+    staleTime: 30_000,
+    queryFn: () => adminFetch<{ devices: DeviceRow[]; total: number }>('/security/devices', { token, params: { limit: 20 } }),
+    enabled: !!token,
+    refetchInterval: REFETCH_MS,
+  });
+
   const logsQ = useQuery({
-    queryKey: ['admin', 'security', 'audit-logs', token],
+    queryKey: ['admin', 'security', 'audit-logs', token, logsPage],
     staleTime: 30_000,
     queryFn: () =>
       adminFetch<{ audit_logs: AuditLogRow[]; total: number }>('/security/audit-logs', {
         token,
-        params: { limit: 50 },
+        params: { limit: SECURITY_LOG_PAGE_SIZE, offset: (logsPage - 1) * SECURITY_LOG_PAGE_SIZE },
       }),
     enabled: !!token,
     refetchInterval: REFETCH_MS,
@@ -243,7 +265,7 @@ export default function SecurityPage() {
 
   const killMutation = useMutation({
     mutationFn: (sessionId: string) =>
-      adminFetch(`/admin-sessions/${sessionId}`, { method: 'DELETE', token, body: {} }),
+      adminFetch(`${ADMIN_SESSIONS_ENDPOINT}/${sessionId}`, { method: 'DELETE', token, body: {} }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'security', 'sessions'] });
       queryClient.invalidateQueries({ queryKey: ['admin', 'security', 'sessions-active-total'] });
@@ -315,6 +337,10 @@ export default function SecurityPage() {
   const dash = dashboardQ.data?.success ? dashboardQ.data.data : undefined;
   const sessionsTotal = sessionsQ.data?.success ? sessionsQ.data.data?.total ?? 0 : undefined;
   const logs = logsQ.data?.success ? logsQ.data.data?.audit_logs ?? [] : [];
+  const logsTotal = logsQ.data?.success ? Number(logsQ.data.data?.total ?? 0) : 0;
+  const logsTotalPages = Math.max(1, Math.ceil(logsTotal / SECURITY_LOG_PAGE_SIZE));
+  const devices = devicesQ.data?.success ? devicesQ.data.data?.devices ?? [] : [];
+  const suspiciousDevices = devices.filter((d) => d.is_trusted === false);
   const logsErr = logsQ.data?.success === false ? logsQ.data.error?.message : undefined;
   const dashLoading = dashboardQ.isLoading || dashboardQ.isFetching;
   const sessLoading = sessionsQ.isLoading || sessionsQ.isFetching;
@@ -328,7 +354,7 @@ export default function SecurityPage() {
         <KpiCard label="Failed logins (24h)" value={dash?.accounts.loginFailedLast24h ?? '—'} loading={dashLoading} />
         <KpiCard label="Locked accounts" value={dash?.accounts.usersCurrentlyLocked ?? '—'} loading={dashLoading} />
         <KpiCard label="Active sessions" value={sessionsTotal ?? '—'} loading={sessLoading} />
-        <KpiCard label="Suspicious IPs (24h)" value={dash?.access.vpnTorDetectionsLast24h ?? '—'} loading={dashLoading} />
+        <KpiCard label="Suspicious devices" value={suspiciousDevices.length} loading={devicesQ.isLoading || devicesQ.isFetching} />
       </div>
 
       {(dashboardQ.data?.success === false || sessionsQ.data?.success === false) && (
@@ -388,6 +414,32 @@ export default function SecurityPage() {
             </div>
           )}
         </CardContent>
+        {!logsLoading && logs.length > 0 && logsTotalPages > 1 && (
+          <div className="flex items-center justify-between border-t border-admin-border/50 px-4 py-3 text-xs text-admin-muted">
+            <span>
+              {((logsPage - 1) * SECURITY_LOG_PAGE_SIZE) + 1}-{Math.min(logsPage * SECURITY_LOG_PAGE_SIZE, logsTotal)} of {logsTotal.toLocaleString()}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setLogsPage((p) => Math.max(1, p - 1))}
+                disabled={logsPage <= 1}
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-admin-border/40 disabled:opacity-30 hover:bg-white/5"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </button>
+              <span>Page {logsPage} / {logsTotalPages}</span>
+              <button
+                type="button"
+                onClick={() => setLogsPage((p) => Math.min(logsTotalPages, p + 1))}
+                disabled={logsPage >= logsTotalPages}
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-admin-border/40 disabled:opacity-30 hover:bg-white/5"
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
       </Card>
 
       <Card>
@@ -398,7 +450,7 @@ export default function SecurityPage() {
         </CardHeader>
         <CardContent>
           {sessionsData?.success === false && (
-            <p className="mb-3 text-sm text-admin-danger">{sessionsData.error?.message ?? 'Failed to load sessions.'}</p>
+            <p className="mb-3 text-sm text-admin-danger">{formatAdminError(sessionsData.error, 'Failed to load sessions.')}</p>
           )}
           {sessionsListLoading ? (
             <div className="py-4">
@@ -478,7 +530,7 @@ export default function SecurityPage() {
           <p className="mb-3 text-sm text-admin-muted">Restrict admin panel access to specific IP addresses.</p>
 
           {ipRulesQ.data?.success === false && (
-            <p className="mb-3 text-sm text-admin-danger">{ipRulesQ.data.error?.message ?? 'Failed to load IP rules.'}</p>
+            <p className="mb-3 text-sm text-admin-danger">{formatAdminError(ipRulesQ.data.error, 'Failed to load IP rules.')}</p>
           )}
 
           {ipRulesQ.isPending ? (
@@ -563,7 +615,7 @@ export default function SecurityPage() {
             placeholder="e.g. Office VPN"
           />
           {addIpRuleMut.isError && (
-            <p className="text-sm text-admin-danger">{addIpRuleMut.error?.message ?? 'Failed to add rule.'}</p>
+            <p className="text-sm text-admin-danger">{formatAdminError(addIpRuleMut.error, 'Failed to add rule.')}</p>
           )}
         </div>
         <ModalFooter className="mt-4 border-0 px-0 pb-0 pt-4">
@@ -581,11 +633,49 @@ export default function SecurityPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="mb-3 text-sm text-admin-muted">Devices that have been verified for admin access.</p>
-          <div className="rounded-lg border border-admin-border p-4 text-center text-sm text-admin-muted">
-            Device trust management tracks browser fingerprints and verified devices. Data will appear once admins
-            authenticate with device verification enabled.
-          </div>
+          <p className="mb-3 text-sm text-admin-muted">Recent devices with trust state and geo hint.</p>
+          {devicesQ.data?.success === false ? (
+            <p className="text-sm text-admin-danger">{formatAdminError(devicesQ.data.error, 'Failed to load devices.')}</p>
+          ) : devicesQ.isPending ? (
+            <TableSkeleton rows={3} cols={5} />
+          ) : devices.length === 0 ? (
+            <div className="rounded-lg border border-admin-border p-4 text-center text-sm text-admin-muted">
+              No device records yet.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-admin-border text-left text-admin-muted">
+                    <th className="pb-2 pr-4 font-medium">Device</th>
+                    <th className="pb-2 pr-4 font-medium">Trust</th>
+                    <th className="pb-2 pr-4 font-medium">IP</th>
+                    <th className="pb-2 pr-4 font-medium">Country</th>
+                    <th className="pb-2 pr-4 font-medium">Last seen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {devices.map((d) => (
+                    <tr key={d.id} className="border-b border-admin-border/50 last:border-0">
+                      <td className="py-2.5 pr-4 text-xs text-admin-text">
+                        {d.device_name ?? d.device_type ?? 'Unknown device'}
+                      </td>
+                      <td className="py-2.5 pr-4">
+                        <Badge variant={d.is_trusted === false ? 'danger' : 'success'} size="sm">
+                          {d.is_trusted === false ? 'Untrusted' : 'Trusted'}
+                        </Badge>
+                      </td>
+                      <td className="py-2.5 pr-4 font-mono text-xs text-admin-muted">{d.ip_address ?? '—'}</td>
+                      <td className="py-2.5 pr-4 text-xs text-admin-muted">{d.location_country ?? '—'}</td>
+                      <td className="py-2.5 pr-4 text-xs text-admin-muted">
+                        {d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
 

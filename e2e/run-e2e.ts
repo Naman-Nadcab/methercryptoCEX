@@ -3,8 +3,7 @@
  * Usage: npm run test:e2e [-- --phase=1,2,3]
  * Env: E2E_BASE_URL, E2E_ENGINE_URL, E2E_JWT, E2E_API_KEY, E2E_ADMIN_EMAIL, E2E_ADMIN_PASSWORD
  *
- * `--phase=N` selects the Nth suite in order (1-based). There is no Phase 10 slot;
- * Phase 11 is N=10 (legacy). Phase 14 private WS = N=13, Phase 15 parity = N=14.
+ * Phase index → suite name: see e2e/README.md (slot 10 is intentionally unused in CLI).
  */
 import { runPhase1 } from './api/phase1-health.test.js';
 import { runPhase2 } from './api/phase2-auth.test.js';

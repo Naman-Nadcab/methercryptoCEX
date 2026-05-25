@@ -110,7 +110,7 @@ export default function RiskAutomationPage() {
   const [autoCancelRate,  setAutoCancelRate]  = useState(0);
   const [saveState,       setSaveState]       = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['admin', 'risk', 'automation', token],
     queryFn: () => getRiskAutomationRules(token),
     enabled: !!token,
@@ -159,7 +159,8 @@ export default function RiskAutomationPage() {
       title="Risk Automation Rules"
       description="Define when the engine should automatically act — freeze accounts, fire alerts, or block actions."
       status="active"
-      error={null}
+      error={isError ? (error instanceof Error ? error.message : 'Failed to load risk automation settings.') : null}
+      onRetry={isError ? () => { void refetch(); } : undefined}
       quickActions={
         <>
           {/* Active rules badge */}

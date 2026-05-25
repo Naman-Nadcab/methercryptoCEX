@@ -4,11 +4,14 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAdminAuthStore } from '@/store/auth';
 import { adminFetch } from '@/lib/api';
-import { Modal, ModalFooter } from '@/components/ui/Modal';
+import { exportStandardCsv, exportStandardJson, type StandardExportRow } from '@/lib/export-utils';
+import { Modal } from '@/components/ui/Modal';
 import { ProtectedAction } from '@/components/rbac/ProtectedAction';
+import { StatusBadge } from '@/components/dashboard/StatusBadge';
+import { ActionAuthModal, type ActionAuthPayload } from '@/components/ops/ActionAuthModal';
 import {
   CheckSquare, Clock, ShieldCheck, AlertTriangle,
-  RefreshCw, Check, X, Info,
+  RefreshCw, Check, X, Info, Download, ShieldAlert,
 } from 'lucide-react';
 import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 import { cn } from '@/lib/cn';
@@ -31,15 +34,19 @@ interface ApprovalRequest {
   updated_at: string;
   requester_name?: string;
   requester_email?: string;
+  action_executed?: boolean;
+  approver_details?: Array<{ id: string; name: string; email: string; role: string }>;
 }
 
 type TabId = 'pending' | 'completed';
+const APPROVALS_PAGE_SIZE = 20;
 
 /* ── constants ────────────────────────────────────────────────────── */
 const ACTION_TYPE_LABELS: Record<string, string> = {
   withdrawal_approve:       'Withdrawal Approval',
   manual_credit:            'Manual Credit',
   trading_halt:             'Trading Halt',
+  global_control_action:    'Global Control Action',
   settlement_circuit_reset: 'Settlement Circuit Reset',
   system_config_change:     'System Config Change',
   admin_role_change:        'Admin Role Change',
@@ -64,19 +71,42 @@ function isExpired(iso: string): boolean {
   return new Date(iso).getTime() < Date.now();
 }
 
-/* ── status pill ──────────────────────────────────────────────────── */
-function StatusPill({ status }: { status: string }) {
-  return (
-    <span className={cn(
-      'inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide',
-      status === 'pending'  && 'border-amber-500/30  bg-amber-950/20  text-amber-300',
-      status === 'approved' && 'border-emerald-500/30 bg-emerald-950/20 text-emerald-300',
-      status === 'rejected' && 'border-red-500/30    bg-red-950/20    text-red-300',
-      status === 'expired'  && 'border-admin-border/50 bg-white/[0.04] text-admin-muted',
-    )}>
-      {status}
-    </span>
-  );
+function summarizePayload(payload: Record<string, unknown>): string {
+  const action = typeof payload.action === 'string' ? payload.action : null;
+  const market = typeof payload.market === 'string' ? payload.market : null;
+  const reason = typeof payload.reason === 'string' ? payload.reason : null;
+  if (action && market) return `${action} (${market})`;
+  if (action) return action;
+  if (reason) return reason.slice(0, 56);
+  const keys = Object.keys(payload);
+  if (!keys.length) return 'No payload';
+  return keys.slice(0, 3).join(', ');
+}
+
+function toForensicsExportRows(bundle: Record<string, unknown>): StandardExportRow[] {
+  const request = (bundle.request ?? {}) as Record<string, unknown>;
+  const requestId = String(request.id ?? 'unknown');
+  const actionType = String(request.action_type ?? 'unknown');
+  const auditEntries = Array.isArray(bundle.audit_entries) ? (bundle.audit_entries as Array<Record<string, unknown>>) : [];
+  const rows: StandardExportRow[] = [
+    {
+      timestamp: new Date().toISOString(),
+      type: 'approval_request',
+      service: 'admin_approval',
+      admin: String(request.requested_by ?? 'unknown'),
+      details: JSON.stringify({ request_id: requestId, action_type: actionType }),
+    },
+  ];
+  for (const e of auditEntries) {
+    rows.push({
+      timestamp: String(e.created_at ?? new Date().toISOString()),
+      type: String(e.action ?? 'audit_entry'),
+      service: 'audit_logs',
+      admin: String((e.details as Record<string, unknown> | null)?.actor_id ?? 'unknown'),
+      details: JSON.stringify(e),
+    });
+  }
+  return rows;
 }
 
 /* ── progress bar ─────────────────────────────────────────────────── */
@@ -117,8 +147,13 @@ export default function ApprovalsPage() {
   const queryClient = useQueryClient();
 
   const [tab,         setTab]         = useState<TabId>('pending');
+  const [page, setPage] = useState(1);
   const [actionModal, setActionModal] = useState<{ request: ApprovalRequest; type: 'approve' | 'reject' } | null>(null);
-  const [reason,      setReason]      = useState('');
+  const [detailRequest, setDetailRequest] = useState<ApprovalRequest | null>(null);
+  const [retryReason, setRetryReason] = useState('');
+  const [bgReason, setBgReason] = useState('');
+  const [bgTicketId, setBgTicketId] = useState('');
+  const [breakGlassAuthOpen, setBreakGlassAuthOpen] = useState(false);
 
   const statusParam = tab === 'pending' ? 'pending' : undefined;
 
@@ -131,6 +166,26 @@ export default function ApprovalsPage() {
     }),
     enabled: !!token,
     refetchInterval: 15_000,
+  });
+
+  const detailImpactQ = useQuery({
+    queryKey: ['admin', 'approval-impact-preview', token, detailRequest?.id],
+    queryFn: () =>
+      adminFetch<Record<string, unknown>>(`/approval-requests/${encodeURIComponent(detailRequest!.id)}/impact-preview`, {
+        token,
+      }),
+    enabled: !!token && !!detailRequest?.id,
+    staleTime: 15_000,
+  });
+
+  const detailForensicsQ = useQuery({
+    queryKey: ['admin', 'approval-forensics', token, detailRequest?.id],
+    queryFn: () =>
+      adminFetch<Record<string, unknown>>(`/approval-requests/${encodeURIComponent(detailRequest!.id)}/forensics`, {
+        token,
+      }),
+    enabled: !!token && !!detailRequest?.id,
+    staleTime: 20_000,
   });
 
   const approveMutation = useMutation({
@@ -150,19 +205,45 @@ export default function ApprovalsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'approval-requests'] });
       setActionModal(null);
-      setReason('');
+    },
+  });
+
+  const retryMutation = useMutation({
+    mutationFn: ({ id, reason: retryReasonValue }: { id: string; reason: string }) =>
+      adminFetch<{ retried: boolean }>(`/approval-requests/${id}/retry-execution`, {
+        method: 'POST',
+        token,
+        body: { reason: retryReasonValue },
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'approval-requests'] });
+      void detailImpactQ.refetch();
+      void detailForensicsQ.refetch();
+      setRetryReason('');
+    },
+  });
+
+  const breakGlassMutation = useMutation({
+    mutationFn: ({ id, reason: bgReasonValue, ticketId }: { id: string; reason: string; ticketId: string }) =>
+      adminFetch<{ executed_via_break_glass: boolean }>(`/approval-requests/${id}/break-glass-execute`, {
+        method: 'POST',
+        token,
+        body: { reason: bgReasonValue, ticket_id: ticketId },
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'approval-requests'] });
+      void detailImpactQ.refetch();
+      void detailForensicsQ.refetch();
+      setBgReason('');
+      setBgTicketId('');
     },
   });
 
   const allRequests   = data?.data?.requests ?? [];
   const requests      = tab === 'completed' ? allRequests.filter((r) => r.status !== 'pending') : allRequests;
+  const totalPages = Math.max(1, Math.ceil(requests.length / APPROVALS_PAGE_SIZE));
+  const pagedRequests = requests.slice((page - 1) * APPROVALS_PAGE_SIZE, page * APPROVALS_PAGE_SIZE);
   const pendingCount  = tab === 'pending' ? allRequests.length : allRequests.filter((r) => r.status === 'pending').length;
-
-  const handleConfirm = () => {
-    if (!actionModal) return;
-    if (actionModal.type === 'approve') approveMutation.mutate(actionModal.request.id);
-    else rejectMutation.mutate({ id: actionModal.request.id, reason });
-  };
 
   const isMutating = approveMutation.isPending || rejectMutation.isPending;
 
@@ -195,7 +276,7 @@ export default function ApprovalsPage() {
           { id: 'completed' as TabId, label: 'Completed / Rejected', icon: CheckSquare },
         ].map(({ id, label, icon: Icon }) => (
           <button
-            key={id} type="button" onClick={() => setTab(id)}
+            key={id} type="button" onClick={() => { setTab(id); setPage(1); }}
             className={cn(
               'flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-all',
               tab === id
@@ -249,7 +330,7 @@ export default function ApprovalsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-admin-border/50 bg-white/[0.015]">
-                  {['Action', 'Requester', 'Status', 'Approvals', 'Created', 'Expires',
+                  {['Action', 'Payload', 'Requester', 'Status', 'Approvals', 'Created', 'Expires',
                     tab === 'pending' ? 'Actions' : 'Outcome',
                   ].map((h) => (
                     <th key={h} className={cn(
@@ -262,7 +343,7 @@ export default function ApprovalsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-admin-border/30">
-                {requests.map((req) => {
+                {pagedRequests.map((req) => {
                   const isOwnRequest = admin?.id === req.requested_by;
                   const expired = req.status === 'pending' && isExpired(req.expires_at);
 
@@ -276,6 +357,13 @@ export default function ApprovalsPage() {
                         <ActionTypeBadge type={req.action_type} />
                       </td>
 
+                      {/* Payload summary */}
+                      <td className="px-4 py-3.5 max-w-[260px]">
+                        <span className="text-xs text-admin-muted" title={JSON.stringify(req.action_payload ?? {})}>
+                          {summarizePayload(req.action_payload ?? {})}
+                        </span>
+                      </td>
+
                       {/* Requester */}
                       <td className="px-4 py-3.5">
                         <div className="text-sm text-admin-text">{req.requester_name ?? '—'}</div>
@@ -284,7 +372,7 @@ export default function ApprovalsPage() {
 
                       {/* Status */}
                       <td className="px-4 py-3.5 whitespace-nowrap">
-                        <StatusPill status={expired ? 'expired' : req.status} />
+                        <StatusBadge status={expired ? 'expired' : req.status} />
                       </td>
 
                       {/* Progress */}
@@ -333,6 +421,13 @@ export default function ApprovalsPage() {
                                     <X className="h-3.5 w-3.5" /> Reject
                                   </button>
                                 </ProtectedAction>
+                                <button
+                                  type="button"
+                                  onClick={() => setDetailRequest(req)}
+                                  className="rounded-lg border border-admin-border/60 px-2.5 py-1.5 text-xs font-semibold text-admin-muted hover:text-admin-text"
+                                >
+                                  View
+                                </button>
                               </>
                             )}
                           </div>
@@ -346,9 +441,20 @@ export default function ApprovalsPage() {
                             <span className="text-xs text-admin-muted truncate block" title={req.rejection_reason}>
                               {req.rejection_reason}
                             </span>
+                          ) : req.status === 'approved' ? (
+                            <span className={cn('text-xs font-semibold', req.action_executed ? 'text-emerald-400' : 'text-amber-300')}>
+                              {req.action_executed ? 'Executed' : 'Approved (pending execution)'}
+                            </span>
                           ) : (
                             <span className="text-xs text-admin-muted/40">—</span>
                           )}
+                          <button
+                            type="button"
+                            onClick={() => setDetailRequest(req)}
+                            className="mt-1 ml-auto block rounded-lg border border-admin-border/60 px-2 py-1 text-[11px] font-semibold text-admin-muted hover:text-admin-text"
+                          >
+                            View
+                          </button>
                         </td>
                       )}
                     </tr>
@@ -358,77 +464,227 @@ export default function ApprovalsPage() {
             </table>
           </div>
         )}
+        {!isLoading && requests.length > APPROVALS_PAGE_SIZE && (
+          <div className="flex items-center justify-between border-t border-admin-border/30 px-4 py-3 text-xs text-admin-muted">
+            <span>
+              {((page - 1) * APPROVALS_PAGE_SIZE) + 1}-{Math.min(page * APPROVALS_PAGE_SIZE, requests.length)} of {requests.length}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="rounded-lg border border-admin-border/50 px-2 py-1 disabled:opacity-40 hover:text-admin-text"
+              >
+                Prev
+              </button>
+              <span>Page {page}/{totalPages}</span>
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                className="rounded-lg border border-admin-border/50 px-2 py-1 disabled:opacity-40 hover:text-admin-text"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* ── Approve / Reject modal ────────────────────────────────────── */}
-      <Modal
+      <ActionAuthModal
         open={!!actionModal}
-        onClose={() => { setActionModal(null); setReason(''); }}
-        size="sm"
-        title={actionModal?.type === 'approve' ? 'Confirm Approval' : 'Reject Request'}
-        description={
+        onClose={() => setActionModal(null)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          if (!actionModal) return;
+          if (actionModal.type === 'approve') {
+            approveMutation.mutate(actionModal.request.id);
+          } else {
+            rejectMutation.mutate({ id: actionModal.request.id, reason: payload.reason });
+          }
+        }}
+        title={actionModal?.type === 'approve' ? 'Authorize approval action' : 'Authorize rejection action'}
+        actionLabel={
           actionModal
             ? `${ACTION_TYPE_LABELS[actionModal.request.action_type] ?? actionModal.request.action_type} · requested by ${actionModal.request.requester_name ?? 'Unknown'}`
-            : ''
+            : 'Approval action'
         }
+        description={
+          actionModal?.type === 'approve'
+            ? 'This adds your approval vote and may execute the action if threshold is met.'
+            : 'This rejects the request and records your decision for audit.'
+        }
+        requireReason
+        twofaRequired
+        confirmationPhrase={actionModal?.type === 'approve' ? 'CONFIRM APPROVAL' : 'CONFIRM REJECTION'}
+        externalError={approveMutation.error instanceof Error ? approveMutation.error.message : rejectMutation.error instanceof Error ? rejectMutation.error.message : null}
+        isPending={isMutating}
+        confirmLabel={isMutating ? 'Processing…' : actionModal?.type === 'approve' ? 'Approve request' : 'Reject request'}
+        confirmVariant={actionModal?.type === 'approve' ? 'primary' : 'danger'}
+      />
+
+      <Modal
+        open={!!detailRequest}
+        onClose={() => setDetailRequest(null)}
+        size="lg"
+        title="Approval Request Details"
+        description={detailRequest ? `${ACTION_TYPE_LABELS[detailRequest.action_type] ?? detailRequest.action_type} · ${detailRequest.id}` : ''}
       >
-        {actionModal?.type === 'reject' && (
-          <div className="mb-3">
-            <label className="mb-1.5 block text-xs font-semibold text-admin-text">Rejection reason</label>
-            <textarea
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Explain why this request is being rejected…"
-              rows={3}
-              className="w-full rounded-xl border border-admin-border/60 bg-white/[0.04] px-3 py-2.5 text-sm text-admin-text placeholder:text-admin-muted/40 focus:outline-none focus:ring-1 focus:ring-blue-500/30 focus:border-blue-500/40 transition-colors"
-            />
+        {detailRequest ? (
+          <div className="space-y-3 text-xs">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-lg border border-admin-border/60 p-2">
+                <p className="text-admin-muted">Status</p>
+                <p className="font-semibold text-admin-text">{detailRequest.status}</p>
+              </div>
+              <div className="rounded-lg border border-admin-border/60 p-2">
+                <p className="text-admin-muted">Approvals</p>
+                <p className="font-semibold text-admin-text">{detailRequest.current_approvals}/{detailRequest.required_approvals}</p>
+              </div>
+            </div>
+            <div className="rounded-lg border border-admin-border/60 p-2">
+              <p className="text-admin-muted mb-1">Approvers</p>
+              {detailRequest.approver_details && detailRequest.approver_details.length > 0 ? (
+                <div className="space-y-1">
+                  {detailRequest.approver_details.map((a) => (
+                    <p key={a.id} className="text-admin-text">
+                      {a.name} ({a.role}) - {a.email}
+                    </p>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-admin-text break-all">{(detailRequest.approved_by ?? []).join(', ') || 'None yet'}</p>
+              )}
+            </div>
+            <div className="rounded-lg border border-admin-border/60 p-2">
+              <p className="text-admin-muted mb-1">Action payload</p>
+              <pre className="max-h-56 overflow-auto rounded border border-admin-border/40 bg-white/[0.02] p-2 text-[10px] text-admin-muted">
+                {JSON.stringify(detailRequest.action_payload ?? {}, null, 2)}
+              </pre>
+            </div>
+            <div className="rounded-lg border border-admin-border/60 p-2">
+              <p className="text-admin-muted mb-1">Impact preview</p>
+              {detailImpactQ.isLoading ? (
+                <p className="text-admin-muted">Loading preview...</p>
+              ) : detailImpactQ.isError ? (
+                <p className="text-red-400">Failed to load impact preview.</p>
+              ) : (
+                <pre className="max-h-56 overflow-auto rounded border border-admin-border/40 bg-white/[0.02] p-2 text-[10px] text-admin-muted">
+                  {JSON.stringify(detailImpactQ.data?.data ?? {}, null, 2)}
+                </pre>
+              )}
+            </div>
+            <div className="rounded-lg border border-admin-border/60 p-2">
+              <p className="text-admin-muted mb-1">Forensics bundle</p>
+              {detailForensicsQ.isLoading ? (
+                <p className="text-admin-muted">Loading forensics...</p>
+              ) : detailForensicsQ.isError ? (
+                <p className="text-red-400">Failed to load forensics bundle.</p>
+              ) : (
+                <pre className="max-h-56 overflow-auto rounded border border-admin-border/40 bg-white/[0.02] p-2 text-[10px] text-admin-muted">
+                  {JSON.stringify(detailForensicsQ.data?.data ?? {}, null, 2)}
+                </pre>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={!detailForensicsQ.data?.data}
+                onClick={() => {
+                  if (!detailForensicsQ.data?.data || !detailRequest) return;
+                  const rows = toForensicsExportRows(detailForensicsQ.data.data as Record<string, unknown>);
+                  exportStandardJson(rows, `approval-forensics-${detailRequest.id}`);
+                }}
+                className="inline-flex items-center gap-1 rounded-lg border border-admin-border/60 px-2 py-1 text-[11px] font-semibold text-admin-muted hover:text-admin-text disabled:opacity-40"
+              >
+                <Download className="h-3.5 w-3.5" /> Export JSON
+              </button>
+              <button
+                type="button"
+                disabled={!detailForensicsQ.data?.data}
+                onClick={() => {
+                  if (!detailForensicsQ.data?.data || !detailRequest) return;
+                  const rows = toForensicsExportRows(detailForensicsQ.data.data as Record<string, unknown>);
+                  exportStandardCsv(rows, `approval-forensics-${detailRequest.id}`);
+                }}
+                className="inline-flex items-center gap-1 rounded-lg border border-admin-border/60 px-2 py-1 text-[11px] font-semibold text-admin-muted hover:text-admin-text disabled:opacity-40"
+              >
+                <Download className="h-3.5 w-3.5" /> Export CSV
+              </button>
+            </div>
+            {detailRequest.status === 'approved' && detailRequest.action_executed !== true ? (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-950/15 p-2 space-y-2">
+                <p className="text-[11px] font-semibold text-amber-300">Execution controls</p>
+                <div className="flex gap-2">
+                  <input
+                    value={retryReason}
+                    onChange={(e) => setRetryReason(e.target.value)}
+                    placeholder="Retry reason (required)"
+                    className="flex-1 rounded-lg border border-admin-border bg-admin-surface px-2 py-1.5 text-xs text-admin-text"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => detailRequest && retryMutation.mutate({ id: detailRequest.id, reason: retryReason })}
+                    disabled={retryMutation.isPending || retryReason.trim().length < 8}
+                    className="rounded-lg border border-amber-500/40 bg-amber-500/15 px-2 py-1 text-[11px] font-semibold text-amber-300 disabled:opacity-40"
+                  >
+                    Retry Execution
+                  </button>
+                </div>
+                <div className="flex flex-col gap-2 border-t border-amber-500/20 pt-2">
+                  <p className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-300">
+                    <ShieldAlert className="h-3.5 w-3.5" /> Break-glass override
+                  </p>
+                  <input
+                    value={bgTicketId}
+                    onChange={(e) => setBgTicketId(e.target.value)}
+                    placeholder="Incident ticket id"
+                    className="rounded-lg border border-admin-border bg-admin-surface px-2 py-1.5 text-xs text-admin-text"
+                  />
+                  <input
+                    value={bgReason}
+                    onChange={(e) => setBgReason(e.target.value)}
+                    placeholder="Break-glass reason"
+                    className="rounded-lg border border-admin-border bg-admin-surface px-2 py-1.5 text-xs text-admin-text"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setBreakGlassAuthOpen(true)}
+                    disabled={breakGlassMutation.isPending || bgReason.trim().length < 8 || bgTicketId.trim().length < 4}
+                    className="rounded-lg border border-red-500/40 bg-red-950/40 px-2 py-1 text-[11px] font-semibold text-red-300 disabled:opacity-40"
+                  >
+                    Break-Glass Execute
+                  </button>
+                </div>
+                {(retryMutation.isError || breakGlassMutation.isError) ? (
+                  <p className="text-[11px] text-red-300">Operation failed. Check permissions/session and retry.</p>
+                ) : null}
+              </div>
+            ) : null}
           </div>
-        )}
-
-        {actionModal?.type === 'approve' && (
-          <div className="flex gap-2.5 rounded-xl border border-blue-500/20 bg-blue-950/10 p-3.5 mb-3">
-            <Info className="h-4 w-4 shrink-0 text-blue-400 mt-0.5" />
-            <p className="text-xs text-blue-300/80">
-              This will add your approval to the request. If the threshold is met, the action will be executed automatically.
-            </p>
-          </div>
-        )}
-
-        {(approveMutation.isError || rejectMutation.isError) && (
-          <div className="mb-3 flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-950/10 p-3">
-            <AlertTriangle className="h-4 w-4 shrink-0 text-red-400" />
-            <p className="text-xs text-red-300">Action failed. Please try again.</p>
-          </div>
-        )}
-
-        <ModalFooter className="px-0 border-0 mt-2 pt-0">
-          <button
-            type="button"
-            disabled={isMutating}
-            onClick={() => { setActionModal(null); setReason(''); }}
-            className="rounded-xl border border-admin-border/50 bg-white/[0.02] px-4 py-2 text-sm font-medium text-admin-muted hover:text-admin-text disabled:opacity-40 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            disabled={isMutating || (actionModal?.type === 'reject' && !reason.trim())}
-            onClick={handleConfirm}
-            className={cn(
-              'flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold transition-all disabled:opacity-40',
-              actionModal?.type === 'approve'
-                ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                : 'bg-red-600 hover:bg-red-500 text-white',
-            )}
-          >
-            {isMutating
-              ? <><RefreshCw className="h-4 w-4 animate-spin" /> Processing…</>
-              : actionModal?.type === 'approve'
-                ? <><Check className="h-4 w-4" /> Approve</>
-                : <><X className="h-4 w-4" /> Reject</>}
-          </button>
-        </ModalFooter>
+        ) : null}
       </Modal>
+      <ActionAuthModal
+        open={breakGlassAuthOpen}
+        onClose={() => setBreakGlassAuthOpen(false)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          if (detailRequest) {
+            breakGlassMutation.mutate({ id: detailRequest.id, reason: bgReason, ticketId: bgTicketId });
+          }
+          void payload;
+          setBreakGlassAuthOpen(false);
+        }}
+        title="Authorize break-glass execution"
+        actionLabel={detailRequest ? `Break-glass execute request ${detailRequest.id}` : 'Break-glass execution'}
+        description="Break-glass bypasses normal execution controls and requires step-up authentication."
+        requireReason
+        twofaRequired
+        confirmationPhrase="CONFIRM BREAK_GLASS"
+        externalError={breakGlassMutation.error instanceof Error ? breakGlassMutation.error.message : null}
+        isPending={breakGlassMutation.isPending}
+        confirmLabel={breakGlassMutation.isPending ? 'Executing…' : 'Execute break-glass'}
+        confirmVariant="danger"
+      />
     </AdminPageFrame>
   );
 }

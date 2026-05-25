@@ -1,6 +1,6 @@
 'use client';
 
-import { LineStyle, type IChartApi, type ISeriesApi, type LineSeriesPartialOptions, type UTCTimestamp } from 'lightweight-charts';
+import { LineStyle, type IChartApi, type ISeriesApi, type LineSeriesPartialOptions } from 'lightweight-charts';
 import type { CandleData } from '../../ChartAdapter';
 import {
   type OverlayStudyId,
@@ -10,8 +10,20 @@ import {
   computeBollinger,
 } from '../../indicators';
 import type { LineOverlayPluginContext } from './pluginTypes';
+import { lineSeriesDataFromRows } from '../../lightweightChartsData';
 
-const toTs = (t: number) => t as UTCTimestamp;
+function safeSetLineData(series: ISeriesApi<'Line'> | null | undefined, rows: { time: number; value: number }[]): void {
+  if (!series) return;
+  try {
+    series.setData(lineSeriesDataFromRows(rows));
+  } catch {
+    try {
+      series.setData([]);
+    } catch {
+      /* ignore */
+    }
+  }
+}
 
 /**
  * Phase B tail — dropdown overlay (SMA/EMA/VWAP) + Bollinger triple line on main pane.
@@ -123,38 +135,35 @@ export class OverlayStudyPlugin {
   }
 
   refreshForStudy(study: OverlayStudyId, candles: CandleData[]): void {
-    const map = (rows: { time: number; value: number }[]) =>
-      rows.map((d) => ({ time: toTs(d.time), value: d.value }));
-
     switch (study) {
       case 'none':
         break;
       case 'sma_7':
-        this.overlayLine?.setData(map(computeSma(candles, 7)));
+        safeSetLineData(this.overlayLine, computeSma(candles, 7));
         break;
       case 'sma_9':
-        this.overlayLine?.setData(map(computeSma(candles, 9)));
+        safeSetLineData(this.overlayLine, computeSma(candles, 9));
         break;
       case 'sma_25':
-        this.overlayLine?.setData(map(computeSma(candles, 25)));
+        safeSetLineData(this.overlayLine, computeSma(candles, 25));
         break;
       case 'sma_99':
-        this.overlayLine?.setData(map(computeSma(candles, 99)));
+        safeSetLineData(this.overlayLine, computeSma(candles, 99));
         break;
       case 'ema_12':
-        this.overlayLine?.setData(map(computeEma(candles, 12)));
+        safeSetLineData(this.overlayLine, computeEma(candles, 12));
         break;
       case 'ema_26':
-        this.overlayLine?.setData(map(computeEma(candles, 26)));
+        safeSetLineData(this.overlayLine, computeEma(candles, 26));
         break;
       case 'vwap':
-        this.overlayLine?.setData(map(computeVwapDailyUtc(candles)));
+        safeSetLineData(this.overlayLine, computeVwapDailyUtc(candles));
         break;
       case 'bb_20': {
         const { mid, upper, lower } = computeBollinger(candles, 20, 2);
-        this.bbMid?.setData(map(mid));
-        this.bbUpper?.setData(map(upper));
-        this.bbLower?.setData(map(lower));
+        safeSetLineData(this.bbMid, mid);
+        safeSetLineData(this.bbUpper, upper);
+        safeSetLineData(this.bbLower, lower);
         break;
       }
       default:

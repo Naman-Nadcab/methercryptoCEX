@@ -59,7 +59,15 @@ export interface UserBalancesResponse {
 
 export function getUsers(
   token: string | null,
-  params?: { page?: number; limit?: number; status?: string; search?: string; kycLevel?: string }
+  params?: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    search?: string;
+    kycLevel?: string;
+    riskLevel?: string;
+    joinedWithinDays?: string;
+  }
 ) {
   return adminFetch<UsersListResponse>('/users', {
     token,
@@ -82,6 +90,17 @@ export function updateUserStatus(
 ) {
   return adminFetch<unknown>(`/users/${userId}/status`, {
     method: 'PATCH',
+    token,
+    body,
+  });
+}
+
+export function bulkUpdateUserStatus(
+  token: string | null,
+  body: { user_ids: string[]; status: 'active' | 'suspended' | 'locked'; reason?: string }
+) {
+  return adminFetch<{ updated: number; message: string }>('/users/bulk-status', {
+    method: 'POST',
     token,
     body,
   });

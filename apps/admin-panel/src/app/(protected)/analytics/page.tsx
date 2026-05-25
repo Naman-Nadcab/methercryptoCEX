@@ -84,41 +84,41 @@ export default function AnalyticsPage() {
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [exporting, setExporting] = useState<string | null>(null);
 
-  const { data: revenueData } = useQuery({
+  const { data: revenueData, isError: revenueIsError, error: revenueError, refetch: refetchRevenue } = useQuery({
     queryKey: ['admin', 'analytics', 'revenue', token],
     queryFn: () => getRevenueAnalytics(token),
     enabled: !!token, refetchInterval: 60000, staleTime: 30_000,
   });
-  const { data: volumeData } = useQuery({
+  const { data: volumeData, isError: volumeIsError, error: volumeError, refetch: refetchVolume } = useQuery({
     queryKey: ['admin', 'analytics', 'volume', token],
     queryFn: () => getVolumeAnalytics(token),
     enabled: !!token, refetchInterval: 60000, staleTime: 30_000,
   });
-  const { data: liquidityData } = useQuery({
+  const { data: liquidityData, isError: liquidityIsError, error: liquidityError, refetch: refetchLiquidity } = useQuery({
     queryKey: ['admin', 'analytics', 'liquidity', token],
     staleTime: 30_000,
     queryFn: () => getLiquidityAnalytics(token),
     enabled: !!token,
   });
-  const { data: userGrowthData } = useQuery({
+  const { data: userGrowthData, isError: userGrowthIsError, error: userGrowthError, refetch: refetchUserGrowth } = useQuery({
     queryKey: ['admin', 'analytics', 'user-growth', token],
     staleTime: 30_000,
     queryFn: () => getUserGrowthAnalytics(token),
     enabled: !!token,
   });
-  const { data: depositsData } = useQuery({
+  const { data: depositsData, isError: depositsIsError, error: depositsError, refetch: refetchDeposits } = useQuery({
     queryKey: ['admin', 'analytics', 'deposits-withdrawals', token],
     staleTime: 30_000,
     queryFn: () => getDepositsWithdrawalsAnalytics(token),
     enabled: !!token,
   });
-  const { data: marketsData } = useQuery({
+  const { data: marketsData, isError: marketsIsError, error: marketsError, refetch: refetchMarkets } = useQuery({
     queryKey: ['admin', 'analytics', 'markets', token],
     staleTime: 30_000,
     queryFn: () => getMarketsPerformance(token),
     enabled: !!token,
   });
-  const { data: whaleData } = useQuery({
+  const { data: whaleData, isError: whaleIsError, error: whaleError, refetch: refetchWhale } = useQuery({
     queryKey: ['admin', 'analytics', 'whale', token],
     staleTime: 30_000,
     queryFn: () => getWhaleTrades(token, 30),
@@ -184,12 +184,36 @@ export default function AnalyticsPage() {
     try { await downloadAnalyticsExport(token, report, format); } catch { /* handled */ } finally { setExporting(null); }
   };
 
+  const pageError =
+    (revenueIsError && (revenueError instanceof Error ? revenueError.message : 'Failed to load revenue analytics.')) ||
+    (volumeIsError && (volumeError instanceof Error ? volumeError.message : 'Failed to load volume analytics.')) ||
+    (liquidityIsError && (liquidityError instanceof Error ? liquidityError.message : 'Failed to load liquidity analytics.')) ||
+    (userGrowthIsError && (userGrowthError instanceof Error ? userGrowthError.message : 'Failed to load user growth analytics.')) ||
+    (depositsIsError && (depositsError instanceof Error ? depositsError.message : 'Failed to load deposit analytics.')) ||
+    (marketsIsError && (marketsError instanceof Error ? marketsError.message : 'Failed to load markets analytics.')) ||
+    (whaleIsError && (whaleError instanceof Error ? whaleError.message : 'Failed to load whale analytics.')) ||
+    null;
+
   return (
-    <AdminPageFrame title="Exchange Analytics" description="Revenue, volume, liquidity, user growth, and business intelligence" quickActions={
+    <AdminPageFrame
+      title="Exchange Analytics"
+      description="Revenue, volume, liquidity, user growth, and business intelligence"
+      error={pageError}
+      onRetry={pageError ? () => {
+        void refetchRevenue();
+        void refetchVolume();
+        void refetchLiquidity();
+        void refetchUserGrowth();
+        void refetchDeposits();
+        void refetchMarkets();
+        void refetchWhale();
+      } : undefined}
+      quickActions={
         <Link href="/analytics/scheduled-reports">
           <Button variant="secondary" size="sm" icon={<Calendar className="h-3.5 w-3.5" />}>Scheduled Reports</Button>
         </Link>
-      }>
+      }
+    >
 
       {/* Tabs */}
       <div className="border-b border-admin-border overflow-x-auto">

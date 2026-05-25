@@ -114,11 +114,15 @@ export function getMonitoringAlerts(
   });
 }
 
-export function triggerMonitoringAction(token: string | null, action: string) {
+export function triggerMonitoringAction(
+  token: string | null,
+  action: string,
+  opts?: { reason?: string; twofa_code?: string }
+) {
   return adminFetch<{ action: string; triggered: boolean }>('/monitoring/actions', {
     method: 'POST',
     token,
-    body: { action },
+    body: { action, reason: opts?.reason, twofa_code: opts?.twofa_code },
   });
 }
 

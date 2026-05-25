@@ -1,3 +1,5 @@
-'use client';
+import { redirect } from 'next/navigation';
 
-export { default } from '../../dashboard/orders/p2p/page';
+export default function LegacyOrdersP2PPage() {
+  redirect('/p2p/orders');
+}

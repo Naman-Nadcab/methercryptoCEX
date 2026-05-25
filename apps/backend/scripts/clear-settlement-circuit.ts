@@ -9,6 +9,7 @@ import { redis } from '../src/lib/redis.js';
 import { setSettlementCircuitOpen, setTradingHalt } from '../src/lib/trading-halt.js';
 
 async function main(): Promise<void> {
+  await redis.connect();
   await setSettlementCircuitOpen(false);
   console.log('settlement_circuit:open cleared (DEL)');
   await setTradingHalt(false);

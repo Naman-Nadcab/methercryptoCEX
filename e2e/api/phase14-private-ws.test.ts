@@ -3,8 +3,8 @@
  * Requires: E2E_JWT + E2E_COUNTERPARTY_JWT (Bearer for WS auth + REST).
  * Optional: E2E_COUNTERPARTY_API_KEY if counterparty uses API key for REST only — still need CP JWT for WS.
  *
- * Env: E2E_SPOT_SYMBOL (default BTC_USDT), E2E_MATCH_PRICE, E2E_PRIVATE_WS_MAX_MS (default 15000),
- *      E2E_PRIVATE_WS_EVENT_MS (max delay after taker place for WS events, default same as MAX_MS)
+ * Env: E2E_SPOT_SYMBOL (default BTC_USDT), E2E_MATCH_PRICE, E2E_PRIVATE_WS_MAX_MS,
+ *      E2E_PRIVATE_WS_EVENT_MS (wait for fill WS events after taker place; defaults to max(15s, E2E_SPOT_TRADE_SETTLEMENT_MS))
  *      E2E_WS_MAX_LATENCY_MS — fail if any sampled WS latency exceeds this (default 500). Separate from event wait budget.
  */
 import { config, getAuthHeaders, getCounterpartyRestHeaders } from '../config.js';
@@ -94,9 +94,14 @@ export async function runPhase14(): Promise<{
   const matchPrice = (process.env.E2E_MATCH_PRICE || '876543.21').trim();
   const crossQty = '0.0001';
   const maxWsLatencyMs = Math.max(50, Number(process.env.E2E_WS_MAX_LATENCY_MS ?? 500));
+  const settlementBudgetMs = Number(process.env.E2E_SPOT_TRADE_SETTLEMENT_MS || 45_000);
   const maxEventMs = Math.max(
     2000,
-    Number(process.env.E2E_PRIVATE_WS_EVENT_MS || process.env.E2E_PRIVATE_WS_MAX_MS || 15_000)
+    Number(
+      process.env.E2E_PRIVATE_WS_EVENT_MS ||
+        process.env.E2E_PRIVATE_WS_MAX_MS ||
+        Math.max(15_000, settlementBudgetMs)
+    )
   );
 
   if (!config.jwt?.trim()) {
@@ -157,7 +162,24 @@ export async function runPhase14(): Promise<{
   results.push('PASS: subscribed user.orders + user.trades');
   passed++;
 
+  const cancelAllOpenSpotForMarket = async (restHeaders: Record<string, string>, marketSym: string): Promise<void> => {
+    const h = { ...restHeaders, 'Content-Type': 'application/json' };
+    try {
+      await fetch(`${BASE}/api/v1/spot/orders/cancel-all`, {
+        method: 'POST',
+        headers: h,
+        body: JSON.stringify({ market: marketSym }),
+        signal: AbortSignal.timeout(TIMEOUT),
+      });
+    } catch {
+      /* best-effort */
+    }
+  };
+
   const makerHeaders = getAuthHeaders();
+  await cancelAllOpenSpotForMarket(makerHeaders, symbol);
+  await cancelAllOpenSpotForMarket(getCounterpartyRestHeaders(), symbol);
+  await new Promise((r) => setTimeout(r, 400));
   let sellOrderId: string | null = null;
   let sellPostEnd = Date.now();
   try {
@@ -323,9 +345,8 @@ export async function runPhase14(): Promise<{
     passed++;
   }
 
+  // SLO should measure WS delivery latency (REST place -> first WS ack), not fill completion time.
   const wsSamples = [
-    metrics.maker_ws_to_fill_ms,
-    metrics.taker_ws_to_fill_ms,
     metrics.maker_rest_to_ws_ack_ms,
     metrics.taker_rest_to_ws_ack_ms,
   ].filter((x): x is number => typeof x === 'number' && Number.isFinite(x));
@@ -353,7 +374,7 @@ export async function runPhase14(): Promise<{
       passed++;
     }
   } else {
-    results.push('SKIP: no WS latency samples (ack/fill timestamps missing)');
+    results.push('SKIP: no WS ack latency samples');
   }
 
   const mkTrade = tradeMessageForMarket(maker.messages, symbol);

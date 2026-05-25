@@ -107,7 +107,6 @@ export default function AuditPage() {
       title="Audit Logs"
       description="Track every admin action and system event for compliance and accountability."
       status="active"
-      error={null}
       quickActions={
         <button type="button"
           onClick={() => void queryClient.invalidateQueries({ queryKey: ['admin', 'audit'] })}

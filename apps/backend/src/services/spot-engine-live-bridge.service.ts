@@ -105,7 +105,16 @@ async function applyOneEngineEvent(
   return trade;
 }
 
-type LiveEmitOpts = { emitPublicWs?: boolean; matchEngineId?: string };
+type LiveEmitOpts = {
+  emitPublicWs?: boolean;
+  matchEngineId?: string;
+  /**
+   * When POST /engine/place omits inline `events` (common with JetStream/async publish paths),
+   * the first GET /engine/matches may run before the ring buffer reflects the fill. Retry a few
+   * pulls so settlement_events are persisted and the settlement worker can close REST orders.
+   */
+  pullRetriesOnEmpty?: number;
+};
 
 /** Pull new engine events once (after place or lag); returns trades applied to live state. */
 export async function syncEngineMatchesAfterPlace(
@@ -121,19 +130,37 @@ export async function syncEngineMatchesAfterPlace(
   if (!baseUrl) {
     throw new Error(`syncEngineMatchesAfterPlace: unknown match_engine_id ${matchEngineId}`);
   }
-  let afterId = await getPollCursorForEngine(matchEngineId);
-  let { last_id, events } = await fetchMatchesForEngine(baseUrl, afterId, matchEngineId);
-  if (events.length === 0 && last_id > 0 && last_id < afterId) {
-    const fixed = await reconcilePollCursorIfEngineBehind(matchEngineId, afterId, last_id);
-    if (fixed) {
-      afterId = last_id;
-      ({ last_id, events } = await fetchMatchesForEngine(baseUrl, afterId, matchEngineId));
+  const maxAttempts = Math.max(1, Math.min(opts?.pullRetriesOnEmpty ?? 1, 40));
+  let afterBefore = await getPollCursorForEngine(matchEngineId);
+  let last_id = 0;
+  let events: EngineMatchEvent[] = [];
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    afterBefore = await getPollCursorForEngine(matchEngineId);
+    let fetchResult = await fetchMatchesForEngine(baseUrl, afterBefore, matchEngineId);
+    last_id = fetchResult.last_id;
+    events = fetchResult.events;
+    if (events.length === 0 && last_id > 0 && last_id < afterBefore) {
+      const fixed = await reconcilePollCursorIfEngineBehind(matchEngineId, afterBefore, last_id);
+      if (fixed) {
+        afterBefore = last_id;
+        fetchResult = await fetchMatchesForEngine(baseUrl, afterBefore, matchEngineId);
+        last_id = fetchResult.last_id;
+        events = fetchResult.events;
+      }
+    }
+    if (events.length > 0) {
+      break;
+    }
+    if (attempt < maxAttempts - 1) {
+      await new Promise((r) => setTimeout(r, 60 + attempt * 25));
     }
   }
+
   if (events.length > 0) {
     await persistEngineMatchEventsWithRetry(events, 'sync_pull');
   }
-  await advanceCursorAfterFetch(matchEngineId, afterId, last_id, events);
+  await advanceCursorAfterFetch(matchEngineId, afterBefore, last_id, events);
   const out: ExecutedTrade[] = [];
   for (const ev of events) {
     const t = await applyOneEngineEvent(symbol, ev, base, quote, quotePrecision);

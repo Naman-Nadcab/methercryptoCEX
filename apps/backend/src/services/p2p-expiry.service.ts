@@ -8,6 +8,7 @@ import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
 import { refundFromEscrow } from './p2p-escrow.service.js';
 import { logger } from '../lib/logger.js';
+import { p2pExpiryFailuresTotal, p2pExpiryLastRunOk } from '../lib/prometheus-metrics.js';
 
 const P2P_ORDER_STATUS_PAYMENT_PENDING = 'awaiting_payment';
 const P2P_EXPIRY_LOCK_KEY = 'p2p_expiry:run';
@@ -26,7 +27,7 @@ export async function processExpiredP2POrders(): Promise<{ processed: number; er
   let errors = 0;
 
   const expired = await db.query<{ id: string; escrow_id: string; ad_id: string; quantity: string }>(
-    `SELECT id, escrow_id, ad_id, COALESCE(quantity::text, crypto_amount::text, '0') AS quantity FROM p2p_orders
+    `SELECT id, escrow_id, ad_id, COALESCE(quantity::text, '0') AS quantity FROM p2p_orders
      WHERE status = $1 AND expires_at < NOW() AND escrow_id IS NOT NULL
      ORDER BY expires_at ASC
      LIMIT 100`,
@@ -66,10 +67,30 @@ export async function processExpiredP2POrders(): Promise<{ processed: number; er
       });
     } catch (e) {
       errors++;
+      p2pExpiryFailuresTotal.inc({ stage: 'order' });
       logger.error('P2P expiry: failed to process order', { orderId: row.id, error: e });
     }
   }
 
+  p2pExpiryLastRunOk.set(errors === 0 ? 1 : 0);
   await redis.releaseLock(P2P_EXPIRY_LOCK_KEY, lockValue).catch(() => {});
   return { processed, errors };
+}
+
+export async function assertP2PExpirySchema(): Promise<void> {
+  const requiredColumns = ['id', 'escrow_id', 'ad_id', 'quantity', 'status', 'expires_at'];
+  const res = await db.query<{ column_name: string }>(
+    `SELECT column_name
+     FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'p2p_orders'
+       AND column_name = ANY($1::text[])`,
+    [requiredColumns]
+  );
+  const existing = new Set(res.rows.map((r) => r.column_name));
+  const missing = requiredColumns.filter((c) => !existing.has(c));
+  if (missing.length > 0) {
+    p2pExpiryFailuresTotal.inc({ stage: 'schema_guard' });
+    throw new Error(`p2p_orders missing required columns for expiry worker: ${missing.join(', ')}`);
+  }
 }

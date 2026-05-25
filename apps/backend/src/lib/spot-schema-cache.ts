@@ -15,13 +15,22 @@ let cachedOrdersUseMarket: boolean | null = null;
 export async function getSpotTradesUseMarket(): Promise<boolean> {
   if (cachedUseMarket !== null) return cachedUseMarket;
   try {
-    const r = await db.query<{ exists: boolean }>(
+    const r = await db.query<{ has_market: boolean }>(
       `SELECT EXISTS (
         SELECT 1 FROM information_schema.columns
         WHERE table_schema = 'public' AND table_name = 'spot_trades' AND column_name = 'market'
-      ) as exists`
+      ) AS has_market`
     );
-    cachedUseMarket = r.rows[0]?.exists ?? false;
+    if (r.rows[0]?.has_market === true) {
+      cachedUseMarket = true;
+      return true;
+    }
+  } catch {
+    /* fall through to probe */
+  }
+  try {
+    await db.query(`SELECT market FROM spot_trades WHERE 1=0`);
+    cachedUseMarket = true;
   } catch {
     cachedUseMarket = false;
   }
@@ -43,13 +52,22 @@ export function setSpotTradesUseMarket(value: boolean): void {
 export async function getSpotOrdersUseMarket(): Promise<boolean> {
   if (cachedOrdersUseMarket !== null) return cachedOrdersUseMarket;
   try {
-    const r = await db.query<{ exists: boolean }>(
+    const r = await db.query<{ has_market: boolean }>(
       `SELECT EXISTS (
         SELECT 1 FROM information_schema.columns
         WHERE table_schema = 'public' AND table_name = 'spot_orders' AND column_name = 'market'
-      ) as exists`
+      ) AS has_market`
     );
-    cachedOrdersUseMarket = r.rows[0]?.exists ?? false;
+    if (r.rows[0]?.has_market === true) {
+      cachedOrdersUseMarket = true;
+      return true;
+    }
+  } catch {
+    /* fall through to probe */
+  }
+  try {
+    await db.query(`SELECT market FROM spot_orders WHERE 1=0`);
+    cachedOrdersUseMarket = true;
   } catch {
     cachedOrdersUseMarket = false;
   }

@@ -100,7 +100,7 @@ export default function SupportPage() {
   const [page, setPage] = useState(0);
   const limit = 20;
 
-  const { data: statsData } = useQuery({
+  const { data: statsData, isError: statsIsError, error: statsError, refetch: refetchStats } = useQuery({
     queryKey: ['admin', 'support-stats', token],
     staleTime: 30_000,
     queryFn: () => adminFetch<TicketStats>('/support/stats', { token }),
@@ -109,7 +109,7 @@ export default function SupportPage() {
   });
   const stats = statsData?.data;
 
-  const { data: ticketsData, isLoading, isError: ticketsError } = useQuery({
+  const { data: ticketsData, isLoading, isError: ticketsError, error: ticketsLoadError, refetch: refetchTickets } = useQuery({
     queryKey: ['admin', 'support-tickets', token, statusTab, priority, category, search, page],
     staleTime: 30_000,
     queryFn: () =>
@@ -130,6 +130,10 @@ export default function SupportPage() {
   const tickets = ticketsData?.data?.tickets ?? [];
   const total = ticketsData?.data?.total ?? 0;
   const totalPages = Math.ceil(total / limit);
+  const pageError =
+    (statsIsError && (statsError instanceof Error ? statsError.message : 'Failed to load support metrics.')) ||
+    (ticketsError && (ticketsLoadError instanceof Error ? ticketsLoadError.message : 'Failed to load support tickets.')) ||
+    null;
 
   const kpis = [
     { label: 'Open Tickets',   value: stats?.open      ?? '—', icon: Headphones,   accent: 'blue' },
@@ -139,7 +143,12 @@ export default function SupportPage() {
   ];
 
   return (
-    <AdminPageFrame title="Support Tickets" description="Manage customer support requests and conversations">
+    <AdminPageFrame
+      title="Support Tickets"
+      description="Manage customer support requests and conversations"
+      error={pageError}
+      onRetry={pageError ? () => { void refetchStats(); void refetchTickets(); } : undefined}
+    >
 
       {/* KPI cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

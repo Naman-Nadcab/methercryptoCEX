@@ -16,6 +16,7 @@ import { SpotTradingGridTerminal } from './SpotTradingGridTerminal';
 import type { OrderUpdateMessage } from '@/hooks/useSpotWs';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { SPOT_TRADE_HREF } from '@/lib/tier1-canonical-routes';
+import { useAuth } from '@/context/AuthContext';
 
 type Market = {
   symbol: string;
@@ -37,6 +38,16 @@ type Market = {
 };
 
 type SpotGridOrderType = 'limit' | 'market' | 'stop_loss' | 'stop_limit' | 'trailing_stop_market';
+
+type TradePreferences = {
+  promptConfirmationOrders: boolean;
+  promptCancelAllConfirmation: boolean;
+};
+
+function toPositiveNumber(value: string): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
 
 function spotOrderTypePlacementLabel(t: SpotGridOrderType): string {
   switch (t) {
@@ -70,8 +81,9 @@ export function SpotTradingGrid() {
   const searchParams = useSearchParams();
   const symbolParam = searchParams.get('symbol')?.toUpperCase().replace(/-/g, '_') ?? '';
   const { accessToken, user } = useAuthStore();
+  const { authResolved, isAuthenticated } = useAuth();
   const { resolvedTheme } = useThemeStore();
-  const isAuth = Boolean(accessToken);
+  const isAuth = authResolved && isAuthenticated && Boolean(accessToken);
   const chartTheme = resolvedTheme === 'dark' ? 'dark' : 'light';
   const [chartIntervalSeconds, setChartIntervalSeconds] = useState(60);
   const [chartViewMode, setChartViewMode] = useState<'chart' | 'depth'>('chart');
@@ -93,6 +105,11 @@ export function SpotTradingGrid() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [ordersVersion, setOrdersVersion] = useState(0);
   const [tradesVersion, setTradesVersion] = useState(0);
+  const [tradePreferences, setTradePreferences] = useState<TradePreferences>({
+    promptConfirmationOrders: true,
+    promptCancelAllConfirmation: true,
+  });
+  const [preferencesSyncIssue, setPreferencesSyncIssue] = useState(false);
   const clientOrderIdRef = useRef(generateClientOrderId());
 
   const { data: balancesByAccount = [], refetch: refetchBalances } = useBalancesByAccount(isAuth);
@@ -138,6 +155,92 @@ export function SpotTradingGrid() {
 
   const quoteBalance = useMemo(() => balanceMap[quoteAsset] ?? '0', [quoteAsset, balanceMap]);
   const baseBalance = useMemo(() => balanceMap[baseAsset] ?? '0', [baseAsset, balanceMap]);
+
+  useEffect(() => {
+    if (!isAuth) {
+      setTradePreferences({
+        promptConfirmationOrders: true,
+        promptCancelAllConfirmation: true,
+      });
+      return;
+    }
+    const ac = new AbortController();
+    void api
+      .get<Partial<TradePreferences>>('/api/v1/auth/preferences', { signal: ac.signal, notifyOnError: false })
+      .then((res) => {
+        if (!res.success || !res.data) return;
+        setPreferencesSyncIssue(false);
+        setTradePreferences((prev) => ({
+          promptConfirmationOrders:
+            typeof res.data?.promptConfirmationOrders === 'boolean'
+              ? res.data.promptConfirmationOrders
+              : prev.promptConfirmationOrders,
+          promptCancelAllConfirmation:
+            typeof res.data?.promptCancelAllConfirmation === 'boolean'
+              ? res.data.promptCancelAllConfirmation
+              : prev.promptCancelAllConfirmation,
+        }));
+      })
+      .catch(() => {
+        setPreferencesSyncIssue(true);
+      });
+    return () => ac.abort();
+  }, [isAuth]);
+
+  const validateOrderInput = useCallback(
+    (candidateSide: 'buy' | 'sell', candidateQty: string): string | null => {
+      const qty = toPositiveNumber(candidateQty.trim());
+      if (!qty) return 'Enter a valid quantity greater than 0.';
+
+      if (orderType === 'limit' || orderType === 'stop_limit') {
+        if (!toPositiveNumber(price.trim())) return 'Enter a valid limit price greater than 0.';
+      }
+      if (orderType === 'stop_loss' || orderType === 'stop_limit') {
+        if (!toPositiveNumber(stopPrice.trim())) return 'Enter a valid trigger price greater than 0.';
+      }
+      if (orderType === 'trailing_stop_market') {
+        const delta = toPositiveNumber(trailingDelta.trim());
+        if (!delta || delta > 100) return 'Enter trailing delta between 0 and 100.';
+      }
+
+      const minQty = selectedMarket?.min_qty ? Number(selectedMarket.min_qty) : NaN;
+      if (Number.isFinite(minQty) && minQty > 0 && qty < minQty) {
+        return `Minimum quantity is ${selectedMarket?.min_qty} ${baseAsset}.`;
+      }
+
+      const referencePrice = toPositiveNumber(price.trim());
+      const minNotional = selectedMarket?.min_notional ? Number(selectedMarket.min_notional) : NaN;
+      if (
+        Number.isFinite(minNotional) &&
+        minNotional > 0 &&
+        Number.isFinite(referencePrice) &&
+        referencePrice != null &&
+        qty * referencePrice < minNotional
+      ) {
+        return `Minimum notional is ${selectedMarket?.min_notional} ${quoteAsset}.`;
+      }
+
+      if (candidateSide === 'buy' && Number(quoteBalance || '0') <= 0) {
+        return `Insufficient ${quoteAsset} balance for buy order.`;
+      }
+      if (candidateSide === 'sell' && qty > Number(baseBalance || '0')) {
+        return `Insufficient ${baseAsset} balance for sell order.`;
+      }
+      return null;
+    },
+    [
+      orderType,
+      price,
+      stopPrice,
+      trailingDelta,
+      selectedMarket?.min_qty,
+      selectedMarket?.min_notional,
+      baseAsset,
+      quoteAsset,
+      quoteBalance,
+      baseBalance,
+    ]
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -192,6 +295,12 @@ export function SpotTradingGrid() {
     const effectiveQty = (overrideQty ?? quantity).trim();
     if (!isAuth || !symbol || submitting) {
       throw new Error('Cannot submit order');
+    }
+    const validationError = validateOrderInput(effectiveSide, effectiveQty);
+    if (validationError) {
+      setSubmitError(validationError);
+      toast({ title: 'Order not placed', description: validationError, variant: 'destructive' });
+      throw new Error(validationError);
     }
     setSubmitError(null);
     setSubmitting(true);
@@ -296,6 +405,7 @@ export function SpotTradingGrid() {
     quantity,
     submitting,
     baseAsset,
+    validateOrderInput,
     queryClient,
     refetchBalances,
   ]);
@@ -304,10 +414,6 @@ export function SpotTradingGrid() {
     const st = (data.status || '').toUpperCase();
     const mkt = data.market ? `${data.market} — ` : '';
     const disp = data.displayStatus ? String(data.displayStatus) : st;
-    if (st === 'OPEN' || st === 'NEW') {
-      toast({ title: 'Order on book', description: `${mkt}${disp}`, variant: 'default' });
-      return;
-    }
     if (st === 'PENDING_TRIGGER') {
       toast({ title: 'Pending trigger', description: `${mkt}Activates when stop conditions are met.`, variant: 'default' });
       return;
@@ -503,6 +609,9 @@ export function SpotTradingGrid() {
         availableBalance={availableBalance}
         quoteBalance={quoteBalance}
         baseBalance={baseBalance}
+        requireOrderConfirmation={tradePreferences.promptConfirmationOrders}
+        requireCancelAllConfirmation={tradePreferences.promptCancelAllConfirmation}
+        preferencesSyncIssue={preferencesSyncIssue}
       />
     </SpotMarketDataProvider>
   );

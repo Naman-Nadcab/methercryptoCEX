@@ -1,6 +1,6 @@
 /**
  * Spot WebSocket helpers for Tier-1 E2E (auth + subscribe + collect).
- * Auth: `{ type: 'auth', data: { token } }` (JWT).
+ * Auth: POST `/api/v1/spot/ws-ticket` (JWT), then `{ type: 'auth', data: { ticket } }` on the socket.
  */
 import { config } from '../config.js';
 
@@ -96,14 +96,37 @@ export class SpotWsSession {
     this.ws = null;
   }
 
-  async auth(token: string): Promise<boolean> {
+  async auth(jwt: string): Promise<boolean> {
+    const base = config.baseUrl.replace(/\/$/, '');
+    let ticket: string;
+    try {
+      const res = await fetch(`${base}/api/v1/spot/ws-ticket`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${jwt.trim()}`,
+          'Content-Type': 'application/json',
+        },
+        /** Fastify rejects application/json with zero-length body (FST_ERR_CTP_EMPTY_JSON_BODY). */
+        body: '{}',
+        signal: AbortSignal.timeout(Math.min(config.timeoutMs, 30_000)),
+      });
+      const body = (await res.json().catch(() => ({}))) as { success?: boolean; data?: { ticket?: string } };
+      ticket = typeof body.data?.ticket === 'string' ? body.data.ticket.trim() : '';
+      if (!res.ok || !body.success || !ticket) return false;
+    } catch {
+      return false;
+    }
+
     const deadline = Date.now() + config.timeoutMs;
     const n0 = this.messages.length;
-    this.send({ type: 'auth', data: { token } });
+    this.send({ type: 'auth', data: { ticket } });
     while (Date.now() < deadline) {
       for (let i = n0; i < this.messages.length; i++) {
         const m = this.messages[i];
-        if (m?.type === 'auth_result') return (m as { success?: boolean }).success === true;
+        if (m?.type === 'auth_result') {
+          const flat = m as { success?: boolean; data?: { success?: boolean } };
+          return flat.success === true || flat.data?.success === true;
+        }
       }
       await new Promise((r) => setTimeout(r, 40));
     }

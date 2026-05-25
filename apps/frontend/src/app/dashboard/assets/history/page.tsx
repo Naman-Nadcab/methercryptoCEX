@@ -9,6 +9,7 @@ import type { LucideIcon } from 'lucide-react';
 import { notifyError } from '@/lib/notifyError';
 import { SkeletonTableBody } from '@/components/ui/Skeleton';
 import { CoinIcon } from '@/components/ui/CoinIcon';
+import { ErrorState } from '@/components/ui/ErrorState';
 import { useBalancesByAccount } from '@/lib/balances';
 import { WalletOperationsShell } from '@/components/wallet/WalletOperationsShell';
 import { walletPath } from '@/lib/routes';
@@ -88,6 +89,7 @@ export default function AssetHistoryPage() {
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [showExportDropdown, setShowExportDropdown] = useState(false);
   const [copiedTxid, setCopiedTxid] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const { data: balanceRows } = useBalancesByAccount(!!(_hasHydrated && accessToken));
   const coins = useMemo(() => {
@@ -131,6 +133,7 @@ export default function AssetHistoryPage() {
   const fetchTransactions = async (silentRefresh = false) => {
     try {
       if (!silentRefresh) setLoading(true);
+      if (!silentRefresh) setLoadError(null);
 
       let endpoint = '/api/v1/wallet/';
       const params = new URLSearchParams();
@@ -209,14 +212,20 @@ export default function AssetHistoryPage() {
         
         setTransactions(mappedData);
       } else {
-        // API returned error, show empty
-        setTransactions([]);
+        if (!silentRefresh) {
+          setTransactions([]);
+          setLoadError(response.error?.message || 'Failed to load transaction history.');
+        }
       }
     } catch (error) {
-      notifyError('Failed to load transaction history. Please try again.');
-      setTransactions([]);
+      if (!silentRefresh) {
+        const message = 'Failed to load transaction history. Please try again.';
+        notifyError(message);
+        setTransactions([]);
+        setLoadError(message);
+      }
     } finally {
-      setLoading(false);
+      if (!silentRefresh) setLoading(false);
     }
   };
 
@@ -580,6 +589,16 @@ export default function AssetHistoryPage() {
                   <tbody>
                     {loading ? (
                       <SkeletonTableBody rows={8} columns={6} />
+                    ) : loadError ? (
+                      <tr>
+                        <td colSpan={6} className="p-4">
+                          <ErrorState
+                            title="Failed to load transactions"
+                            message={loadError}
+                            onRetry={() => fetchTransactions(false)}
+                          />
+                        </td>
+                      </tr>
                     ) : filteredTransactions.length > 0 ? (
                       filteredTransactions.map((tx) => (
                         <tr key={tx.id} className="border-b border-border transition-colors hover:bg-muted/40">
@@ -803,6 +822,16 @@ export default function AssetHistoryPage() {
                             <td colSpan={8} className="py-20 text-center">
                               <RefreshCw className="mx-auto mb-3 h-8 w-8 animate-spin text-primary" />
                               <p className="text-sm text-muted-foreground">Loading history...</p>
+                            </td>
+                          </tr>
+                        ) : loadError ? (
+                          <tr>
+                            <td colSpan={8} className="p-4">
+                              <ErrorState
+                                title="Failed to load history"
+                                message={loadError}
+                                onRetry={() => fetchTransactions(false)}
+                              />
                             </td>
                           </tr>
                         ) : filteredTransactions.length > 0 ? (

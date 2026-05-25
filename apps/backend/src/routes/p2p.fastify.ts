@@ -65,6 +65,21 @@ async function detectP2PAdsModernSchema(): Promise<boolean> {
   return p2pAdsModernSchemaCache;
 }
 
+/** `p2p_orders.crypto_currency_id` + currencies join (full-schema); else slim `token_id` + tokens join. */
+let p2pOrdersModernSchemaCache: boolean | null = null;
+
+async function detectP2POrdersModernSchema(): Promise<boolean> {
+  if (p2pOrdersModernSchemaCache !== null) return p2pOrdersModernSchemaCache;
+  const r = await db.query<{ e: boolean }>(
+    `SELECT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'p2p_orders' AND column_name = 'crypto_currency_id'
+    ) AS e`
+  );
+  p2pOrdersModernSchemaCache = Boolean(r.rows[0]?.e);
+  return p2pOrdersModernSchemaCache;
+}
+
 function buildP2POrderCreateRequestHash(body: { adId?: string; quantity?: string; paymentMethodId?: string }): string {
   const normalized = {
     adId: String(body.adId ?? '').trim(),
@@ -156,8 +171,8 @@ export default async function p2pRoutes(app: FastifyInstance) {
           currency: { type: 'string' },
           fiat: { type: 'string' },
           advertiser_id: { type: 'string' },
-          limit: { oneOf: [{ type: 'string' }, { type: 'number' }] },
-          offset: { oneOf: [{ type: 'string' }, { type: 'number' }] },
+          limit: { anyOf: [{ type: 'string' }, { type: 'number' }] },
+          offset: { anyOf: [{ type: 'string' }, { type: 'number' }] },
         },
       },
     },
@@ -268,7 +283,7 @@ export default async function p2pRoutes(app: FastifyInstance) {
         legacyQuery += ` LIMIT $${li++} OFFSET $${li}`;
         legacyParams.push(limit, offset);
 
-        const legacyResult = await db.query(legacyQuery, legacyParams);
+        const legacyResult = await db.queryRead(legacyQuery, legacyParams);
         const VERIFIED_MIN_COMPLETION_L = 98;
         const VERIFIED_MIN_ORDERS_L = 30;
         const VERIFIED_MIN_RATING_L = 4;
@@ -385,7 +400,7 @@ export default async function p2pRoutes(app: FastifyInstance) {
       query += ` LIMIT $${paramIndex++} OFFSET $${paramIndex}`;
       params.push(limit, offset);
 
-      const result = await db.query(query, params);
+      const result = await db.queryRead(query, params);
       const VERIFIED_MIN_COMPLETION = 98;
       const VERIFIED_MIN_ORDERS = 30;
       const VERIFIED_MIN_RATING = 4;
@@ -519,8 +534,10 @@ export default async function p2pRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     try {
       const { id: userId } = request.user!;
-
-      const result = await db.query(`
+      const modernAds = await detectP2PAdsModernSchema();
+      const result = modernAds
+        ? await db.query(
+            `
         SELECT 
           pa.*,
           c.symbol as crypto_symbol,
@@ -529,7 +546,22 @@ export default async function p2pRoutes(app: FastifyInstance) {
         JOIN currencies c ON pa.crypto_currency_id = c.id
         WHERE pa.user_id = $1
         ORDER BY pa.created_at DESC
-      `, [userId]);
+      `,
+            [userId]
+          )
+        : await db.query(
+            `
+        SELECT 
+          pa.*,
+          t.symbol as crypto_symbol,
+          COALESCE(t.name, t.symbol) as crypto_name
+        FROM p2p_ads pa
+        JOIN tokens t ON pa.token_id = t.id
+        WHERE pa.user_id = $1
+        ORDER BY pa.created_at DESC
+      `,
+            [userId]
+          );
 
       return reply.send({
         success: true,
@@ -939,7 +971,10 @@ export default async function p2pRoutes(app: FastifyInstance) {
           error: { code: 'VALIDATION_ERROR', message: 'orderId required and must be a valid UUID' },
         });
       }
-      const result = await db.query(`
+      const modernOrders = await detectP2POrdersModernSchema();
+      const result = modernOrders
+        ? await db.query(
+            `
         SELECT 
           po.*,
           c.symbol as crypto_symbol,
@@ -950,7 +985,24 @@ export default async function p2pRoutes(app: FastifyInstance) {
         JOIN users buyer ON po.buyer_id = buyer.id
         JOIN users seller ON po.seller_id = seller.id
         WHERE po.id = $1 AND (po.buyer_id = $2 OR po.seller_id = $2)
-      `, [orderId, userId]);
+      `,
+            [orderId, userId]
+          )
+        : await db.query(
+            `
+        SELECT 
+          po.*,
+          t.symbol as crypto_symbol,
+          buyer.username as buyer_username,
+          seller.username as seller_username
+        FROM p2p_orders po
+        JOIN tokens t ON po.token_id = t.id
+        JOIN users buyer ON po.buyer_id = buyer.id
+        JOIN users seller ON po.seller_id = seller.id
+        WHERE po.id = $1 AND (po.buyer_id = $2 OR po.seller_id = $2)
+      `,
+            [orderId, userId]
+          );
       if (result.rows.length === 0) {
         return reply.status(404).send({
           success: false,
@@ -1251,8 +1303,10 @@ export default async function p2pRoutes(app: FastifyInstance) {
     try {
       const { id: userId } = request.user!;
       const { status } = request.query as any;
+      const modernOrders = await detectP2POrdersModernSchema();
 
-      let query = `
+      let query = modernOrders
+        ? `
         SELECT 
           po.*,
           c.symbol as crypto_symbol,
@@ -1263,8 +1317,20 @@ export default async function p2pRoutes(app: FastifyInstance) {
         JOIN users buyer ON po.buyer_id = buyer.id
         JOIN users seller ON po.seller_id = seller.id
         WHERE (po.buyer_id = $1 OR po.seller_id = $1)
+      `
+        : `
+        SELECT 
+          po.*,
+          t.symbol as crypto_symbol,
+          buyer.username as buyer_username,
+          seller.username as seller_username
+        FROM p2p_orders po
+        JOIN tokens t ON po.token_id = t.id
+        JOIN users buyer ON po.buyer_id = buyer.id
+        JOIN users seller ON po.seller_id = seller.id
+        WHERE (po.buyer_id = $1 OR po.seller_id = $1)
       `;
-      const params: any[] = [userId];
+      const params: unknown[] = [userId];
 
       if (status) {
         query += ` AND po.status = $2`;

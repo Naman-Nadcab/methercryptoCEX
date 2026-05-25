@@ -7,7 +7,7 @@
  */
 
 import { Decimal } from '../lib/decimal.js';
-import { JsonRpcProvider } from 'ethers';
+import { JsonRpcProvider, Transaction } from 'ethers';
 import { db } from '../lib/database.js';
 import { logger } from '../lib/logger.js';
 import { logHotWalletAudit } from '../lib/hot-wallet-audit.js';
@@ -113,6 +113,182 @@ interface TokenRow {
 
 interface ChainRow {
   rpc_url: string;
+}
+
+/** Persist completion + deduct locked balance + hot-wallet cache + audits (shared by happy-path and RPC-error recovery). */
+async function finishWithdrawalAfterSuccessfulBroadcast(params: {
+  withdrawalId: string;
+  queueId: string;
+  w: WithdrawalRow;
+  chainId: string;
+  txHash: string;
+  valueWei: bigint;
+}): Promise<void> {
+  const { withdrawalId, queueId, w, chainId, txHash, valueWei } = params;
+  const totalRequired = new Decimal(w.amount).plus(w.fee).toString();
+  const currencyId = await getCurrencyIdForToken(w.token_id);
+  const rawAccountType = w.account_type || 'funding';
+  const accountType = ['funding', 'spot', 'trading'].includes(rawAccountType) ? rawAccountType : 'funding';
+
+  const completionApplied = await db.transaction(async (client) => {
+    const statusRow = await client.query<{ status: string }>(
+      `SELECT status FROM withdrawals WHERE id = $1 FOR UPDATE`,
+      [withdrawalId]
+    );
+    if (statusRow.rows.length === 0) {
+      await client.query(
+        `UPDATE withdrawal_signing_queue SET status = 'failed', error_message = 'Withdrawal not found' WHERE id = $1`,
+        [queueId]
+      );
+      return false;
+    }
+    const currentStatus = statusRow.rows[0]!.status;
+    if (currentStatus === 'cancelled') {
+      await client.query(
+        `UPDATE withdrawal_signing_queue
+         SET status = 'cancelled', error_message = 'Withdrawal was cancelled by user after broadcast', processed_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [queueId]
+      );
+      logger.warn('Withdrawal was cancelled after broadcast; balance not debited', { withdrawalId, queueId });
+      return false;
+    }
+    if (currentStatus === 'completed') {
+      await client.query(
+        `UPDATE withdrawal_signing_queue
+         SET status = 'completed', tx_hash = COALESCE(tx_hash, $1), processed_at = CURRENT_TIMESTAMP, error_message = NULL
+         WHERE id = $2`,
+        [txHash, queueId]
+      );
+      return true;
+    }
+
+    await client.query(
+      `UPDATE withdrawal_signing_queue
+       SET status = 'completed', tx_hash = $1, processed_at = CURRENT_TIMESTAMP, error_message = NULL
+       WHERE id = $2`,
+      [txHash, queueId]
+    );
+    await client.query(
+      `UPDATE withdrawals
+       SET status = 'completed', tx_hash = $1, completed_at = CURRENT_TIMESTAMP, processed_at = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+      [txHash, withdrawalId]
+    );
+    if (currencyId) {
+      await ensureUserBalanceRow(w.user_id, currencyId, chainId, accountType, client);
+      const sel = await client.query<{ locked_balance: string }>(
+        `SELECT locked_balance::text FROM user_balances
+         WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = $4 FOR UPDATE`,
+        [w.user_id, currencyId, chainId, accountType]
+      );
+      if (sel.rows.length === 0) throw new Error('withdrawal_complete: balance row not found');
+      const lockedBefore = new Decimal(sel.rows[0]!.locked_balance);
+      const completeUpd = await client.query(
+        `UPDATE user_balances
+         SET locked_balance = locked_balance - $1, updated_at = NOW()
+         WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5 AND locked_balance >= $1
+         RETURNING *`,
+        [totalRequired, w.user_id, currencyId, chainId, accountType]
+      );
+      assertUserBalanceUpdated('withdrawal_complete_deduct', completeUpd, w.user_id, currencyId, accountType, w.chain_id ?? undefined);
+      assertBalanceInvariant(completeUpd.rows[0]);
+      await insertBalanceLedger({
+        client,
+        userId: w.user_id,
+        currencyId,
+        accountType,
+        debit: totalRequired,
+        credit: '0',
+        balanceBefore: lockedBefore.toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toString(),
+        balanceAfter: lockedBefore.minus(totalRequired).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toString(),
+        referenceType: 'withdrawal',
+        referenceId: withdrawalId,
+        balanceType: 'locked',
+      });
+    }
+    return true;
+  });
+
+  if (!completionApplied) {
+    return;
+  }
+
+  const resolvedChainId = await resolveHotWalletChainId(chainId);
+  if (resolvedChainId) {
+    await db.query(
+      `UPDATE hot_wallets SET balance_cache = balance_cache - $1::numeric, updated_at = CURRENT_TIMESTAMP WHERE chain_id = $2 AND is_active = TRUE`,
+      [valueWei.toString(), resolvedChainId]
+    );
+  }
+
+  await logHotWalletAudit({
+    actorId: ACTOR_SYSTEM,
+    actorType: 'system',
+    action: 'withdrawal_signing_completed',
+    resourceType: 'withdrawal',
+    resourceId: withdrawalId,
+    details: { withdrawal_id: withdrawalId, tx_hash: txHash },
+  });
+
+  await logWithdrawalLifecycle('withdrawal_signed', {
+    withdrawal_id: withdrawalId,
+    user_id: w.user_id,
+    admin_id: null,
+    token_id: w.token_id,
+    chain_id: w.chain_id,
+    amount: totalRequired,
+    ip: null,
+    user_agent: null,
+  });
+
+  logger.info('Withdrawal signed and broadcast', { withdrawalId, chainId, txHash });
+  logger.info('[E2E_WITHDRAWAL] stage=completed', {
+    withdrawal_id: withdrawalId,
+    status: 'completed',
+    chain_id: w.chain_id,
+    tx_hash: txHash,
+  });
+}
+
+/** If RPC errored but tx is already on-chain / mempool, finalize without refunding user. */
+async function tryCompleteWithdrawalIfTxAlreadyOnChain(args: {
+  provider: JsonRpcProvider;
+  signedTx: string;
+  withdrawalId: string;
+  queueId: string;
+  w: WithdrawalRow;
+  chainId: string;
+  valueWei: bigint;
+}): Promise<boolean> {
+  let txHash: string;
+  try {
+    const h = Transaction.from(args.signedTx).hash;
+    if (!h) return false;
+    txHash = h;
+  } catch {
+    return false;
+  }
+  try {
+    const onchain = await args.provider.getTransaction(txHash);
+    if (!onchain) return false;
+  } catch {
+    return false;
+  }
+  const already = await db.query<{ status: string }>(`SELECT status FROM withdrawals WHERE id = $1`, [args.withdrawalId]);
+  if (already.rows[0]?.status === 'completed') {
+    return true;
+  }
+
+  await finishWithdrawalAfterSuccessfulBroadcast({
+    withdrawalId: args.withdrawalId,
+    queueId: args.queueId,
+    w: args.w,
+    chainId: args.chainId,
+    txHash,
+    valueWei: args.valueWei,
+  });
+  return true;
 }
 
 /**
@@ -364,7 +540,28 @@ async function processSigningQueueClaimed(claimed: {
     const rrow = r.rows[0];
     const atLimit = rrow && rrow.attempts >= rrow.max_attempts;
     if (atLimit) {
-      await markQueueFailed(queueId, `Broadcast failed after max retries: ${msg}`);
+      const recovered = await tryCompleteWithdrawalIfTxAlreadyOnChain({
+        provider,
+        signedTx,
+        withdrawalId,
+        queueId,
+        w,
+        chainId,
+        valueWei,
+      });
+      if (recovered) {
+        await logHotWalletAudit({
+          actorId: ACTOR_SYSTEM,
+          actorType: 'system',
+          action: 'withdrawal_signing_recovered_after_broadcast_error',
+          resourceType: 'withdrawal',
+          resourceId: withdrawalId,
+          details: { withdrawal_id: withdrawalId, error: msg },
+        });
+        return;
+      }
+      // C2: never refund balance on broadcast RPC errors until chain proves tx absent (manual / verifier path)
+      await markQueueFailed(queueId, `Broadcast failed after max retries: ${msg}`, { refundOnFinal: false });
     } else {
       await db.query(
         `UPDATE withdrawal_signing_queue SET status = 'broadcast' WHERE id = $1`,
@@ -382,126 +579,22 @@ async function processSigningQueueClaimed(claimed: {
     return;
   }
 
-  const totalRequired = new Decimal(w.amount).plus(w.fee).toString();
-  const currencyId = await getCurrencyIdForToken(w.token_id);
-  const rawAccountType = w.account_type || 'funding';
-  const accountType = ['funding', 'spot', 'trading'].includes(rawAccountType) ? rawAccountType : 'funding';
-
-  // Re-check withdrawal status inside tx: if user cancelled after we broadcast, do not debit balance (avoid double-spend).
-  const completionApplied = await db.transaction(async (client) => {
-    const statusRow = await client.query<{ status: string }>(
-      `SELECT status FROM withdrawals WHERE id = $1 FOR UPDATE`,
-      [withdrawalId]
-    );
-    if (statusRow.rows.length === 0) {
-      await client.query(
-        `UPDATE withdrawal_signing_queue SET status = 'failed', error_message = 'Withdrawal not found' WHERE id = $1`,
-        [queueId]
-      );
-      return false;
-    }
-    const currentStatus = statusRow.rows[0]!.status;
-    if (currentStatus === 'cancelled') {
-      await client.query(
-        `UPDATE withdrawal_signing_queue
-         SET status = 'cancelled', error_message = 'Withdrawal was cancelled by user after broadcast', processed_at = CURRENT_TIMESTAMP
-         WHERE id = $1`,
-        [queueId]
-      );
-      logger.warn('Withdrawal was cancelled after broadcast; balance not debited', { withdrawalId, queueId });
-      return false;
-    }
-
-    await client.query(
-      `UPDATE withdrawal_signing_queue
-       SET status = 'completed', tx_hash = $1, processed_at = CURRENT_TIMESTAMP, error_message = NULL
-       WHERE id = $2`,
-      [txHash, queueId]
-    );
-    await client.query(
-      `UPDATE withdrawals
-       SET status = 'completed', tx_hash = $1, completed_at = CURRENT_TIMESTAMP, processed_at = CURRENT_TIMESTAMP
-       WHERE id = $2`,
-      [txHash, withdrawalId]
-    );
-    if (currencyId) {
-      await ensureUserBalanceRow(w.user_id, currencyId, chainId, accountType, client);
-      const sel = await client.query<{ locked_balance: string }>(
-        `SELECT locked_balance::text FROM user_balances
-         WHERE user_id = $1 AND currency_id = $2 AND COALESCE(chain_id, '') = $3 AND account_type = $4 FOR UPDATE`,
-        [w.user_id, currencyId, chainId, accountType]
-      );
-      if (sel.rows.length === 0) throw new Error('withdrawal_complete: balance row not found');
-      const lockedBefore = new Decimal(sel.rows[0]!.locked_balance);
-      const completeUpd = await client.query(
-        `UPDATE user_balances
-         SET locked_balance = locked_balance - $1, updated_at = NOW()
-         WHERE user_id = $2 AND currency_id = $3 AND COALESCE(chain_id, '') = $4 AND account_type = $5 AND locked_balance >= $1
-         RETURNING *`,
-        [totalRequired, w.user_id, currencyId, chainId, accountType]
-      );
-      assertUserBalanceUpdated('withdrawal_complete_deduct', completeUpd, w.user_id, currencyId, accountType, w.chain_id ?? undefined);
-      assertBalanceInvariant(completeUpd.rows[0]);
-      await insertBalanceLedger({
-        client,
-        userId: w.user_id,
-        currencyId,
-        accountType,
-        debit: totalRequired,
-        credit: '0',
-        balanceBefore: lockedBefore.toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toString(),
-        balanceAfter: lockedBefore.minus(totalRequired).toDecimalPlaces(AMOUNT_PRECISION, ROUND_DOWN).toString(),
-        referenceType: 'withdrawal',
-        referenceId: withdrawalId,
-        balanceType: 'locked',
-      });
-    }
-    return true;
-  });
-
-  if (!completionApplied) {
-    return;
-  }
-
-  const resolvedChainId = await resolveHotWalletChainId(chainId);
-  if (resolvedChainId) {
-    await db.query(
-      `UPDATE hot_wallets SET balance_cache = balance_cache - $1::numeric, updated_at = CURRENT_TIMESTAMP WHERE chain_id = $2 AND is_active = TRUE`,
-      [valueWei.toString(), resolvedChainId]
-    );
-  }
-
-  await logHotWalletAudit({
-    actorId: ACTOR_SYSTEM,
-    actorType: 'system',
-    action: 'withdrawal_signing_completed',
-    resourceType: 'withdrawal',
-    resourceId: withdrawalId,
-    details: { withdrawal_id: withdrawalId, tx_hash: txHash },
-  });
-
-  await logWithdrawalLifecycle('withdrawal_signed', {
-    withdrawal_id: withdrawalId,
-    user_id: w.user_id,
-    admin_id: null,
-    token_id: w.token_id,
-    chain_id: w.chain_id,
-    amount: totalRequired,
-    ip: null,
-    user_agent: null,
-  });
-
-  logger.info('Withdrawal signed and broadcast', { withdrawalId, chainId, txHash });
-  // E2E withdrawal lifecycle: stage 4 — completed (tx_hash saved, locked balance deducted)
-  logger.info('[E2E_WITHDRAWAL] stage=completed', {
-    withdrawal_id: withdrawalId,
-    status: 'completed',
-    chain_id: w.chain_id,
-    tx_hash: txHash,
+  await finishWithdrawalAfterSuccessfulBroadcast({
+    withdrawalId,
+    queueId,
+    w,
+    chainId,
+    txHash,
+    valueWei,
   });
 }
 
-async function markQueueFailed(queueId: string, errorMessage: string): Promise<void> {
+async function markQueueFailed(
+  queueId: string,
+  errorMessage: string,
+  opts?: { refundOnFinal?: boolean }
+): Promise<void> {
+  const refundOnFinal = opts?.refundOnFinal !== false;
   const r = await db.query<{ attempts: number; max_attempts: number; withdrawal_id: string }>(
     `SELECT attempts, max_attempts, withdrawal_id FROM withdrawal_signing_queue WHERE id = $1`,
     [queueId]
@@ -509,6 +602,29 @@ async function markQueueFailed(queueId: string, errorMessage: string): Promise<v
   const row = r.rows[0];
   if (!row) return;
   const isFinal = row.attempts >= row.max_attempts;
+
+  if (isFinal && !refundOnFinal) {
+    await db.query(
+      `UPDATE withdrawal_signing_queue
+       SET status = 'broadcast_uncertain', error_message = $1, processed_at = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+      [errorMessage, queueId]
+    );
+    await db.query(
+      `UPDATE withdrawals SET treasury_stage = 'broadcast_uncertain', failed_reason = $1, updated_at = NOW() WHERE id = $2`,
+      [errorMessage, row.withdrawal_id]
+    );
+    void sendOpsAlert({
+      severity: 'critical',
+      alertType: 'treasury',
+      title: 'Withdrawal broadcast uncertain — funds stay locked; verify chain manually',
+      body: errorMessage,
+      dedupeKey: `broadcast-uncertain:${row.withdrawal_id}`,
+      context: { withdrawalId: row.withdrawal_id, queueId },
+    });
+    return;
+  }
+
   await db.query(
     `UPDATE withdrawal_signing_queue
      SET status = $1, error_message = $2, processed_at = CASE WHEN $3 THEN CURRENT_TIMESTAMP ELSE NULL END

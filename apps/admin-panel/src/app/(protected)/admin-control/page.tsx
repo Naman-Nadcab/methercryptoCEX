@@ -69,6 +69,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
+import { ActionAuthModal, type ActionAuthPayload } from '@/components/ops/ActionAuthModal';
 
 const CIRCUIT_ACTIONS = [
   { action: 'open_trading_circuit', label: 'Open trading circuit', icon: Pause },
@@ -319,7 +320,17 @@ export default function AdminControlPage() {
   };
   const [cardAction, setCardAction] = useState<CardAction | null>(null);
   const [cardActionReason, setCardActionReason] = useState('');
+  const [cardActionTwofa, setCardActionTwofa] = useState('');
   const [cardActionToast, setCardActionToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [authAction, setAuthAction] = useState<
+    | { kind: 'circuit'; action: string; label: string }
+    | { kind: 'command'; command: string; label: string }
+    | { kind: 'liquidity_kill'; enabled: boolean }
+    | { kind: 'emergency_mode'; enabled: boolean }
+    | { kind: 'emergency_level'; level: number }
+    | { kind: 'asset_freeze'; body: { asset: string; deposits_frozen?: boolean; withdrawals_frozen?: boolean; trading_frozen?: boolean } }
+    | null
+  >(null);
 
   useEffect(() => {
     if (!cardActionToast) return;
@@ -624,7 +635,7 @@ export default function AdminControlPage() {
   });
 
   const globalActionMutation = useMutation({
-    mutationFn: (body: { action: GlobalActionType; reason?: string }) =>
+    mutationFn: (body: { action: GlobalActionType; reason?: string; twofa_code?: string }) =>
       postControlGlobalAction(token, body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'control', 'status'] });
@@ -632,6 +643,7 @@ export default function AdminControlPage() {
       queryClient.invalidateQueries({ queryKey: ['admin', 'control', 'circuit-history'] });
       setCardAction(null);
       setCardActionReason('');
+      setCardActionTwofa('');
       setCardActionToast({ message: 'Action executed successfully.', type: 'success' });
     },
     onError: (err: unknown) => {
@@ -734,7 +746,12 @@ export default function AdminControlPage() {
                     <tr key={s.service} className="border-t border-admin-border">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
-                          <span className={cn('h-2 w-2 rounded-full shrink-0', s.status === 'healthy' || s.status === 'running' ? 'bg-emerald-400' : s.status === 'degraded' ? 'bg-amber-400' : 'bg-red-400')} />
+                          <span
+                            className={cn(
+                              'h-2 w-2 rounded-full shrink-0',
+                              s.status === 'healthy' ? 'bg-emerald-400' : s.status === 'warning' ? 'bg-amber-400' : 'bg-red-400'
+                            )}
+                          />
                           <span className="font-medium">{s.service}</span>
                         </div>
                       </td>
@@ -811,7 +828,7 @@ export default function AdminControlPage() {
             <button
               key={title}
               type="button"
-              onClick={() => { setCardAction(onAction); setCardActionReason(''); }}
+              onClick={() => { setCardAction(onAction); setCardActionReason(''); setCardActionTwofa(''); }}
               disabled={!status || globalActionMutation.isPending}
               className={cn(
                 'group relative rounded-lg border p-4 text-left transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none',
@@ -860,7 +877,7 @@ export default function AdminControlPage() {
                     key={action}
                     variant="secondary"
                     size="sm"
-                    onClick={() => setConfirmCircuit({ action, label })}
+                    onClick={() => setAuthAction({ kind: 'circuit', action, label })}
                     disabled={circuitMutation.isPending}
                   >
                     <Icon className="h-3.5 w-3.5" />
@@ -881,10 +898,10 @@ export default function AdminControlPage() {
               <p className="text-xs text-admin-muted">Disables liquidity bot, MM accounts, and external providers.</p>
             </CardHeader>
             <CardContent className="flex gap-2">
-              <Button variant="danger" size="sm" onClick={() => setConfirmLiquidityKill(true)} disabled={liquidityKillMutation.isPending}>
+              <Button variant="danger" size="sm" onClick={() => setAuthAction({ kind: 'liquidity_kill', enabled: true })} disabled={liquidityKillMutation.isPending}>
                 Activate
               </Button>
-              <Button variant="secondary" size="sm" onClick={() => setConfirmLiquidityKill(false)} disabled={liquidityKillMutation.isPending}>
+              <Button variant="secondary" size="sm" onClick={() => setAuthAction({ kind: 'liquidity_kill', enabled: false })} disabled={liquidityKillMutation.isPending}>
                 Deactivate
               </Button>
             </CardContent>
@@ -900,10 +917,10 @@ export default function AdminControlPage() {
               <p className="text-xs text-admin-muted">Pause trading, disable withdrawals and deposits, enable safe mode.</p>
             </CardHeader>
             <CardContent className="flex gap-2">
-              <Button variant="danger" size="sm" onClick={() => setConfirmEmergencyMode(true)} disabled={emergencyModeMutation.isPending}>
+              <Button variant="danger" size="sm" onClick={() => setAuthAction({ kind: 'emergency_mode', enabled: true })} disabled={emergencyModeMutation.isPending}>
                 Enable
               </Button>
-              <Button variant="secondary" size="sm" onClick={() => setConfirmEmergencyMode(false)} disabled={emergencyModeMutation.isPending}>
+              <Button variant="secondary" size="sm" onClick={() => setAuthAction({ kind: 'emergency_mode', enabled: false })} disabled={emergencyModeMutation.isPending}>
                 Disable
               </Button>
             </CardContent>
@@ -946,7 +963,7 @@ export default function AdminControlPage() {
                         <div className="flex items-center gap-2">
                           <FreezeToggle
                             frozen={!!row.deposits_frozen}
-                            onToggle={() => assetFreezeMutation.mutate({ asset: row.asset, deposits_frozen: !row.deposits_frozen })}
+                            onToggle={() => setAuthAction({ kind: 'asset_freeze', body: { asset: row.asset, deposits_frozen: !row.deposits_frozen } })}
                             disabled={assetFreezeMutation.isPending}
                             label={`Toggle ${row.asset} deposits`}
                           />
@@ -957,7 +974,7 @@ export default function AdminControlPage() {
                         <div className="flex items-center gap-2">
                           <FreezeToggle
                             frozen={!!row.withdrawals_frozen}
-                            onToggle={() => assetFreezeMutation.mutate({ asset: row.asset, withdrawals_frozen: !row.withdrawals_frozen })}
+                            onToggle={() => setAuthAction({ kind: 'asset_freeze', body: { asset: row.asset, withdrawals_frozen: !row.withdrawals_frozen } })}
                             disabled={assetFreezeMutation.isPending}
                             label={`Toggle ${row.asset} withdrawals`}
                           />
@@ -968,7 +985,7 @@ export default function AdminControlPage() {
                         <div className="flex items-center gap-2">
                           <FreezeToggle
                             frozen={!!row.trading_frozen}
-                            onToggle={() => assetFreezeMutation.mutate({ asset: row.asset, trading_frozen: !row.trading_frozen })}
+                            onToggle={() => setAuthAction({ kind: 'asset_freeze', body: { asset: row.asset, trading_frozen: !row.trading_frozen } })}
                             disabled={assetFreezeMutation.isPending}
                             label={`Toggle ${row.asset} trading`}
                           />
@@ -1442,10 +1459,10 @@ export default function AdminControlPage() {
               <p className="text-sm text-admin-muted">Select a level or use Escalate/Downgrade. Changes require confirmation.</p>
             </div>
             <div className="flex gap-1">
-              <Button variant="secondary" size="sm" onClick={() => emergencyLevel > 0 && setConfirmEmergencyLevel(Math.max(0, emergencyLevel - 1))} disabled={emergencyLevel <= 0 || emergencyLevelMutation.isPending}>
+              <Button variant="secondary" size="sm" onClick={() => emergencyLevel > 0 && setAuthAction({ kind: 'emergency_level', level: Math.max(0, emergencyLevel - 1) })} disabled={emergencyLevel <= 0 || emergencyLevelMutation.isPending}>
                 <ChevronDown className="h-4 w-4" /> Downgrade
               </Button>
-              <Button variant="secondary" size="sm" onClick={() => emergencyLevel < 3 && setConfirmEmergencyLevel(Math.min(3, emergencyLevel + 1))} disabled={emergencyLevel >= 3 || emergencyLevelMutation.isPending}>
+              <Button variant="secondary" size="sm" onClick={() => emergencyLevel < 3 && setAuthAction({ kind: 'emergency_level', level: Math.min(3, emergencyLevel + 1) })} disabled={emergencyLevel >= 3 || emergencyLevelMutation.isPending}>
                 <ChevronUp className="h-4 w-4" /> Escalate
               </Button>
             </div>
@@ -1467,7 +1484,7 @@ export default function AdminControlPage() {
               return (
                 <div key={level} className="flex items-start">
                   <button
-                    onClick={() => setConfirmEmergencyLevel(level)}
+                    onClick={() => setAuthAction({ kind: 'emergency_level', level })}
                     disabled={emergencyLevelMutation.isPending}
                     className="flex flex-col items-center gap-1.5 px-2 disabled:opacity-50"
                   >
@@ -1617,7 +1634,7 @@ export default function AdminControlPage() {
               <Button
                 key={command}
                 variant="secondary"
-                onClick={() => setConfirmCommand({ command, label })}
+                onClick={() => setAuthAction({ kind: 'command', command, label })}
                 disabled={commandMutation.isPending || !canExecuteCommands}
               >
                 {label}
@@ -1810,13 +1827,23 @@ export default function AdminControlPage() {
                 <p className="mt-1 text-xs text-admin-muted">{cardActionReason.trim().length}/8 characters minimum</p>
               </div>
             )}
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-admin-text">2FA code (optional)</label>
+              <input
+                value={cardActionTwofa}
+                onChange={(e) => setCardActionTwofa(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="000000"
+                inputMode="numeric"
+                className="mt-1 w-full rounded-lg border border-admin-border bg-white/[0.02] px-3 py-2 text-center font-mono tracking-widest text-sm text-admin-text placeholder:text-admin-muted/50 focus:border-admin-primary focus:outline-none focus:ring-1 focus:ring-admin-primary"
+              />
+            </div>
             {cardAction.variant === 'danger' && (
               <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/[0.05] px-3 py-2">
                 <p className="text-xs text-amber-400">This is a destructive action. It will be logged in the audit trail and cannot be undone automatically.</p>
               </div>
             )}
             <div className="mt-6 flex gap-3">
-              <Button variant="secondary" className="flex-1" onClick={() => { setCardAction(null); setCardActionReason(''); }} disabled={globalActionMutation.isPending}>
+              <Button variant="secondary" className="flex-1" onClick={() => { setCardAction(null); setCardActionReason(''); setCardActionTwofa(''); }} disabled={globalActionMutation.isPending}>
                 Cancel
               </Button>
               <Button
@@ -1824,10 +1851,12 @@ export default function AdminControlPage() {
                 variant={cardAction.variant === 'danger' ? 'danger' : 'primary'}
                 onClick={() => {
                   const reason = cardActionReason.trim();
+                  const twofa = cardActionTwofa.trim();
                   if (cardAction.needsReason && reason.length < 8) return;
-                  globalActionMutation.mutate({ action: cardAction.action, reason: reason || undefined });
+                  if (twofa.length > 0 && !/^\d{6}$/.test(twofa)) return;
+                  globalActionMutation.mutate({ action: cardAction.action, reason: reason || undefined, twofa_code: twofa || undefined });
                 }}
-                disabled={globalActionMutation.isPending || (cardAction.needsReason && cardActionReason.trim().length < 8)}
+                disabled={globalActionMutation.isPending || (cardAction.needsReason && cardActionReason.trim().length < 8) || (cardActionTwofa.trim().length > 0 && !/^\d{6}$/.test(cardActionTwofa.trim()))}
               >
                 {globalActionMutation.isPending ? 'Executing…' : 'Confirm'}
               </Button>
@@ -1837,6 +1866,73 @@ export default function AdminControlPage() {
       )}
 
       {/* Modals */}
+      <ActionAuthModal
+        open={!!authAction}
+        onClose={() => setAuthAction(null)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          if (!authAction) return;
+          if (authAction.kind === 'circuit') {
+            circuitMutation.mutate(authAction.action);
+          } else if (authAction.kind === 'command') {
+            commandMutation.mutate(authAction.command);
+          } else if (authAction.kind === 'liquidity_kill') {
+            liquidityKillMutation.mutate(authAction.enabled);
+          } else if (authAction.kind === 'emergency_mode') {
+            emergencyModeMutation.mutate(authAction.enabled);
+          } else if (authAction.kind === 'emergency_level') {
+            emergencyLevelMutation.mutate(authAction.level);
+          } else if (authAction.kind === 'asset_freeze') {
+            assetFreezeMutation.mutate(authAction.body);
+          }
+          void payload;
+          setAuthAction(null);
+        }}
+        title="Confirm high-impact control action"
+        actionLabel={
+          authAction?.kind === 'circuit'
+            ? authAction.label
+            : authAction?.kind === 'command'
+              ? authAction.label
+              : authAction?.kind === 'liquidity_kill'
+                ? `${authAction.enabled ? 'Activate' : 'Deactivate'} liquidity kill switch`
+                : authAction?.kind === 'emergency_mode'
+                  ? `${authAction.enabled ? 'Enable' : 'Disable'} emergency mode`
+                  : authAction?.kind === 'emergency_level'
+                    ? `Set emergency level to ${authAction.level}`
+                    : authAction?.kind === 'asset_freeze'
+                      ? `Update freeze controls for ${authAction.body.asset}`
+                      : 'Control action'
+        }
+        description="This action affects live exchange operations and is fully audited."
+        requireReason
+        twofaRequired
+        confirmationPhrase="CONFIRM CONTROL_ACTION"
+        externalError={
+          circuitMutation.error instanceof Error
+            ? circuitMutation.error.message
+            : commandMutation.error instanceof Error
+              ? commandMutation.error.message
+              : liquidityKillMutation.error instanceof Error
+                ? liquidityKillMutation.error.message
+                : emergencyModeMutation.error instanceof Error
+                  ? emergencyModeMutation.error.message
+                  : emergencyLevelMutation.error instanceof Error
+                    ? emergencyLevelMutation.error.message
+                    : assetFreezeMutation.error instanceof Error
+                      ? assetFreezeMutation.error.message
+                      : null
+        }
+        isPending={
+          circuitMutation.isPending ||
+          commandMutation.isPending ||
+          liquidityKillMutation.isPending ||
+          emergencyModeMutation.isPending ||
+          emergencyLevelMutation.isPending ||
+          assetFreezeMutation.isPending
+        }
+        confirmLabel="Execute action"
+        confirmVariant="danger"
+      />
       {confirmCircuit && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setConfirmCircuit(null)}>
           <div className="w-full max-w-sm rounded-xl bg-admin-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>

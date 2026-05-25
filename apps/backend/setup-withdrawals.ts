@@ -12,6 +12,11 @@ const pool = new Pool({
  * to remove all dummy financial data while keeping the protected user (nmnsingh02@gmail.com).
  */
 async function setup() {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('setup-withdrawals: refuses to run when NODE_ENV=production (creates dummy financial data).');
+    process.exit(1);
+  }
+
   const client = await pool.connect();
   try {
     console.log('Setting up withdrawals table and dummy data...');

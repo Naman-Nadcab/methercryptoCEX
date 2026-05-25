@@ -19,6 +19,7 @@ export type HotWalletAuditAction =
   | 'withdrawal_signing_started'
   | 'withdrawal_signing_completed'
   | 'withdrawal_signing_failed'
+  | 'withdrawal_signing_recovered_after_broadcast_error'
   | 'hot_wallet_key_decrypted'; // log only that decryption occurred, never key material
 
 export interface HotWalletAuditEntry {

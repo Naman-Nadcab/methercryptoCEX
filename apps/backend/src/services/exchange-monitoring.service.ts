@@ -152,6 +152,7 @@ export function recordAbuseEvent(params: {
 export type OperationalEventType =
   | 'halt_toggle'
   | 'halt_redis_error'
+  | 'settlement_circuit_redis_error'
   | 'settlement_worker_error'
   | 'settlement_worker_start'
   | 'settlement_worker_stop'

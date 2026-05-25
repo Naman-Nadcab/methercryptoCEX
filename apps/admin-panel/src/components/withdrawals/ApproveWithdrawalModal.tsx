@@ -1,6 +1,6 @@
 'use client';
 
-import { SensitiveActionModal } from '@/components/ops/SensitiveActionModal';
+import { ActionAuthModal, type ActionAuthPayload } from '@/components/ops/ActionAuthModal';
 
 export interface ApproveWithdrawalModalProps {
   open: boolean;
@@ -22,27 +22,23 @@ export function ApproveWithdrawalModal({
   isLoading,
 }: ApproveWithdrawalModalProps) {
   return (
-    <SensitiveActionModal
+    <ActionAuthModal
       open={open}
       onClose={onClose}
-      onConfirm={onConfirm}
+      onConfirm={(payload: ActionAuthPayload) => onConfirm(payload.reason)}
       title="Approve withdrawal"
+      actionLabel={`Approve withdrawal ${withdrawalId}`}
       description={
-        <>
-          <span className="font-mono text-xs text-admin-text">ID: {withdrawalId}</span>
-          {asset != null && amount != null && (
-            <span className="block mt-1">
-              {asset} · {amount}
-            </span>
-          )}
-        </>
+        asset != null && amount != null
+          ? `${asset} · ${amount}. Add approval note for audit trail.`
+          : 'Add approval note for audit trail.'
       }
-      reasonLabel="Approval note (audit)"
-      placeholder="e.g. Verified KYC, matched risk checks, proceeding to signing queue."
-      minReasonLength={8}
+      requireReason
+      twofaRequired
+      confirmationPhrase="CONFIRM APPROVE_WITHDRAWAL"
+      confirmVariant="primary"
       confirmLabel="Confirm approval"
-      isLoading={isLoading}
-      variant="default"
+      isPending={isLoading}
     />
   );
 }

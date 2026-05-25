@@ -68,10 +68,12 @@ import { getSpotTradesShapeSync, loadSpotTradesShape } from '../lib/spot-trades-
 import { invalidateTickersCache } from '../services/cache-invalidation.service.js';
 import { isSymbolCircuitOpen } from '../lib/per-symbol-circuit.js';
 import { config } from '../config/index.js';
+import { decideExecution } from '../services/hybrid-decision.service.js';
+import { enqueueHedgeJobAfterInternalFill } from '../services/hedge-jobs.service.js';
 import { userHasP2POrderAccess, isUuid as isP2POrderUuid } from '../services/p2p-order-access.service.js';
 import { publishP2POrderRoom } from '../services/p2p-ws-publish.service.js';
 import { isSessionValid } from '../services/session.service.js';
-import { getClientIp } from '../lib/client-ip.js';
+import { getClientIpFromIncomingMessage } from '../lib/client-ip.js';
 import { issueSpotWsTicket, consumeWsTicket, WS_TICKET_TTL_SEC } from '../services/ws-ticket.service.js';
 
 const spotUserRateLimitOpts = {
@@ -223,7 +225,7 @@ export default async function spotRoutes(app: FastifyInstance) {
   // mutation routes can call invalidateMarketsCache() without touching this handler.
   app.get('/markets', async (_request, reply) => {
     try {
-      const markets = await getMarketsCached();
+      const markets = await withTimeout(getMarketsCached(), 6_000, 'spot.markets');
       // CDN/edge cache: 60s fresh + 30s stale-while-revalidate keeps the origin under
       // light load even when 1000s of clients poll. Server-side in-process memo (3s)
       // plus Redis (10s) still protect against stale spikes after invalidation.
@@ -363,7 +365,7 @@ export default async function spotRoutes(app: FastifyInstance) {
           WHERE m.status IN ('active', 'maintenance')
           ORDER BY m.symbol
         `;
-      const result = await db.query<{
+      const result = await db.queryRead<{
         symbol: string;
         base_asset: string;
         quote_asset: string;
@@ -971,6 +973,15 @@ export default async function spotRoutes(app: FastifyInstance) {
         priceForRisk = priceDec != null ? priceDec.toString() : (stopPriceDec != null ? stopPriceDec.toString() : '0');
       }
 
+      // Buy-side stop / trailing-stop: extra quote lock for market slippage (M6)
+      if (side === 'buy' && isStopOrder && (type === 'stop_loss' || type === 'trailing_stop_market')) {
+        const bps = config.spot.stopOrderBuySlippageBps;
+        lockAmount = new Decimal(lockAmount)
+          .times(new Decimal(1).plus(new Decimal(bps).div(10000)))
+          .toDecimalPlaces(precision + 4, ROUND_DOWN)
+          .toString();
+      }
+
       const notionalQuote = side === 'buy'
         ? lockAmount
         : new Decimal(priceForRisk).times(qtyRounded).toDecimalPlaces(precision, ROUND_DOWN).toString();
@@ -990,6 +1001,15 @@ export default async function spotRoutes(app: FastifyInstance) {
           error: { code: maxOpenCheck.code ?? 'MAX_OPEN_NOTIONAL_EXCEEDED', message: maxOpenCheck.reason ?? 'Open order exposure exceeds limit' },
         });
       }
+
+      const hybridExecutionPlan = await decideExecution({
+        userId,
+        market: marketSymbol,
+        side: side as 'buy' | 'sell',
+        type,
+        notionalUsd: quoteIsUsd ? notionalQuote : null,
+        quoteIsUsd,
+      });
 
       await validateSpotOrderRiskUserBalances({
         user_id: userId,
@@ -1146,6 +1166,9 @@ export default async function spotRoutes(app: FastifyInstance) {
             };
         let matchingOutcome: MatchingOutcome | null = null;
         let rustInlineEvents: EngineMatchEvent[] | undefined;
+        let rustDeferred:
+          | { rustOrder: RustOrder; rustPlaceTarget: { engineId: string; baseUrl: string } }
+          | undefined;
         if (!isStopOrder) {
           if (postOnly && type === 'limit') {
             if (timeInForce === 'ioc' || timeInForce === 'fok') {
@@ -1153,20 +1176,21 @@ export default async function spotRoutes(app: FastifyInstance) {
               throw new Error('POST_ONLY_REQUIRES_GTC');
             }
           }
-          if (useRustEngine) {
-            const rustOrder: RustOrder = {
-              id: order.id,
-              user_id: order.user_id,
-              market: marketSymbol,
-              side: side as 'buy' | 'sell',
-              type: type as 'limit' | 'market',
-              price: insertPrice,
-              quantity: qtyRounded.toString(),
-              remaining: qtyRounded.toString(),
-              created_at: Math.floor(Date.now() / 1000),
+          if (useRustEngine && rustPlaceTarget) {
+            rustDeferred = {
+              rustOrder: {
+                id: order.id,
+                user_id: order.user_id,
+                market: marketSymbol,
+                side: side as 'buy' | 'sell',
+                type: type as 'limit' | 'market',
+                price: insertPrice,
+                quantity: qtyRounded.toString(),
+                remaining: qtyRounded.toString(),
+                created_at: Math.floor(Date.now() / 1000),
+              },
+              rustPlaceTarget,
             };
-            const pr = await placeOrderRust(rustOrder, rustPlaceTarget);
-            rustInlineEvents = pr.events;
           }
         }
         if (useRustEngine) {
@@ -1189,16 +1213,54 @@ export default async function spotRoutes(app: FastifyInstance) {
           useRustEngine,
           rustInlineEvents: useRustEngine ? rustInlineEvents : undefined,
           rustEngineId: rustPlaceTarget?.engineId,
+          rustDeferred,
         };
       });
 
-      const { order: o, useRustEngine: usedRust, rustInlineEvents, rustEngineId } = orderResult as {
+      const { order: o, useRustEngine: usedRust, rustInlineEvents: rustEventsFromTx, rustEngineId, rustDeferred } = orderResult as {
         order: { id: string; market: string; side: string; type: string; price: string | null; quantity: string; filled_quantity: string; status: string; created_at: Date; client_order_id?: string | null };
         matchingOutcome: MatchingOutcome | null;
         useRustEngine: boolean;
         rustInlineEvents?: EngineMatchEvent[];
         rustEngineId?: string;
+        rustDeferred?: { rustOrder: RustOrder; rustPlaceTarget: { engineId: string; baseUrl: string } };
       };
+      let rustInlineEvents = rustEventsFromTx;
+      if (usedRust && rustDeferred) {
+        try {
+          const pr = await placeOrderRust(rustDeferred.rustOrder, rustDeferred.rustPlaceTarget);
+          rustInlineEvents = pr.events;
+        } catch (e) {
+          const emsg = e instanceof Error ? e.message : String(e);
+          logger.error('Rust matching engine place failed after DB commit; cancelling order and unlocking balance', {
+            orderId: o.id,
+            userId,
+            error: emsg,
+          });
+          try {
+            await db.transaction(async (client) => {
+              await client.query(`UPDATE spot_orders SET status = 'cancelled', updated_at = NOW() WHERE id = $1`, [o.id]);
+              await unlockTradingBalance(userId, lockCurrencyId, lockAmount, client, {
+                referenceType: 'adjustment',
+                referenceId: o.id,
+              });
+            });
+          } catch (e2) {
+            logger.error('Failed to roll back order after engine place failure', {
+              orderId: o.id,
+              error: e2 instanceof Error ? e2.message : String(e2),
+            });
+          }
+          return reply.status(503).send({
+            success: false,
+            error: {
+              code: 'ENGINE_PLACE_FAILED',
+              message:
+                'Matching engine could not accept this order. Your balance was not used. Please try again shortly.',
+            },
+          });
+        }
+      }
       const syncMatchEngineId = rustEngineId ?? 'default';
 
       await ensureMemoryBookHydrated(marketSymbol);
@@ -1218,9 +1280,11 @@ export default async function spotRoutes(app: FastifyInstance) {
             { emitPublicWs: false, matchEngineId: syncMatchEngineId }
           );
         } else {
+          const pullRetriesOnEmpty = rustDeferred?.rustOrder.side === 'buy' ? 18 : 8;
           engineTrades = await syncEngineMatchesAfterPlace(marketSymbol, m.base_asset, m.quote_asset, precision, {
             emitPublicWs: false,
             matchEngineId: syncMatchEngineId,
+            pullRetriesOnEmpty,
           });
         }
         executedTrades = engineTrades;
@@ -1253,6 +1317,45 @@ export default async function spotRoutes(app: FastifyInstance) {
           logger.warn('AML trade (seller) failed (best-effort)', { userId: t.sellerId, error: e instanceof Error ? e.message : String(e) })
         );
       }
+
+      if (
+        hybridExecutionPlan === 'INTERNAL_PLUS_HEDGE' &&
+        config.hybrid.hybridEnabled &&
+        config.hybrid.hedgeEnabled &&
+        executedTrades.length > 0
+      ) {
+        try {
+          let fillQty = new Decimal(0);
+          let fillQuote = new Decimal(0);
+          for (const t of executedTrades) {
+            if (side === 'buy' && t.buyerId === userId) {
+              fillQty = fillQty.plus(t.quantity);
+              fillQuote = fillQuote.plus(t.quoteValue);
+            } else if (side === 'sell' && t.sellerId === userId) {
+              fillQty = fillQty.plus(t.quantity);
+              fillQuote = fillQuote.plus(t.quoteValue);
+            }
+          }
+          if (fillQty.gt(0)) {
+            const internalAvgPrice =
+              quoteIsUsd && fillQty.gt(0) ? fillQuote.div(fillQty).toString() : null;
+            await enqueueHedgeJobAfterInternalFill({
+              userOrderId: o.id,
+              market: marketSymbol,
+              side: side as 'buy' | 'sell',
+              filledQty: fillQty.toString(),
+              notionalUsd: quoteIsUsd ? fillQuote.toString() : null,
+              internalAvgPrice,
+            });
+          }
+        } catch (e) {
+          logger.warn('hybrid_hedge_enqueue_failed', {
+            orderId: o.id,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+      }
+
       spotMetrics.recordOrder();
       spotMetrics.recordOrderLatencyMs(Date.now() - orderStartMs);
       logger.info('spot_order_placed', { orderId: o.id, userId, market: marketSymbol, side: o.side, type: o.type, quantity: o.quantity, status: o.status });
@@ -1566,8 +1669,9 @@ export default async function spotRoutes(app: FastifyInstance) {
         quantity: string;
         filled_quantity: string;
         match_engine_id: string;
+        status: string;
       }>(
-        `SELECT id, type, side, price, stop_price, quantity, filled_quantity,
+        `SELECT id, type, side, price, stop_price, quantity, filled_quantity, status,
                 COALESCE(match_engine_id::text, 'default') AS match_engine_id
          FROM spot_orders WHERE user_id = $1 AND market = $2 AND status IN ('OPEN', 'PARTIALLY_FILLED', 'PENDING_TRIGGER')`,
         [userId, market]
@@ -1579,34 +1683,47 @@ export default async function spotRoutes(app: FastifyInstance) {
       const row = m.rows[0];
       const baseId = row?.base_currency_id ?? (await getCurrencyIdBySymbol(row?.base_asset ?? '')) ?? '';
       const quoteId = row?.quote_currency_id ?? (await getCurrencyIdBySymbol(row?.quote_asset ?? '')) ?? '';
+      const requested = open.rows.length;
+      const cancellableOrders: typeof open.rows = [];
+      const failedOrderIds: string[] = [];
+
       for (const ord of open.rows) {
         try {
           await cancelOnMatchingEngineIfNeeded(ord.id, ord, userId);
+          cancellableOrders.push(ord);
         } catch (e) {
           logger.error('Matching engine cancel failed (cancel-all)', {
             orderId: ord.id,
             error: e instanceof Error ? e.message : String(e),
           });
-          return reply.status(503).send({
-            success: false,
-            error: { code: 'ENGINE_CANCEL_FAILED', message: 'Could not cancel one or more orders on matching engine.' },
-          });
+          failedOrderIds.push(ord.id);
         }
       }
+      if (cancellableOrders.length === 0) {
+        return reply.status(409).send({
+          success: false,
+          error: {
+            code: 'ENGINE_CANCEL_FAILED',
+            message: 'Could not cancel any order on matching engine.',
+          },
+          data: { requested, cancelled: 0, failed: failedOrderIds.length, failed_order_ids: failedOrderIds },
+        });
+      }
       await db.transaction(async (client) => {
-        for (const o of open.rows) {
+        for (const o of cancellableOrders) {
           const remainingQty = new Decimal(o.quantity).minus(new Decimal(o.filled_quantity)).toDecimalPlaces(8, ROUND_DOWN);
           const unlockCurrencyId = o.side === 'buy' ? quoteId : baseId;
           const priceForUnlock = o.price ?? o.stop_price ?? '0';
           const unlockAmount = o.side === 'buy'
             ? unlockAmountQuote(priceForUnlock, remainingQty.toString(), 8)
             : unlockAmountBase(remainingQty.toString(), 8);
-          await client.query(`UPDATE spot_orders SET status = 'cancelled', updated_at = NOW() WHERE id = $1`, [o.id]);
+          const cancelledStatus = String(o.status ?? '').toUpperCase() === String(o.status ?? '') ? 'CANCELLED' : 'cancelled';
+          await client.query(`UPDATE spot_orders SET status = $2, updated_at = NOW() WHERE id = $1`, [o.id, cancelledStatus]);
           await unlockTradingBalance(userId, unlockCurrencyId, unlockAmount, client);
         }
       });
       await ensureMemoryBookHydrated(market);
-      for (const o of open.rows) {
+      for (const o of cancellableOrders) {
         const remainingQty = new Decimal(o.quantity).minus(new Decimal(o.filled_quantity)).toDecimalPlaces(8, ROUND_DOWN);
         if (o.price) {
           if (isNatsSpotPipelineConfigured()) {
@@ -1627,7 +1744,15 @@ export default async function spotRoutes(app: FastifyInstance) {
           bookAndFeedsAlreadyPublished: isNatsSpotPipelineConfigured(),
         });
       }
-      return reply.send({ success: true, data: { cancelled: open.rows.length } });
+      return reply.send({
+        success: true,
+        data: {
+          requested,
+          cancelled: cancellableOrders.length,
+          failed: failedOrderIds.length,
+          failed_order_ids: failedOrderIds,
+        },
+      });
     } catch (error) {
       logger.error('Spot cancel-all failed', { error: error instanceof Error ? error.message : 'Unknown', userId });
       return reply.status(500).send({ success: false, error: { code: 'CANCEL_FAILED', message: 'Failed to cancel orders' } });
@@ -2385,7 +2510,7 @@ export default async function spotRoutes(app: FastifyInstance) {
           error: { code: 'UNAUTHORIZED', message: 'Valid user session required' },
         });
       }
-      const ticket = await issueSpotWsTicket(uid, sid, getClientIp(request));
+      const ticket = await issueSpotWsTicket(uid, sid, getClientIpFromIncomingMessage(request.raw));
       return reply.send({
         success: true,
         data: { ticket, expiresIn: WS_TICKET_TTL_SEC },
@@ -2452,7 +2577,7 @@ export default async function spotRoutes(app: FastifyInstance) {
             return;
           }
           try {
-            const clientIp = getClientIp(req as import('fastify').FastifyRequest);
+            const clientIp = getClientIpFromIncomingMessage((req as FastifyRequest).raw);
             const consumed = await consumeWsTicket(ticket, clientIp, 'spot');
             if (!consumed.ok || !consumed.userId || !consumed.userSessionId) {
               socket.send(JSON.stringify({ type: 'auth_result', success: false, error: 'invalid_ticket', timestamp: Date.now() }));

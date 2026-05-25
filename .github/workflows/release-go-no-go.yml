@@ -1,0 +1,56 @@
+name: Release Go-No-Go
+
+on:
+  workflow_dispatch:
+
+jobs:
+  go-no-go:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: docker compose up -d redis postgres rabbitmq nats
+      - run: npm run db:migrate
+      - run: npm run build --workspace=@exchange/backend
+      - name: Start backend
+        run: |
+          EXCHANGE_VERIFY_STACK=1 EXCHANGE_DEV_STACK_BOOT=1 RUN_MODE=api PORT=4000 \
+          DATABASE_URL=postgresql://exchange:exchange_secret@127.0.0.1:5432/exchange \
+          REDIS_URL=redis://127.0.0.1:6379 \
+          RABBITMQ_URL=amqp://exchange:exchange_secret@127.0.0.1:5672 \
+          NATS_URL=nats://127.0.0.1:4222 \
+          JWT_SECRET=dev-jwt-secret-key-must-be-at-least-32-chars-long \
+          JWT_REFRESH_SECRET=dev-refresh-secret-must-be-32-chars-minimum \
+          ENCRYPTION_KEY=01234567890123456789012345678901 \
+          SESSION_SECRET=dev-session-secret-32-chars-minimum-here \
+          CSRF_SECRET=dev-csrf-secret-key-32-chars-minimum-here- \
+          npm run dev --workspace=@exchange/backend &
+      - name: Wait for health
+        run: |
+          for i in {1..60}; do
+            curl -sf http://127.0.0.1:4000/health/live >/dev/null && exit 0
+            sleep 2
+          done
+          echo "backend not ready"; exit 1
+      - name: Provision E2E creds
+        run: npm run qa:e2e-credentials:file
+      - name: Run release go-no-go
+        run: |
+          LOAD_GATE_DURATION_SEC=45 \
+          LOAD_GATE_CONCURRENCY=8 \
+          LOAD_GATE_P95_MS=500 \
+          LOAD_GATE_ERROR_PCT=1 \
+          LOAD_GATE_429_PCT=3 \
+          MONITORING_REQUIRE_ALERT_ROUTE=0 \
+          COMPLIANCE_STRICT=0 \
+          npm run release:go-no-go
+      - name: Upload gate reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-go-no-go-reports
+          path: docs/reports/*.json

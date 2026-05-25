@@ -3,7 +3,7 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, RefreshCw, Search, Thermometer, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, RefreshCw, Search, Thermometer, X, Download } from 'lucide-react';
 import { useAdminAuthStore } from '@/store/auth';
 import { getWallets, getFundsSummary } from '@/lib/admin';
 import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Input } from '@/components/ui';
@@ -29,6 +29,33 @@ function userLabel(email: string | null | undefined, username: string | null | u
   return '—';
 }
 
+function exportWalletsCsv(rows: Array<Record<string, unknown>>) {
+  const headers = ['User ID', 'Email', 'Username', 'Asset', 'Available', 'Locked', 'Total'];
+  const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const lines = rows.map((row) => {
+    const available = Number.parseFloat(String(row.available ?? '0'));
+    const locked = Number.parseFloat(String(row.locked ?? '0'));
+    const total = (Number.isFinite(available) ? available : 0) + (Number.isFinite(locked) ? locked : 0);
+    return [
+      row.user_id ?? '',
+      row.email ?? '',
+      row.username ?? '',
+      row.asset ?? '',
+      row.available ?? '',
+      row.locked ?? '',
+      total,
+    ];
+  });
+  const csv = [headers.join(','), ...lines.map((line) => line.map(esc).join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `wallet-balances-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function WalletsPage() {
   const token = useAdminAuthStore((s) => s.accessToken);
   const queryClient = useQueryClient();
@@ -43,6 +70,8 @@ export default function WalletsPage() {
   });
   const [page, setPage] = useState(1);
   const [q, setQ] = useState('');
+  const [assetFilter, setAssetFilter] = useState('');
+  const [exportingCsv, setExportingCsv] = useState(false);
   const deferredQ = useDeferredValue(q.trim());
   const pageSize = 20;
 
@@ -61,13 +90,14 @@ export default function WalletsPage() {
   const fundsSummary = fundsRes?.data as Record<string, any> | undefined;
 
   const { data: walletsRes, isLoading: walletsLoading, isError, error, refetch } = useQuery({
-    queryKey: ['admin', 'wallets', token, page, deferredQ, pageSize],
+    queryKey: ['admin', 'wallets', token, page, deferredQ, pageSize, assetFilter],
     staleTime: 30_000,
     queryFn: () =>
       getWallets(token, {
         page,
         limit: pageSize,
         search: deferredQ || undefined,
+        asset: assetFilter || undefined,
       }),
     enabled: !!token,
     refetchInterval: 30_000,
@@ -112,8 +142,7 @@ export default function WalletsPage() {
   const totalPages = pagination?.totalPages ?? 1;
   const loading = fundsLoading || walletsLoading;
 
-  // Asset filter: derive from loaded data
-  const [assetFilter, setAssetFilter] = useState('');
+  // Asset filter options
   const allAssets = useMemo(() => {
     const assetSet = new Set<string>();
     for (const h of holdings) if (h.asset) assetSet.add(h.asset);
@@ -129,30 +158,68 @@ export default function WalletsPage() {
     }));
   }, [fundsSummary]);
 
-  // Client-side asset filter on top of server results
-  const visibleHoldings = useMemo(() => {
-    if (!assetFilter) return holdings;
-    return holdings.filter((h) => h.asset === assetFilter);
-  }, [holdings, assetFilter]);
+  const visibleHoldings = holdings;
+
+  useEffect(() => {
+    setPage(1);
+  }, [assetFilter]);
 
   function handleRefresh() {
     void refetch();
     void refetchFunds();
   }
 
+  const handleExportCsv = async () => {
+    if (!token || exportingCsv) return;
+    setExportingCsv(true);
+    try {
+      const all: Array<Record<string, unknown>> = [];
+      let currentPage = 1;
+      let totalPagesForExport = 1;
+      do {
+        const res = await getWallets(token, {
+          page: currentPage,
+          limit: 200,
+          search: deferredQ || undefined,
+          asset: assetFilter || undefined,
+        });
+        const rows = (res.data?.holdings ?? []) as Array<Record<string, unknown>>;
+        all.push(...rows);
+        totalPagesForExport = Math.max(1, Number(res.data?.pagination?.totalPages ?? 1));
+        currentPage += 1;
+      } while (currentPage <= totalPagesForExport && currentPage <= 200);
+      exportWalletsCsv(all);
+    } finally {
+      setExportingCsv(false);
+    }
+  };
+
   return (
     <AdminPageFrame
       title="Wallets"
       description="Monitor user balances, hot/cold wallet reserves, and asset distribution."
+      error={isError ? ((error as Error)?.message ?? 'Failed to load wallets.') : null}
+      onRetry={handleRefresh}
       quickActions={
-        <button
-          type="button"
-          onClick={handleRefresh}
-          className="flex items-center gap-1.5 rounded-lg border border-admin-border/60 px-3 py-1.5 text-xs text-admin-muted hover:text-admin-text hover:bg-white/[0.04] transition-colors"
-        >
-          <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleRefresh}
+            className="flex items-center gap-1.5 rounded-lg border border-admin-border/60 px-3 py-1.5 text-xs text-admin-muted hover:text-admin-text hover:bg-white/[0.04] transition-colors"
+          >
+            <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
+            Refresh
+          </button>
+          <button
+            type="button"
+            onClick={() => { void handleExportCsv(); }}
+            disabled={exportingCsv}
+            className="flex items-center gap-1.5 rounded-lg border border-admin-border/60 px-3 py-1.5 text-xs text-admin-muted hover:text-admin-text hover:bg-white/[0.04] transition-colors"
+          >
+            <Download className="h-3.5 w-3.5" />
+            {exportingCsv ? 'Exporting…' : 'Export CSV'}
+          </button>
+        </div>
       }
     >
 

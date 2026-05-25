@@ -1,10 +1,9 @@
 'use client';
 
-import { LineStyle, type IChartApi, type ISeriesApi, type LineSeriesPartialOptions, type UTCTimestamp } from 'lightweight-charts';
+import { LineStyle, type IChartApi, type ISeriesApi, type LineSeriesPartialOptions } from 'lightweight-charts';
 import type { CandleData } from '../../ChartAdapter';
 import { computeVolumeSma } from '../../indicators';
-
-const toTs = (t: number) => t as UTCTimestamp;
+import { lineSeriesDataFromRows } from '../../lightweightChartsData';
 
 const VOL_MA_PERIOD = 9;
 
@@ -59,7 +58,7 @@ export class VolumeMaPlugin {
       this.volumeMaSeries.applyOptions({ visible: false });
       return;
     }
-    const pts = rows.map((d) => ({ time: toTs(d.time), value: d.value }));
+    const pts = lineSeriesDataFromRows(rows);
     try {
       this.volumeMaSeries.applyOptions({ visible: true });
       this.volumeMaSeries.setData(pts);

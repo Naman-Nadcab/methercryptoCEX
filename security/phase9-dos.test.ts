@@ -34,8 +34,9 @@ export async function runPhase9Dos(): Promise<{ passed: number; failed: number; 
   const headers = getAuthHeaders();
   if (headers['Authorization'] || headers['X-API-Key']) {
     try {
+      const attempts = Math.min(120, Math.max(20, Number(process.env.E2E_RATE_LIMIT_ATTEMPTS ?? '48')));
       let lastStatus = 0;
-      for (let i = 0; i < 35; i++) {
+      for (let i = 0; i < attempts; i++) {
         const res = await fetch(`${BASE}/api/v1/spot/order`, {
           method: 'POST',
           headers,
@@ -58,7 +59,7 @@ export async function runPhase9Dos(): Promise<{ passed: number; failed: number; 
         }
       }
       if (lastStatus !== 429) {
-        results.push(`INFO: Spot order rate limit not hit in 35 requests (got ${lastStatus})`);
+        results.push(`INFO: Spot order rate limit not hit in ${attempts} requests (last ${lastStatus})`);
       }
     } catch (e) {
       results.push(`FAIL: Order rate limit ${e instanceof Error ? e.message : String(e)}`);

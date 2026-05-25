@@ -56,6 +56,20 @@ export function validateProductionConfig(): void {
     );
   }
 
+  // P0: Real KMS in production — LocalKMS + ENCRYPTION_KEY is not acceptable for custodial hot wallets
+  const kmsType = (process.env.KMS_TYPE ?? 'local').trim().toLowerCase();
+  if (kmsType !== 'aws') {
+    errors.push(
+      'KMS_TYPE must be "aws" in production with AWS_KMS_KEY_ID and AWS_REGION set. LocalKMS is dev-only.'
+    );
+  }
+  if (!process.env.AWS_KMS_KEY_ID?.trim()) {
+    errors.push('AWS_KMS_KEY_ID is required in production when using envelope-encrypted hot wallets.');
+  }
+  if (!process.env.AWS_REGION?.trim()) {
+    errors.push('AWS_REGION is required in production when using envelope-encrypted hot wallets.');
+  }
+
   // P1: Warn if ALERT_WEBHOOK_URL empty (circuit breaker alerts)
   const alertUrl = process.env.ALERT_WEBHOOK_URL?.trim();
   if (!alertUrl) {

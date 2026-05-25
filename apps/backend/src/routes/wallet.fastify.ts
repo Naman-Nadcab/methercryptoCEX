@@ -50,6 +50,10 @@ function buildWithdrawalRequestHash(body: Record<string, unknown>): string {
   return crypto.createHash('sha256').update(str).digest('hex');
 }
 
+function isPgUniqueViolation(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && 'code' in err && (err as { code: string }).code === '23505';
+}
+
 interface WithdrawalIdempotencyCache {
   withdrawalId: string;
   requestHash: string;
@@ -2019,10 +2023,10 @@ export default async function walletRoutes(app: FastifyInstance) {
           const ins = await client.query<{ id: string; created_at: string }>(`
             INSERT INTO withdrawals (
               user_id, token_id, chain_id, amount, fee, net_amount, to_address, status, account_type,
-              type, internal_user_id, email_verified, two_fa_verified, treasury_stage
-            ) VALUES ($1, $2, $3, $4, $5, $6, NULL, 'completed', 'funding', 'internal', $7, FALSE, $8, 'broadcasted')
+              type, internal_user_id, email_verified, two_fa_verified, treasury_stage, idempotency_key
+            ) VALUES ($1, $2, $3, $4, $5, $6, NULL, 'completed', 'funding', 'internal', $7, FALSE, $8, 'broadcasted', $9)
             RETURNING id, created_at
-          `, [userId, token.token_id, token.chain_id, withdrawAmountDec.toString(), feeDec.toString(), withdrawAmountDec.toString(), recipientId, internalTwoFaVerified]);
+          `, [userId, token.token_id, token.chain_id, withdrawAmountDec.toString(), feeDec.toString(), withdrawAmountDec.toString(), recipientId, internalTwoFaVerified, idempotencyKey]);
           const w = ins.rows[0]!;
           const amtStr = withdrawAmountDec.toString();
           const refId = w.id;
@@ -2619,10 +2623,10 @@ export default async function walletRoutes(app: FastifyInstance) {
           const insertResult = await client.query<{ id: string; created_at: Date }>(`
             INSERT INTO withdrawals (
               user_id, token_id, chain_id, amount, fee, net_amount, to_address, memo, status, account_type,
-              type, email_verified, two_fa_verified, withdrawal_address_id, treasury_stage
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'onchain', FALSE, $11, $12, $13)
+              type, email_verified, two_fa_verified, withdrawal_address_id, treasury_stage, idempotency_key
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'onchain', FALSE, $11, $12, $13, $14)
             RETURNING id, created_at
-          `, [userId, token.token_id, token.chain_id, withdrawAmountDec.toString(), feeDec.toString(), netAmount.toString(), toAddress!, memo || null, initialStatus, accountType, twoFaVerified, withdrawalAddressIdRes, initialTreasuryStage]);
+          `, [userId, token.token_id, token.chain_id, withdrawAmountDec.toString(), feeDec.toString(), netAmount.toString(), toAddress!, memo || null, initialStatus, accountType, twoFaVerified, withdrawalAddressIdRes, initialTreasuryStage, idempotencyKey]);
           const w = insertResult.rows[0]!;
           const totalStr = totalRequired.toString();
 
@@ -2831,6 +2835,68 @@ export default async function walletRoutes(app: FastifyInstance) {
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       const msg = err.message;
+      const dupUserId = request.user!.id;
+      const idemHdr = (request.headers[IDEMPOTENCY_KEY_HEADER] ?? request.headers['Idempotency-Key']) as string | undefined;
+      const dupIdem = typeof idemHdr === 'string' ? idemHdr.trim() : '';
+      const bodySym = typeof request.body?.symbol === 'string' ? request.body.symbol : '';
+      if (isPgUniqueViolation(error)) {
+        const dupRow = await db.query<{
+          id: string;
+          created_at: Date;
+          status: string;
+          type: string | null;
+          amount: string;
+          fee: string;
+          net_amount: string | null;
+          to_address: string | null;
+          symbol: string | null;
+          chain_name: string | null;
+        }>(
+          `SELECT w.id, w.created_at, w.status, w.type::text AS type, w.amount::text, w.fee::text, w.net_amount::text, w.to_address,
+                  t.symbol, c.name AS chain_name
+           FROM withdrawals w
+           LEFT JOIN tokens t ON t.id = w.token_id
+           LEFT JOIN chains c ON c.id = t.chain_id
+           WHERE w.user_id = $1 AND w.idempotency_key = $2 LIMIT 1`,
+          [dupUserId, dupIdem]
+        );
+        if (dupRow.rows.length > 0) {
+          const d = dupRow.rows[0]!;
+          const isInternalDup = (d.type ?? '').toLowerCase() === 'internal';
+          if (isInternalDup) {
+            return reply.status(200).send({
+              success: true,
+              data: {
+                id: d.id,
+                symbol: d.symbol ?? bodySym,
+                chain: 'Internal',
+                amount: d.amount,
+                fee: d.fee,
+                netAmount: d.net_amount ?? d.amount,
+                toAddress: null,
+                type: 'internal',
+                status: d.status,
+                createdAt: d.created_at,
+              },
+            });
+          }
+          return reply.status(200).send({
+            success: true,
+            data: {
+              id: d.id,
+              type: 'onchain',
+              symbol: d.symbol ?? bodySym,
+              chain: d.chain_name ?? '',
+              amount: d.amount,
+              fee: d.fee,
+              netAmount: d.net_amount ?? d.amount,
+              toAddress: d.to_address ?? undefined,
+              status: d.status,
+              createdAt: d.created_at,
+            },
+          });
+        }
+      }
       if (msg === 'INSUFFICIENT_BALANCE') {
         return reply.status(400).send({
           success: false,

@@ -9,9 +9,10 @@ const BASE = process.argv[2] || process.env.API_URL || 'http://localhost:4000';
 async function smoke() {
   const ok = [];
   const fail = [];
+  const timeoutMs = Number(process.env.SMOKE_API_TIMEOUT_MS || 15000);
   const get = async (path) => {
     try {
-      const res = await fetch(`${BASE}${path}`, { signal: AbortSignal.timeout(5000) });
+      const res = await fetch(`${BASE}${path}`, { signal: AbortSignal.timeout(timeoutMs) });
       if (res.ok) {
         ok.push(`${path} ${res.status}`);
         return true;
@@ -27,7 +28,7 @@ async function smoke() {
   };
   await get('/api/v1/spot/markets');
   await get('/api/v1/spot/tickers');
-  const p2pRes = await fetch(`${BASE}/api/v1/p2p/ads`, { signal: AbortSignal.timeout(5000) }).catch(() => null);
+  const p2pRes = await fetch(`${BASE}/api/v1/p2p/ads`, { signal: AbortSignal.timeout(timeoutMs) }).catch(() => null);
   if (p2pRes?.ok) ok.push('/api/v1/p2p/ads 200');
   else if (p2pRes) console.warn('P2P ads:', p2pRes.status, '(optional)');
   // P2P 400/500: optional; spot is sufficient for smoke

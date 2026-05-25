@@ -14,7 +14,11 @@ import {
   mapLegacyP2pPathToCanonical,
 } from '@/lib/tier1-shell-routes';
 
-const CANONICAL_ENABLED = process.env.NEXT_PUBLIC_CANONICAL_ROUTES === 'true';
+/**
+ * Canonical redirects are ON by default for Tier-1 URL consistency.
+ * Set NEXT_PUBLIC_CANONICAL_ROUTES=false to opt out explicitly.
+ */
+const CANONICAL_ENABLED = process.env.NEXT_PUBLIC_CANONICAL_ROUTES !== 'false';
 const DEPRECATED_LOG = process.env.ENABLE_DEPRECATED_ROUTE_LOG === 'true';
 
 /** 308 = permanent redirect, preserves method (GET); safe for bookmarked URLs. */

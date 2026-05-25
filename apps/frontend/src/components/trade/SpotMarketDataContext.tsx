@@ -39,11 +39,13 @@ type TradesCtxType = {
 
 type StreamCtxType = {
   connected: boolean;
+  privateChannelsReady: boolean;
   reconnectAttempt: number;
   streamPhase: SpotWsStreamPhase;
   lastRttMs: number | null;
   liteMode: boolean;
   liteHint: string;
+  bootstrapIssue: string | null;
 };
 
 const OrderbookCtx = createContext<OrderbookCtxType | null>(null);
@@ -143,6 +145,7 @@ export function SpotMarketDataProvider({
   const orderbookResyncInFlightRef = useRef<Promise<void> | null>(null);
   const [adaptiveUiMode, setAdaptiveUiMode] = useState<'normal' | 'eco' | 'minimal'>('normal');
   const [adaptiveHint, setAdaptiveHint] = useState('');
+  const [bootstrapIssue, setBootstrapIssue] = useState<string | null>(null);
 
   const pendingTickerRef = useRef<TickerMessage | null>(null);
   const pendingTradesRef = useRef<TradeMessage[] | null>(null);
@@ -211,6 +214,7 @@ export function SpotMarketDataProvider({
           asks: res.data.asks ?? [],
           lastUpdateId: id,
         };
+        setBootstrapIssue(null);
         lastSeqRef.current = id;
         committedOrderbookRef.current = snap;
         if (rafRef.current != null) {
@@ -222,7 +226,7 @@ export function SpotMarketDataProvider({
           if (sym === symbolRef.current) setOrderbook(snap);
         });
       } catch {
-        /* ignore */
+        setBootstrapIssue('Orderbook bootstrap delayed. Live updates may take a moment.');
       }
     })();
     orderbookResyncInFlightRef.current = run;
@@ -245,17 +249,18 @@ export function SpotMarketDataProvider({
       });
       if (!res.success || !Array.isArray(res.data) || symbolRef.current !== sym) return;
       const mapped = res.data.map((row) => normalizeTradeMessage(row));
+      setBootstrapIssue(null);
       tradesCommitRef.current = mapped;
       lastTradesFeedSeqRef.current = null;
       pendingTradesRef.current = mapped;
       dirtyTradesRef.current = true;
       scheduleRaf();
     } catch {
-      /* ignore */
+      setBootstrapIssue('Trade feed resync delayed. Recent trades may lag briefly.');
     }
   }, [scheduleRaf]);
 
-  const { subscribe, unsubscribe, connected, reconnectAttempt, streamPhase, lastRttMs } = useSpotWs({
+  const { subscribe, unsubscribe, connected, privateChannelsReady, reconnectAttempt, streamPhase, lastRttMs } = useSpotWs({
     onOrderbook: (data, type) => {
       if (data.symbol !== symbolRef.current) return;
       if (type === 'orderbook_snapshot') {
@@ -383,6 +388,7 @@ export function SpotMarketDataProvider({
     lastSeqRef.current = null;
     lastTradesFeedSeqRef.current = null;
     tradesCommitRef.current = [];
+    setBootstrapIssue(null);
     setOrderbook(null);
     setOrderbookLoading(true);
     setRecentTrades([]);
@@ -404,6 +410,7 @@ export function SpotMarketDataProvider({
             ...(typeof id === 'number' && Number.isFinite(id) && id > 0 ? { lastUpdateId: id } : {}),
           };
           committedOrderbookRef.current = snap;
+          setBootstrapIssue(null);
           if (typeof id === 'number' && Number.isFinite(id) && id > 0) {
             lastSeqRef.current = id;
           }
@@ -413,7 +420,11 @@ export function SpotMarketDataProvider({
           }
         }
       })
-      .catch(() => {})
+      .catch(() => {
+        if (!ac.signal.aborted) {
+          setBootstrapIssue('Orderbook snapshot unavailable. Retrying via stream.');
+        }
+      })
       .finally(() => {
         if (!ac.signal.aborted) setOrderbookLoading(false);
       });
@@ -436,6 +447,7 @@ export function SpotMarketDataProvider({
       .then((res) => {
         if (ac.signal.aborted) return;
         if (res.success && res.data && currentSymbol === symbolRef.current) {
+          setBootstrapIssue(null);
           setTicker(
             normalizeTickerMessage({
               symbol: currentSymbol,
@@ -452,7 +464,11 @@ export function SpotMarketDataProvider({
           );
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!ac.signal.aborted) {
+          setBootstrapIssue('Ticker bootstrap unavailable. Displaying stream data when available.');
+        }
+      });
 
     return () => ac.abort();
   }, [symbol]);
@@ -491,13 +507,15 @@ export function SpotMarketDataProvider({
   const stValue = useMemo(
     () => ({
       connected,
+      privateChannelsReady,
       reconnectAttempt,
       streamPhase,
       lastRttMs,
       liteMode,
       liteHint: adaptiveHint,
+      bootstrapIssue,
     }),
-    [connected, reconnectAttempt, streamPhase, lastRttMs, liteMode, adaptiveHint]
+    [connected, privateChannelsReady, reconnectAttempt, streamPhase, lastRttMs, liteMode, adaptiveHint, bootstrapIssue]
   );
 
   return (

@@ -26,7 +26,7 @@ import {
   Layers, Box, Store, BarChart3,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
-import { SensitiveActionModal } from '@/components/ops/SensitiveActionModal';
+import { ActionAuthModal, type ActionAuthPayload } from '@/components/ops/ActionAuthModal';
 import { ExchangeHealthTier1Banner } from '@/components/admin-shell/ExchangeHealthTier1Banner';
 import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 
@@ -153,7 +153,15 @@ export default function ControlCenterPage() {
   const token = useAdminAuthStore((s) => s.accessToken);
   const qc = useQueryClient();
   const [confirm, setConfirm] = useState<{ title: string; message: string; danger?: boolean; action: () => void } | null>(null);
-  const [pauseTradingNoteOpen, setPauseTradingNoteOpen] = useState(false);
+  const [haltAuthOpen, setHaltAuthOpen] = useState(false);
+  const [safeModeAuthTarget, setSafeModeAuthTarget] = useState<boolean | null>(null);
+  const [featureAuthTarget, setFeatureAuthTarget] = useState<FeatureFlagRow | null>(null);
+  const [serviceAuthTarget, setServiceAuthTarget] = useState<
+    | { kind: 'deposits'; nextPaused: boolean }
+    | { kind: 'withdrawals'; nextPaused: boolean }
+    | { kind: 'p2p'; nextDisabled: boolean }
+    | null
+  >(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
 
   const showToast = (type: 'success' | 'error', msg: string) => { setToast({ type, msg }); setTimeout(() => setToast(null), 3000); };
@@ -185,14 +193,51 @@ export default function ControlCenterPage() {
 
   /* ── Mutations ── */
   const haltMut = useMutation({
-    mutationFn: ({ halted, reason }: { halted: boolean; reason?: string }) =>
-      setTradingHalt(token, halted, reason ? { reason } : undefined),
-    onSuccess: () => { inv([['admin', 'trading-halt', token!]]); showToast('success', 'Trading state updated'); setPauseTradingNoteOpen(false); },
+    mutationFn: ({ halted, reason, twofa_code }: { halted: boolean; reason?: string; twofa_code?: string }) =>
+      setTradingHalt(token, halted, reason ? { reason, twofa_code } : { twofa_code }),
+    onSuccess: (res, vars) => {
+      inv([['admin', 'trading-halt', token!]]);
+      const queued = Boolean((res?.data as { queued_for_approval?: boolean } | undefined)?.queued_for_approval);
+      if (queued) inv([['admin', 'approval-requests', token!]]);
+      showToast('success', queued ? 'Trading halt queued for approval' : `Trading ${vars.halted ? 'paused' : 'resumed'}`);
+      setHaltAuthOpen(false);
+    },
+    onError: (error: unknown) => {
+      const message = error instanceof Error ? error.message : 'Failed to update trading state';
+      showToast('error', message);
+    },
   });
-  const walletMut = useMutation({ mutationFn: (b: { depositPaused?: boolean; withdrawalPaused?: boolean }) => patchOperationalWalletStatus(token, b), onSuccess: () => { inv([['admin', 'operational', 'wallet-status', token!]]); showToast('success', 'Wallet status updated'); } });
-  const emergencyMut = useMutation({ mutationFn: ({ action, enabled }: { action: string; enabled: boolean }) => postEmergencyAction(token, action, enabled), onSuccess: () => { inv([['admin', 'system', 'settings', token!]]); showToast('success', 'Emergency action applied'); } });
-  const safeModeMut = useMutation({ mutationFn: (v: boolean) => postSystemSafeMode(token, v), onSuccess: () => { inv([['admin', 'system', 'safe-mode', token!], ['admin', 'trading-halt', token!]]); showToast('success', `Safe mode ${!safeMode ? 'enabled' : 'disabled'}`); } });
-  const featureMut = useMutation({ mutationFn: (b: { id?: string; feature_key?: string; status?: string }) => patchSystemFeature(token, b), onSuccess: () => { inv([['admin', 'system', 'features', token!]]); showToast('success', 'Feature flag updated'); } });
+  const walletMut = useMutation({
+    mutationFn: (b: { depositPaused?: boolean; withdrawalPaused?: boolean; reason?: string; twofa_code?: string }) =>
+      patchOperationalWalletStatus(
+        token,
+        { depositPaused: b.depositPaused, withdrawalPaused: b.withdrawalPaused },
+        { reason: b.reason, twofa_code: b.twofa_code }
+      ),
+    onSuccess: () => { inv([['admin', 'operational', 'wallet-status', token!]]); showToast('success', 'Wallet status updated'); },
+  });
+  const emergencyMut = useMutation({
+    mutationFn: ({ action, enabled, reason, twofa_code }: { action: string; enabled: boolean; reason?: string; twofa_code?: string }) =>
+      postEmergencyAction(token, action, enabled, { reason, twofa_code }),
+    onSuccess: () => { inv([['admin', 'system', 'settings', token!]]); showToast('success', 'Emergency action applied'); },
+  });
+  const safeModeMut = useMutation({
+    mutationFn: ({ enabled, reason, twofa_code }: { enabled: boolean; reason?: string; twofa_code?: string }) =>
+      postSystemSafeMode(token, enabled, { reason, twofa_code }),
+    onSuccess: () => {
+      inv([['admin', 'system', 'safe-mode', token!], ['admin', 'trading-halt', token!]]);
+      showToast('success', `Safe mode ${!safeMode ? 'enabled' : 'disabled'}`);
+      setSafeModeAuthTarget(null);
+    },
+  });
+  const featureMut = useMutation({
+    mutationFn: (b: { id?: string; feature_key?: string; status?: string; reason?: string; twofa_code?: string }) => patchSystemFeature(token, b),
+    onSuccess: () => {
+      inv([['admin', 'system', 'features', token!]]);
+      showToast('success', 'Feature flag updated');
+      setFeatureAuthTarget(null);
+    },
+  });
   const riskMut = useMutation({ mutationFn: (b: Record<string, unknown>) => patchRiskSettings(token, b), onSuccess: () => { inv([['admin', 'risk', 'settings', token!]]); showToast('success', 'Risk settings updated'); } });
   const settingsMut = useMutation({ mutationFn: (b: Record<string, string>) => patchSystemSettings(token, b), onSuccess: () => { inv([['admin', 'system', 'settings', token!]]); showToast('success', 'Settings updated'); } });
   const twofaMut = useMutation({ mutationFn: (b: Record<string, boolean>) => adminFetch('/settings/2fa-enforcement', { method: 'PATCH', token, body: b }), onSuccess: () => { inv([['admin', '2fa-policy', token!]]); showToast('success', '2FA policy updated'); } });
@@ -311,13 +356,7 @@ export default function ControlCenterPage() {
                     variant={safeMode ? 'secondary' : 'danger'}
                     size="sm"
                     className={cn('w-full sm:w-auto shrink-0', !safeMode && 'shadow-glow-danger')}
-                    onClick={() => withConfirm(
-                      safeMode ? 'Disable Safe Mode' : 'Activate Safe Mode',
-                      safeMode
-                        ? 'Resume all trading, withdrawal, and API operations?'
-                        : 'This halts ALL trading, withdrawals, and API access immediately.',
-                      () => safeModeMut.mutate(!safeMode),
-                    )}
+                    onClick={() => setSafeModeAuthTarget(!safeMode)}
                     disabled={safeModeMut.isPending}
                   >
                     <Power className="h-4 w-4 mr-1.5" />
@@ -351,7 +390,7 @@ export default function ControlCenterPage() {
                     active={!halted}
                     onToggle={() => {
                       if (halted) withConfirm('Resume Trading', 'Resume spot trading on all markets?', () => haltMut.mutate({ halted: false }));
-                      else setPauseTradingNoteOpen(true);
+                      else setHaltAuthOpen(true);
                     }}
                     loading={haltMut.isPending}
                   />
@@ -360,11 +399,7 @@ export default function ControlCenterPage() {
                     label="Deposits"
                     description="Address gen & crediting"
                     active={!walletStatus.depositPaused}
-                    onToggle={() => withConfirm(
-                      walletStatus.depositPaused ? 'Resume Deposits' : 'Pause Deposits',
-                      walletStatus.depositPaused ? 'Allow deposits again?' : 'Pause all deposits?',
-                      () => walletMut.mutate({ depositPaused: !walletStatus.depositPaused }),
-                    )}
+                    onToggle={() => setServiceAuthTarget({ kind: 'deposits', nextPaused: !walletStatus.depositPaused })}
                     loading={walletMut.isPending}
                   />
                   <SystemToggleCard
@@ -372,11 +407,7 @@ export default function ControlCenterPage() {
                     label="Withdrawals"
                     description="Payout processing"
                     active={!walletStatus.withdrawalPaused}
-                    onToggle={() => withConfirm(
-                      walletStatus.withdrawalPaused ? 'Resume Withdrawals' : 'Pause Withdrawals',
-                      walletStatus.withdrawalPaused ? 'Allow withdrawals again?' : 'Pause all withdrawals?',
-                      () => walletMut.mutate({ withdrawalPaused: !walletStatus.withdrawalPaused }),
-                    )}
+                    onToggle={() => setServiceAuthTarget({ kind: 'withdrawals', nextPaused: !walletStatus.withdrawalPaused })}
                     loading={walletMut.isPending}
                   />
                   <SystemToggleCard
@@ -384,11 +415,7 @@ export default function ControlCenterPage() {
                     label="P2P trading"
                     description="Peer-to-peer"
                     active={!emergencyP2P}
-                    onToggle={() => withConfirm(
-                      emergencyP2P ? 'Resume P2P' : 'Disable P2P',
-                      emergencyP2P ? 'Resume P2P for all users?' : 'Disable P2P for all users?',
-                      () => emergencyMut.mutate({ action: 'disable_p2p', enabled: !emergencyP2P }),
-                    )}
+                    onToggle={() => setServiceAuthTarget({ kind: 'p2p', nextDisabled: !emergencyP2P })}
                     loading={emergencyMut.isPending}
                   />
                 </div>
@@ -637,7 +664,7 @@ export default function ControlCenterPage() {
                               label={f.feature_key.replace(/_/g, ' ')}
                               description={f.meta.desc}
                               enabled={f.status === 'enabled'}
-                              onToggle={() => featureMut.mutate({ id: f.id, status: f.status === 'enabled' ? 'disabled' : 'enabled' })}
+                              onToggle={() => setFeatureAuthTarget(f)}
                               loading={featureMut.isPending}
                             />
                           ))}
@@ -653,15 +680,106 @@ export default function ControlCenterPage() {
       </div>
 
       {/* ── Modals ── */}
-      <SensitiveActionModal
-        open={pauseTradingNoteOpen}
-        onClose={() => setPauseTradingNoteOpen(false)}
-        onConfirm={(note) => haltMut.mutate({ halted: true, reason: note })}
+      <ActionAuthModal
+        open={haltAuthOpen}
+        onClose={() => setHaltAuthOpen(false)}
+        onConfirm={(payload: ActionAuthPayload) =>
+          haltMut.mutate({ halted: true, reason: payload.reason, twofa_code: payload.twofa_code })
+        }
         title="Halt all spot trading"
-        description="Stops order matching exchange-wide. A written reason is stored in the audit log."
-        variant="danger"
-        confirmLabel="Halt trading"
-        isLoading={haltMut.isPending}
+        actionLabel="Halt all spot trading"
+        description="Stops order matching exchange-wide. Reason and operator identity are stored in audit logs."
+        requireReason
+        twofaRequired
+        confirmationPhrase="CONFIRM HALT_TRADING"
+        externalError={haltMut.error instanceof Error ? haltMut.error.message : null}
+        isPending={haltMut.isPending}
+        confirmLabel={haltMut.isPending ? 'Halting…' : 'Halt trading'}
+        confirmVariant="danger"
+      />
+      <ActionAuthModal
+        open={safeModeAuthTarget !== null}
+        onClose={() => setSafeModeAuthTarget(null)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          if (safeModeAuthTarget === null) return;
+          safeModeMut.mutate({ enabled: safeModeAuthTarget, reason: payload.reason, twofa_code: payload.twofa_code });
+        }}
+        title={safeModeAuthTarget ? 'Enable safe mode' : 'Disable safe mode'}
+        actionLabel={safeModeAuthTarget ? 'Enable global safe mode' : 'Disable global safe mode'}
+        description="Safe mode is exchange-wide and impacts trading, withdrawals, and external API behavior."
+        requireReason
+        twofaRequired
+        confirmationPhrase={safeModeAuthTarget ? 'CONFIRM SAFE_MODE_ON' : 'CONFIRM SAFE_MODE_OFF'}
+        externalError={safeModeMut.error instanceof Error ? safeModeMut.error.message : null}
+        isPending={safeModeMut.isPending}
+        confirmLabel={safeModeMut.isPending ? 'Processing…' : (safeModeAuthTarget ? 'Enable safe mode' : 'Disable safe mode')}
+        confirmVariant={safeModeAuthTarget ? 'danger' : 'primary'}
+      />
+      <ActionAuthModal
+        open={!!featureAuthTarget}
+        onClose={() => setFeatureAuthTarget(null)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          if (!featureAuthTarget) return;
+          featureMut.mutate({
+            id: featureAuthTarget.id,
+            status: featureAuthTarget.status === 'enabled' ? 'disabled' : 'enabled',
+            reason: payload.reason,
+            twofa_code: payload.twofa_code,
+          });
+        }}
+        title="Update feature flag"
+        actionLabel={
+          featureAuthTarget
+            ? `${featureAuthTarget.status === 'enabled' ? 'Disable' : 'Enable'} ${featureAuthTarget.feature_key}`
+            : 'Update feature'
+        }
+        description="Feature flags affect production behavior instantly. Provide an operational reason."
+        requireReason
+        twofaRequired
+        confirmationPhrase={featureAuthTarget?.status === 'enabled' ? 'CONFIRM DISABLE_FLAG' : undefined}
+        externalError={featureMut.error instanceof Error ? featureMut.error.message : null}
+        isPending={featureMut.isPending}
+        confirmLabel={featureMut.isPending ? 'Updating…' : 'Apply change'}
+        confirmVariant={featureAuthTarget?.status === 'enabled' ? 'danger' : 'primary'}
+      />
+      <ActionAuthModal
+        open={serviceAuthTarget !== null}
+        onClose={() => setServiceAuthTarget(null)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          if (!serviceAuthTarget) return;
+          if (serviceAuthTarget.kind === 'deposits') {
+            walletMut.mutate({ depositPaused: serviceAuthTarget.nextPaused, reason: payload.reason, twofa_code: payload.twofa_code });
+          } else if (serviceAuthTarget.kind === 'withdrawals') {
+            walletMut.mutate({ withdrawalPaused: serviceAuthTarget.nextPaused, reason: payload.reason, twofa_code: payload.twofa_code });
+          } else {
+            emergencyMut.mutate({ action: 'disable_p2p', enabled: serviceAuthTarget.nextDisabled, reason: payload.reason, twofa_code: payload.twofa_code });
+          }
+          setServiceAuthTarget(null);
+        }}
+        title="Confirm service control change"
+        actionLabel={
+          serviceAuthTarget
+            ? serviceAuthTarget.kind === 'deposits'
+              ? `${serviceAuthTarget.nextPaused ? 'Pause' : 'Resume'} deposits`
+              : serviceAuthTarget.kind === 'withdrawals'
+                ? `${serviceAuthTarget.nextPaused ? 'Pause' : 'Resume'} withdrawals`
+                : `${serviceAuthTarget.nextDisabled ? 'Disable' : 'Resume'} P2P trading`
+            : 'Service control'
+        }
+        description="These service controls are high-impact and require reason + 2FA."
+        requireReason
+        twofaRequired
+        confirmationPhrase="CONFIRM SERVICE_CONTROL"
+        externalError={
+          walletMut.error instanceof Error
+            ? walletMut.error.message
+            : emergencyMut.error instanceof Error
+              ? emergencyMut.error.message
+              : null
+        }
+        isPending={walletMut.isPending || emergencyMut.isPending}
+        confirmLabel={walletMut.isPending || emergencyMut.isPending ? 'Applying…' : 'Apply'}
+        confirmVariant="danger"
       />
 
       <ConfirmModal

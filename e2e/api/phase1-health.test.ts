@@ -18,8 +18,9 @@ const E2E_SVC = (process.env.E2E_ENGINE_SERVICE_USER_ID || '00000000-0000-0000-0
 
 function engineSignedGetHeaders(pathWithQuery: string): Record<string, string> {
   if (!ENGINE_HMAC) return {};
+  const inner = pathWithQuery.startsWith('/engine/') ? pathWithQuery.slice('/engine'.length) || '/' : pathWithQuery;
   const nonce = `${Date.now()}-${randomBytes(8).toString('hex')}`;
-  const msg = `v2\n${E2E_SVC}\n${E2E_EID}\nGET\n${pathWithQuery}\n\n${nonce}\n`;
+  const msg = `v2\n${E2E_SVC}\n${E2E_EID}\nGET\n${inner}\n\n${nonce}\n`;
   const signature = createHmac('sha256', ENGINE_HMAC).update(msg, 'utf8').digest('hex');
   return {
     'x-signature': signature,

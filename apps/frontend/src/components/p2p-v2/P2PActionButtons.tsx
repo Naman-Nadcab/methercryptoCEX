@@ -39,6 +39,9 @@ export function P2PActionButtons({ order, isBuyer, isSeller }: Props) {
   const cancelKeyRef = useRef<string | null>(null);
   const [payFile, setPayFile] = useState<File | null>(null);
   const [txRef, setTxRef] = useState('');
+  const [releaseConfirmOpen, setReleaseConfirmOpen] = useState(false);
+  const [releaseTyped, setReleaseTyped] = useState('');
+  const [disputeConfirmOpen, setDisputeConfirmOpen] = useState(false);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: P2P_V2_ORDER_KEY(order.id) });
@@ -197,15 +200,59 @@ export function P2PActionButtons({ order, isBuyer, isSeller }: Props) {
       )}
 
       {canRelease && (
-        <button
-          type="button"
-          disabled={releaseMut.isPending}
-          onClick={() => releaseMut.mutate()}
-          className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-[#0ecb81] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#0ecb81]/90 disabled:opacity-40"
-        >
-          <CheckCircle className="h-3.5 w-3.5" />
-          {releaseMut.isPending ? 'Releasing…' : 'Release Crypto'}
-        </button>
+        <div className="space-y-2">
+          {!releaseConfirmOpen ? (
+            <button
+              type="button"
+              disabled={releaseMut.isPending}
+              onClick={() => {
+                setReleaseConfirmOpen(true);
+                setReleaseTyped('');
+              }}
+              className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-[#0ecb81] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#0ecb81]/90 disabled:opacity-40"
+            >
+              <CheckCircle className="h-3.5 w-3.5" />
+              Prepare Release
+            </button>
+          ) : (
+            <div className="space-y-2 rounded-lg border border-amber-500/25 bg-amber-500/5 p-3">
+              <p className="text-xs text-amber-300">
+                Confirm payment is received before releasing escrow.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Order: <span className="font-mono">{order.id.slice(0, 10)}</span> · Amount: {order.quantity}{' '}
+                {order.crypto_symbol ?? ''}
+              </p>
+              <input
+                type="text"
+                value={releaseTyped}
+                onChange={(e) => setReleaseTyped(e.target.value)}
+                placeholder='Type RELEASE to continue'
+                className={inputCls}
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  className="rounded-lg border border-border/40 py-2 text-sm font-medium text-muted-foreground"
+                  onClick={() => {
+                    setReleaseConfirmOpen(false);
+                    setReleaseTyped('');
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={releaseMut.isPending || releaseTyped.trim().toUpperCase() !== 'RELEASE'}
+                  onClick={() => releaseMut.mutate()}
+                  className="rounded-lg bg-[#0ecb81] py-2 text-sm font-semibold text-white disabled:opacity-40"
+                >
+                  {releaseMut.isPending ? 'Releasing…' : 'Release Crypto'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {canCancel && (
@@ -238,15 +285,40 @@ export function P2PActionButtons({ order, isBuyer, isSeller }: Props) {
             rows={3}
             className={`${inputCls} resize-none`}
           />
-          <button
-            type="button"
-            disabled={disputeMut.isPending || disputeReason.trim().length < 10}
-            onClick={() => disputeMut.mutate(disputeReason.trim())}
-            className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-amber-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-amber-700 disabled:opacity-40"
-          >
-            <AlertTriangle className="h-3.5 w-3.5" />
-            Raise Dispute
-          </button>
+          {!disputeConfirmOpen ? (
+            <button
+              type="button"
+              disabled={disputeMut.isPending || disputeReason.trim().length < 10}
+              onClick={() => setDisputeConfirmOpen(true)}
+              className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-amber-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-amber-700 disabled:opacity-40"
+            >
+              <AlertTriangle className="h-3.5 w-3.5" />
+              Review Dispute
+            </button>
+          ) : (
+            <div className="space-y-2 rounded-lg border border-amber-500/25 bg-amber-500/5 p-3">
+              <p className="text-xs text-amber-300">
+                Dispute escalation is irreversible for this order and will involve support review.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  className="rounded-lg border border-border/40 py-2 text-sm font-medium text-muted-foreground"
+                  onClick={() => setDisputeConfirmOpen(false)}
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
+                  disabled={disputeMut.isPending || disputeReason.trim().length < 10}
+                  onClick={() => disputeMut.mutate(disputeReason.trim())}
+                  className="rounded-lg bg-amber-600 py-2 text-sm font-semibold text-white disabled:opacity-40"
+                >
+                  {disputeMut.isPending ? 'Submitting…' : 'Raise Dispute'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

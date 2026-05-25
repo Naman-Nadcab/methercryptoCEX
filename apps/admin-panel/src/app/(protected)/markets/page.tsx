@@ -21,6 +21,8 @@ import { DeletePairModal } from '@/components/markets/DeletePairModal';
 import { Button } from '@/components/ui/Button';
 import { TableSkeleton } from '@/components/ui';
 import { useAdminWs } from '@/hooks/useAdminWs';
+import { ActionAuthModal, type ActionAuthPayload } from '@/components/ops/ActionAuthModal';
+import { ProtectedAction } from '@/components/rbac/ProtectedAction';
 import { BarChart3, Layers, PauseCircle, Percent, Plus } from 'lucide-react';
 import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 
@@ -33,7 +35,7 @@ export default function MarketsPage() {
   const [deleteTarget, setDeleteTarget] = useState<MarketRow | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['admin', 'markets', token],
     staleTime: 30_000,
     queryFn: () => getMarketsList(token),
@@ -159,11 +161,19 @@ export default function MarketsPage() {
   };
 
   return (
-    <AdminPageFrame title="Markets" description="View and manage trading pairs." quickActions={
-        <Button size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => setShowCreateModal(true)}>
-          Create Pair
-        </Button>
-      }>
+    <AdminPageFrame
+      title="Markets"
+      description="View and manage trading pairs."
+      error={isError ? (error instanceof Error ? error.message : 'Failed to load markets.') : null}
+      onRetry={isError ? () => { void refetch(); } : undefined}
+      quickActions={
+        <ProtectedAction permission="markets:manage" fallback="disabled">
+          <Button size="sm" icon={<Plus className="h-4 w-4" />} onClick={() => setShowCreateModal(true)}>
+            Create Pair
+          </Button>
+        </ProtectedAction>
+      }
+    >
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
@@ -240,11 +250,29 @@ export default function MarketsPage() {
       />
 
       <DeletePairModal
-        open={!!deleteTarget}
-        market={deleteTarget}
+        open={false}
+        market={null}
         onClose={() => setDeleteTarget(null)}
-        onConfirm={() => deleteTarget && deleteMutation.mutate(deleteTarget)}
+        onConfirm={() => {}}
         isLoading={deleteMutation.isPending}
+      />
+      <ActionAuthModal
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={(_payload: ActionAuthPayload) => {
+          if (!deleteTarget) return;
+          deleteMutation.mutate(deleteTarget);
+        }}
+        title="Delete trading pair"
+        actionLabel={deleteTarget ? `Delete ${deleteTarget.symbol}` : 'Delete trading pair'}
+        description="This action is irreversible and must be approved with reason and step-up auth."
+        requireReason
+        twofaRequired
+        confirmationPhrase={deleteTarget ? `DELETE ${deleteTarget.symbol}` : undefined}
+        externalError={deleteMutation.error instanceof Error ? deleteMutation.error.message : null}
+        isPending={deleteMutation.isPending}
+        confirmLabel={deleteMutation.isPending ? 'Deleting…' : 'Delete pair'}
+        confirmVariant="danger"
       />
     </AdminPageFrame>
   );

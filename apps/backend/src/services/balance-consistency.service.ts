@@ -6,6 +6,7 @@ import { Decimal } from '../lib/decimal.js';
 import { db } from '../lib/database.js';
 import { logger, securityLog } from '../lib/logger.js';
 import { config } from '../config/index.js';
+import { getSpotOrdersUseMarketSync } from '../lib/spot-schema-cache.js';
 import {
   balanceIntegrityMismatchTotal,
   balanceIntegrityMinorMismatchTotal,
@@ -34,12 +35,26 @@ export async function runBalanceConsistencyCheck(): Promise<BalanceConsistencyRu
   const toSuspend = new Set<string>();
   const tol = new Decimal(config.balanceConsistency.tolerance || '0.00000001');
   try {
-    const lockRows = await db.query<{
-      user_id: string;
-      sell_sum: string;
-      locked_balance: string;
-    }>(
-      `SELECT o.user_id,
+    const useMarket = getSpotOrdersUseMarketSync();
+    // `market` schema rows typically use quantity − filled_quantity; legacy may expose remaining_quantity.
+    const remExpr = useMarket
+      ? `(o.quantity::numeric - COALESCE(o.filled_quantity::numeric, 0))`
+      : `COALESCE(o.remaining_quantity, o.quantity - COALESCE(o.filled_quantity,0))`;
+    const lockSql = useMarket
+      ? `SELECT o.user_id,
+              COALESCE(SUM(${remExpr}), 0)::text AS sell_sum,
+              ub.locked_balance::text AS locked_balance
+       FROM spot_orders o
+       JOIN spot_markets m ON m.symbol = o.market
+       JOIN currencies c ON c.id = m.base_currency_id
+       JOIN user_balances ub ON ub.user_id = o.user_id AND ub.currency_id = c.id
+         AND COALESCE(ub.account_type::text, 'trading') = 'trading' AND COALESCE(ub.chain_id, '') = ''
+       WHERE o.status::text IN ('OPEN', 'PARTIALLY_FILLED', 'PENDING_TRIGGER')
+         AND LOWER(o.side::text) = 'sell'
+       GROUP BY o.user_id, c.id, ub.locked_balance
+       HAVING COALESCE(SUM(${remExpr}), 0) > ub.locked_balance::numeric
+       LIMIT 500`
+      : `SELECT o.user_id,
               COALESCE(SUM(COALESCE(o.remaining_quantity, o.quantity - COALESCE(o.filled_quantity,0))), 0)::text AS sell_sum,
               ub.locked_balance::text AS locked_balance
        FROM spot_orders o
@@ -51,8 +66,12 @@ export async function runBalanceConsistencyCheck(): Promise<BalanceConsistencyRu
          AND o.side::text = 'sell'
        GROUP BY o.user_id, c.id, ub.locked_balance
        HAVING COALESCE(SUM(COALESCE(o.remaining_quantity, o.quantity - COALESCE(o.filled_quantity,0))), 0) > ub.locked_balance::numeric
-       LIMIT 500`
-    );
+       LIMIT 500`;
+    const lockRows = await db.query<{
+      user_id: string;
+      sell_sum: string;
+      locked_balance: string;
+    }>(lockSql);
     for (const r of lockRows.rows) {
       const sum = new Decimal(r.sell_sum || '0');
       const locked = new Decimal(r.locked_balance || '0');

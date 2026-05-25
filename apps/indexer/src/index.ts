@@ -33,6 +33,9 @@ class IndexerManager {
     // Override hardcoded RPC/WS URLs with values from the `chains` DB table.
     await loadChainRpcOverridesFromDb();
 
+    // Expose /health before chain WebSockets (confirmation tracker can be slow; Docker healthcheck needs HTTP early).
+    startApiServer(this);
+
     // Initialize indexers for all chains
     for (const [chainKey, config] of Object.entries(CHAIN_CONFIGS)) {
       const indexer = new ChainIndexer(chainKey, config);
@@ -58,9 +61,6 @@ class IndexerManager {
     // Start confirmation tracker
     await this.confirmationTracker.start();
 
-    // Start API server
-    startApiServer(this);
-    
     logger.info('🎉 All indexers started successfully!');
     this.printStatus();
   }

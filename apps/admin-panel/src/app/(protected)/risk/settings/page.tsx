@@ -86,7 +86,7 @@ export default function RiskSettingsPage() {
   const [manipWindow,     setManipWindow]     = useState(300);
   const [saveState,       setSaveState]       = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['admin', 'risk', 'settings', token],
     queryFn: () => getRiskSettings(token),
     enabled: !!token,
@@ -135,7 +135,8 @@ export default function RiskSettingsPage() {
       title="Dynamic Risk Rules"
       description="Configure thresholds that trigger AML alerts and suspicious-activity detection."
       status="active"
-      error={null}
+      error={isError ? (error instanceof Error ? error.message : 'Failed to load risk settings.') : null}
+      onRetry={isError ? () => { void refetch(); } : undefined}
       quickActions={
         <Link href="/risk">
           <button type="button" className="flex items-center gap-1.5 rounded-lg border border-admin-border/50 bg-white/[0.02] px-2.5 py-1.5 text-xs font-medium text-admin-muted hover:text-admin-text transition-colors">

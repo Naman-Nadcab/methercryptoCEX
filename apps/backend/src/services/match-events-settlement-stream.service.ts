@@ -19,7 +19,7 @@ import { config } from '../config/index.js';
 import { logger } from '../lib/logger.js';
 import { ingestAndSettleMatchEventFromJetStream } from './settlement/settlement-worker.js';
 import { applyCommittedEngineNotify } from './spot-engine-live-bridge.service.js';
-import { isTradingHalted, triggerCircuitIfViolation } from './settlement/settlement-circuit.js';
+import { isTradingHalted, triggerCircuitIfViolation, setTradingHalted } from './settlement/settlement-circuit.js';
 import { getTradingHalted, getSettlementCircuitOpen } from '../lib/trading-halt.js';
 import {
   settlementMatchStreamPending,
@@ -185,6 +185,15 @@ function scheduleRecursivePull(
 
 async function handleSettlementJsMessage(m: JsMsg, partition: number, consumerName: string): Promise<void> {
   const originalSubject = m.subject;
+
+  const redisGlobalHalt0 = await getTradingHalted();
+  const circuitOpen0 = await getSettlementCircuitOpen();
+  if (isTradingHalted() && !circuitOpen0 && !redisGlobalHalt0) {
+    setTradingHalted(false);
+    logger.info('MATCH_EVENTS consumer: cleared stale in-process trading halt (Redis circuit closed)', {
+      partition,
+    });
+  }
 
   if (isTradingHalted() || (await getTradingHalted())) {
     m.nak();

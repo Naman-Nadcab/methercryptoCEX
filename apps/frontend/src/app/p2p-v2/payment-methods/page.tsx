@@ -13,6 +13,7 @@ import {
   type PlatformPaymentMethod,
 } from '@/lib/p2pApi';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { toast } from '@/components/ui/toaster';
 import {
   CreditCard, Plus, ToggleLeft, ToggleRight, Trash2,
   ChevronDown, ChevronUp, X, Building2, Smartphone, Banknote,
@@ -102,6 +103,7 @@ function PmInner() {
   const [fields, setFields] = useState<Record<string, string>>({});
   const [err, setErr] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const { data: list = [], isLoading } = useQuery({
@@ -157,7 +159,13 @@ function PmInner() {
 
   const delMut = useMutation({
     mutationFn: (id: string) => deletePaymentMethod(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: P2P_PAYMENT_METHODS_QUERY_KEY }),
+    onSuccess: () => {
+      setDeleteConfirmId(null);
+      qc.invalidateQueries({ queryKey: P2P_PAYMENT_METHODS_QUERY_KEY });
+    },
+    onError: (e: Error) => {
+      toast({ title: 'Delete failed', description: e.message, variant: 'destructive' });
+    },
   });
 
   const copyValue = async (key: string, value: string) => {
@@ -165,7 +173,9 @@ function PmInner() {
       await navigator.clipboard.writeText(value);
       setCopiedKey(key);
       setTimeout(() => setCopiedKey(null), 2000);
-    } catch { /* ignore */ }
+    } catch {
+      toast({ title: 'Copy failed', description: 'Unable to copy details to clipboard.', variant: 'destructive' });
+    }
   };
 
   const inputCls =
@@ -530,17 +540,34 @@ function PmInner() {
                           </>
                         )}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (confirm('Remove this payment method permanently?')) delMut.mutate(m.id);
-                        }}
-                        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border/40 text-[#f6465d]/70 transition-colors hover:border-[#f6465d]/40 hover:bg-[#f6465d]/10 hover:text-[#f6465d]"
-                        title="Delete"
-                        aria-label="Delete payment method"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      {deleteConfirmId === m.id ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => delMut.mutate(m.id)}
+                            className="inline-flex h-10 items-center rounded-xl border border-[#f6465d]/35 px-3 text-xs font-semibold text-[#f6465d] hover:bg-[#f6465d]/10"
+                          >
+                            Confirm
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeleteConfirmId(null)}
+                            className="inline-flex h-10 items-center rounded-xl border border-border/40 px-3 text-xs font-medium text-muted-foreground hover:bg-muted/30"
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setDeleteConfirmId(m.id)}
+                          className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border/40 text-[#f6465d]/70 transition-colors hover:border-[#f6465d]/40 hover:bg-[#f6465d]/10 hover:text-[#f6465d]"
+                          title="Delete"
+                          aria-label="Delete payment method"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
                     </div>
                   </div>
 

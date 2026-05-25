@@ -1,4 +1,5 @@
 use crate::types::{MatchEvent, Order, Price, Quantity, Side};
+use rust_decimal::Decimal;
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
 use std::cmp::min;
@@ -145,76 +146,155 @@ impl OrderBook {
         }
     }
 
-    /// Match best bid vs best ask while bid price >= ask price. Incoming order is the taker.
+    fn remove_order_by_id(&mut self, order_id: Uuid) -> Option<Order> {
+        if let Some((k, _)) = self.bids.iter().find(|(_, o)| o.id == order_id).map(|(k, o)| (k.clone(), o.clone())) {
+            return self.bids.remove(&k);
+        }
+        if let Some((k, _)) = self.asks.iter().find(|(_, o)| o.id == order_id).map(|(k, o)| (k.clone(), o.clone())) {
+            return self.asks.remove(&k);
+        }
+        None
+    }
+
+    fn ts_now_ms() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0)
+    }
+
+    /// Limit/market buy crosses passive ask at `ask.price` (maker); market on either side uses the other leg's price.
+    fn price_buy_crosses(incoming: &Order, ask: &Order) -> bool {
+        match (&incoming.price, &ask.price) {
+            (None, _) => true,
+            (Some(_), None) => true,
+            (Some(bp), Some(ap)) => bp >= ap,
+        }
+    }
+
+    fn price_sell_crosses(incoming: &Order, bid: &Order) -> bool {
+        match (&incoming.price, &bid.price) {
+            (None, _) => true,
+            (Some(_), None) => true,
+            (Some(sp), Some(bp)) => sp <= bp,
+        }
+    }
+
+    /// Match `incoming_order_id` against the opposite book only (incoming is always taker).
+    /// Skips passive quotes from the same user so we never emit self-trade fills Node would reject.
     pub fn match_orders(&mut self, market: &str, incoming_order_id: Uuid) -> Vec<MatchEvent> {
         let mut events = Vec::new();
-        loop {
-            let (best_bid_key, best_ask_key) = match (self.bids.first_key_value(), self.asks.first_key_value()) {
-                (Some(b), Some(a)) => (b.0.clone(), a.0.clone()),
-                _ => break,
-            };
-            let bid_price = match self.bids.get(&best_bid_key).and_then(|o| o.price.clone()) {
-                Some(p) => p,
-                None => break,
-            };
-            let ask_price = match self.asks.get(&best_ask_key).and_then(|o| o.price.clone()) {
-                Some(p) => p,
-                None => break,
-            };
-            if bid_price < ask_price {
-                break;
-            }
-            let mut bid_order = match self.bids.remove(&best_bid_key) {
-                Some(o) => o,
-                None => break,
-            };
-            let mut ask_order = match self.asks.remove(&best_ask_key) {
-                Some(o) => o,
-                None => {
-                    self.bids.insert(best_bid_key, bid_order);
-                    break;
+        let Some(mut incoming) = self.remove_order_by_id(incoming_order_id) else {
+            return events;
+        };
+
+        match incoming.side {
+            Side::Buy => {
+                while incoming.remaining > Decimal::ZERO {
+                    let candidate = self
+                        .asks
+                        .iter()
+                        .find(|(_, o)| {
+                            o.user_id != incoming.user_id && Self::price_buy_crosses(&incoming, o)
+                        })
+                        .map(|(k, o)| (k.clone(), o.clone()));
+
+                    let Some((ask_key, mut ask_order)) = candidate else {
+                        break;
+                    };
+
+                    let matched_qty: Quantity = min(incoming.remaining.clone(), ask_order.remaining.clone());
+                    if matched_qty.is_zero() {
+                        break;
+                    }
+
+                    let exec_price = ask_order
+                        .price
+                        .clone()
+                        .or_else(|| incoming.price.clone())
+                        .unwrap_or_else(|| Decimal::ZERO);
+
+                    incoming.remaining = incoming.remaining - matched_qty.clone();
+                    ask_order.remaining = ask_order.remaining - matched_qty.clone();
+
+                    events.push(MatchEvent {
+                        market: market.to_string(),
+                        bid_order_id: incoming.id,
+                        ask_order_id: ask_order.id,
+                        bid_user_id: incoming.user_id,
+                        ask_user_id: ask_order.user_id,
+                        taker_order_id: incoming.id,
+                        maker_order_id: ask_order.id,
+                        taker_user_id: incoming.user_id,
+                        maker_user_id: ask_order.user_id,
+                        taker_side: Side::Buy,
+                        price: exec_price,
+                        quantity: matched_qty,
+                        timestamp: Self::ts_now_ms(),
+                    });
+
+                    self.asks.remove(&ask_key);
+                    if ask_order.remaining > Decimal::ZERO {
+                        self.asks.insert(ask_key, ask_order);
+                    }
                 }
-            };
-            let matched_qty: Quantity = min(bid_order.remaining.clone(), ask_order.remaining.clone());
-            if matched_qty.is_zero() {
-                self.bids.insert(best_bid_key, bid_order);
-                self.asks.insert(best_ask_key, ask_order);
-                break;
             }
-            let q = matched_qty.clone();
-            bid_order.remaining = bid_order.remaining - q.clone();
-            ask_order.remaining = ask_order.remaining - matched_qty.clone();
-            let (taker_order_id, maker_order_id, taker_user_id, maker_user_id, taker_side) =
-                if bid_order.id == incoming_order_id {
-                    (bid_order.id, ask_order.id, bid_order.user_id, ask_order.user_id, Side::Buy)
-                } else {
-                    (ask_order.id, bid_order.id, ask_order.user_id, bid_order.user_id, Side::Sell)
-                };
-            events.push(MatchEvent {
-                market: market.to_string(),
-                bid_order_id: bid_order.id,
-                ask_order_id: ask_order.id,
-                bid_user_id: bid_order.user_id,
-                ask_user_id: ask_order.user_id,
-                taker_order_id,
-                maker_order_id,
-                taker_user_id,
-                maker_user_id,
-                taker_side,
-                price: ask_price,
-                quantity: matched_qty,
-                timestamp: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis() as u64)
-                    .unwrap_or(0),
-            });
-            if !bid_order.remaining.is_zero() {
-                self.bids.insert(best_bid_key, bid_order);
-            }
-            if !ask_order.remaining.is_zero() {
-                self.asks.insert(best_ask_key, ask_order);
+            Side::Sell => {
+                while incoming.remaining > Decimal::ZERO {
+                    let candidate = self
+                        .bids
+                        .iter()
+                        .find(|(_, o)| {
+                            o.user_id != incoming.user_id && Self::price_sell_crosses(&incoming, o)
+                        })
+                        .map(|(k, o)| (k.clone(), o.clone()));
+
+                    let Some((bid_key, mut bid_order)) = candidate else {
+                        break;
+                    };
+
+                    let matched_qty: Quantity = min(incoming.remaining.clone(), bid_order.remaining.clone());
+                    if matched_qty.is_zero() {
+                        break;
+                    }
+
+                    let exec_price = bid_order
+                        .price
+                        .clone()
+                        .or_else(|| incoming.price.clone())
+                        .unwrap_or_else(|| Decimal::ZERO);
+
+                    incoming.remaining = incoming.remaining - matched_qty.clone();
+                    bid_order.remaining = bid_order.remaining - matched_qty.clone();
+
+                    events.push(MatchEvent {
+                        market: market.to_string(),
+                        bid_order_id: bid_order.id,
+                        ask_order_id: incoming.id,
+                        bid_user_id: bid_order.user_id,
+                        ask_user_id: incoming.user_id,
+                        taker_order_id: incoming.id,
+                        maker_order_id: bid_order.id,
+                        taker_user_id: incoming.user_id,
+                        maker_user_id: bid_order.user_id,
+                        taker_side: Side::Sell,
+                        price: exec_price,
+                        quantity: matched_qty,
+                        timestamp: Self::ts_now_ms(),
+                    });
+
+                    self.bids.remove(&bid_key);
+                    if bid_order.remaining > Decimal::ZERO {
+                        self.bids.insert(bid_key, bid_order);
+                    }
+                }
             }
         }
+
+        if incoming.remaining > Decimal::ZERO {
+            self.insert(incoming);
+        }
+
         events
     }
 
@@ -291,5 +371,41 @@ impl OrderBook {
             self.asks.insert(ak, ask);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod match_tests {
+    use super::OrderBook;
+    use crate::types::{Order, OrderType, Side};
+    use uuid::Uuid;
+
+    fn mk_order(id: Uuid, uid: Uuid, side: Side, price: &str, qty: &str) -> Order {
+        let q: rust_decimal::Decimal = qty.parse().unwrap();
+        Order {
+            id,
+            user_id: uid,
+            market: "BTC_USDT".into(),
+            side,
+            order_type: OrderType::Limit,
+            price: Some(price.parse().unwrap()),
+            quantity: q,
+            remaining: q,
+            created_at: 1,
+        }
+    }
+
+    #[test]
+    fn incoming_limit_buy_crosses_resting_limit_sell_two_users() {
+        let mut book = OrderBook::new();
+        let uid_a = Uuid::parse_str("41b10518-e444-4692-a802-a511c694719c").unwrap();
+        let uid_b = Uuid::parse_str("0223ce80-1918-433f-92bc-5d56a4c75009").unwrap();
+        let oid_sell = Uuid::new_v4();
+        let oid_buy = Uuid::new_v4();
+        book.insert(mk_order(oid_sell, uid_a, Side::Sell, "876543.21", "0.0001"));
+        book.insert(mk_order(oid_buy, uid_b, Side::Buy, "876543.21", "0.0001"));
+        let ev = book.match_orders("BTC_USDT", oid_buy);
+        assert_eq!(ev.len(), 1, "expected one match event");
+        assert!(book.bids.is_empty() && book.asks.is_empty(), "both fully filled");
     }
 }

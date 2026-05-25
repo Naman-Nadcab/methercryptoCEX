@@ -10,7 +10,7 @@ export async function getP2pOverview(token: string | null) {
 
 export async function getP2pOrders(
   token: string | null,
-  params?: { limit?: number; page?: number; status?: string; ad_id?: string }
+  params?: { limit?: number; page?: number; status?: string; ad_id?: string; search?: string }
 ) {
   return adminFetch<{
     orders?: unknown[];
@@ -21,8 +21,11 @@ export async function getP2pOrders(
   });
 }
 
-export async function getP2pDisputes(token: string | null, params?: { limit?: number; offset?: number }) {
-  return adminFetch<unknown[] | { disputes?: unknown[]; total?: number }>('/p2p/disputes', {
+export async function getP2pDisputes(
+  token: string | null,
+  params?: { limit?: number; offset?: number; status?: string; search?: string }
+) {
+  return adminFetch<unknown[] | { disputes?: unknown[]; total?: number; pagination?: { page?: number; limit?: number; total?: number } }>('/p2p/disputes', {
     token,
     params: params as Record<string, string | number | boolean | undefined>,
   });
@@ -38,7 +41,7 @@ export async function resolveP2pDispute(
 
 export async function getP2pAds(
   token: string | null,
-  params?: { limit?: number; page?: number; status?: string; type?: string }
+  params?: { limit?: number; page?: number; status?: string; type?: string; search?: string }
 ) {
   return adminFetch<{
     ads?: unknown[];
@@ -55,7 +58,7 @@ export async function getEscrows(token: string | null) {
 
 export async function getP2pMerchants(
   token: string | null,
-  params?: { status?: string; page?: number; limit?: number }
+  params?: { status?: string; page?: number; limit?: number; search?: string }
 ) {
   return adminFetch<{
     merchants?: unknown[];

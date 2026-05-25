@@ -33,7 +33,8 @@ EXPOSE 4001
 
 ENV INDEXER_API_PORT=4001
 
+# `--spider` treats Node's chunked /health body as "broken link" (wget exit 8) even on HTTP 200.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:4001/health || exit 1
+  CMD wget -q -O /dev/null --tries=1 http://127.0.0.1:4001/health || exit 1
 
 CMD ["node", "dist/index.js"]

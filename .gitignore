@@ -39,6 +39,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# E2E provisioned credentials (generated locally)
+e2e/.e2e-credentials.json
+
 # Testing
 coverage/
 .nyc_output/

@@ -1,0 +1,87 @@
+{
+  "generated_at": "2026-05-25T09:25:32.968Z",
+  "strict_mode": true,
+  "pass": false,
+  "checks": [
+    {
+      "name": "AML_LARGE_FIAT_INR_THRESHOLD",
+      "pass": true,
+      "details": "value=1000000"
+    },
+    {
+      "name": "AML_LARGE_CRYPTO_WITHDRAWAL_THRESHOLD",
+      "pass": true,
+      "details": "value=100000"
+    },
+    {
+      "name": "AML_VELOCITY_WITHDRAWAL_COUNT",
+      "pass": true,
+      "details": "value=3"
+    },
+    {
+      "name": "AML_VELOCITY_WINDOW_HOURS",
+      "pass": true,
+      "details": "value=24"
+    },
+    {
+      "name": "WITHDRAWAL_APPROVAL_THRESHOLD",
+      "pass": true,
+      "details": "value=10000"
+    },
+    {
+      "name": "alert-routing-webhook",
+      "pass": false,
+      "details": "Require at least one alert webhook target"
+    },
+    {
+      "name": "sanctions-provider-configured",
+      "pass": false,
+      "details": "provider=none"
+    },
+    {
+      "name": "geo-blocked-countries-configured",
+      "pass": false,
+      "details": "value=none"
+    },
+    {
+      "name": "aml-high-risk-countries-configured",
+      "pass": false,
+      "details": "value=none"
+    },
+    {
+      "name": "legal-signoff-id",
+      "pass": false,
+      "details": "value=none"
+    },
+    {
+      "name": "fiu-officer-assigned",
+      "pass": false,
+      "details": "value=none"
+    },
+    {
+      "name": "audit-retention-days",
+      "pass": false,
+      "details": "value=0"
+    },
+    {
+      "name": "tier1-fiu-readiness-script",
+      "pass": true,
+      "details": "pass"
+    }
+  ],
+  "warnings": [
+    "No alert webhook configured; SEV notifications will be local-only.",
+    "SANCTIONS_PROVIDER is empty; sanctions checks may be no-op.",
+    "GEO_BLOCKED_COUNTRIES not configured.",
+    "AML_HIGH_RISK_COUNTRIES not configured.",
+    "COMPLIANCE_LEGAL_SIGNOFF_ID not configured.",
+    "COMPLIANCE_FIU_OFFICER not configured.",
+    "COMPLIANCE_AUDIT_RETENTION_DAYS must be >= 365 for strict signoff."
+  ],
+  "manual_tasks_pending": [
+    "Legal signoff for KYC/AML policy",
+    "FIU reporting officer assignment",
+    "Audit log retention policy acknowledgement"
+  ],
+  "fiu_script_output_tail": "[fiu] aml tables: aml_alerts, aml_transaction_logs, aml_str_ctr_logs\n[fiu] audit: audit_logs_immutable\n[fiu] kyc: kyc_applications + kyc_records\n[fiu] trading_balance_mismatch_count 0\n[fiu] settlement_ledger_chain_breaks 0\n[fiu] settlement_events_pending 0\n[fiu] str_reports_pending 0\n[fiu] aml_alerts_open_or_reviewing 6\n2026-05-25 14:55:31 [\u001b[32minfo\u001b[39m]: Database pool closed {\"service\":\"exchange-api\",\"shard_id\":0}\n[fiu] readiness_score 100 /100 (technical only; not legal sign-off)\nTIER1_FIU_READINESS_OK\n\n⚠️ WARNING: 2FA DISABLED (DEV MODE ONLY)"
+}

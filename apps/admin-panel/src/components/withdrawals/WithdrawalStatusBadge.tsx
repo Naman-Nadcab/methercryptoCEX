@@ -1,6 +1,6 @@
 'use client';
 
-import { StatusBadge } from '@/components/dashboard/StatusBadge';
+import { StatusBadge, type StatusVariant } from '@/components/dashboard/StatusBadge';
 
 const LABELS: Record<string, string> = {
   pending: 'Pending',
@@ -13,7 +13,19 @@ const LABELS: Record<string, string> = {
   cancelled: 'Cancelled',
 };
 
+const VARIANTS: Record<string, StatusVariant> = {
+  pending: 'warning',
+  pending_approval: 'warning',
+  approved: 'success',
+  rejected: 'danger',
+  completed: 'success',
+  failed: 'danger',
+  processing: 'default',
+  cancelled: 'default',
+};
+
 export function WithdrawalStatusBadge({ status }: { status: string }) {
-  const label = LABELS[status?.toLowerCase()] ?? (status ? status.replace(/_/g, ' ') : '—');
-  return <StatusBadge status={label} />;
+  const key = status?.toLowerCase() ?? '';
+  const label = LABELS[key] ?? (status ? status.replace(/_/g, ' ') : '—');
+  return <StatusBadge status={label} variant={VARIANTS[key]} />;
 }

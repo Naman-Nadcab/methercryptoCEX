@@ -53,7 +53,18 @@ const migrations = [
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS status_reason TEXT;`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS salt VARCHAR(64);`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(50);`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR(100);`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name VARCHAR(100);`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS tier_level INT DEFAULT 0;`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS country_code VARCHAR(2);`,
+  // Auth profile reads `two_fa_enabled`; slim migrate uses `two_factor_enabled`; full-schema uses `two_fa_enabled`.
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS two_fa_enabled BOOLEAN NOT NULL DEFAULT FALSE;`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN NOT NULL DEFAULT FALSE;`,
+  `UPDATE users SET
+     two_fa_enabled = COALESCE(two_fa_enabled, FALSE) OR COALESCE(two_factor_enabled, FALSE),
+     two_factor_enabled = COALESCE(two_fa_enabled, FALSE) OR COALESCE(two_factor_enabled, FALSE)
+   WHERE COALESCE(two_fa_enabled, FALSE) IS DISTINCT FROM COALESCE(two_factor_enabled, FALSE);`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER NOT NULL DEFAULT 0;`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMP WITH TIME ZONE;`,
 
@@ -75,6 +86,7 @@ const migrations = [
   );`,
   `CREATE INDEX IF NOT EXISTS idx_referral_codes_user_id ON referral_codes(user_id);`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_referral_codes_code ON referral_codes(code);`,
+  `ALTER TABLE referral_codes ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;`,
 
   // ============================================
   // AUTH PROVIDERS TABLE
@@ -704,6 +716,7 @@ const migrations = [
     UNIQUE(trading_pair_id, interval_type, open_time)
   );`,
   `CREATE INDEX IF NOT EXISTS idx_candles_query ON ohlcv_candles(trading_pair_id, interval_type, open_time);`,
+  `CREATE INDEX IF NOT EXISTS idx_candles_pair_interval_open_desc ON ohlcv_candles(trading_pair_id, interval_type, open_time DESC);`,
 
   // trading_pairs.trading_enabled for candles API (GET /trading/candles/:symbol)
   `ALTER TABLE trading_pairs ADD COLUMN IF NOT EXISTS trading_enabled BOOLEAN DEFAULT TRUE;`,
@@ -774,6 +787,47 @@ const migrations = [
     END IF;
   EXCEPTION WHEN OTHERS THEN NULL;
   END $$;`,
+  /** Align with `getActiveCurrencyIds`, wallet balances listing, and integration tests. */
+  `ALTER TABLE currencies ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;`,
+  /** Required by convert routes (`/market-prices`, `/currencies`) — incremental bootstrap omitted this vs full-schema. */
+  `ALTER TABLE currencies ADD COLUMN IF NOT EXISTS logo_url TEXT;`,
+
+  // On-chain deposits (indexer + deposit-credit). Must run after currencies + wallets exist.
+  `DO $$
+  BEGIN
+    IF to_regclass('public.deposits') IS NOT NULL THEN RETURN; END IF;
+    IF to_regclass('public.users') IS NULL OR to_regclass('public.currencies') IS NULL OR to_regclass('public.wallets') IS NULL THEN
+      RAISE NOTICE 'deposits bootstrap skipped: users, currencies, or wallets missing';
+      RETURN;
+    END IF;
+    CREATE TABLE deposits (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      currency_id UUID NOT NULL REFERENCES currencies(id) ON DELETE RESTRICT,
+      chain_id VARCHAR(64) NOT NULL,
+      wallet_id UUID NOT NULL REFERENCES wallets(id) ON DELETE RESTRICT,
+      tx_hash VARCHAR(255) NOT NULL,
+      from_address VARCHAR(255),
+      to_address VARCHAR(255) NOT NULL,
+      amount NUMERIC(36,18) NOT NULL DEFAULT 0,
+      fee NUMERIC(36,18) NOT NULL DEFAULT 0,
+      confirmations INT NOT NULL DEFAULT 0,
+      required_confirmations INT NOT NULL DEFAULT 12,
+      block_number BIGINT,
+      block_timestamp TIMESTAMPTZ,
+      status VARCHAR(40) NOT NULL DEFAULT 'pending',
+      credited_at TIMESTAMPTZ,
+      balance_applied_at TIMESTAMPTZ,
+      is_flagged BOOLEAN DEFAULT FALSE,
+      flagged_reason TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT deposits_unique_chain_tx_to UNIQUE (chain_id, tx_hash, to_address)
+    );
+    CREATE INDEX IF NOT EXISTS idx_deposits_user_id ON deposits(user_id);
+    CREATE INDEX IF NOT EXISTS idx_deposits_status ON deposits(status);
+    CREATE INDEX IF NOT EXISTS idx_deposits_to_address ON deposits(to_address);
+  END $$;`,
 
   `DO $$
   BEGIN
@@ -807,6 +861,7 @@ const migrations = [
         UNIQUE(base_currency_id, quote_currency_id)
       );
       CREATE INDEX IF NOT EXISTS idx_market_prices_pair ON market_prices(base_currency_id, quote_currency_id);
+      CREATE INDEX IF NOT EXISTS idx_market_prices_pair_last_updated ON market_prices(base_currency_id, quote_currency_id, last_updated DESC);
     END IF;
   EXCEPTION WHEN OTHERS THEN NULL;
   END $$;`,
@@ -1642,7 +1697,7 @@ const migrations = [
       id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
       withdrawal_id UUID NOT NULL,
       chain_id VARCHAR(20) NOT NULL' || chain_ref || ',
-      status VARCHAR(20) NOT NULL DEFAULT ''pending'' CHECK (status IN (''pending'', ''signing'', ''broadcast'', ''completed'', ''failed'')),
+      status VARCHAR(20) NOT NULL DEFAULT ''pending'' CHECK (status IN (''pending'', ''signing'', ''broadcast'', ''completed'', ''failed'', ''broadcast_uncertain'')),
       idempotency_key VARCHAR(255) UNIQUE,
       signed_tx_hex TEXT,
       tx_hash VARCHAR(255),
@@ -1765,8 +1820,19 @@ const migrations = [
   `CREATE INDEX IF NOT EXISTS idx_kyc_applications_reviewed ON kyc_applications(reviewed_at DESC) WHERE reviewed_at IS NOT NULL;`,
   `CREATE INDEX IF NOT EXISTS idx_p2p_ads_status ON p2p_ads(status) WHERE status = 'active';`,
   `CREATE INDEX IF NOT EXISTS idx_referral_codes_active ON referral_codes(is_active) WHERE is_active = TRUE;`,
-  `CREATE INDEX IF NOT EXISTS idx_deposits_status_created ON deposits(status, created_at DESC);`,
-  `CREATE INDEX IF NOT EXISTS idx_aml_alerts_status_created ON aml_alerts(status, created_at DESC);`,
+  // deposits table may be created later in some DB paths — avoid failing whole migrate
+  `DO $$
+  BEGIN
+    IF to_regclass('public.deposits') IS NOT NULL THEN
+      CREATE INDEX IF NOT EXISTS idx_deposits_status_created ON deposits(status, created_at DESC);
+    END IF;
+  END $$;`,
+  `DO $$
+  BEGIN
+    IF to_regclass('public.aml_alerts') IS NOT NULL THEN
+      CREATE INDEX IF NOT EXISTS idx_aml_alerts_status_created ON aml_alerts(status, created_at DESC);
+    END IF;
+  END $$;`,
   `DO $$ BEGIN CREATE INDEX IF NOT EXISTS idx_spot_trades_market_created ON spot_trades(market, created_at DESC); EXCEPTION WHEN OTHERS THEN NULL; END $$;`,
   `CREATE INDEX IF NOT EXISTS idx_withdrawals_created_at ON withdrawals(created_at DESC);`,
   `CREATE INDEX IF NOT EXISTS idx_withdrawals_status_created ON withdrawals(status, created_at DESC);`,
@@ -1968,6 +2034,20 @@ const migrations = [
       ALTER TYPE balance_account_type ADD VALUE 'spot';
     END IF;
   END $$;`,
+
+  // Core ledger: user_balances must exist before balance_locks FK and balance indexes (fresh DBs had no CREATE elsewhere).
+  `CREATE TABLE IF NOT EXISTS user_balances (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    currency_id UUID NOT NULL REFERENCES currencies(id) ON DELETE RESTRICT,
+    chain_id VARCHAR(20) NOT NULL DEFAULT '',
+    account_type balance_account_type NOT NULL DEFAULT 'funding',
+    available_balance NUMERIC(36,18) NOT NULL DEFAULT 0,
+    locked_balance NUMERIC(36,18) NOT NULL DEFAULT 0,
+    pending_balance NUMERIC(36,18) NOT NULL DEFAULT 0,
+    total_deposited NUMERIC(36,18) NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );`,
   `DO $$
    BEGIN
      IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_balances') THEN
@@ -1987,20 +2067,108 @@ const migrations = [
        END IF;
      END IF;
    END $$;`,
-  // Track when a completed deposit has been applied to user_balances (avoids double-credit on repair).
-  `ALTER TABLE deposits ADD COLUMN IF NOT EXISTS balance_applied_at TIMESTAMP WITH TIME ZONE;`,
 
-  // Tier-1 compliance: sanctions screening — flagged deposits are not credited.
-  `ALTER TABLE deposits ADD COLUMN IF NOT EXISTS is_flagged BOOLEAN DEFAULT FALSE;`,
-  `ALTER TABLE deposits ADD COLUMN IF NOT EXISTS flagged_reason TEXT;`,
+  // User REST API keys (X-API-Key / JWT alternative for spot/auth); required for E2E and third-party integrations
+  `CREATE TABLE IF NOT EXISTS user_api_keys (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL DEFAULT '',
+    key_type VARCHAR(20) NOT NULL DEFAULT 'self' CHECK (key_type IN ('system', 'self')),
+    api_key_usage VARCHAR(20) NOT NULL DEFAULT 'third_party' CHECK (api_key_usage IN ('transaction', 'third_party')),
+    api_key VARCHAR(255) NOT NULL,
+    api_secret VARCHAR(512),
+    public_key TEXT,
+    permission VARCHAR(20) NOT NULL DEFAULT 'read_write' CHECK (permission IN ('read_only', 'read_write')),
+    ip_restriction VARCHAR(30) NOT NULL DEFAULT 'no_restriction' CHECK (ip_restriction IN ('ip_only', 'no_restriction')),
+    ip_addresses JSONB NOT NULL DEFAULT '[]'::jsonb,
+    permissions JSONB NOT NULL DEFAULT '{}'::jsonb,
+    expires_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ
+  );`,
+  `DROP TRIGGER IF EXISTS update_user_api_keys_updated_at ON user_api_keys;
+   CREATE TRIGGER update_user_api_keys_updated_at
+   BEFORE UPDATE ON user_api_keys
+   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_user_api_keys_api_key_alive ON user_api_keys(api_key) WHERE deleted_at IS NULL;`,
+  `CREATE INDEX IF NOT EXISTS idx_user_api_keys_user_id_alive ON user_api_keys(user_id) WHERE deleted_at IS NULL;`,
+
+  // Spot aggregate queries + max-open checks — generated remaining from quantity/filled_quantity.
+  `DO $$
+   BEGIN
+     IF to_regclass('public.spot_orders') IS NULL THEN RETURN; END IF;
+     IF EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'spot_orders' AND column_name = 'remaining_quantity'
+     ) THEN
+       ALTER TABLE spot_orders DROP COLUMN remaining_quantity;
+     END IF;
+     ALTER TABLE spot_orders ADD COLUMN remaining_quantity NUMERIC(36,18) GENERATED ALWAYS AS (
+       GREATEST(COALESCE(quantity, 0)::numeric - COALESCE(filled_quantity, 0)::numeric, 0)
+     ) STORED;
+   END $$;`,
+
+  // balance_ledger + enums (Tier-1 phase1 verify, insertBalanceLedger, spot integrity)
+  `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'balance_type') THEN
+    CREATE TYPE balance_type AS ENUM ('available', 'locked', 'pending');
+  END IF; END $$;`,
+  `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'ledger_reference_type') THEN
+    CREATE TYPE ledger_reference_type AS ENUM (
+      'deposit', 'withdrawal', 'trade_buy', 'trade_sell',
+      'trade_fee', 'referral_commission',
+      'p2p_escrow_lock', 'p2p_escrow_release',
+      'internal_transfer', 'adjustment',
+      'staking_lock', 'staking_reward', 'airdrop', 'promotion',
+      'opening_balance'
+    );
+  END IF; END $$;`,
+  `DO $$
+  BEGIN
+    IF to_regclass('public.balance_ledger') IS NOT NULL THEN RETURN; END IF;
+    IF to_regclass('public.users') IS NULL OR to_regclass('public.currencies') IS NULL THEN RETURN; END IF;
+    CREATE TABLE balance_ledger (
+      id BIGSERIAL PRIMARY KEY,
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      currency_id UUID NOT NULL REFERENCES currencies(id) ON DELETE RESTRICT,
+      reference_type ledger_reference_type NOT NULL,
+      reference_id UUID NOT NULL,
+      debit NUMERIC(36,18) NOT NULL DEFAULT 0,
+      credit NUMERIC(36,18) NOT NULL DEFAULT 0,
+      balance_before NUMERIC(36,18) NOT NULL DEFAULT 0,
+      balance_after NUMERIC(36,18) NOT NULL DEFAULT 0,
+      balance_type balance_type NOT NULL DEFAULT 'available'::balance_type,
+      description TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_ledger_user ON balance_ledger(user_id);
+    CREATE INDEX IF NOT EXISTS idx_ledger_currency ON balance_ledger(user_id, currency_id);
+    CREATE INDEX IF NOT EXISTS idx_ledger_reference ON balance_ledger(reference_type, reference_id);
+    CREATE INDEX IF NOT EXISTS idx_ledger_created ON balance_ledger(created_at);
+  END $$;`,
+
+  // Track when a completed deposit has been applied to user_balances (avoids double-credit on repair).
+  // Tier-1 compliance: sanctions columns — only when deposits table exists (some DB paths create it later).
+  `DO $$
+  BEGIN
+    IF to_regclass('public.deposits') IS NULL THEN RETURN; END IF;
+    ALTER TABLE deposits ADD COLUMN IF NOT EXISTS balance_applied_at TIMESTAMP WITH TIME ZONE;
+    ALTER TABLE deposits ADD COLUMN IF NOT EXISTS is_flagged BOOLEAN DEFAULT FALSE;
+    ALTER TABLE deposits ADD COLUMN IF NOT EXISTS flagged_reason TEXT;
+  END $$;`,
 
   // FIX #2: Prevent double deposit credit — UNIQUE(chain_id|blockchain_id, tx_hash, to_address). Idempotent; no data dropped.
   `DO $$
   BEGIN
-    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'deposits_unique_chain_tx_to' AND conrelid = 'deposits'::regclass) THEN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'deposits') THEN
       RETURN;
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'deposits') THEN
+    IF EXISTS (
+      SELECT 1 FROM pg_constraint c
+      JOIN pg_class t ON c.conrelid = t.oid
+      JOIN pg_namespace n ON t.relnamespace = n.oid
+      WHERE n.nspname = 'public' AND t.relname = 'deposits' AND c.conname = 'deposits_unique_chain_tx_to'
+    ) THEN
       RETURN;
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'deposits' AND column_name = 'chain_id') THEN
@@ -2464,8 +2632,13 @@ const migrations = [
   `ALTER TABLE p2p_ads ADD COLUMN IF NOT EXISTS auto_release BOOLEAN DEFAULT FALSE;`,
 
   // Performance: composite indexes for balance reads and ticker aggregation
-  `CREATE INDEX IF NOT EXISTS idx_user_balances_user_account ON user_balances(user_id, account_type);`,
-  `CREATE INDEX IF NOT EXISTS idx_user_balances_currency ON user_balances(currency_id);`,
+  `DO $$
+  BEGIN
+    IF to_regclass('public.user_balances') IS NOT NULL THEN
+      CREATE INDEX IF NOT EXISTS idx_user_balances_user_account ON user_balances(user_id, account_type);
+      CREATE INDEX IF NOT EXISTS idx_user_balances_currency ON user_balances(currency_id);
+    END IF;
+  END $$;`,
   `CREATE INDEX IF NOT EXISTS idx_currencies_blockchain ON currencies(blockchain_id);`,
   `DO $$
   BEGIN
@@ -2519,7 +2692,12 @@ const migrations = [
   END $$;`,
 
   // P2P escrow + canonical balance reads: readUserBalances selects escrow_balance
-  `ALTER TABLE user_balances ADD COLUMN IF NOT EXISTS escrow_balance NUMERIC(36,18) NOT NULL DEFAULT 0;`,
+  `DO $$
+  BEGIN
+    IF to_regclass('public.user_balances') IS NOT NULL THEN
+      ALTER TABLE user_balances ADD COLUMN IF NOT EXISTS escrow_balance NUMERIC(36,18) NOT NULL DEFAULT 0;
+    END IF;
+  END $$;`,
 
   // ============================================
   // COIN SEED: ~35 currencies + ~38 spot markets for tier-1 market depth
@@ -2984,6 +3162,19 @@ const migrations = [
   `CREATE INDEX IF NOT EXISTS idx_p2p_merchant_applications_status ON p2p_merchant_applications(status);`,
   `CREATE INDEX IF NOT EXISTS idx_p2p_merchant_applications_user ON p2p_merchant_applications(user_id);`,
 
+  // Cold Wallets — base table (allocations/movements depend on this; older DBs may only have had ALTERs)
+  `CREATE TABLE IF NOT EXISTS cold_wallets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    chain_id VARCHAR(64) NOT NULL,
+    address VARCHAR(255) NOT NULL,
+    label VARCHAR(100),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+    balance NUMERIC(36,18) NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );`,
+
   // Cold Wallets — add missing columns to existing table
   `ALTER TABLE cold_wallets ADD COLUMN IF NOT EXISTS label VARCHAR(100);`,
   `ALTER TABLE cold_wallets ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;`,
@@ -3080,6 +3271,10 @@ const migrations = [
   `CREATE INDEX IF NOT EXISTS idx_audit_immutable_entry_hash ON audit_logs_immutable(entry_hash) WHERE entry_hash IS NOT NULL;`,
   `ALTER TABLE admin_approval_requests ADD COLUMN IF NOT EXISTS maker_unlock_at TIMESTAMPTZ;`,
   `ALTER TABLE admin_approval_requests ADD COLUMN IF NOT EXISTS action_executed BOOLEAN NOT NULL DEFAULT FALSE;`,
+  `ALTER TABLE admin_approval_requests ADD COLUMN IF NOT EXISTS execution_attempts INTEGER NOT NULL DEFAULT 0;`,
+  `ALTER TABLE admin_approval_requests ADD COLUMN IF NOT EXISTS last_execution_attempt_at TIMESTAMPTZ;`,
+  `ALTER TABLE admin_approval_requests ADD COLUMN IF NOT EXISTS execution_error TEXT;`,
+  `ALTER TABLE admin_approval_requests ADD COLUMN IF NOT EXISTS execution_context JSONB;`,
   `CREATE TABLE IF NOT EXISTS admin_break_glass_events (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     admin_id UUID REFERENCES admin_users(id) ON DELETE SET NULL,
@@ -3153,6 +3348,274 @@ const migrations = [
   `ALTER TABLE p2p_orders ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP WITH TIME ZONE;`,
   `ALTER TABLE p2p_orders ADD COLUMN IF NOT EXISTS cancel_reason TEXT;`,
   `ALTER TABLE p2p_orders ADD COLUMN IF NOT EXISTS status VARCHAR(20);`,
+
+  // Tier-1: withdrawal idempotency at DB (C1) — survives Redis loss / retry
+  `ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(256);`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_withdrawals_user_idempotency_key ON withdrawals (user_id, idempotency_key) WHERE idempotency_key IS NOT NULL;`,
+
+  // Tier-1: broadcast failure must not assume tx absent (C2) — queue status for manual / verifier follow-up
+  `ALTER TABLE withdrawal_signing_queue DROP CONSTRAINT IF EXISTS withdrawal_signing_queue_status_check;`,
+  `ALTER TABLE withdrawal_signing_queue ADD CONSTRAINT withdrawal_signing_queue_status_check CHECK (status IN ('pending','signing','broadcast','completed','failed','broadcast_uncertain'));`,
+
+  // Tier-1: deposits marked completed must satisfy confirmations (C4 / script bypass guard)
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'deposits')
+       AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'deposits' AND column_name = 'confirmations')
+       AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'deposits' AND column_name = 'required_confirmations') THEN
+      ALTER TABLE deposits DROP CONSTRAINT IF EXISTS deposits_completed_requires_confirmations;
+      ALTER TABLE deposits ADD CONSTRAINT deposits_completed_requires_confirmations
+        CHECK (
+          (lower(trim(coalesce(status::text, ''))) NOT IN ('completed'))
+          OR (COALESCE(confirmations, 0) >= COALESCE(required_confirmations, 0))
+        );
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'deposits_completed_requires_confirmations skipped: %', SQLERRM;
+  END $$;`,
+
+  // ---------------------------------------------------------------------------
+  // Hybrid liquidity (internal match + optional external hedge). Does NOT
+  // alter settlement_events or settlement-worker — hedge is post-trade only.
+  // ---------------------------------------------------------------------------
+  `CREATE TABLE IF NOT EXISTS hybrid_execution_config (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    market TEXT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    small_trade_max_notional_usd NUMERIC(36, 18) NOT NULL DEFAULT 0,
+    large_trade_min_notional_usd NUMERIC(36, 18) NOT NULL DEFAULT 0,
+    between_band_policy TEXT NOT NULL DEFAULT 'internal_only'
+      CHECK (between_band_policy IN ('internal_only', 'prefer_internal', 'prefer_hedge')),
+    hedge_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    fallback_to_internal BOOLEAN NOT NULL DEFAULT TRUE,
+    max_slippage_bps INT NOT NULL DEFAULT 50,
+    max_hedge_notional_usd_per_order NUMERIC(36, 18) NOT NULL DEFAULT 0,
+    max_net_hedge_exposure_usd NUMERIC(36, 18) NOT NULL DEFAULT 0,
+    system_counterparty_user_id UUID NULL REFERENCES users(id) ON DELETE SET NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_hybrid_execution_config_market
+    ON hybrid_execution_config (market) WHERE market IS NOT NULL;`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_hybrid_execution_config_global
+    ON hybrid_execution_config ((1)) WHERE market IS NULL;`,
+  `INSERT INTO hybrid_execution_config (
+    market, enabled, small_trade_max_notional_usd, large_trade_min_notional_usd,
+    between_band_policy, hedge_enabled, fallback_to_internal, max_slippage_bps,
+    max_hedge_notional_usd_per_order, max_net_hedge_exposure_usd, system_counterparty_user_id
+  )
+  SELECT NULL, FALSE, 5000, 50000, 'internal_only', FALSE, TRUE, 50, 100000, 500000, NULL
+  WHERE NOT EXISTS (SELECT 1 FROM hybrid_execution_config WHERE market IS NULL);`,
+
+  `CREATE TABLE IF NOT EXISTS external_liquidity_providers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    provider_name TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    api_key_ciphertext TEXT NOT NULL DEFAULT '',
+    api_secret_ciphertext TEXT NOT NULL DEFAULT '',
+    base_url TEXT NOT NULL DEFAULT '',
+    is_testnet BOOLEAN NOT NULL DEFAULT FALSE,
+    priority INT NOT NULL DEFAULT 0,
+    last_health_ok_at TIMESTAMP WITH TIME ZONE NULL,
+    consecutive_failures INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_ext_liq_providers_enabled_priority
+    ON external_liquidity_providers (enabled, priority DESC, created_at);`,
+
+  `CREATE TABLE IF NOT EXISTS hedge_jobs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    market TEXT NOT NULL,
+    side TEXT NOT NULL CHECK (side IN ('buy', 'sell')),
+    qty NUMERIC(36, 18) NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending'
+      CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'cancelled')),
+    retry_count INT NOT NULL DEFAULT 0,
+    last_error TEXT NULL,
+    user_order_id UUID NOT NULL,
+    notional_usd NUMERIC(36, 18) NULL,
+    provider_id UUID NULL REFERENCES external_liquidity_providers(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_hedge_jobs_status_created ON hedge_jobs (status, created_at);`,
+  `CREATE INDEX IF NOT EXISTS idx_hedge_jobs_user_order ON hedge_jobs (user_order_id);`,
+  `ALTER TABLE hedge_jobs ADD COLUMN IF NOT EXISTS internal_avg_price NUMERIC(36, 18) NULL;`,
+
+  `CREATE TABLE IF NOT EXISTS external_orders (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    provider_id UUID NOT NULL REFERENCES external_liquidity_providers(id) ON DELETE CASCADE,
+    hedge_job_id UUID NOT NULL REFERENCES hedge_jobs(id) ON DELETE CASCADE,
+    external_order_id TEXT NULL,
+    status TEXT NOT NULL DEFAULT 'pending'
+      CHECK (status IN ('pending', 'partially_filled', 'filled', 'cancelled', 'failed')),
+    filled_qty NUMERIC(36, 18) NOT NULL DEFAULT 0,
+    avg_price NUMERIC(36, 18) NULL,
+    raw_response JSONB NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_external_orders_hedge_job ON external_orders (hedge_job_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_external_orders_provider ON external_orders (provider_id);`,
+  `CREATE TABLE IF NOT EXISTS hedge_provider_failover_events (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    from_provider_id UUID NULL REFERENCES external_liquidity_providers(id) ON DELETE SET NULL,
+    to_provider_id UUID NOT NULL REFERENCES external_liquidity_providers(id) ON DELETE CASCADE,
+    mode VARCHAR(32) NOT NULL DEFAULT 'manual',
+    reason TEXT NOT NULL,
+    actor_admin_id UUID NULL REFERENCES admin_users(id) ON DELETE SET NULL,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_hedge_failover_events_created ON hedge_provider_failover_events (created_at DESC);`,
+  `CREATE INDEX IF NOT EXISTS idx_hedge_failover_events_to_provider ON hedge_provider_failover_events (to_provider_id, created_at DESC);`,
+  `CREATE TABLE IF NOT EXISTS admin_config_snapshots (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    scope VARCHAR(64) NOT NULL,
+    reason TEXT NOT NULL,
+    actor_admin_id UUID NULL REFERENCES admin_users(id) ON DELETE SET NULL,
+    payload JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_admin_config_snapshots_scope_created
+    ON admin_config_snapshots(scope, created_at DESC);`,
+
+  // Reserved system user for hybrid counterparty (best-effort; schemas vary across deployments).
+  `DO $$
+   BEGIN
+     INSERT INTO users (id, email, password_hash, salt, status, email_verified, referral_code)
+     SELECT 'a0000000-0000-4000-8000-00000000aa01'::uuid,
+            'hybrid-system@internal.invalid',
+            crypt('__hybrid_system_no_login__', gen_salt('bf', 10)),
+            encode(gen_random_bytes(16), 'hex'),
+            'active',
+            TRUE,
+            'HYBRDSYS01'
+     WHERE NOT EXISTS (SELECT 1 FROM users WHERE id = 'a0000000-0000-4000-8000-00000000aa01'::uuid);
+   EXCEPTION WHEN OTHERS THEN
+     RAISE NOTICE 'hybrid_system_user_seed skipped: %', SQLERRM;
+   END$$;`,
+  `UPDATE hybrid_execution_config SET system_counterparty_user_id = 'a0000000-0000-4000-8000-00000000aa01'::uuid
+   WHERE market IS NULL AND system_counterparty_user_id IS NULL
+     AND EXISTS (SELECT 1 FROM users WHERE id = 'a0000000-0000-4000-8000-00000000aa01'::uuid);`,
+
+  // Hybrid hedge safety: caps, snapshots, backoff, killswitch keys
+  `ALTER TABLE hybrid_execution_config
+     ADD COLUMN IF NOT EXISTS hedge_max_daily_loss_usd NUMERIC(36,18) NOT NULL DEFAULT 25000`,
+  `ALTER TABLE hedge_jobs ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ NULL`,
+  `CREATE INDEX IF NOT EXISTS idx_hedge_jobs_next_attempt_pending
+    ON hedge_jobs (next_attempt_at ASC NULLS FIRST)
+    WHERE status = 'pending'`,
+  `ALTER TABLE external_liquidity_providers ADD COLUMN IF NOT EXISTS last_failure_at TIMESTAMPTZ NULL`,
+  `CREATE TABLE IF NOT EXISTS hedge_positions (
+    market TEXT PRIMARY KEY,
+    unrealized_pnl NUMERIC(36, 18) NOT NULL DEFAULT 0,
+    realized_pnl NUMERIC(36, 18) NOT NULL DEFAULT 0,
+    exposure_usd NUMERIC(36, 18) NOT NULL DEFAULT 0,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE TABLE IF NOT EXISTS hedge_pnl_daily (
+    day DATE PRIMARY KEY,
+    realized_pnl_usd NUMERIC(36, 18) NOT NULL DEFAULT 0,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `DO $$
+   BEGIN
+     INSERT INTO system_settings (key, value, updated_at)
+     VALUES ('hedge_global_enabled', to_jsonb(false), NOW())
+     ON CONFLICT (key) DO NOTHING;
+     INSERT INTO system_settings (key, value, updated_at)
+     VALUES ('hedge_emergency_stop', to_jsonb(false), NOW())
+     ON CONFLICT (key) DO NOTHING;
+   EXCEPTION WHEN OTHERS THEN
+     RAISE NOTICE 'hedge system_settings bootstrap skipped: %', SQLERRM;
+   END $$;`,
+  // ============================================
+  // ADMIN DYNAMIC PROVIDER CONTROL TABLES
+  // ============================================
+  `CREATE TABLE IF NOT EXISTS node_providers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    provider_name TEXT NOT NULL,
+    rpc_url TEXT,
+    api_key TEXT,
+    network TEXT NOT NULL DEFAULT 'mainnet',
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'maintenance')),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+  );`,
+  `CREATE TABLE IF NOT EXISTS integrations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    provider_name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    endpoint_url TEXT,
+    api_key TEXT,
+    secret_key TEXT,
+    webhook_secret TEXT,
+    status TEXT NOT NULL DEFAULT 'inactive',
+    event_type TEXT,
+    assets_covered TEXT,
+    update_interval_sec INTEGER,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_integrations_category ON integrations(category);`,
+  `CREATE INDEX IF NOT EXISTS idx_integrations_status ON integrations(status);`,
+  `CREATE TABLE IF NOT EXISTS integration_meta (
+    integration_id UUID PRIMARY KEY REFERENCES integrations(id) ON DELETE CASCADE,
+    failover_priority INTEGER DEFAULT 1,
+    last_latency_ms INTEGER,
+    last_success_at TIMESTAMPTZ,
+    error_count INTEGER DEFAULT 0
+  );`,
+  `CREATE TABLE IF NOT EXISTS integration_rate_limits (
+    integration_id UUID PRIMARY KEY REFERENCES integrations(id) ON DELETE CASCADE,
+    requests_per_min INTEGER DEFAULT 60,
+    remaining_quota INTEGER,
+    resets_at TIMESTAMPTZ
+  );`,
+  `CREATE TABLE IF NOT EXISTS integration_webhook_deliveries (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    integration_id UUID NOT NULL REFERENCES integrations(id) ON DELETE CASCADE,
+    webhook_url TEXT,
+    event_type TEXT,
+    delivery_status TEXT NOT NULL DEFAULT 'pending',
+    response_code INTEGER,
+    retry_count INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_integration_webhook_deliveries_created ON integration_webhook_deliveries(created_at DESC);`,
+  `CREATE TABLE IF NOT EXISTS integration_event_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    integration_id UUID NOT NULL REFERENCES integrations(id) ON DELETE CASCADE,
+    provider_name TEXT,
+    event_type TEXT,
+    status TEXT NOT NULL DEFAULT 'success',
+    latency_ms INTEGER,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  );`,
+  `CREATE INDEX IF NOT EXISTS idx_integration_event_logs_created ON integration_event_logs(created_at DESC);`,
+  `CREATE TABLE IF NOT EXISTS integration_active (
+    category TEXT PRIMARY KEY,
+    provider_id UUID NOT NULL REFERENCES integrations(id) ON DELETE CASCADE
+  );`,
+  `CREATE TABLE IF NOT EXISTS compliance_integrations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    provider_name TEXT NOT NULL UNIQUE,
+    api_url TEXT,
+    api_key TEXT,
+    webhook_secret TEXT,
+    status TEXT NOT NULL DEFAULT 'inactive' CHECK (status IN ('active', 'inactive')),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+  );`,
+  `CREATE TABLE IF NOT EXISTS infrastructure_providers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    provider_type TEXT NOT NULL,
+    provider_name TEXT NOT NULL,
+    endpoint_url TEXT,
+    api_key TEXT,
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+  );`,
 ];
 
 /** True if this migration SQL touches the legacy "balances" table (not user_balances). Run such steps via raw pool so runtime guard does not block. */

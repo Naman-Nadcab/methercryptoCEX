@@ -6,7 +6,7 @@ import { adminFetch } from './apiClient';
 
 export async function getWallets(
   token: string | null,
-  params?: { limit?: number; offset?: number; page?: number; search?: string }
+  params?: { limit?: number; offset?: number; page?: number; search?: string; asset?: string }
 ) {
   return adminFetch<{
     blockchains?: unknown[];

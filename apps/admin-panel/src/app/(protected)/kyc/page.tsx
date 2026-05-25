@@ -3,7 +3,7 @@
 import { useState, useMemo, useDeferredValue, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ShieldCheck, Search } from 'lucide-react';
-import { getKycList, getKycPending, reviewKyc, getDashboardStats } from '@/lib/admin';
+import { bulkReviewKyc, getKycList, getKycPending, reviewKyc, getDashboardStats } from '@/lib/admin';
 import { useAdminAuthStore } from '@/store/auth';
 import {
   Card,
@@ -22,6 +22,8 @@ import { cn } from '@/lib/cn';
 import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 import { ProtectedAction } from '@/components/rbac/ProtectedAction';
 import { useAdminWs } from '@/hooks/useAdminWs';
+import { ActionAuthModal, type ActionAuthPayload } from '@/components/ops/ActionAuthModal';
+import { BulkActionResultPanel } from '@/components/ops/BulkActionResultPanel';
 
 const PAGE_SIZE = 20;
 const REFETCH_MS = 30000;
@@ -113,11 +115,17 @@ export default function KycManagementPage() {
   const deferredSearch = useDeferredValue(searchInput.trim().toLowerCase());
   const [rejectRow, setRejectRow] = useState<KycApplicationRow | null>(null);
   const [rejectReason, setRejectReason] = useState('');
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkAction, setBulkAction] = useState<'approve' | 'reject' | null>(null);
+  const [bulkResult, setBulkResult] = useState<{ action: 'approve' | 'reject'; updated: number; ids: string[] } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     setPage(1);
   }, [statusTab, searchInput]);
+  useEffect(() => {
+    setSelectedIds([]);
+  }, [page, statusTab, searchInput]);
 
   const { data: dashRes } = useQuery({
     queryKey: ['admin', 'kyc-dashboard-stats', token],
@@ -210,11 +218,32 @@ export default function KycManagementPage() {
     },
     onError: (e: Error) => setActionError(e.message),
   });
+  const bulkReviewMutation = useMutation({
+    mutationFn: ({ action, reason }: { action: 'approve' | 'reject'; reason?: string }) =>
+      bulkReviewKyc(token, { ids: selectedIds, action, reason }),
+    onSuccess: (res, vars) => {
+      setActionError(null);
+      setBulkAction(null);
+      setSelectedIds([]);
+      const resultData = res.data;
+      setBulkResult({
+        action: vars.action,
+        updated: Number(resultData?.updated ?? 0),
+        ids: Array.isArray(resultData?.ids) ? resultData.ids : [],
+      });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'kyc-list'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'kyc-pending'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'kyc-dashboard-stats'] });
+    },
+    onError: (e: Error) => setActionError(e.message),
+  });
 
   const canAct = (row: KycApplicationRow) => {
     const s = String(row.status ?? '').toLowerCase();
     return s === 'pending' || s === 'under_review';
   };
+  const actionableIds = filtered.filter((r) => canAct(r)).map((r) => r.id);
+  const allActionableSelected = actionableIds.length > 0 && actionableIds.every((id) => selectedIds.includes(id));
 
   return (
     <AdminPageFrame title="KYC Verification" description="Review identity submissions, approve or reject with documented reasons." status="active" error={isError ? ((error as Error)?.message ?? 'Failed to load KYC submissions') : null} onRetry={refetch}>
@@ -260,6 +289,27 @@ export default function KycManagementPage() {
                   {t.label}
                 </button>
               ))}
+              {selectedIds.length > 0 && (
+                <div className="ml-2 flex items-center gap-2">
+                  <span className="rounded-lg border border-admin-border/40 px-2 py-1 text-xs text-admin-muted">
+                    {selectedIds.length} selected
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setBulkAction('approve')}
+                    className="rounded-lg border border-emerald-500/30 bg-emerald-950/15 px-2.5 py-1.5 text-xs font-semibold text-emerald-400 hover:bg-emerald-950/25"
+                  >
+                    Bulk approve
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBulkAction('reject')}
+                    className="rounded-lg border border-red-500/30 bg-red-950/15 px-2.5 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-950/25"
+                  >
+                    Bulk reject
+                  </button>
+                </div>
+              )}
             </div>
             <div className="w-full max-w-md">
               <Input
@@ -275,6 +325,10 @@ export default function KycManagementPage() {
           {actionError && (
             <p className="rounded-lg border border-red-500/30 bg-red-950/10 px-3 py-2 text-xs text-red-400">{actionError}</p>
           )}
+          <BulkActionResultPanel
+            result={bulkResult ? { kind: 'kyc', ...bulkResult } : null}
+            onDismiss={() => setBulkResult(null)}
+          />
 
           {isError && (
             <p className="text-sm text-admin-danger">
@@ -290,12 +344,23 @@ export default function KycManagementPage() {
             </div>
           ) : (
             <div className="overflow-x-auto rounded-ds-md border border-admin-border">
-              <table className="w-full min-w-[880px] text-left text-sm">
+              <table className="w-full min-w-[920px] text-left text-sm">
                 <thead className="border-b border-admin-border bg-white/[0.02]">
                   <tr>
-                    {['User', 'Email', 'Level', 'Document Type', 'Submitted', 'Status', 'Actions'].map((h) => (
+                    {['', 'User', 'Email', 'Level', 'Document Type', 'Submitted', 'Status', 'Actions'].map((h, i) => (
                       <th key={h} className="px-4 py-2.5 font-medium text-admin-muted">
-                        {h}
+                        {i === 0 ? (
+                          <input
+                            type="checkbox"
+                            checked={allActionableSelected}
+                            onChange={(e) => {
+                              if (e.target.checked) setSelectedIds(actionableIds);
+                              else setSelectedIds([]);
+                            }}
+                            className="h-3.5 w-3.5 rounded border-admin-border/60 bg-transparent"
+                            aria-label="Select all actionable KYC rows"
+                          />
+                        ) : h}
                       </th>
                     ))}
                   </tr>
@@ -305,6 +370,19 @@ export default function KycManagementPage() {
                     const st = String(row.status ?? 'unknown');
                     return (
                       <tr key={row.id} className="bg-admin-card hover:bg-white/5">
+                        <td className="px-4 py-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.includes(row.id)}
+                            disabled={!canAct(row)}
+                            onChange={(e) => {
+                              if (e.target.checked) setSelectedIds((prev) => Array.from(new Set([...prev, row.id])));
+                              else setSelectedIds((prev) => prev.filter((id) => id !== row.id));
+                            }}
+                            className="h-3.5 w-3.5 rounded border-admin-border/60 bg-transparent disabled:opacity-30"
+                            aria-label={`Select KYC ${row.id}`}
+                          />
+                        </td>
                         <td className="px-4 py-3 font-medium text-admin-text">{formatUserLabel(row)}</td>
                         <td className="px-4 py-3 text-admin-text">{row.email ?? '—'}</td>
                         <td className="px-4 py-3 tabular-nums">{row.kyc_level ?? '—'}</td>
@@ -320,7 +398,7 @@ export default function KycManagementPage() {
                                 type="button"
                                 variant="success"
                                 size="sm"
-                                disabled={!canAct(row) || reviewMutation.isPending}
+                                disabled={!canAct(row) || reviewMutation.isPending || bulkReviewMutation.isPending}
                                 onClick={() => reviewMutation.mutate({ id: row.id, action: 'approve' })}
                               >
                                 Approve
@@ -331,7 +409,7 @@ export default function KycManagementPage() {
                                 type="button"
                                 variant="danger"
                                 size="sm"
-                                disabled={!canAct(row) || reviewMutation.isPending}
+                                disabled={!canAct(row) || reviewMutation.isPending || bulkReviewMutation.isPending}
                                 onClick={() => {
                                   setRejectRow(row);
                                   setRejectReason('');
@@ -417,6 +495,24 @@ export default function KycManagementPage() {
           </ProtectedAction>
         </ModalFooter>
       </Modal>
+      <ActionAuthModal
+        open={bulkAction !== null}
+        onClose={() => setBulkAction(null)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          if (!bulkAction) return;
+          bulkReviewMutation.mutate({ action: bulkAction, reason: payload.reason });
+        }}
+        title={bulkAction === 'approve' ? 'Bulk approve KYC submissions' : 'Bulk reject KYC submissions'}
+        actionLabel={`${bulkAction === 'approve' ? 'Approve' : 'Reject'} ${selectedIds.length} selected submissions`}
+        description="Bulk KYC moderation is audit-logged and applied server-side."
+        requireReason
+        twofaRequired
+        confirmationPhrase={bulkAction === 'reject' ? 'CONFIRM BULK_REJECT_KYC' : undefined}
+        externalError={bulkReviewMutation.error instanceof Error ? bulkReviewMutation.error.message : null}
+        isPending={bulkReviewMutation.isPending}
+        confirmLabel={bulkReviewMutation.isPending ? 'Processing…' : 'Apply bulk action'}
+        confirmVariant={bulkAction === 'reject' ? 'danger' : 'primary'}
+      />
     </AdminPageFrame>
   );
 }

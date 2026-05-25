@@ -30,6 +30,7 @@ import { Plus, Pencil, Power, PowerOff, Wifi, Cable, Activity, Zap, ListOrdered,
 import { cn } from '@/lib/cn';
 import { TableSkeleton } from '@/components/ui';
 import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
+import { ActionAuthModal, type ActionAuthPayload } from '@/components/ops/ActionAuthModal';
 
 function relativeTime(iso: string) {
   const d = new Date(iso);
@@ -143,9 +144,15 @@ export default function IntegrationsPage() {
   const [activeTab, setActiveTab] = useState<'overview' | 'webhooks' | 'logs'>('overview');
   const [testResult, setTestResult] = useState<{ id: string; latency_ms: number; status: string; error?: string } | null>(null);
   const [rotateTarget, setRotateTarget] = useState<IntegrationRow | null>(null);
-  const [rotateConfirmed, setRotateConfirmed] = useState(false);
+  const [integrationAuth, setIntegrationAuth] = useState<
+    | { kind: 'rotate'; row: IntegrationRow }
+    | { kind: 'switch'; category: IntegrationCategory; provider: IntegrationRow }
+    | null
+  >(null);
   const [webhookPage, setWebhookPage] = useState(0);
+  const [logsPage, setLogsPage] = useState(0);
   const WEBHOOK_PAGE_SIZE = 20;
+  const LOGS_PAGE_SIZE = 20;
   const [form, setForm] = useState({
     provider_name: '',
     category: 'blockchain_nodes' as string,
@@ -265,7 +272,6 @@ export default function IntegrationsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'integrations'] });
       setRotateTarget(null);
-      setRotateConfirmed(false);
     },
   });
 
@@ -273,6 +279,8 @@ export default function IntegrationsPage() {
   const rateLimits = (rateLimitData?.data?.rate_limits ?? []) as IntegrationRateLimitRow[];
   const deliveries = (deliveriesData?.data?.deliveries ?? []) as WebhookDeliveryRow[];
   const eventLogs = (logsData?.data?.logs ?? []) as IntegrationEventLogRow[];
+  const pagedEventLogs = eventLogs.slice(logsPage * LOGS_PAGE_SIZE, (logsPage + 1) * LOGS_PAGE_SIZE);
+  const logsTotalPages = Math.max(1, Math.ceil(eventLogs.length / LOGS_PAGE_SIZE));
   const deliveriesFetchFailed = deliveriesIsError || deliveriesData?.success === false;
   const logsFetchFailed = logsIsError || logsData?.success === false;
   const integrations = (data?.data?.integrations ?? []) as IntegrationRow[];
@@ -379,14 +387,14 @@ export default function IntegrationsPage() {
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab('webhooks')}
+          onClick={() => { setActiveTab('webhooks'); setWebhookPage(0); }}
           className={cn('rounded-lg px-3 py-1.5 text-sm font-medium', activeTab === 'webhooks' ? 'bg-admin-primary/10 text-admin-primary' : 'text-admin-muted hover:bg-white/5')}
         >
           Webhook deliveries
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab('logs')}
+          onClick={() => { setActiveTab('logs'); setLogsPage(0); }}
           className={cn('rounded-lg px-3 py-1.5 text-sm font-medium', activeTab === 'logs' ? 'bg-admin-primary/10 text-admin-primary' : 'text-admin-muted hover:bg-white/5')}
         >
           Event logs
@@ -503,7 +511,7 @@ export default function IntegrationsPage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => { setRotateTarget(row); setRotateConfirmed(false); }}
+                            onClick={() => setRotateTarget(row)}
                             title="Rotate API key"
                           >
                             <KeyRound className="h-4 w-4" />
@@ -686,7 +694,7 @@ export default function IntegrationsPage() {
                       </td>
                     </tr>
                   ) : (
-                    eventLogs.map((log, i) => (
+                    pagedEventLogs.map((log, i) => (
                       <tr key={`${log.integration}-${log.event}-${log.timestamp ?? i}`} className="border-t border-admin-border hover:bg-white/5">
                         <td className="px-4 py-3 font-medium">{log.integration}</td>
                         <td className="px-4 py-3">{log.event}</td>
@@ -701,6 +709,30 @@ export default function IntegrationsPage() {
                 </tbody>
               </table>
             </div>
+            )}
+            {!logsLoading && !logsFetchFailed && eventLogs.length > 0 && logsTotalPages > 1 && (
+              <div className="mt-3 flex items-center justify-between text-xs text-admin-muted">
+                <span>{eventLogs.length} total log entries</span>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setLogsPage((p) => Math.max(0, p - 1))}
+                    disabled={logsPage === 0}
+                    className="flex h-7 w-7 items-center justify-center rounded-lg border border-admin-border/40 disabled:opacity-30 hover:bg-white/5"
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </button>
+                  <span className="px-2">Page {logsPage + 1} / {logsTotalPages}</span>
+                  <button
+                    type="button"
+                    onClick={() => setLogsPage((p) => Math.min(logsTotalPages - 1, p + 1))}
+                    disabled={logsPage >= logsTotalPages - 1}
+                    className="flex h-7 w-7 items-center justify-center rounded-lg border border-admin-border/40 disabled:opacity-30 hover:bg-white/5"
+                  >
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -883,19 +915,15 @@ export default function IntegrationsPage() {
               Rotate API key for <span className="font-semibold text-admin-text">{rotateTarget.provider_name}</span>?
               The existing key will be invalidated immediately.
             </p>
-            <label className="mb-4 flex cursor-pointer items-center justify-center gap-2 text-xs text-amber-400">
-              <input type="checkbox" checked={rotateConfirmed} onChange={(e) => setRotateConfirmed(e.target.checked)} className="accent-amber-500" />
-              I understand the current key will stop working
-            </label>
             <div className="flex gap-2">
               <button type="button" onClick={() => setRotateTarget(null)} disabled={rotateKeyMutation.isPending}
                 className="flex-1 rounded-xl border border-admin-border/50 py-2 text-xs font-medium text-admin-muted hover:text-admin-text transition-colors disabled:opacity-40">
                 Cancel
               </button>
-              <button type="button" disabled={!rotateConfirmed || rotateKeyMutation.isPending}
-                onClick={() => rotateKeyMutation.mutate(rotateTarget.id)}
+              <button type="button" disabled={rotateKeyMutation.isPending}
+                onClick={() => setIntegrationAuth({ kind: 'rotate', row: rotateTarget })}
                 className="flex-1 rounded-xl bg-amber-600 py-2 text-xs font-semibold text-white hover:bg-amber-500 disabled:opacity-40 transition-all">
-                {rotateKeyMutation.isPending ? 'Rotating…' : 'Rotate Key'}
+                Continue
               </button>
             </div>
           </div>
@@ -915,7 +943,7 @@ export default function IntegrationsPage() {
                   <span className="font-medium">{row.provider_name}</span>
                   <Button
                     size="sm"
-                    onClick={() => switchMutation.mutate({ category: switchModal.category, providerId: row.id })}
+                    onClick={() => setIntegrationAuth({ kind: 'switch', category: switchModal.category, provider: row })}
                     disabled={switchMutation.isPending}
                   >
                     Use this provider
@@ -929,6 +957,42 @@ export default function IntegrationsPage() {
           </div>
         </div>
       )}
+      <ActionAuthModal
+        open={integrationAuth !== null}
+        onClose={() => {
+          setIntegrationAuth(null);
+          setRotateTarget(null);
+        }}
+        onConfirm={(payload: ActionAuthPayload) => {
+          if (!integrationAuth) return;
+          if (integrationAuth.kind === 'rotate') {
+            rotateKeyMutation.mutate(integrationAuth.row.id);
+          } else {
+            switchMutation.mutate({ category: integrationAuth.category, providerId: integrationAuth.provider.id });
+          }
+          void payload;
+        }}
+        title={integrationAuth?.kind === 'rotate' ? 'Rotate integration API key' : 'Switch active provider'}
+        actionLabel={
+          integrationAuth?.kind === 'rotate'
+            ? `Rotate key for ${integrationAuth.row.provider_name}`
+            : integrationAuth
+              ? `Switch ${CATEGORY_LABELS[integrationAuth.category]} to ${integrationAuth.provider.provider_name}`
+              : 'Integration action'
+        }
+        description="Provider failover and key rotation are audited high-impact operations."
+        requireReason
+        twofaRequired
+        confirmationPhrase={integrationAuth?.kind === 'rotate' ? 'CONFIRM ROTATE_KEY' : 'CONFIRM SWITCH_PROVIDER'}
+        externalError={
+          integrationAuth?.kind === 'rotate'
+            ? rotateKeyMutation.error instanceof Error ? rotateKeyMutation.error.message : null
+            : switchMutation.error instanceof Error ? switchMutation.error.message : null
+        }
+        isPending={rotateKeyMutation.isPending || switchMutation.isPending}
+        confirmLabel={rotateKeyMutation.isPending || switchMutation.isPending ? 'Applying…' : 'Confirm'}
+        confirmVariant="danger"
+      />
     </AdminPageFrame>
   );
 }

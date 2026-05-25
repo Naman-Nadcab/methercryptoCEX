@@ -6,25 +6,36 @@ import { fetchMyOrders, type P2POrderRow } from '@/lib/p2pApi';
 import { Loader2, ShoppingCart } from 'lucide-react';
 import { CoinIcon } from '@/components/ui/CoinIcon';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { ErrorState } from '@/components/ui/ErrorState';
 
 export default function P2POrdersViewPage() {
   const [orders, setOrders] = useState<P2POrderRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadOrders = () => {
     let cancelled = false;
     setLoading(true);
+    setError(null);
     fetchMyOrders()
       .then((data) => {
         if (!cancelled) setOrders(Array.isArray(data) ? data : []);
       })
       .catch(() => {
-        if (!cancelled) setOrders([]);
+        if (!cancelled) {
+          setOrders([]);
+          setError('Could not load your P2P orders right now.');
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
+  };
+
+  useEffect(() => {
+    const cleanup = loadOrders();
+    return cleanup;
   }, []);
 
   return (
@@ -37,6 +48,10 @@ export default function P2POrdersViewPage() {
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="w-6 h-6 text-primary animate-spin" />
+          </div>
+        ) : error ? (
+          <div className="p-4">
+            <ErrorState title="Failed to load P2P orders" message={error} onRetry={() => loadOrders()} />
           </div>
         ) : orders.length === 0 ? (
           <EmptyState

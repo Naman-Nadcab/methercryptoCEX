@@ -10,6 +10,11 @@ import { cn } from '@/lib/cn';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 const BRAND_NAME = process.env.NEXT_PUBLIC_ADMIN_BRAND_NAME || 'Exchange';
+const IS_DEV = process.env.NODE_ENV === 'development';
+
+/** Dev-mode defaults — ALL accounts share this password in local dev. */
+const DEV_EMAIL = 'admin@example.com';
+const DEV_PASSWORD = 'admin123';
 
 const inputBase =
   'w-full rounded-xl border border-[#374151] bg-[#111827] py-3 pl-11 pr-4 text-sm text-gray-100 placeholder:text-gray-500 ' +
@@ -20,8 +25,8 @@ export default function LoginPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const setTokens = useAdminAuthStore((s) => s.setTokens);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState(IS_DEV ? DEV_EMAIL : '');
+  const [password, setPassword] = useState(IS_DEV ? DEV_PASSWORD : '');
   const [twofaCode, setTwofaCode] = useState('');
   const [needs2FA, setNeeds2FA] = useState(false);
   const [error, setError] = useState('');
@@ -56,7 +61,15 @@ export default function LoginPage() {
 
       if (!res.ok || !data?.success) {
         const msg = data?.error?.message ?? data?.error ?? 'Login failed';
-        setError(typeof msg === 'string' ? msg : (msg as { message?: string })?.message ?? 'Login failed');
+        const base = typeof msg === 'string' ? msg : (msg as { message?: string })?.message ?? 'Login failed';
+        const code =
+          data?.error && typeof data.error === 'object' && 'code' in data.error
+            ? String((data.error as { code?: string }).code ?? '')
+            : '';
+        setError(code ? `${base} (${code})` : base);
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('[admin-login] HTTP', res.status, data);
+        }
         return;
       }
 
@@ -265,6 +278,23 @@ export default function LoginPage() {
               )}
             </button>
           </form>
+
+          {IS_DEV && !needs2FA ? (
+            <div className="mt-6 rounded-lg border border-indigo-500/20 bg-indigo-500/[0.06] px-3 py-2.5 text-left text-[11px] leading-relaxed text-slate-400">
+              <p className="font-semibold text-indigo-300">Dev mode — credentials pre-filled</p>
+              <p className="mt-1">
+                All accounts use password&nbsp;
+                <code className="rounded bg-black/40 px-1 py-0.5 font-mono text-slate-200">admin123</code>
+              </p>
+              <p className="mt-1 text-slate-500">
+                Other accounts:&nbsp;
+                <button type="button" onClick={() => { setEmail('test@gmail.com'); setPassword('admin123'); setError(''); }} className="text-indigo-400 underline hover:text-indigo-300">test@gmail.com</button>
+                &nbsp;·&nbsp;
+                <button type="button" onClick={() => { setEmail('approver@example.com'); setPassword('admin123'); setError(''); }} className="text-indigo-400 underline hover:text-indigo-300">approver@example.com</button>
+              </p>
+              <p className="mt-1 text-slate-500">API → <code className="text-slate-300">{API_BASE}</code></p>
+            </div>
+          ) : null}
 
           <p className="mt-8 border-t border-white/[0.06] pt-6 text-center text-xs text-slate-500">
             Authorized personnel only. Unauthorized access is prohibited.

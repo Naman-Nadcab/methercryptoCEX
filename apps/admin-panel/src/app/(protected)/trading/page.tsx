@@ -24,6 +24,7 @@ import { OrderbookSnapshotPanel } from '@/components/trading/OrderbookSnapshotPa
 import { useAdminWs } from '@/hooks/useAdminWs';
 import { ProtectedAction } from '@/components/rbac/ProtectedAction';
 import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
+import { ActionAuthModal, type ActionAuthPayload } from '@/components/ops/ActionAuthModal';
 import {
   TrendingUp,
   BarChart3,
@@ -47,29 +48,30 @@ export default function TradingPage() {
   const [controlModal, setControlModal] = useState<ControlAction | null>(null);
   const [orderbookMarket, setOrderbookMarket] = useState('BTC_USDT');
   const [marketHaltMarket, setMarketHaltMarket] = useState('BTC_USDT');
+  const [marketAction, setMarketAction] = useState<{ market: string; halted: boolean } | null>(null);
 
-  const { data: overviewData } = useQuery({
+  const { data: overviewData, isError: overviewIsError, error: overviewError, refetch: refetchOverview } = useQuery({
     queryKey: ['admin', 'trading', 'overview', token],
     staleTime: 30_000,
     queryFn: () => getTradingOverview(token),
     enabled: !!token,
   });
 
-  const { data: haltData } = useQuery({
+  const { data: haltData, isError: haltIsError, error: haltError, refetch: refetchHalt } = useQuery({
     queryKey: ['admin', 'trading', 'halt', token],
     staleTime: 30_000,
     queryFn: () => getTradingHalt(token),
     enabled: !!token,
   });
 
-  const { data: circuitData } = useQuery({
+  const { data: circuitData, isError: circuitIsError, error: circuitError, refetch: refetchCircuit } = useQuery({
     queryKey: ['admin', 'trading', 'circuit', token],
     staleTime: 30_000,
     queryFn: () => getTradingCircuit(token),
     enabled: !!token,
   });
 
-  const { data: marketsData } = useQuery({
+  const { data: marketsData, isError: marketsIsError, error: marketsError, refetch: refetchMarkets } = useQuery({
     queryKey: ['admin', 'trading', 'markets', token],
     staleTime: 30_000,
     queryFn: () => getTradingMarkets(token),
@@ -84,7 +86,7 @@ export default function TradingPage() {
     refetchInterval: 10_000,
   });
 
-  const { data: monitoringData } = useQuery({
+  const { data: monitoringData, isError: monitoringIsError, error: monitoringError, refetch: refetchMonitoring } = useQuery({
     queryKey: ['admin', 'monitoring', 'trading', token],
     staleTime: 30_000,
     queryFn: () => getMonitoringTrading(token),
@@ -129,8 +131,8 @@ export default function TradingPage() {
   });
 
   const marketHaltMutation = useMutation({
-    mutationFn: ({ market, halted }: { market: string; halted: boolean }) =>
-      postMarketHalt(token, market, halted),
+    mutationFn: ({ market, halted, reason }: { market: string; halted: boolean; reason?: string }) =>
+      postMarketHalt(token, market, halted, halted ? { reason } : undefined),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'trading'] });
     },
@@ -180,8 +182,30 @@ export default function TradingPage() {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
   };
 
+  const pageError =
+    (overviewIsError && (overviewError instanceof Error ? overviewError.message : 'Failed to load trading overview.')) ||
+    (haltIsError && (haltError instanceof Error ? haltError.message : 'Failed to load trading halt status.')) ||
+    (circuitIsError && (circuitError instanceof Error ? circuitError.message : 'Failed to load circuit status.')) ||
+    (marketsIsError && (marketsError instanceof Error ? marketsError.message : 'Failed to load markets data.')) ||
+    (monitoringIsError && (monitoringError instanceof Error ? monitoringError.message : 'Failed to load monitoring data.')) ||
+    null;
+
+  const retryAll = () => {
+    void refetchOverview();
+    void refetchHalt();
+    void refetchCircuit();
+    void refetchMarkets();
+    void refetchMonitoring();
+  };
+
   return (
-    <AdminPageFrame title="Trading" description="Monitor orders, trades, and control market status." status="active" error={null}>
+    <AdminPageFrame
+      title="Trading"
+      description="Monitor orders, trades, and control market status."
+      status="active"
+      error={pageError}
+      onRetry={pageError ? retryAll : undefined}
+    >
 
       {/* Dashboard cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -347,9 +371,7 @@ export default function TradingPage() {
             <ProtectedAction permission="markets:manage" fallback="disabled">
               <Button
                 variant="secondary"
-                onClick={() =>
-                  marketHaltMutation.mutate({ market: marketHaltMarket, halted: true })
-                }
+                onClick={() => setMarketAction({ market: marketHaltMarket, halted: true })}
                 disabled={marketHaltMutation.isPending}
               >
                 <Pause className="mr-2 h-4 w-4" />
@@ -359,9 +381,7 @@ export default function TradingPage() {
             <ProtectedAction permission="markets:manage" fallback="disabled">
               <Button
                 variant="secondary"
-                onClick={() =>
-                  marketHaltMutation.mutate({ market: marketHaltMarket, halted: false })
-                }
+                onClick={() => setMarketAction({ market: marketHaltMarket, halted: false })}
                 disabled={marketHaltMutation.isPending}
               >
                 <Play className="mr-2 h-4 w-4" />
@@ -404,6 +424,29 @@ export default function TradingPage() {
         onClose={() => setControlModal(null)}
         onConfirm={handleControlConfirm}
         isLoading={haltMutation.isPending || circuitMutation.isPending}
+      />
+      <ActionAuthModal
+        open={marketAction !== null}
+        onClose={() => setMarketAction(null)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          if (!marketAction) return;
+          marketHaltMutation.mutate({
+            market: marketAction.market,
+            halted: marketAction.halted,
+            reason: payload.reason,
+          });
+          setMarketAction(null);
+        }}
+        title={marketAction?.halted ? 'Pause market trading' : 'Resume market trading'}
+        actionLabel={marketAction ? `${marketAction.halted ? 'Pause' : 'Resume'} ${marketAction.market}` : 'Market action'}
+        description="Per-market halt/resume is a production-sensitive trading control."
+        requireReason
+        twofaRequired
+        confirmationPhrase={marketAction?.halted ? `HALT ${marketAction.market}` : undefined}
+        externalError={marketHaltMutation.error instanceof Error ? marketHaltMutation.error.message : null}
+        isPending={marketHaltMutation.isPending}
+        confirmLabel={marketHaltMutation.isPending ? 'Applying…' : 'Confirm'}
+        confirmVariant={marketAction?.halted ? 'danger' : 'primary'}
       />
     </AdminPageFrame>
   );

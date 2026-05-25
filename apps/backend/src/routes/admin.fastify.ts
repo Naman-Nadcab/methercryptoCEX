@@ -327,8 +327,13 @@ export async function getAdminFromRequest(
 export const ADMIN_ROLES = {
   SUPER_ADMIN: 'super_admin',
   RISK_MANAGER: 'risk_manager',
+  FINANCE_OPS: 'finance_ops',
+  SUPPORT: 'support',
+  COMPLIANCE: 'compliance',
+  // Legacy aliases still accepted in DB.
   FINANCE_ADMIN: 'finance_admin',
   SUPPORT_AGENT: 'support_agent',
+  COMPLIANCE_OFFICER: 'compliance_officer',
   AUDITOR: 'auditor',
 } as const;
 export type AdminRoleValue = (typeof ADMIN_ROLES)[keyof typeof ADMIN_ROLES];
@@ -363,6 +368,24 @@ function requirePermission(admin: { adminId: string; role: string }, permission:
     return false;
   }
   return true;
+}
+
+function requireAnyPermission(
+  admin: { adminId: string; role: string },
+  permissions: string[],
+  reply: FastifyReply
+): boolean {
+  for (const permission of permissions) {
+    if (hasAdminRbacPermission(admin.role, permission)) return true;
+  }
+  reply.code(403).send({
+    success: false,
+    error: {
+      code: 'FORBIDDEN',
+      message: `One of these permissions is required: ${permissions.join(', ')}`,
+    },
+  });
+  return false;
 }
 
 /** Get admin and enforce permission. Use for RBAC on sensitive routes. requiredPermission must be a key of ADMIN_PERMISSION_MATRIX. */
@@ -5919,6 +5942,98 @@ export default async function adminRoutes(app: FastifyInstance) {
     }
   });
 
+  /**
+   * PATCH /admin/kyc/bulk-review
+   * Bulk approve/reject KYC submissions.
+   */
+  app.patch('/kyc/bulk-review', async (request, reply) => {
+    const admin = await getAdminWithPermission(app, request, reply, 'kyc:review');
+    if (!admin) return;
+    try {
+      const body = (request.body ?? {}) as { ids?: unknown; action?: unknown; reason?: unknown };
+      const ids = Array.isArray(body.ids)
+        ? body.ids.filter((v): v is string => typeof v === 'string' && v.trim().length > 0).slice(0, 100)
+        : [];
+      const action = typeof body.action === 'string' ? body.action : '';
+      const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+      if (!ids.length || (action !== 'approve' && action !== 'reject')) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'INVALID_INPUT', message: 'ids[] and action (approve|reject) are required' },
+        });
+      }
+      if (action === 'reject' && reason.length < 8) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'REASON_REQUIRED', message: 'Reject bulk review requires reason (minimum 8 characters).' },
+        });
+      }
+
+      const updatedResult = await db.query<{ id: string; user_id: string; kyc_level: string }>(
+        `UPDATE kyc_applications
+         SET status = $1, reviewed_at = NOW(), rejection_reason = $2
+         WHERE id = ANY($3::uuid[])
+         RETURNING id, user_id, kyc_level`,
+        [action === 'approve' ? 'approved' : 'rejected', action === 'reject' ? reason : null, ids]
+      );
+      const updatedRows = updatedResult.rows;
+
+      if (action === 'approve') {
+        for (const row of updatedRows) {
+          try {
+            await db.query('UPDATE users SET tier_level = $1 WHERE id = $2', [row.kyc_level, row.user_id]);
+            try {
+              const { applyTierLimitsToUser } = await import('../services/withdrawal-tier-limits.service.js');
+              await applyTierLimitsToUser(row.user_id, Number(row.kyc_level) || 1);
+            } catch (e) {
+              logger.warn('Apply tier limits on bulk KYC approve failed (best-effort)', {
+                userId: row.user_id,
+                error: e instanceof Error ? e.message : 'Unknown',
+              });
+            }
+          } catch {
+            // continue best-effort for remaining rows
+          }
+        }
+      }
+
+      try {
+        await logAuditFromRequest(request, {
+          actorType: 'admin',
+          actorId: admin.adminId,
+          action: action === 'approve' ? 'kyc_bulk_approve' : 'kyc_bulk_reject',
+          resourceType: 'kyc_application',
+          resourceId: ids.join(','),
+          newValue: { action, reason: action === 'reject' ? reason : null, count: updatedRows.length },
+        });
+      } catch {
+        /* best-effort */
+      }
+
+      for (const row of updatedRows) {
+        try {
+          publishKycStatusChanged(action === 'approve' ? 'kyc_approved' : 'kyc_rejected', { id: row.id, user_id: row.user_id });
+        } catch {
+          /* best-effort */
+        }
+      }
+
+      return reply.send({
+        success: true,
+        data: {
+          updated: updatedRows.length,
+          action,
+          ids: updatedRows.map((r) => r.id),
+        },
+      });
+    } catch {
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'BULK_REVIEW_FAILED', message: 'Failed to bulk review KYC applications' },
+      });
+    }
+  });
+
   // ===============================
   // P2P MANAGEMENT
   // ===============================
@@ -7864,6 +7979,157 @@ export default async function adminRoutes(app: FastifyInstance) {
         error: { code: 'REJECT_FAILED', message: 'Failed to reject withdrawal' },
       });
     }
+  });
+
+  /**
+   * POST /admin/withdrawals/bulk-approve
+   * Bulk approve withdrawals in pending_approval state.
+   */
+  app.post<{ Body: { withdrawal_ids: string[]; admin_note?: string } }>('/withdrawals/bulk-approve', async (request, reply) => {
+    const admin = await getAdminForWithdrawalApproval(app, request, reply);
+    if (!admin) return;
+    if (redisBlocksHighRiskActions()) {
+      return reply.status(503).send({
+        success: false,
+        error: { code: 'REDIS_UNAVAILABLE', message: 'Withdrawal approval is disabled while Redis is unhealthy.' },
+      });
+    }
+    if (config.security.makerCheckerEnabled) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'MAKER_CHECKER_REQUIRED', message: 'Direct withdrawal approval is disabled while maker-checker is enabled.' },
+      });
+    }
+    const ids = Array.isArray(request.body?.withdrawal_ids)
+      ? request.body.withdrawal_ids.filter((id): id is string => typeof id === 'string' && id.length > 0).slice(0, 100)
+      : [];
+    const adminNote = (request.body?.admin_note ?? '').trim();
+    if (!ids.length) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'INVALID_INPUT', message: 'withdrawal_ids[] is required' },
+      });
+    }
+    if (adminNote.length < 8) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'AUDIT_NOTE_REQUIRED', message: 'Bulk approval requires admin_note (minimum 8 characters).' },
+      });
+    }
+
+    const { approveWithdrawal } = await import('../services/withdrawal-approval.service.js');
+    const approved: string[] = [];
+    const failed: Array<{ id: string; code: string; message: string }> = [];
+
+    for (const withdrawalId of ids) {
+      try {
+        await approveWithdrawal(withdrawalId, admin.adminId, {
+          ip: request.ip ?? undefined,
+          userAgent: request.headers['user-agent'] ?? undefined,
+        });
+        approved.push(withdrawalId);
+      } catch (error: unknown) {
+        const err = error as { code?: string; message?: string };
+        failed.push({
+          id: withdrawalId,
+          code: err?.code ?? 'APPROVE_FAILED',
+          message: err?.message ?? 'Failed to approve withdrawal',
+        });
+      }
+    }
+
+    try {
+      await logAuditFromRequest(request, {
+        actorType: 'admin',
+        actorId: admin.adminId,
+        action: 'admin_withdrawal_bulk_approve',
+        resourceType: 'withdrawal',
+        resourceId: ids.join(','),
+        newValue: { approved_count: approved.length, failed_count: failed.length, admin_note: adminNote },
+      });
+    } catch {
+      /* best-effort */
+    }
+
+    return reply.send({
+      success: true,
+      data: {
+        approved_count: approved.length,
+        failed_count: failed.length,
+        approved_ids: approved,
+        failed,
+      },
+    });
+  });
+
+  /**
+   * POST /admin/withdrawals/bulk-reject
+   * Bulk reject withdrawals in pending_approval state.
+   */
+  app.post<{ Body: { withdrawal_ids: string[]; reason?: string; admin_note?: string } }>('/withdrawals/bulk-reject', async (request, reply) => {
+    const admin = await getAdminForWithdrawalApproval(app, request, reply);
+    if (!admin) return;
+    const ids = Array.isArray(request.body?.withdrawal_ids)
+      ? request.body.withdrawal_ids.filter((id): id is string => typeof id === 'string' && id.length > 0).slice(0, 100)
+      : [];
+    const reason = (request.body?.reason ?? '').trim();
+    const adminNote = (request.body?.admin_note ?? '').trim() || null;
+    if (!ids.length) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'INVALID_INPUT', message: 'withdrawal_ids[] is required' },
+      });
+    }
+    if (reason.length < 8) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'REJECTION_REASON_REQUIRED', message: 'Bulk rejection requires reason (minimum 8 characters).' },
+      });
+    }
+
+    const { rejectWithdrawal } = await import('../services/withdrawal-approval.service.js');
+    const rejected: string[] = [];
+    const failed: Array<{ id: string; code: string; message: string }> = [];
+
+    for (const withdrawalId of ids) {
+      try {
+        await rejectWithdrawal(withdrawalId, admin.adminId, reason, {
+          ip: request.ip ?? undefined,
+          userAgent: request.headers['user-agent'] ?? undefined,
+        });
+        rejected.push(withdrawalId);
+      } catch (error: unknown) {
+        const err = error as { code?: string; message?: string };
+        failed.push({
+          id: withdrawalId,
+          code: err?.code ?? 'REJECT_FAILED',
+          message: err?.message ?? 'Failed to reject withdrawal',
+        });
+      }
+    }
+
+    try {
+      await logAuditFromRequest(request, {
+        actorType: 'admin',
+        actorId: admin.adminId,
+        action: 'admin_withdrawal_bulk_reject',
+        resourceType: 'withdrawal',
+        resourceId: ids.join(','),
+        newValue: { rejected_count: rejected.length, failed_count: failed.length, reason, admin_note: adminNote },
+      });
+    } catch {
+      /* best-effort */
+    }
+
+    return reply.send({
+      success: true,
+      data: {
+        rejected_count: rejected.length,
+        failed_count: failed.length,
+        rejected_ids: rejected,
+        failed,
+      },
+    });
   });
 
   // ===============================
@@ -10911,7 +11177,7 @@ export default async function adminRoutes(app: FastifyInstance) {
    * POST /admin/trading/halt
    * Set global trading halt (body: { halted: boolean, reason?: string, admin_note?: string }). Logs reason to audit.
    */
-  app.post<{ Body: { halted?: boolean; reason?: string; admin_note?: string } }>('/trading/halt', async (request, reply) => {
+  app.post<{ Body: { halted?: boolean; reason?: string; admin_note?: string; submit_for_approval?: boolean } }>('/trading/halt', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
     if (!requirePermission(admin, 'control:trading', reply)) return;
@@ -10924,6 +11190,50 @@ export default async function adminRoutes(app: FastifyInstance) {
         error: {
           code: 'REASON_REQUIRED',
           message: 'Reason (minimum 8 characters) is required when pausing trading.',
+        },
+      });
+    }
+    const { getAdminApprovalPolicyByKey } = await import('../services/admin-approval-policy.service.js');
+    const haltPolicy = await getAdminApprovalPolicyByKey('global_action:halt_trading');
+    const shouldQueueHalt = halted
+      ? haltPolicy.mode !== 'single_allowed' || request.body?.submit_for_approval === true
+      : request.body?.submit_for_approval === true;
+    if (shouldQueueHalt) {
+      const { adminApprovalService } = await import('../services/admin-approval.service.js');
+      const approval = await adminApprovalService.createRequest(
+        'global_control_action',
+        {
+          action: 'halt_trading',
+          reason: reason ?? 'trading halt requested',
+        },
+        admin.adminId,
+        haltPolicy.required_approvals
+      );
+      await logAuditFromRequest(request, {
+        actorType: 'admin',
+        actorId: admin.adminId,
+        action: 'admin_trading_halt_approval_requested',
+        resourceType: 'trading',
+        resourceId: null,
+        oldValue: null,
+        newValue: {
+          halted: true,
+          reason,
+          admin_note: adminNote,
+          policy_mode: haltPolicy.mode,
+          bypass_requested: request.body?.submit_for_approval === false,
+          approval_request_id: approval.id,
+          required_approvals: approval.required_approvals,
+        },
+      });
+      return reply.send({
+        success: true,
+        data: {
+          halted: false,
+          queued_for_approval: true,
+          approval_request_id: approval.id,
+          required_approvals: approval.required_approvals,
+          current_approvals: approval.current_approvals,
         },
       });
     }
@@ -12374,7 +12684,7 @@ export default async function adminRoutes(app: FastifyInstance) {
       `, [id, tier_name, tier_level, min_trading_volume, min_token_holding, spot_maker_fee, spot_taker_fee, withdrawal_fee_discount]);
       const row = await db.query('SELECT * FROM fee_tiers WHERE id = $1', [id]);
       await db.query(`INSERT INTO admin_activity_logs (admin_id, action, details, ip_address) VALUES ($1, $2, $3::jsonb, $4)`, [
-        admin.id, 'fee_tier_created', JSON.stringify({ resource_type: 'fee_tier', resource_id: id, new_value: { tier_name, tier_level, spot_maker_fee, spot_taker_fee } }), (request.ip || null),
+        admin.adminId, 'fee_tier_created', JSON.stringify({ resource_type: 'fee_tier', resource_id: id, new_value: { tier_name, tier_level, spot_maker_fee, spot_taker_fee } }), (request.ip || null),
       ]).catch(() => {/* non-fatal */});
       return reply.status(201).send({ success: true, data: { tier: row.rows[0] } });
     } catch (error: any) {
@@ -12417,7 +12727,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Tier not found' } });
       }
       await db.query(`INSERT INTO admin_activity_logs (admin_id, action, details, ip_address) VALUES ($1, $2, $3::jsonb, $4)`, [
-        admin.id, 'fee_tier_updated', JSON.stringify({ resource_type: 'fee_tier', resource_id: id, new_value: body }), (request.ip || null),
+        admin.adminId, 'fee_tier_updated', JSON.stringify({ resource_type: 'fee_tier', resource_id: id, new_value: body }), (request.ip || null),
       ]).catch(() => {/* non-fatal */});
       return reply.send({ success: true, data: { tier: row.rows[0] } });
     } catch (error) {
@@ -12538,7 +12848,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Currency not found' } });
       }
       await db.query(`INSERT INTO admin_activity_logs (admin_id, action, details, ip_address) VALUES ($1, $2, $3::jsonb, $4)`, [
-        admin.id, 'fee_withdrawal_updated', JSON.stringify({ resource_type: 'withdrawal_fee', resource_id: id, new_value: body }), (request.ip || null),
+        admin.adminId, 'fee_withdrawal_updated', JSON.stringify({ resource_type: 'withdrawal_fee', resource_id: id, new_value: body }), (request.ip || null),
       ]).catch(() => {/* non-fatal */});
       return reply.send({ success: true, data: { currency: row.rows[0] } });
     } catch (error) {
@@ -12608,7 +12918,7 @@ export default async function adminRoutes(app: FastifyInstance) {
       `, [id, name, description || null, promotion_type, discount_type, discount_value, min_volume_30d, start_date, end_date, is_active]);
       const row = await db.query('SELECT * FROM fee_promotions WHERE id = $1', [id]);
       await db.query(`INSERT INTO admin_activity_logs (admin_id, action, details, ip_address) VALUES ($1, $2, $3::jsonb, $4)`, [
-        admin.id, 'fee_promotion_created', JSON.stringify({ resource_type: 'fee_promotion', resource_id: id, new_value: { name, promotion_type, discount_value } }), (request.ip || null),
+        admin.adminId, 'fee_promotion_created', JSON.stringify({ resource_type: 'fee_promotion', resource_id: id, new_value: { name, promotion_type, discount_value } }), (request.ip || null),
       ]).catch(() => {/* non-fatal */});
       return reply.status(201).send({ success: true, data: { promotion: row.rows[0] } });
     } catch (error: any) {
@@ -12648,7 +12958,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Promotion not found' } });
       }
       await db.query(`INSERT INTO admin_activity_logs (admin_id, action, details, ip_address) VALUES ($1, $2, $3::jsonb, $4)`, [
-        admin.id, 'fee_promotion_updated', JSON.stringify({ resource_type: 'fee_promotion', resource_id: id, new_value: body }), (request.ip || null),
+        admin.adminId, 'fee_promotion_updated', JSON.stringify({ resource_type: 'fee_promotion', resource_id: id, new_value: body }), (request.ip || null),
       ]).catch(() => {/* non-fatal */});
       return reply.send({ success: true, data: { promotion: row.rows[0] } });
     } catch (error) {
@@ -13133,12 +13443,13 @@ export default async function adminRoutes(app: FastifyInstance) {
         `UPDATE admin_users SET password_hash = $1, updated_at = NOW() WHERE id = $2::uuid RETURNING id, email`,
         [hash, id]
       );
-      if (!result.rows?.length) return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Admin not found' } });
+      const resetRow = result.rows[0];
+      if (!resetRow) return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Admin not found' } });
       await logAuditFromRequest(request, {
         actorType: 'admin', actorId: admin.adminId, action: 'admin_password_reset',
         resourceType: 'admin_user', resourceId: id, newValue: { resetBy: admin.adminId },
       });
-      return reply.send({ success: true, data: { id, email: result.rows[0].email, tempPassword, note: 'Share this password securely. It expires after first login.' } });
+      return reply.send({ success: true, data: { id, email: resetRow.email, tempPassword, note: 'Share this password securely. It expires after first login.' } });
     } catch (e) {
       logger.error('Reset admin password error', { error: e instanceof Error ? e.message : 'Unknown' });
       return reply.status(500).send({ success: false, error: { code: 'RESET_FAILED', message: 'Failed to reset password' } });
@@ -15320,18 +15631,6 @@ export default async function adminRoutes(app: FastifyInstance) {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
     try {
-      await db.query(`
-        CREATE TABLE IF NOT EXISTS node_providers (
-          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-          provider_name TEXT NOT NULL,
-          rpc_url TEXT,
-          api_key TEXT,
-          network TEXT NOT NULL DEFAULT 'mainnet',
-          status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'maintenance')),
-          created_at TIMESTAMPTZ DEFAULT NOW(),
-          updated_at TIMESTAMPTZ DEFAULT NOW()
-        )
-      `);
       const result = await db.query<{ id: string; provider_name: string; rpc_url: string | null; api_key: string | null; network: string; status: string; created_at: string; updated_at: string }>(
         'SELECT id::text, provider_name, rpc_url, api_key, network, status, created_at::text, updated_at::text FROM node_providers ORDER BY provider_name'
       );
@@ -15362,7 +15661,6 @@ export default async function adminRoutes(app: FastifyInstance) {
     const id = request.params?.id;
     if (!id) return reply.status(400).send({ success: false, error: { code: 'MISSING_ID', message: 'Node id required' } });
     try {
-      await db.query(`CREATE TABLE IF NOT EXISTS node_providers (id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), provider_name TEXT NOT NULL, rpc_url TEXT, api_key TEXT, network TEXT NOT NULL DEFAULT 'mainnet', status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())`);
       const body = request.body || {};
       const updates: string[] = [];
       const params: (string | number)[] = [];
@@ -15396,7 +15694,6 @@ export default async function adminRoutes(app: FastifyInstance) {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
     try {
-      await db.query(`CREATE TABLE IF NOT EXISTS node_providers (id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), provider_name TEXT NOT NULL, rpc_url TEXT, api_key TEXT, network TEXT NOT NULL DEFAULT 'mainnet', status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())`);
       const body = request.body || {};
       const name = typeof body.provider_name === 'string' ? body.provider_name.trim() : '';
       if (!name) return reply.status(400).send({ success: false, error: { code: 'MISSING_NAME', message: 'provider_name is required' } });
@@ -15425,23 +15722,6 @@ export default async function adminRoutes(app: FastifyInstance) {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
     try {
-      await db.query(`
-        CREATE TABLE IF NOT EXISTS integrations (
-          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-          provider_name TEXT NOT NULL,
-          category TEXT NOT NULL,
-          endpoint_url TEXT,
-          api_key TEXT,
-          secret_key TEXT,
-          webhook_secret TEXT,
-          status TEXT NOT NULL DEFAULT 'inactive',
-          event_type TEXT,
-          assets_covered TEXT,
-          update_interval_sec INTEGER,
-          created_at TIMESTAMPTZ DEFAULT NOW(),
-          updated_at TIMESTAMPTZ DEFAULT NOW()
-        )
-      `);
       const category = (request.query as { category?: string }).category;
       let where = '1=1';
       const params: string[] = [];
@@ -15453,7 +15733,6 @@ export default async function adminRoutes(app: FastifyInstance) {
         `SELECT id::text, provider_name, category, endpoint_url, api_key, secret_key, webhook_secret, status, event_type, assets_covered, update_interval_sec, updated_at::text FROM integrations WHERE ${where} ORDER BY category, provider_name`,
         params
       );
-      await db.query(`CREATE TABLE IF NOT EXISTS integration_meta (integration_id UUID PRIMARY KEY, failover_priority INTEGER DEFAULT 1, last_latency_ms INTEGER, last_success_at TIMESTAMPTZ, error_count INTEGER DEFAULT 0)`).catch(() => {});
       const metaRows = rows.rows.length > 0
         ? await db.query<{ integration_id: string; failover_priority: number; last_latency_ms: number | null; last_success_at: string | null; error_count: number }>(
             `SELECT integration_id::text, COALESCE(failover_priority, 1) AS failover_priority, last_latency_ms, last_success_at::text, COALESCE(error_count, 0) AS error_count FROM integration_meta WHERE integration_id IN (${rows.rows.map((_, i) => `$${i + 1}::uuid`).join(',')})`,
@@ -15500,23 +15779,6 @@ export default async function adminRoutes(app: FastifyInstance) {
       return reply.status(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'provider_name and category (one of ' + INTEGRATION_CATEGORIES.join(', ') + ') required' } });
     }
     try {
-      await db.query(`
-        CREATE TABLE IF NOT EXISTS integrations (
-          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-          provider_name TEXT NOT NULL,
-          category TEXT NOT NULL,
-          endpoint_url TEXT,
-          api_key TEXT,
-          secret_key TEXT,
-          webhook_secret TEXT,
-          status TEXT NOT NULL DEFAULT 'inactive',
-          event_type TEXT,
-          assets_covered TEXT,
-          update_interval_sec INTEGER,
-          created_at TIMESTAMPTZ DEFAULT NOW(),
-          updated_at TIMESTAMPTZ DEFAULT NOW()
-        )
-      `);
       const ins = await db.query<{ id: string }>(
         `INSERT INTO integrations (provider_name, category, endpoint_url, api_key, secret_key, webhook_secret, status, event_type, assets_covered, update_interval_sec)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id::text`,
@@ -15569,7 +15831,6 @@ export default async function adminRoutes(app: FastifyInstance) {
       if (typeof body.assets_covered === 'string') { updates.push(`assets_covered = $${i++}`); params.push(body.assets_covered || null); }
       if (typeof body.update_interval_sec === 'number') { updates.push(`update_interval_sec = $${i++}`); params.push(body.update_interval_sec); }
       if (typeof body.failover_priority === 'number') {
-        await db.query(`CREATE TABLE IF NOT EXISTS integration_meta (integration_id UUID PRIMARY KEY, failover_priority INTEGER DEFAULT 1, last_latency_ms INTEGER, last_success_at TIMESTAMPTZ, error_count INTEGER DEFAULT 0)`).catch(() => {});
         await db.query(
           'INSERT INTO integration_meta (integration_id, failover_priority) VALUES ($1::uuid, $2) ON CONFLICT (integration_id) DO UPDATE SET failover_priority = $2',
           [id, body.failover_priority]
@@ -15603,7 +15864,6 @@ export default async function adminRoutes(app: FastifyInstance) {
       const res = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(10000) });
       const latency_ms = Date.now() - start;
       if (id) {
-        await db.query(`CREATE TABLE IF NOT EXISTS integration_meta (integration_id UUID PRIMARY KEY, failover_priority INTEGER DEFAULT 1, last_latency_ms INTEGER, last_success_at TIMESTAMPTZ, error_count INTEGER DEFAULT 0)`).catch(() => {});
         if (res.ok) {
           await db.query(
             'INSERT INTO integration_meta (integration_id, last_latency_ms, last_success_at, error_count) VALUES ($1::uuid, $2, NOW(), COALESCE((SELECT error_count FROM integration_meta WHERE integration_id = $1::uuid), 0)) ON CONFLICT (integration_id) DO UPDATE SET last_latency_ms = $2, last_success_at = NOW()',
@@ -15617,17 +15877,6 @@ export default async function adminRoutes(app: FastifyInstance) {
         }
       }
       if (id) {
-        await db.query(`
-          CREATE TABLE IF NOT EXISTS integration_event_logs (
-            id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-            integration_id UUID NOT NULL,
-            provider_name TEXT,
-            event_type TEXT,
-            status TEXT NOT NULL DEFAULT 'success',
-            latency_ms INTEGER,
-            created_at TIMESTAMPTZ DEFAULT NOW()
-          )
-        `).catch(() => {});
         const nameRow = await db.query<{ provider_name: string }>('SELECT provider_name FROM integrations WHERE id = $1::uuid', [id]).catch(() => ({ rows: [] }));
         await db.query(
           'INSERT INTO integration_event_logs (integration_id, provider_name, event_type, status, latency_ms) VALUES ($1::uuid, $2, $3, $4, $5)',
@@ -15639,22 +15888,10 @@ export default async function adminRoutes(app: FastifyInstance) {
       const latency_ms = Date.now() - start;
       const error = e instanceof Error ? e.message : 'Connection failed';
       if (id) {
-        await db.query(`CREATE TABLE IF NOT EXISTS integration_meta (integration_id UUID PRIMARY KEY, failover_priority INTEGER DEFAULT 1, last_latency_ms INTEGER, last_success_at TIMESTAMPTZ, error_count INTEGER DEFAULT 0)`).catch(() => {});
         await db.query(
           'INSERT INTO integration_meta (integration_id, last_latency_ms, error_count) VALUES ($1::uuid, $2, 1) ON CONFLICT (integration_id) DO UPDATE SET last_latency_ms = $2, error_count = integration_meta.error_count + 1',
           [id, latency_ms]
         ).catch(() => {});
-        await db.query(`
-          CREATE TABLE IF NOT EXISTS integration_event_logs (
-            id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-            integration_id UUID NOT NULL,
-            provider_name TEXT,
-            event_type TEXT,
-            status TEXT NOT NULL DEFAULT 'success',
-            latency_ms INTEGER,
-            created_at TIMESTAMPTZ DEFAULT NOW()
-          )
-        `).catch(() => {});
         const nameRow = await db.query<{ provider_name: string }>('SELECT provider_name FROM integrations WHERE id = $1::uuid', [id]).catch(() => ({ rows: [] }));
         await db.query(
           'INSERT INTO integration_event_logs (integration_id, provider_name, event_type, status, latency_ms) VALUES ($1::uuid, $2, $3, $4, $5)',
@@ -15669,7 +15906,6 @@ export default async function adminRoutes(app: FastifyInstance) {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
     try {
-      await db.query(`CREATE TABLE IF NOT EXISTS integration_meta (integration_id UUID PRIMARY KEY, failover_priority INTEGER DEFAULT 1, last_latency_ms INTEGER, last_success_at TIMESTAMPTZ, error_count INTEGER DEFAULT 0)`);
       const all = await db.query<{ id: string; status: string }>('SELECT id::text, status FROM integrations');
       const active = all.rows.filter((r) => r.status === 'active').length;
       const failedRes = await db.query<{ count: string }>(
@@ -15699,7 +15935,6 @@ export default async function adminRoutes(app: FastifyInstance) {
     if (!admin) return;
     try {
       const rows = await db.query<{ id: string; provider_name: string; category: string }>('SELECT id::text, provider_name, category FROM integrations WHERE status = $1', ['active']);
-      await db.query(`CREATE TABLE IF NOT EXISTS integration_rate_limits (integration_id UUID PRIMARY KEY, requests_per_min INTEGER DEFAULT 60, remaining_quota INTEGER, resets_at TIMESTAMPTZ)`).catch(() => {});
       const limits: { integration_id: string; provider_name: string; category: string; requests_per_min: number; remaining_quota: number | null; resets_at: string | null }[] = [];
       for (const r of rows.rows) {
         const lr = await db.query<{ requests_per_min: number; remaining_quota: number | null; resets_at: string | null }>(
@@ -15726,18 +15961,6 @@ export default async function adminRoutes(app: FastifyInstance) {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
     try {
-      await db.query(`
-        CREATE TABLE IF NOT EXISTS integration_webhook_deliveries (
-          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-          integration_id UUID NOT NULL,
-          webhook_url TEXT,
-          event_type TEXT,
-          delivery_status TEXT NOT NULL DEFAULT 'pending',
-          response_code INTEGER,
-          retry_count INTEGER DEFAULT 0,
-          created_at TIMESTAMPTZ DEFAULT NOW()
-        )
-      `);
       const limit = Math.min(parseInt(String((request.query as { limit?: string }).limit), 10) || 50, 100);
       const offset = parseInt(String((request.query as { offset?: string }).offset), 10) || 0;
       const rows = await db.query<{ id: string; integration_id: string; webhook_url: string | null; event_type: string | null; delivery_status: string; response_code: number | null; retry_count: number; created_at: string }>(
@@ -15766,18 +15989,6 @@ export default async function adminRoutes(app: FastifyInstance) {
     if (!admin) return;
     const id = (request.params as { id: string }).id;
     try {
-      await db.query(`
-        CREATE TABLE IF NOT EXISTS integration_webhook_deliveries (
-          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-          integration_id UUID NOT NULL,
-          webhook_url TEXT,
-          event_type TEXT,
-          delivery_status TEXT NOT NULL DEFAULT 'pending',
-          response_code INTEGER,
-          retry_count INTEGER DEFAULT 0,
-          created_at TIMESTAMPTZ DEFAULT NOW()
-        )
-      `);
       const row = await db.query<{ integration_id: string; webhook_url: string | null; event_type: string | null; retry_count: number }>(
         'SELECT integration_id::text, webhook_url, event_type, COALESCE(retry_count, 0) AS retry_count FROM integration_webhook_deliveries WHERE id = $1::uuid',
         [id]
@@ -15800,17 +16011,6 @@ export default async function adminRoutes(app: FastifyInstance) {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
     try {
-      await db.query(`
-        CREATE TABLE IF NOT EXISTS integration_event_logs (
-          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-          integration_id UUID NOT NULL,
-          provider_name TEXT,
-          event_type TEXT,
-          status TEXT NOT NULL DEFAULT 'success',
-          latency_ms INTEGER,
-          created_at TIMESTAMPTZ DEFAULT NOW()
-        )
-      `);
       const limit = Math.min(parseInt(String((request.query as { limit?: string }).limit), 10) || 50, 100);
       const offset = parseInt(String((request.query as { offset?: string }).offset), 10) || 0;
       const rows = await db.query<{ id: string; provider_name: string | null; event_type: string | null; status: string; latency_ms: number | null; created_at: string }>(
@@ -15841,12 +16041,6 @@ export default async function adminRoutes(app: FastifyInstance) {
       return reply.status(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'category and provider_id required' } });
     }
     try {
-      await db.query(`
-        CREATE TABLE IF NOT EXISTS integration_active (
-          category TEXT PRIMARY KEY,
-          provider_id UUID NOT NULL
-        )
-      `);
       await db.query(
         'INSERT INTO integration_active (category, provider_id) VALUES ($1, $2::uuid) ON CONFLICT (category) DO UPDATE SET provider_id = $2::uuid',
         [category, provider_id]
@@ -15874,18 +16068,6 @@ export default async function adminRoutes(app: FastifyInstance) {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
     try {
-      await db.query(`
-        CREATE TABLE IF NOT EXISTS compliance_integrations (
-          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-          provider_name TEXT NOT NULL UNIQUE,
-          api_url TEXT,
-          api_key TEXT,
-          webhook_secret TEXT,
-          status TEXT NOT NULL DEFAULT 'inactive' CHECK (status IN ('active', 'inactive')),
-          created_at TIMESTAMPTZ DEFAULT NOW(),
-          updated_at TIMESTAMPTZ DEFAULT NOW()
-        )
-      `);
       const result = await db.query<{ id: string; provider_name: string; api_url: string | null; api_key: string | null; webhook_secret: string | null; status: string }>(
         'SELECT id::text, provider_name, api_url, api_key, webhook_secret, status FROM compliance_integrations ORDER BY provider_name'
       );
@@ -15909,7 +16091,6 @@ export default async function adminRoutes(app: FastifyInstance) {
     if (!admin) return;
     const id = (request.params as { id: string }).id;
     try {
-      await db.query(`CREATE TABLE IF NOT EXISTS compliance_integrations (id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), provider_name TEXT NOT NULL UNIQUE, api_url TEXT, api_key TEXT, webhook_secret TEXT, status TEXT NOT NULL DEFAULT 'inactive', created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())`);
       const body = (request.body || {}) as { provider_name?: string; api_url?: string; api_key?: string; webhook_secret?: string; status?: string };
       const updates: string[] = [];
       const params: (string | number)[] = [];
@@ -15936,7 +16117,6 @@ export default async function adminRoutes(app: FastifyInstance) {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
     try {
-      await db.query(`CREATE TABLE IF NOT EXISTS compliance_integrations (id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), provider_name TEXT NOT NULL UNIQUE, api_url TEXT, api_key TEXT, webhook_secret TEXT, status TEXT NOT NULL DEFAULT 'inactive', created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())`);
       const body = (request.body || {}) as { provider_name: string; api_url?: string; api_key?: string; webhook_secret?: string; status?: string };
       const name = typeof body.provider_name === 'string' ? body.provider_name.trim() : '';
       if (!name) return reply.status(400).send({ success: false, error: { code: 'MISSING_NAME', message: 'provider_name is required' } });
@@ -15960,18 +16140,6 @@ export default async function adminRoutes(app: FastifyInstance) {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
     try {
-      await db.query(`
-        CREATE TABLE IF NOT EXISTS infrastructure_providers (
-          id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-          provider_type TEXT NOT NULL,
-          provider_name TEXT NOT NULL,
-          endpoint_url TEXT,
-          api_key TEXT,
-          status TEXT NOT NULL DEFAULT 'active',
-          created_at TIMESTAMPTZ DEFAULT NOW(),
-          updated_at TIMESTAMPTZ DEFAULT NOW()
-        )
-      `);
       const rows = await db.query<{ id: string; provider_type: string; provider_name: string; endpoint_url: string | null; api_key: string | null; status: string }>(
         'SELECT id::text, provider_type, provider_name, endpoint_url, api_key, status FROM infrastructure_providers ORDER BY provider_type, provider_name'
       );
@@ -16434,6 +16602,7 @@ export default async function adminRoutes(app: FastifyInstance) {
   app.get('/approval-requests', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
+    if (!requireAnyPermission(admin, ['monitoring:view', 'withdrawals:approve', 'settings:edit'], reply)) return;
     try {
       const { status, limit, offset } = request.query as { status?: string; limit?: string; offset?: string };
       const { adminApprovalService } = await import('../services/admin-approval.service.js');
@@ -16450,9 +16619,111 @@ export default async function adminRoutes(app: FastifyInstance) {
     }
   });
 
+  app.get('/approval-requests/:id/impact-preview', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    if (!requireAnyPermission(admin, ['monitoring:view', 'withdrawals:approve', 'settings:edit'], reply)) return;
+    try {
+      const { id } = request.params as { id: string };
+      const reqRes = await db.query<{
+        id: string;
+        action_type: string;
+        action_payload: Record<string, unknown>;
+        status: string;
+      }>(
+        `SELECT id::text, action_type, action_payload, status
+         FROM admin_approval_requests
+         WHERE id = $1::uuid
+         LIMIT 1`,
+        [id]
+      );
+      const row = reqRes.rows[0];
+      if (!row) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Approval request not found' } });
+      }
+      let impact: Record<string, unknown> = { kind: 'generic', details: row.action_payload ?? {} };
+      if (row.action_type === 'global_control_action') {
+        const payload = row.action_payload ?? {};
+        const action = String(payload.action ?? '').trim();
+        if (action === 'halt_trading') {
+          const [openOrdersRes, pendingSettlementRes] = await Promise.all([
+            db.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM spot_orders WHERE status IN ('new', 'partially_filled')`),
+            db.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM settlement_events WHERE status = 'pending'`),
+          ]);
+          impact = {
+            kind: 'global_control_action',
+            action,
+            open_orders_affected: parseInt(openOrdersRes.rows[0]?.n ?? '0', 10) || 0,
+            pending_settlement_visibility: parseInt(pendingSettlementRes.rows[0]?.n ?? '0', 10) || 0,
+          };
+        } else if (action === 'disable_withdrawals') {
+          const pendingWd = await db.query<{ n: string }>(
+            `SELECT COUNT(*)::text AS n
+             FROM withdrawals
+             WHERE status IN ('pending_approval', 'pending', 'processing')`
+          );
+          impact = {
+            kind: 'global_control_action',
+            action,
+            pending_withdrawals_impacted: parseInt(pendingWd.rows[0]?.n ?? '0', 10) || 0,
+          };
+        } else if (action === 'cancel_all_orders') {
+          const market = String(payload.market ?? '').trim().toUpperCase().replace(/-/g, '_');
+          const count = market
+            ? await db.query<{ n: string }>(
+                `SELECT COUNT(*)::text AS n
+                 FROM spot_orders
+                 WHERE status IN ('new', 'partially_filled') AND market = $1`,
+                [market]
+              )
+            : await db.query<{ n: string }>(
+                `SELECT COUNT(*)::text AS n
+                 FROM spot_orders
+                 WHERE status IN ('new', 'partially_filled')`
+              );
+          impact = {
+            kind: 'global_control_action',
+            action,
+            market: market || 'all',
+            open_orders_to_cancel: parseInt(count.rows[0]?.n ?? '0', 10) || 0,
+          };
+        } else {
+          impact = { kind: 'global_control_action', action, payload };
+        }
+      } else if (row.action_type === 'withdrawal_approve') {
+        const withdrawalId = String((row.action_payload as { withdrawalId?: string })?.withdrawalId ?? '').trim();
+        if (withdrawalId) {
+          const wdRes = await db.query<{ status: string; amount: string; user_id: string }>(
+            `SELECT status, amount::text, user_id::text
+             FROM withdrawals
+             WHERE id = $1::uuid`,
+            [withdrawalId]
+          );
+          impact = { kind: 'withdrawal_approve', withdrawal: wdRes.rows[0] ?? { id: withdrawalId, missing: true } };
+        }
+      } else if (row.action_type === 'manual_credit') {
+        impact = { kind: 'manual_credit', payload: row.action_payload };
+      }
+
+      return reply.send({
+        success: true,
+        data: {
+          request_id: row.id,
+          action_type: row.action_type,
+          status: row.status,
+          impact,
+        },
+      });
+    } catch (error) {
+      logger.error('Approval impact preview failed', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'PREVIEW_FAILED', message: 'Failed to compute impact preview' } });
+    }
+  });
+
   app.post('/approval-requests', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
+    if (!requireAnyPermission(admin, ['settings:edit', 'control:commands'], reply)) return;
     try {
       const { actionType, actionPayload, requiredApprovals } = request.body as {
         actionType?: string;
@@ -16469,6 +16740,19 @@ export default async function adminRoutes(app: FastifyInstance) {
         admin.adminId,
         requiredApprovals
       );
+      await logAuditFromRequest(request, {
+        actorType: 'admin',
+        actorId: admin.adminId,
+        action: 'admin_approval_request_create',
+        resourceType: 'approval_request',
+        resourceId: req.id,
+        oldValue: null,
+        newValue: {
+          actionType,
+          requiredApprovals: req.required_approvals,
+          actionPayload,
+        },
+      });
       return reply.send({ success: true, data: { request: req } });
     } catch (error) {
       logger.error('Create approval request failed', { error: error instanceof Error ? error.message : 'Unknown' });
@@ -16479,13 +16763,28 @@ export default async function adminRoutes(app: FastifyInstance) {
   app.post('/approval-requests/:id/approve', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
+    if (!requireAnyPermission(admin, ['withdrawals:approve', 'settings:edit', 'control:commands'], reply)) return;
     try {
       const { id } = request.params as { id: string };
       const { adminApprovalService } = await import('../services/admin-approval.service.js');
-      const result = await adminApprovalService.approveRequest(id, admin.adminId);
+      const result = await adminApprovalService.approveRequest(id, admin.adminId, admin.role);
       if (!result.success) {
         return reply.status(400).send({ success: false, error: { code: 'APPROVE_FAILED', message: result.message } });
       }
+      await logAuditFromRequest(request, {
+        actorType: 'admin',
+        actorId: admin.adminId,
+        action: 'admin_approval_request_approve',
+        resourceType: 'approval_request',
+        resourceId: id,
+        oldValue: null,
+        newValue: {
+          message: result.message,
+          status: result.request?.status,
+          currentApprovals: result.request?.current_approvals,
+          requiredApprovals: result.request?.required_approvals,
+        },
+      });
       return reply.send({ success: true, data: { message: result.message, request: result.request } });
     } catch (error) {
       logger.error('Approve request failed', { error: error instanceof Error ? error.message : 'Unknown' });
@@ -16496,6 +16795,7 @@ export default async function adminRoutes(app: FastifyInstance) {
   app.post('/approval-requests/:id/reject', async (request, reply) => {
     const admin = await getAdminFromRequest(app, request, reply, false);
     if (!admin) return;
+    if (!requireAnyPermission(admin, ['withdrawals:approve', 'settings:edit', 'control:commands'], reply)) return;
     try {
       const { id } = request.params as { id: string };
       const { reason } = request.body as { reason?: string };
@@ -16504,10 +16804,198 @@ export default async function adminRoutes(app: FastifyInstance) {
       if (!result.success) {
         return reply.status(400).send({ success: false, error: { code: 'REJECT_FAILED', message: result.message } });
       }
+      await logAuditFromRequest(request, {
+        actorType: 'admin',
+        actorId: admin.adminId,
+        action: 'admin_approval_request_reject',
+        resourceType: 'approval_request',
+        resourceId: id,
+        oldValue: null,
+        newValue: {
+          reason: reason ?? null,
+          message: result.message,
+          status: result.request?.status,
+        },
+      });
       return reply.send({ success: true, data: { message: result.message, request: result.request } });
     } catch (error) {
       logger.error('Reject request failed', { error: error instanceof Error ? error.message : 'Unknown' });
       return reply.status(500).send({ success: false, error: { code: 'REJECT_FAILED', message: 'Failed to reject request' } });
+    }
+  });
+
+  app.post('/approval-requests/:id/retry-execution', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    if (!requireAnyPermission(admin, ['settings:edit', 'control:commands'], reply)) return;
+    try {
+      const { id } = request.params as { id: string };
+      const body = (request.body ?? {}) as { reason?: string };
+      const reason = String(body.reason ?? '').trim();
+      if (reason.length < 8) {
+        return reply.status(400).send({ success: false, error: { code: 'REASON_REQUIRED', message: 'Retry reason (min 8 chars) is required' } });
+      }
+      const requestRow = await db.query<import('../services/admin-approval.service.js').ApprovalRequest>(
+        `SELECT * FROM admin_approval_requests WHERE id = $1::uuid LIMIT 1`,
+        [id]
+      );
+      const req = requestRow.rows[0];
+      if (!req) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Approval request not found' } });
+      }
+      if (req.status !== 'approved') {
+        return reply.status(400).send({ success: false, error: { code: 'INVALID_STATUS', message: 'Only approved requests can be retried' } });
+      }
+      const { adminApprovalService } = await import('../services/admin-approval.service.js');
+      await adminApprovalService.markExecutionRetry(id, admin.adminId, reason, { trigger: 'manual_retry' });
+      const { executeMakerCheckerIfFullyApproved } = await import('../services/maker-checker-execute.service.js');
+      await executeMakerCheckerIfFullyApproved(req);
+      await logAuditFromRequest(request, {
+        actorType: 'admin',
+        actorId: admin.adminId,
+        action: 'admin_approval_retry_execution',
+        resourceType: 'approval_request',
+        resourceId: id,
+        oldValue: null,
+        newValue: { reason },
+      });
+      return reply.send({ success: true, data: { request_id: id, retried: true } });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Retry failed';
+      logger.error('Retry approval execution failed', { error: message });
+      return reply.status(500).send({ success: false, error: { code: 'RETRY_FAILED', message } });
+    }
+  });
+
+  app.post('/approval-requests/:id/break-glass-execute', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    if (!isSuperAdminRole(admin.role)) {
+      return reply.status(403).send({ success: false, error: { code: 'SUPER_ADMIN_REQUIRED', message: 'Break-glass execute requires super_admin role' } });
+    }
+    if (!admin.breakGlass) {
+      return reply.status(403).send({ success: false, error: { code: 'BREAK_GLASS_SESSION_REQUIRED', message: 'Use break-glass authenticated session' } });
+    }
+    const ip = getClientIp(request);
+    if (!isBreakGlassClientIpAllowed(ip)) {
+      return reply.status(403).send({ success: false, error: { code: 'BREAK_GLASS_IP_BLOCKED', message: 'Break-glass IP is not allowed' } });
+    }
+    const body = (request.body ?? {}) as { reason?: string; ticket_id?: string };
+    const reason = String(body.reason ?? '').trim();
+    const ticketId = String(body.ticket_id ?? '').trim();
+    if (reason.length < 8 || ticketId.length < 4) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'INVALID_BREAK_GLASS_INPUT', message: 'reason (min 8) and ticket_id are required' },
+      });
+    }
+    try {
+      const { id } = request.params as { id: string };
+      const reqRes = await db.query<import('../services/admin-approval.service.js').ApprovalRequest>(
+        `SELECT * FROM admin_approval_requests WHERE id = $1::uuid LIMIT 1`,
+        [id]
+      );
+      const req = reqRes.rows[0];
+      if (!req) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Approval request not found' } });
+      }
+      if (req.status === 'rejected' || req.status === 'expired') {
+        return reply.status(400).send({ success: false, error: { code: 'INVALID_STATUS', message: `Cannot break-glass execute ${req.status} request` } });
+      }
+
+      await db.transaction(async (client) => {
+        if (req.status !== 'approved') {
+          const approvers = Array.isArray(req.approved_by) ? req.approved_by : [];
+          const withActor = approvers.includes(admin.adminId) ? approvers : [...approvers, admin.adminId];
+          await client.query(
+            `UPDATE admin_approval_requests
+             SET status = 'approved',
+                 current_approvals = GREATEST(required_approvals, current_approvals),
+                 approved_by = $2,
+                 executed_at = NOW(),
+                 updated_at = NOW()
+             WHERE id = $1::uuid`,
+            [id, withActor]
+          );
+        }
+        await client.query(
+          `INSERT INTO admin_break_glass_events (admin_id, ticket_id, reason, ip_address)
+           VALUES ($1::uuid, $2, $3, $4::inet)`,
+          [admin.adminId, ticketId, reason, ip]
+        );
+      });
+
+      const reloaded = await db.query<import('../services/admin-approval.service.js').ApprovalRequest>(
+        `SELECT * FROM admin_approval_requests WHERE id = $1::uuid LIMIT 1`,
+        [id]
+      );
+      const approvedReq = reloaded.rows[0];
+      if (!approvedReq) {
+        return reply.status(500).send({ success: false, error: { code: 'RELOAD_FAILED', message: 'Failed to reload request after break-glass update' } });
+      }
+      const { adminApprovalService } = await import('../services/admin-approval.service.js');
+      await adminApprovalService.markExecutionRetry(id, admin.adminId, reason, { trigger: 'break_glass', ticket_id: ticketId, ip });
+      const { executeMakerCheckerIfFullyApproved } = await import('../services/maker-checker-execute.service.js');
+      await executeMakerCheckerIfFullyApproved(approvedReq);
+
+      await logAuditFromRequest(request, {
+        actorType: 'admin',
+        actorId: admin.adminId,
+        action: 'admin_approval_break_glass_execute',
+        resourceType: 'approval_request',
+        resourceId: id,
+        oldValue: null,
+        newValue: { reason, ticket_id: ticketId, ip },
+      });
+      return reply.send({ success: true, data: { request_id: id, executed_via_break_glass: true } });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Break-glass execution failed';
+      logger.error('Break-glass approval execute failed', { error: message });
+      return reply.status(500).send({ success: false, error: { code: 'BREAK_GLASS_EXECUTE_FAILED', message } });
+    }
+  });
+
+  app.get('/approval-requests/:id/forensics', async (request, reply) => {
+    const admin = await getAdminFromRequest(app, request, reply, false);
+    if (!admin) return;
+    if (!requireAnyPermission(admin, ['audit:view', 'settings:edit', 'monitoring:view'], reply)) return;
+    try {
+      const { id } = request.params as { id: string };
+      const reqRes = await db.query<import('../services/admin-approval.service.js').ApprovalRequest>(
+        `SELECT * FROM admin_approval_requests WHERE id = $1::uuid LIMIT 1`,
+        [id]
+      );
+      const requestRow = reqRes.rows[0];
+      if (!requestRow) {
+        return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Approval request not found' } });
+      }
+      const [auditByResource, auditByDetails] = await Promise.all([
+        db.query<{ id: string; action: string; created_at: string; details: Record<string, unknown> | null }>(
+          `SELECT id::text, action, created_at::text, details
+           FROM audit_logs
+           WHERE resource_type = 'approval_request' AND resource_id = $1::uuid
+           ORDER BY created_at ASC`,
+          [id]
+        ),
+        db.query<{ id: string; action: string; created_at: string; details: Record<string, unknown> | null }>(
+          `SELECT id::text, action, created_at::text, details
+           FROM audit_logs
+           WHERE details->>'approval_request_id' = $1
+           ORDER BY created_at ASC`,
+          [id]
+        ),
+      ]);
+      return reply.send({
+        success: true,
+        data: {
+          request: requestRow,
+          audit_entries: [...auditByResource.rows, ...auditByDetails.rows],
+          exported_at: new Date().toISOString(),
+        },
+      });
+    } catch (error) {
+      logger.error('Approval forensics export failed', { error: error instanceof Error ? error.message : 'Unknown' });
+      return reply.status(500).send({ success: false, error: { code: 'FORENSICS_EXPORT_FAILED', message: 'Failed to export approval forensics' } });
     }
   });
 

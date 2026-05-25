@@ -1355,12 +1355,12 @@ class P2PService {
    * Handle expired orders (called by scheduler).
    * Delegates to processExpiredP2POrders so expired orders end in status='expired'.
    */
-  async handleExpiredOrders(): Promise<number> {
+  async handleExpiredOrders(): Promise<{ processed: number; errors: number }> {
     const result = await processExpiredP2POrders();
     if (result.processed > 0) {
       logger.info(`Expired ${result.processed} P2P orders`);
     }
-    return result.processed;
+    return result;
   }
 }
 

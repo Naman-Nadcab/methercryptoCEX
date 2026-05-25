@@ -152,10 +152,10 @@ class RedisClient {
   }
 
   async set(key: string, value: string, ttlSeconds?: number): Promise<void> {
-    await this.safeExec(
-      () => ttlSeconds ? this.client.setex(key, ttlSeconds, value) : this.client.set(key, value) as unknown as Promise<void>,
-      'set',
-    );
+    await this.safeExec(async () => {
+      if (ttlSeconds) await this.client.setex(key, ttlSeconds, value);
+      else await this.client.set(key, value);
+    }, 'set');
   }
 
   /**

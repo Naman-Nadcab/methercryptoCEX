@@ -19,6 +19,12 @@ import { OverlayStudyPlugin } from './indicators/plugins/OverlayStudyPlugin';
 import { RsiPanePlugin } from './indicators/plugins/RsiPanePlugin';
 import { VolumeMaPlugin } from './indicators/plugins/VolumeMaPlugin';
 import type { OverlayStudyId } from './indicators';
+import {
+  candlestickDataFromSanitized,
+  histogramSeriesDataFromCandles,
+  sanitizeCandles,
+  sanitizeTradeMarkers,
+} from './lightweightChartsData';
 
 const toTs = (t: number) => t as UTCTimestamp;
 
@@ -75,13 +81,15 @@ export class LightweightChartsAdapter implements ChartAdapter {
     if (this.allCandles.length === 0) return [];
     if (!this.lastBar) return this.allCandles;
     const lastStored = this.allCandles[this.allCandles.length - 1]!;
+    let merged: CandleData[];
     if (lastStored.time === this.lastBar.time) {
-      return [...this.allCandles.slice(0, -1), { ...this.lastBar }];
+      merged = [...this.allCandles.slice(0, -1), { ...this.lastBar }];
+    } else if (this.lastBar.time > lastStored.time) {
+      merged = [...this.allCandles, { ...this.lastBar }];
+    } else {
+      merged = this.allCandles;
     }
-    if (this.lastBar.time > lastStored.time) {
-      return [...this.allCandles, { ...this.lastBar }];
-    }
-    return this.allCandles;
+    return sanitizeCandles(merged);
   }
 
   private applyLayout(): void {
@@ -546,6 +554,31 @@ export class LightweightChartsAdapter implements ChartAdapter {
     return up ? c.upVolume : c.downVolume;
   }
 
+  /** `update()` throws if time is not strictly after the last committed bar in some edge cases. */
+  private tryCandleUpdate(data: {
+    time: UTCTimestamp;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+  }): void {
+    if (!this.series) return;
+    try {
+      this.series.update(data);
+    } catch {
+      /* ignore — do not take down the trading terminal */
+    }
+  }
+
+  private tryVolumeUpdate(data: { time: UTCTimestamp; value: number; color: string }): void {
+    if (!this.volumeSeries) return;
+    try {
+      this.volumeSeries.update(data);
+    } catch {
+      /* ignore */
+    }
+  }
+
   private updatePriceLineColor(): void {
     if (!this.series || !this.lastBar) return;
     const colors = getTradingChartColors();
@@ -557,26 +590,33 @@ export class LightweightChartsAdapter implements ChartAdapter {
 
   setCandles(data: CandleData[]): void {
     if (!this.series) return;
-    this.allCandles = [...data];
-    const formatted = data.map((c) => ({
-      time: toTs(c.time),
-      open: c.open,
-      high: c.high,
-      low: c.low,
-      close: c.close,
-    }));
-    this.series.setData(formatted);
-    if (this.volumeSeries) {
-      const vol = data.map((c) => ({
-        time: toTs(c.time),
-        value: c.volume ?? 0,
-        color: this.volColor(c.close >= c.open),
-      }));
-      this.volumeSeries.setData(vol);
+    const normalized = sanitizeCandles(data);
+    this.allCandles = normalized;
+    const formatted = candlestickDataFromSanitized(normalized);
+    try {
+      this.series.setData(formatted);
+    } catch {
+      try {
+        this.series.setData([]);
+      } catch {
+        /* ignore */
+      }
     }
-    const last = data[data.length - 1];
+    if (this.volumeSeries) {
+      const vol = histogramSeriesDataFromCandles(normalized, (up) => this.volColor(up));
+      try {
+        this.volumeSeries.setData(vol);
+      } catch {
+        try {
+          this.volumeSeries.setData([]);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    const last = normalized[normalized.length - 1];
     this.lastBar = last ? { ...last } : null;
-    if (data.length >= 2) this.intervalSeconds = data[1]!.time - data[0]!.time;
+    if (normalized.length >= 2) this.intervalSeconds = normalized[1]!.time - normalized[0]!.time;
     this.nextCandleTime = this.lastBar ? this.lastBar.time + this.intervalSeconds : 0;
     this.refreshStudies('full');
     this.updatePriceLineColor();
@@ -586,27 +626,26 @@ export class LightweightChartsAdapter implements ChartAdapter {
   prependCandles(data: CandleData[]): void {
     if (!this.series) return;
     if (data.length === 0) return;
-    const merged = [...data, ...this.allCandles];
-    merged.sort((a, b) => a.time - b.time);
-    const deduped: CandleData[] = [];
-    for (const c of merged) {
-      const last = deduped[deduped.length - 1];
-      if (last && last.time === c.time) deduped[deduped.length - 1] = c;
-      else deduped.push(c);
-    }
-    this.setCandles(deduped);
+    const merged = sanitizeCandles([...data, ...this.allCandles]);
+    this.setCandles(merged);
   }
 
   private applyTick(tickTime: number, price: number, volumeDelta?: number): void {
     if (!this.series) return;
+    let tt = Math.floor(Number(tickTime));
+    if (!Number.isFinite(tt) || tt < 0) return;
+    /** Never move backwards in chart time — library update() rejects it. */
+    if (this.lastBar && tt < this.lastBar.time) {
+      tt = this.lastBar.time;
+    }
     const volAdd = volumeDelta != null && Number.isFinite(volumeDelta) && volumeDelta > 0 ? volumeDelta : 0;
 
     if (!this.lastBar) {
-      const bar: CandleData = { time: tickTime, open: price, high: price, low: price, close: price, volume: volAdd };
+      const bar: CandleData = { time: tt, open: price, high: price, low: price, close: price, volume: volAdd };
       this.lastBar = { ...bar };
       this.nextCandleTime = this.lastBar.time + this.intervalSeconds;
-      this.series.update({ time: toTs(bar.time), open: bar.open, high: bar.high, low: bar.low, close: bar.close });
-      this.volumeSeries?.update?.({
+      this.tryCandleUpdate({ time: toTs(bar.time), open: bar.open, high: bar.high, low: bar.low, close: bar.close });
+      this.tryVolumeUpdate({
         time: toTs(bar.time),
         value: bar.volume ?? 0,
         color: this.volColor(true),
@@ -617,32 +656,30 @@ export class LightweightChartsAdapter implements ChartAdapter {
       return;
     }
 
-    if (tickTime < this.nextCandleTime) {
+    if (tt < this.nextCandleTime) {
       this.lastBar.close = price;
       this.lastBar.high = Math.max(this.lastBar.high, price);
       this.lastBar.low = Math.min(this.lastBar.low, price);
       this.lastBar.volume = (this.lastBar.volume ?? 0) + volAdd;
-      this.series.update({
+      this.tryCandleUpdate({
         time: toTs(this.lastBar.time),
         open: this.lastBar.open,
         high: this.lastBar.high,
         low: this.lastBar.low,
         close: this.lastBar.close,
       });
-      if (this.volumeSeries) {
-        this.volumeSeries.update({
-          time: toTs(this.lastBar.time),
-          value: this.lastBar.volume ?? 0,
-          color: this.volColor(this.lastBar.close >= this.lastBar.open),
-        });
-      }
+      this.tryVolumeUpdate({
+        time: toTs(this.lastBar.time),
+        value: this.lastBar.volume ?? 0,
+        color: this.volColor(this.lastBar.close >= this.lastBar.open),
+      });
       this.updatePriceLineColor();
       this.emitLegend(this.lastBar);
       this.throttledLightRefresh();
       return;
     }
 
-    while (tickTime >= this.nextCandleTime) {
+    while (tt >= this.nextCandleTime) {
       const prevClose: number = this.lastBar.close;
       this.lastBar = {
         time: this.nextCandleTime,
@@ -652,14 +689,14 @@ export class LightweightChartsAdapter implements ChartAdapter {
         close: prevClose,
         volume: 0,
       };
-      this.series.update({
+      this.tryCandleUpdate({
         time: toTs(this.lastBar.time),
         open: this.lastBar.open,
         high: this.lastBar.high,
         low: this.lastBar.low,
         close: this.lastBar.close,
       });
-      this.volumeSeries?.update?.({
+      this.tryVolumeUpdate({
         time: toTs(this.lastBar.time),
         value: this.lastBar.volume ?? 0,
         color: 'rgba(156, 163, 175, 0.2)',
@@ -671,20 +708,18 @@ export class LightweightChartsAdapter implements ChartAdapter {
     this.lastBar.high = Math.max(this.lastBar.high, price);
     this.lastBar.low = Math.min(this.lastBar.low, price);
     this.lastBar.volume = (this.lastBar.volume ?? 0) + volAdd;
-    this.series.update({
+    this.tryCandleUpdate({
       time: toTs(this.lastBar.time),
       open: this.lastBar.open,
       high: this.lastBar.high,
       low: this.lastBar.low,
       close: this.lastBar.close,
     });
-    if (this.volumeSeries) {
-      this.volumeSeries.update({
-        time: toTs(this.lastBar.time),
-        value: this.lastBar.volume ?? 0,
-        color: this.volColor(this.lastBar.close >= this.lastBar.open),
-      });
-    }
+    this.tryVolumeUpdate({
+      time: toTs(this.lastBar.time),
+      value: this.lastBar.volume ?? 0,
+      color: this.volColor(this.lastBar.close >= this.lastBar.open),
+    });
     this.updatePriceLineColor();
     this.emitLegend(this.lastBar);
     this.refreshStudies('full');
@@ -705,14 +740,23 @@ export class LightweightChartsAdapter implements ChartAdapter {
   setTradeMarkers(trades: TradeMarker[]): void {
     if (!this.series) return;
     const colors = getTradingChartColors();
-    const markers = trades.map((t) => ({
+    const dedupedTrades = sanitizeTradeMarkers(trades);
+    const markers = dedupedTrades.map((t) => ({
       time: toTs(t.time),
       position: (t.side === 'buy' ? 'belowBar' : 'aboveBar') as 'belowBar' | 'aboveBar',
       color: t.side === 'buy' ? colors.up : colors.down,
       shape: (t.side === 'buy' ? 'arrowUp' : 'arrowDown') as 'arrowUp' | 'arrowDown',
       text: '',
     }));
-    this.series.setMarkers(markers);
+    try {
+      this.series.setMarkers(markers);
+    } catch {
+      try {
+        this.series.setMarkers([]);
+      } catch {
+        /* ignore */
+      }
+    }
   }
 
   destroy(): void {

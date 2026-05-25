@@ -1,10 +1,9 @@
 'use client';
 
-import type { IChartApi, ISeriesApi, LineSeriesPartialOptions, UTCTimestamp } from 'lightweight-charts';
+import type { IChartApi, ISeriesApi, LineSeriesPartialOptions } from 'lightweight-charts';
 import type { CandleData } from '../../ChartAdapter';
 import { computeRsi } from '../../indicators';
-
-const toTs = (t: number) => t as UTCTimestamp;
+import { lineSeriesDataFromRows } from '../../lightweightChartsData';
 
 /**
  * Phase B tail — RSI(14) on dedicated price scale `rsi`.
@@ -52,9 +51,16 @@ export class RsiPanePlugin {
 
   refresh(enabled: boolean, candles: CandleData[]): void {
     if (!enabled || !this.rsiSeries) return;
-    const map = (rows: { time: number; value: number }[]) =>
-      rows.map((d) => ({ time: toTs(d.time), value: d.value }));
-    this.rsiSeries.setData(map(computeRsi(candles, 14)));
+    const rows = computeRsi(candles, 14);
+    try {
+      this.rsiSeries.setData(lineSeriesDataFromRows(rows));
+    } catch {
+      try {
+        this.rsiSeries.setData([]);
+      } catch {
+        /* ignore */
+      }
+    }
   }
 
   disposeState(): void {

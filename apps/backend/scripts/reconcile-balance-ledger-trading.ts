@@ -6,6 +6,8 @@
  */
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { db } from '../src/lib/database.js';
 import { Decimal } from '../src/lib/decimal.js';
 import { logger } from '../src/lib/logger.js';
@@ -13,9 +15,12 @@ import { logger } from '../src/lib/logger.js';
 const BATCH = 'reconciliation=tier1_phase1_20260401';
 const DESC = `account_type=trading;${BATCH}`;
 
-async function main(): Promise<void> {
+export async function reconcileBalanceLedgerTrading(
+  opts: { closePool?: boolean } = {}
+): Promise<{ mismatches: number; fixes: number }> {
   const client = await db.getSettlementClient();
   const fixes: string[] = [];
+  let mismatchCount = 0;
   try {
     await client.query('BEGIN');
 
@@ -49,7 +54,8 @@ async function main(): Promise<void> {
          )`
     );
 
-    logger.info('reconcile_balance_ledger_trading: mismatches', { count: mismatches.length });
+    mismatchCount = mismatches.length;
+    logger.info('reconcile_balance_ledger_trading: mismatches', { count: mismatchCount });
 
     for (const row of mismatches) {
       const deltaAvail = new Decimal(row.avail_bal).minus(row.ledger_avail);
@@ -120,12 +126,13 @@ async function main(): Promise<void> {
         remaining: verify?.[0]?.n,
       });
       await client.query('ROLLBACK');
-      process.exit(1);
+      throw new Error(`Reconciliation verify failed; remaining mismatches: ${verify?.[0]?.n ?? '?'}`);
     }
 
     await client.query('COMMIT');
     logger.info('reconcile_balance_ledger_trading: committed', { fixes: fixes.length });
     for (const f of fixes) logger.info('  fix', { line: f });
+    return { mismatches: mismatchCount, fixes: fixes.length };
   } catch (e) {
     try {
       await client.query('ROLLBACK');
@@ -139,8 +146,17 @@ async function main(): Promise<void> {
     throw e;
   } finally {
     client.release();
-    await db.close();
+    if (opts.closePool !== false) {
+      await db.close();
+    }
   }
 }
 
-main().catch(() => process.exit(1));
+async function main(): Promise<void> {
+  await reconcileBalanceLedgerTrading({ closePool: true });
+}
+
+const __filename = fileURLToPath(import.meta.url);
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(__filename)) {
+  main().catch(() => process.exit(1));
+}

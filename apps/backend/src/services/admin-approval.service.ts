@@ -6,6 +6,7 @@ export type ApprovalActionType =
   | 'withdrawal_approve'
   | 'manual_credit'
   | 'trading_halt'
+  | 'global_control_action'
   | 'settlement_circuit_reset'
   | 'system_config_change'
   | 'admin_role_change';
@@ -14,6 +15,7 @@ const DEFAULT_APPROVAL_THRESHOLDS: Record<string, number> = {
   withdrawal_approve: 2,
   manual_credit: 2,
   trading_halt: 2,
+  global_control_action: 2,
   settlement_circuit_reset: 3,
   system_config_change: 2,
   admin_role_change: 2,
@@ -38,8 +40,13 @@ export interface ApprovalRequest {
   updated_at: string;
   maker_unlock_at?: string | null;
   action_executed?: boolean;
+  execution_attempts?: number;
+  last_execution_attempt_at?: string | null;
+  execution_error?: string | null;
+  execution_context?: Record<string, unknown> | null;
   requester_name?: string;
   requester_email?: string;
+  approver_details?: Array<{ id: string; name: string; email: string; role: string }>;
 }
 
 export function effectiveRequiredApprovals(actionType: ApprovalActionType, custom?: number): number {
@@ -64,6 +71,14 @@ function makerUnlockAt(actionType: ApprovalActionType): Date | null {
 }
 
 class AdminApprovalService {
+  private normalizeRole(role: string): string {
+    const normalized = (role || '').trim().toLowerCase().replace(/\s+/g, '_');
+    if (normalized === 'support_agent') return 'support';
+    if (normalized === 'compliance_officer') return 'compliance';
+    if (normalized === 'finance_admin') return 'finance_ops';
+    return normalized;
+  }
+
   async createRequest(
     actionType: ApprovalActionType,
     actionPayload: Record<string, unknown>,
@@ -125,12 +140,42 @@ class AdminApprovalService {
       [...params, limit, offset]
     );
 
-    return { requests: dataResult.rows, total };
+    const rows = dataResult.rows;
+    const approverIds = Array.from(
+      new Set(
+        rows.flatMap((r) =>
+          Array.isArray(r.approved_by) ? r.approved_by.filter((id): id is string => typeof id === 'string' && id.length > 0) : []
+        )
+      )
+    );
+    const approverMap = new Map<string, { id: string; name: string; email: string; role: string }>();
+    if (approverIds.length > 0) {
+      const approverRows = await db.query<{ id: string; name: string; email: string; role: string }>(
+        `SELECT id::text, name, email, role
+         FROM admin_users
+         WHERE id = ANY($1::uuid[])`,
+        [approverIds]
+      );
+      for (const row of approverRows.rows) {
+        approverMap.set(row.id, row);
+      }
+    }
+    const enriched = rows.map((r) => ({
+      ...r,
+      approver_details: Array.isArray(r.approved_by)
+        ? r.approved_by
+            .map((id) => approverMap.get(id))
+            .filter((v): v is { id: string; name: string; email: string; role: string } => !!v)
+        : [],
+    }));
+
+    return { requests: enriched, total };
   }
 
   async approveRequest(
     requestId: string,
-    adminId: string
+    adminId: string,
+    adminRole?: string
   ): Promise<{ success: boolean; message: string; request?: ApprovalRequest }> {
     const result = await db.query<ApprovalRequest>(
       'SELECT * FROM admin_approval_requests WHERE id = $1',
@@ -163,6 +208,39 @@ class AdminApprovalService {
     const currentApprovers = request.approved_by ?? [];
     if (currentApprovers.includes(adminId)) {
       return { success: false, message: 'You have already approved this request' };
+    }
+    if (request.action_type === 'global_control_action') {
+      const action = String((request.action_payload as { action?: string })?.action ?? '').trim();
+      if (action) {
+        const { getAdminApprovalPolicyByKey } = await import('./admin-approval-policy.service.js');
+        const policy = await getAdminApprovalPolicyByKey(`global_action:${action}`);
+        if (policy.require_distinct_role) {
+          const [requesterRoleRes, approverRoleRes] = await Promise.all([
+            db.query<{ role: string }>(`SELECT role FROM admin_users WHERE id = $1::uuid LIMIT 1`, [request.requested_by]),
+            adminRole
+              ? Promise.resolve({ rows: [{ role: adminRole }] })
+              : db.query<{ role: string }>(`SELECT role FROM admin_users WHERE id = $1::uuid LIMIT 1`, [adminId]),
+          ]);
+          const requesterRole = String(requesterRoleRes.rows[0]?.role ?? '').trim().toLowerCase();
+          const checkerRole = String(approverRoleRes.rows[0]?.role ?? '').trim().toLowerCase();
+          if (requesterRole && checkerRole && requesterRole === checkerRole) {
+            return { success: false, message: 'Checker role must be distinct from maker role for this action.' };
+          }
+        }
+        if (policy.allowed_checker_roles.length > 0) {
+          const approverRoleRes = adminRole
+            ? { rows: [{ role: adminRole }] }
+            : await db.query<{ role: string }>(`SELECT role FROM admin_users WHERE id = $1::uuid LIMIT 1`, [adminId]);
+          const checkerRole = this.normalizeRole(String(approverRoleRes.rows[0]?.role ?? ''));
+          const allowedSet = new Set(policy.allowed_checker_roles.map((r) => this.normalizeRole(r)));
+          if (!checkerRole || !allowedSet.has(checkerRole)) {
+            return {
+              success: false,
+              message: `Checker role '${checkerRole || 'unknown'}' is not allowed for this action.`,
+            };
+          }
+        }
+      }
     }
 
     const newApprovals = request.current_approvals + 1;
@@ -215,15 +293,34 @@ class AdminApprovalService {
     if (
       isFullyApproved &&
       config.security.makerCheckerEnabled &&
-      (row.action_type === 'withdrawal_approve' || row.action_type === 'manual_credit')
+      (row.action_type === 'withdrawal_approve' || row.action_type === 'manual_credit' || row.action_type === 'global_control_action')
     ) {
       try {
+        await db.query(
+          `UPDATE admin_approval_requests
+           SET execution_attempts = COALESCE(execution_attempts, 0) + 1,
+               last_execution_attempt_at = NOW(),
+               execution_context = $2::jsonb,
+               execution_error = NULL,
+               updated_at = NOW()
+           WHERE id = $1::uuid`,
+          [row.id, JSON.stringify({ trigger: 'auto_on_approval' })]
+        );
         const { executeMakerCheckerIfFullyApproved } = await import('./maker-checker-execute.service.js');
         await executeMakerCheckerIfFullyApproved(row);
       } catch (e) {
+        const errMsg = e instanceof Error ? e.message : String(e);
+        await db.query(
+          `UPDATE admin_approval_requests
+           SET action_executed = FALSE,
+               execution_error = LEFT($2, 1000),
+               updated_at = NOW()
+           WHERE id = $1::uuid`,
+          [row.id, errMsg]
+        );
         logger.error('maker-checker execution failed', {
           requestId: row.id,
-          error: e instanceof Error ? e.message : String(e),
+          error: errMsg,
         });
       }
     }
@@ -289,6 +386,26 @@ class AdminApprovalService {
 
   getDefaultThreshold(actionType: string): number {
     return effectiveRequiredApprovals(actionType as ApprovalActionType);
+  }
+
+  async markExecutionRetry(
+    requestId: string,
+    actorAdminId: string,
+    reason: string,
+    context?: Record<string, unknown>
+  ): Promise<ApprovalRequest | null> {
+    const res = await db.query<ApprovalRequest>(
+      `UPDATE admin_approval_requests
+       SET execution_attempts = COALESCE(execution_attempts, 0) + 1,
+           last_execution_attempt_at = NOW(),
+           execution_error = NULL,
+           execution_context = $2::jsonb,
+           updated_at = NOW()
+       WHERE id = $1::uuid
+       RETURNING *`,
+      [requestId, JSON.stringify({ retry_reason: reason, actor_admin_id: actorAdminId, ...(context ?? {}) })]
+    );
+    return res.rows[0] ?? null;
   }
 }
 

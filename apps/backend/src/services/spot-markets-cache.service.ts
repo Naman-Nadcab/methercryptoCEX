@@ -21,45 +21,29 @@ export const MARKETS_REDIS_KEY = 'spot:markets:v1';
 
 let marketsLocalCache: { expiresAt: number; payload: unknown[] } | null = null;
 let marketsInFlight: Promise<unknown[]> | null = null;
+let marketsLastGoodSnapshot: { generatedAt: number; payload: unknown[] } | null = null;
 
-async function computeMarkets(): Promise<unknown[]> {
-  const result = await db.query(`
-    SELECT m.id, m.symbol, m.base_asset, m.quote_asset, m.status, m.min_qty, m.min_notional, m.price_precision, m.qty_precision,
-           COALESCE(m.maker_fee, 0.001)::text as maker_fee, COALESCE(m.taker_fee, 0.001)::text as taker_fee,
-           COALESCE(mp.price, candle_1m.close_price, candle_1d.close_price)::text as last_price,
-           COALESCE(candle_24.volume, '0')::text as volume_24h,
-           candle_24.open_price::text as open_24h,
-           candle_24.high_price::text as high_24h,
-           candle_24.low_price::text as low_24h
-    FROM spot_markets m
-    LEFT JOIN LATERAL (
-      SELECT mp2.price FROM market_prices mp2
-      WHERE mp2.base_currency_id = m.base_currency_id AND mp2.quote_currency_id = m.quote_currency_id
-      LIMIT 1
-    ) mp ON TRUE
-    LEFT JOIN LATERAL (
-      SELECT oc.close_price FROM ohlcv_candles oc
-      JOIN trading_pairs tp2 ON tp2.id = oc.trading_pair_id
-      WHERE tp2.symbol = m.symbol AND oc.interval_type = '1m'
-      ORDER BY oc.open_time DESC LIMIT 1
-    ) candle_1m ON TRUE
-    LEFT JOIN LATERAL (
-      SELECT oc.close_price FROM ohlcv_candles oc
-      JOIN trading_pairs tp2 ON tp2.id = oc.trading_pair_id
-      WHERE tp2.symbol = m.symbol AND oc.interval_type = '1d'
-      ORDER BY oc.open_time DESC LIMIT 1
-    ) candle_1d ON TRUE
-    LEFT JOIN LATERAL (
-      SELECT oc.open_price, oc.high_price, oc.low_price, oc.volume
-      FROM ohlcv_candles oc
-      JOIN trading_pairs tp2 ON tp2.id = oc.trading_pair_id
-      WHERE tp2.symbol = m.symbol AND oc.interval_type = '1d'
-      ORDER BY oc.open_time DESC LIMIT 1
-    ) candle_24 ON TRUE
-    WHERE m.status IN ('active', 'maintenance')
-    ORDER BY m.symbol
-  `);
-  return result.rows.map((r: Record<string, unknown>) => {
+type MarketComputedRow = {
+  id: string;
+  symbol: string;
+  base_asset: string;
+  quote_asset: string;
+  status: string;
+  min_qty: string;
+  min_notional: string;
+  price_precision: number;
+  qty_precision: number;
+  maker_fee: string;
+  taker_fee: string;
+  last_price: string | null;
+  volume_24h: string;
+  open_24h: string | null;
+  high_24h: string | null;
+  low_24h: string | null;
+};
+
+function toMarketResponseRows(rows: MarketComputedRow[]): unknown[] {
+  return rows.map((r) => {
     const open = r.open_24h ? parseFloat(String(r.open_24h)) : NaN;
     const last = r.last_price ? parseFloat(String(r.last_price)) : NaN;
     const changePct =
@@ -68,6 +52,98 @@ async function computeMarkets(): Promise<unknown[]> {
         : null;
     return { ...r, change_pct: changePct };
   });
+}
+
+async function computeMarketsLightweight(): Promise<unknown[]> {
+  const result = await db.queryRead<MarketComputedRow>(`
+    SELECT
+      m.id::text,
+      m.symbol,
+      m.base_asset,
+      m.quote_asset,
+      m.status,
+      m.min_qty::text AS min_qty,
+      m.min_notional::text AS min_notional,
+      m.price_precision,
+      m.qty_precision,
+      COALESCE(m.maker_fee, 0.001)::text AS maker_fee,
+      COALESCE(m.taker_fee, 0.001)::text AS taker_fee,
+      mp.price::text AS last_price,
+      '0'::text AS volume_24h,
+      NULL::text AS open_24h,
+      NULL::text AS high_24h,
+      NULL::text AS low_24h
+    FROM spot_markets m
+    LEFT JOIN market_prices mp
+      ON mp.base_currency_id = m.base_currency_id
+     AND mp.quote_currency_id = m.quote_currency_id
+    WHERE m.status IN ('active', 'maintenance')
+    ORDER BY m.symbol
+  `);
+  return toMarketResponseRows(result.rows);
+}
+
+async function computeMarkets(): Promise<unknown[]> {
+  try {
+    const result = await db.transaction(async (client) => {
+      // Hard cap rich query latency so API can fallback instead of hanging.
+      await client.query(`SET LOCAL statement_timeout = '3500ms'`);
+      return client.query<MarketComputedRow>(`
+    WITH latest_1m AS (
+      SELECT DISTINCT ON (oc.trading_pair_id)
+        oc.trading_pair_id,
+        oc.close_price
+      FROM ohlcv_candles oc
+      WHERE oc.interval_type = '1m'
+      ORDER BY oc.trading_pair_id, oc.open_time DESC
+    ),
+    latest_1d AS (
+      SELECT DISTINCT ON (oc.trading_pair_id)
+        oc.trading_pair_id,
+        oc.open_price,
+        oc.high_price,
+        oc.low_price,
+        oc.close_price,
+        oc.volume
+      FROM ohlcv_candles oc
+      WHERE oc.interval_type = '1d'
+      ORDER BY oc.trading_pair_id, oc.open_time DESC
+    )
+    SELECT
+      m.id::text,
+      m.symbol,
+      m.base_asset,
+      m.quote_asset,
+      m.status,
+      m.min_qty::text AS min_qty,
+      m.min_notional::text AS min_notional,
+      m.price_precision,
+      m.qty_precision,
+      COALESCE(m.maker_fee, 0.001)::text AS maker_fee,
+      COALESCE(m.taker_fee, 0.001)::text AS taker_fee,
+      COALESCE(mp.price, c1m.close_price, c1d.close_price)::text AS last_price,
+      COALESCE(c1d.volume, '0')::text AS volume_24h,
+      c1d.open_price::text AS open_24h,
+      c1d.high_price::text AS high_24h,
+      c1d.low_price::text AS low_24h
+    FROM spot_markets m
+    LEFT JOIN trading_pairs tp ON tp.symbol = m.symbol
+    LEFT JOIN market_prices mp
+      ON mp.base_currency_id = m.base_currency_id
+     AND mp.quote_currency_id = m.quote_currency_id
+    LEFT JOIN latest_1m c1m ON c1m.trading_pair_id = tp.id
+    LEFT JOIN latest_1d c1d ON c1d.trading_pair_id = tp.id
+    WHERE m.status IN ('active', 'maintenance')
+    ORDER BY m.symbol
+  `);
+    });
+    return toMarketResponseRows(result.rows);
+  } catch (e) {
+    logger.warn('spot markets rich query failed; using lightweight fallback', {
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return computeMarketsLightweight();
+  }
 }
 
 export async function getMarketsCached(): Promise<unknown[]> {
@@ -87,12 +163,22 @@ export async function getMarketsCached(): Promise<unknown[]> {
       try {
         const fresh = await computeMarkets();
         marketsLocalCache = { expiresAt: Date.now() + MARKETS_LOCAL_TTL_MS, payload: fresh };
+        marketsLastGoodSnapshot = { generatedAt: Date.now(), payload: fresh };
         try {
           await redis.setJson(MARKETS_REDIS_KEY, fresh, MARKETS_REDIS_TTL_S);
         } catch {
           // best-effort
         }
         return fresh;
+      } catch (e) {
+        if (marketsLastGoodSnapshot?.payload?.length) {
+          logger.warn('spot markets compute failed; serving stale snapshot', {
+            error: e instanceof Error ? e.message : String(e),
+            staleAgeMs: Date.now() - marketsLastGoodSnapshot.generatedAt,
+          });
+          return marketsLastGoodSnapshot.payload;
+        }
+        throw e;
       } finally {
         marketsInFlight = null;
       }

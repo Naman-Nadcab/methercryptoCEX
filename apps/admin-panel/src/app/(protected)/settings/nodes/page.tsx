@@ -19,6 +19,8 @@ import { ArrowLeft, Plus, Pencil, Trash2, Zap, CheckCircle2, XCircle, Loader2, S
 import { TableSkeleton } from '@/components/ui';
 import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 import { cn } from '@/lib/cn';
+import { ProtectedAction } from '@/components/rbac/ProtectedAction';
+import { ActionAuthModal, type ActionAuthPayload } from '@/components/ops/ActionAuthModal';
 
 // Expanded chain + network list
 const NETWORKS = [
@@ -83,8 +85,15 @@ export default function SettingsNodesPage() {
     status: 'active' as string,
   });
   const [ping, setPing] = useState<PingState | null>(null);
+  const [nodeAuthTarget, setNodeAuthTarget] = useState<
+    | { kind: 'add'; body: { provider_name: string; rpc_url?: string; api_key?: string; network?: string; status?: string } }
+    | { kind: 'edit'; id: string; body: Partial<NodeProviderRow> }
+    | { kind: 'toggle'; id: string; status: string }
+    | { kind: 'delete'; id: string; providerName: string }
+    | null
+  >(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['admin', 'settings', 'nodes', token],
     queryFn: () => getNodeProviders(token),
     enabled: !!token,
@@ -143,13 +152,13 @@ export default function SettingsNodesPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (modal?.type === 'add') {
-      createMutation.mutate({
+      setNodeAuthTarget({ kind: 'add', body: {
         provider_name: form.provider_name.trim(),
         rpc_url: form.rpc_url || undefined,
         api_key: form.api_key || undefined,
         network: form.network,
         status: form.status,
-      });
+      }});
     } else if (modal?.type === 'edit' && modal.row) {
       const body: Partial<NodeProviderRow> = {
         provider_name: form.provider_name.trim(),
@@ -158,7 +167,7 @@ export default function SettingsNodesPage() {
         status: form.status,
       };
       if (form.api_key.trim()) body.api_key = form.api_key.trim();
-      updateMutation.mutate({ id: modal.row.id, body });
+      setNodeAuthTarget({ kind: 'edit', id: modal.row.id, body });
     }
   };
 
@@ -183,6 +192,8 @@ export default function SettingsNodesPage() {
     <AdminPageFrame
       title="Node Providers"
       description="Manage RPC node providers (Infura, Alchemy, QuickNode, self-hosted). Updates apply without redeploy."
+      error={isError ? (error instanceof Error ? error.message : 'Failed to load node providers.') : null}
+      onRetry={isError ? () => { void refetch(); } : undefined}
       quickActions={
         <>
           <Link href="/settings">
@@ -190,10 +201,12 @@ export default function SettingsNodesPage() {
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
-          <Button size="sm" onClick={openAdd}>
-            <Plus className="mr-1 h-4 w-4" />
-            Add provider
-          </Button>
+          <ProtectedAction permission="settings:edit" fallback="disabled">
+            <Button size="sm" onClick={openAdd}>
+              <Plus className="mr-1 h-4 w-4" />
+              Add provider
+            </Button>
+          </ProtectedAction>
         </>
       }
     >
@@ -277,28 +290,30 @@ export default function SettingsNodesPage() {
                                   <Zap className="h-3.5 w-3.5" />
                                 </Button>
                               )}
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                title={n.status === 'active' ? 'Deactivate' : 'Activate'}
-                                disabled={toggleMutation.isPending}
-                                onClick={() => toggleMutation.mutate({ id: n.id, status: n.status === 'active' ? 'inactive' : 'active' })}
-                              >
-                                {n.status === 'active'
-                                  ? <XCircle className="h-3.5 w-3.5 text-admin-muted" />
-                                  : <CheckCircle2 className="h-3.5 w-3.5 text-admin-muted" />}
-                              </Button>
-                              <Button variant="ghost" size="sm" title="Edit" onClick={() => openEdit(n)}>
-                                <Pencil className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                title="Delete"
-                                onClick={() => setModal({ type: 'delete', row: n })}
-                              >
-                                <Trash2 className="h-3.5 w-3.5 text-red-400" />
-                              </Button>
+                              <ProtectedAction permission="settings:edit" fallback="disabled">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  title={n.status === 'active' ? 'Deactivate' : 'Activate'}
+                                  disabled={toggleMutation.isPending}
+                                  onClick={() => setNodeAuthTarget({ kind: 'toggle', id: n.id, status: n.status === 'active' ? 'inactive' : 'active' })}
+                                >
+                                  {n.status === 'active'
+                                    ? <XCircle className="h-3.5 w-3.5 text-admin-muted" />
+                                    : <CheckCircle2 className="h-3.5 w-3.5 text-admin-muted" />}
+                                </Button>
+                                <Button variant="ghost" size="sm" title="Edit" onClick={() => openEdit(n)}>
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  title="Delete"
+                                  onClick={() => setModal({ type: 'delete', row: n })}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5 text-red-400" />
+                                </Button>
+                              </ProtectedAction>
                             </div>
                           </td>
                         </tr>
@@ -414,7 +429,7 @@ export default function SettingsNodesPage() {
               <Button
                 className="flex-1 bg-red-600 hover:bg-red-700 text-white border-0"
                 disabled={deleteMutation.isPending}
-                onClick={() => modal.row && deleteMutation.mutate(modal.row.id)}
+                onClick={() => modal.row && setNodeAuthTarget({ kind: 'delete', id: modal.row.id, providerName: modal.row.provider_name })}
               >
                 {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
               </Button>
@@ -422,6 +437,54 @@ export default function SettingsNodesPage() {
           </div>
         </div>
       )}
+      <ActionAuthModal
+        open={nodeAuthTarget !== null}
+        onClose={() => setNodeAuthTarget(null)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          if (!nodeAuthTarget) return;
+          if (nodeAuthTarget.kind === 'add') {
+            createMutation.mutate(nodeAuthTarget.body);
+          } else if (nodeAuthTarget.kind === 'edit') {
+            updateMutation.mutate({ id: nodeAuthTarget.id, body: nodeAuthTarget.body });
+          } else if (nodeAuthTarget.kind === 'toggle') {
+            toggleMutation.mutate({ id: nodeAuthTarget.id, status: nodeAuthTarget.status });
+          } else if (nodeAuthTarget.kind === 'delete') {
+            deleteMutation.mutate(nodeAuthTarget.id);
+          }
+          void payload;
+          setNodeAuthTarget(null);
+        }}
+        title="Authorize node provider change"
+        actionLabel={
+          nodeAuthTarget?.kind === 'add'
+            ? `Add node provider ${nodeAuthTarget.body.provider_name}`
+            : nodeAuthTarget?.kind === 'edit'
+              ? 'Update node provider configuration'
+              : nodeAuthTarget?.kind === 'toggle'
+                ? `${nodeAuthTarget.status === 'active' ? 'Activate' : 'Deactivate'} node provider`
+                : nodeAuthTarget?.kind === 'delete'
+                  ? `Delete node provider ${nodeAuthTarget.providerName}`
+                  : 'Node provider action'
+        }
+        description="Node provider settings directly affect blockchain connectivity and transaction reliability."
+        requireReason
+        twofaRequired
+        confirmationPhrase={nodeAuthTarget?.kind === 'delete' ? 'CONFIRM NODE_DELETE' : 'CONFIRM NODE_CHANGE'}
+        externalError={
+          createMutation.error instanceof Error
+            ? createMutation.error.message
+            : updateMutation.error instanceof Error
+              ? updateMutation.error.message
+              : deleteMutation.error instanceof Error
+                ? deleteMutation.error.message
+                : toggleMutation.error instanceof Error
+                  ? toggleMutation.error.message
+                  : null
+        }
+        isPending={createMutation.isPending || updateMutation.isPending || deleteMutation.isPending || toggleMutation.isPending}
+        confirmLabel={(createMutation.isPending || updateMutation.isPending || deleteMutation.isPending || toggleMutation.isPending) ? 'Applying…' : 'Apply change'}
+        confirmVariant={nodeAuthTarget?.kind === 'delete' ? 'danger' : 'primary'}
+      />
     </AdminPageFrame>
   );
 }

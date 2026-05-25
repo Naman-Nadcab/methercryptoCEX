@@ -39,6 +39,7 @@ export default function ApiPage() {
   const [visibleSecrets, setVisibleSecrets] = useState<Set<string>>(new Set());
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [revokeConfirmId, setRevokeConfirmId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchApiKeys();
@@ -108,7 +109,6 @@ export default function ApiPage() {
   };
 
   const handleDeleteKey = async (key: ApiKey) => {
-    if (!confirm(`Revoke API key "${key.name}"? Spot and P2P automation using this key will stop.`)) return;
     setDeletingId(key.id);
     try {
       const response = await fetch(`${apiUrl}/api/v1/auth/api-keys/${key.id}`, {
@@ -118,6 +118,7 @@ export default function ApiPage() {
       const result = await response.json();
       if (result.success) {
         setApiKeys((prev) => prev.filter((k) => k.id !== key.id));
+        setRevokeConfirmId(null);
         toast({ title: 'API key deleted', description: 'Access has been revoked', variant: 'success' });
       } else {
         toast({ title: 'Error', description: result.error?.message || 'Failed to delete API key', variant: 'destructive' });
@@ -422,19 +423,40 @@ export default function ApiPage() {
                             >
                               <Edit3 className="w-4 h-4 text-muted-foreground" aria-hidden />
                             </button>
-                            <button
-                              onClick={() => handleDeleteKey(key)}
-                              disabled={!!deletingId}
-                              className="p-2 hover:bg-sell-light rounded-lg transition-colors disabled:opacity-50"
-                              title="Delete API key"
-                              aria-label={`Delete API key ${key.name}`}
-                            >
-                              {deletingId === key.id ? (
-                                <Loader2 className="w-4 h-4 text-sell animate-spin" />
-                              ) : (
-                                <Trash2 className="w-4 h-4 text-sell" />
-                              )}
-                            </button>
+                            {revokeConfirmId === key.id ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => setRevokeConfirmId(null)}
+                                  disabled={!!deletingId}
+                                  className="px-2.5 py-1.5 text-xs font-medium rounded-md border border-border text-muted-foreground hover:bg-accent disabled:opacity-50"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleDeleteKey(key)}
+                                  disabled={!!deletingId}
+                                  className="px-2.5 py-1.5 text-xs font-semibold rounded-md border border-sell/30 text-sell hover:bg-sell-light disabled:opacity-50"
+                                >
+                                  {deletingId === key.id ? 'Revoking…' : 'Confirm revoke'}
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                onClick={() => setRevokeConfirmId(key.id)}
+                                disabled={!!deletingId}
+                                className="p-2 hover:bg-sell-light rounded-lg transition-colors disabled:opacity-50"
+                                title="Delete API key"
+                                aria-label={`Delete API key ${key.name}`}
+                              >
+                                {deletingId === key.id ? (
+                                  <Loader2 className="w-4 h-4 text-sell animate-spin" />
+                                ) : (
+                                  <Trash2 className="w-4 h-4 text-sell" />
+                                )}
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>

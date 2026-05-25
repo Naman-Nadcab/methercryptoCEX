@@ -3,17 +3,20 @@
  * create Redis-backed sessions, mint access JWTs for user A and B.
  *
  * Run from repo root:
- *   cd apps/backend && npx tsx scripts/e2e-provision-credentials.ts
+ *   cd apps/backend && npx tsx scripts/e2e-provision-credentials.ts --emit-json ../../e2e/.e2e-credentials.json
  *
  * Requires: DATABASE_URL, JWT_SECRET, REDIS_URL (same as API), migrated DB, BTC+USDT in currencies.
  */
 import dotenv from 'dotenv';
 import path from 'path';
+import { writeFileSync, mkdirSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'url';
+import Decimal from 'decimal.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
-dotenv.config({ path: path.resolve(__dirname, '../../.env'), override: true });
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 const A_EMAIL = 'qa_trader_a@local.exchange';
 const B_EMAIL = 'qa_trader_b@local.exchange';
@@ -40,9 +43,27 @@ async function main() {
   }
   const expiresIn = process.env.JWT_EXPIRES_IN || '15m';
 
+  /** Local Postgres (Docker/host) typically has no TLS; `ssl = { rejectUnauthorized: false }` still enables STARTTLS and fails. Remote DBs usually need permissive TLS. */
+  function pgSslForUrl(connectionString: string): undefined | { rejectUnauthorized: boolean } {
+    try {
+      const normalized = connectionString.replace(/^postgresql:/i, 'http:').replace(/^postgres:/i, 'http:');
+      const u = new URL(normalized);
+      const host = (u.hostname || '').toLowerCase();
+      if (host === '127.0.0.1' || host === 'localhost' || host === 'postgres' || host.endsWith('.internal')) {
+        return undefined;
+      }
+    } catch {
+      /* ignore */
+    }
+    if (process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === 'false') {
+      return { rejectUnauthorized: false };
+    }
+    return undefined;
+  }
+
   const client = new pg.Client({
     connectionString: url,
-    ssl: process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === 'false' ? { rejectUnauthorized: false } : undefined,
+    ssl: pgSslForUrl(url),
   });
   await client.connect();
 
@@ -120,12 +141,36 @@ async function main() {
   const hasChainId = chainCol.rows.length > 0;
 
   async function fundTrading(userId: string, currencyId: string, amount: string) {
+    const targetAvailable = new Decimal(amount);
+    if (!targetAvailable.isFinite() || targetAvailable.isNegative()) {
+      throw new Error(`Invalid funding amount: ${amount}`);
+    }
+    const balRow = hasChainId
+      ? await client.query<{ available_balance: string; locked_balance: string }>(
+          `SELECT COALESCE(available_balance, 0)::text AS available_balance,
+                  COALESCE(locked_balance, 0)::text AS locked_balance
+             FROM user_balances
+            WHERE user_id = $1 AND currency_id = $2 AND chain_id = '' AND account_type = 'trading'
+            LIMIT 1`,
+          [userId, currencyId]
+        )
+      : await client.query<{ available_balance: string; locked_balance: string }>(
+          `SELECT COALESCE(available_balance, 0)::text AS available_balance,
+                  COALESCE(locked_balance, 0)::text AS locked_balance
+             FROM user_balances
+            WHERE user_id = $1 AND currency_id = $2 AND account_type = 'trading'
+            LIMIT 1`,
+          [userId, currencyId]
+        );
+    const beforeAvailable = new Decimal(balRow.rows[0]?.available_balance ?? '0');
+    const beforeLocked = new Decimal(balRow.rows[0]?.locked_balance ?? '0');
+
     if (hasChainId) {
       await client.query(
         `INSERT INTO user_balances (user_id, currency_id, chain_id, account_type, available_balance, locked_balance)
          VALUES ($1, $2, '', 'trading', $3::numeric, 0)
          ON CONFLICT (user_id, currency_id, chain_id, account_type)
-         DO UPDATE SET available_balance = EXCLUDED.available_balance`,
+         DO UPDATE SET available_balance = EXCLUDED.available_balance, locked_balance = EXCLUDED.locked_balance`,
         [userId, currencyId, amount]
       );
     } else {
@@ -133,8 +178,74 @@ async function main() {
         `INSERT INTO user_balances (user_id, currency_id, account_type, available_balance, locked_balance)
          VALUES ($1, $2, 'trading', $3::numeric, 0)
          ON CONFLICT (user_id, currency_id, account_type)
-         DO UPDATE SET available_balance = EXCLUDED.available_balance`,
+         DO UPDATE SET available_balance = EXCLUDED.available_balance, locked_balance = EXCLUDED.locked_balance`,
         [userId, currencyId, amount]
+      );
+    }
+
+    const ledgerRow = await client.query<{ avail_sum: string; lock_sum: string }>(
+      `SELECT
+         COALESCE(SUM(CASE WHEN balance_type = 'available' THEN credit::numeric - debit::numeric ELSE 0 END), 0)::text AS avail_sum,
+         COALESCE(SUM(CASE WHEN balance_type = 'locked' THEN credit::numeric - debit::numeric ELSE 0 END), 0)::text AS lock_sum
+       FROM balance_ledger
+       WHERE user_id = $1::uuid
+         AND currency_id = $2::uuid
+         AND description LIKE '%account_type=trading%'`,
+      [userId, currencyId]
+    );
+    const ledgerAvailable = new Decimal(ledgerRow.rows[0]?.avail_sum ?? '0');
+    const ledgerLocked = new Decimal(ledgerRow.rows[0]?.lock_sum ?? '0');
+    const deltaAvailable = targetAvailable.minus(ledgerAvailable);
+    const targetLocked = new Decimal(0);
+    const deltaLocked = targetLocked.minus(ledgerLocked);
+
+    if (!deltaAvailable.isZero()) {
+      const refId = randomUUID();
+      await client.query(
+        `INSERT INTO balance_ledger (
+           user_id, currency_id, reference_type, reference_id, debit, credit,
+           balance_before, balance_after, balance_type, description, created_at
+         ) VALUES (
+           $1::uuid, $2::uuid, 'adjustment'::ledger_reference_type, $3::uuid, $4::numeric, $5::numeric,
+           $6::numeric, $7::numeric, 'available'::balance_type, $8, NOW()
+         )`,
+        [
+          userId,
+          currencyId,
+          refId,
+          deltaAvailable.isNegative() ? deltaAvailable.abs().toString() : '0',
+          deltaAvailable.isPositive() ? deltaAvailable.toString() : '0',
+          ledgerAvailable.toString(),
+          targetAvailable.toString(),
+          'account_type=trading;e2e_seed_balance=1',
+        ]
+      );
+    }
+    if (!deltaLocked.isZero()) {
+      const refId = randomUUID();
+      await client.query(
+        `INSERT INTO balance_ledger (
+           user_id, currency_id, reference_type, reference_id, debit, credit,
+           balance_before, balance_after, balance_type, description, created_at
+         ) VALUES (
+           $1::uuid, $2::uuid, 'adjustment'::ledger_reference_type, $3::uuid, $4::numeric, $5::numeric,
+           $6::numeric, $7::numeric, 'locked'::balance_type, $8, NOW()
+         )`,
+        [
+          userId,
+          currencyId,
+          refId,
+          deltaLocked.isNegative() ? deltaLocked.abs().toString() : '0',
+          deltaLocked.isPositive() ? deltaLocked.toString() : '0',
+          ledgerLocked.toString(),
+          targetLocked.toString(),
+          'account_type=trading;e2e_seed_balance=1',
+        ]
+      );
+    }
+    if (!beforeLocked.isZero() || !beforeAvailable.eq(targetAvailable)) {
+      console.log(
+        `Aligned trading balance for ${userId}/${currencyId}: available ${beforeAvailable.toString()} -> ${targetAvailable.toString()}, locked ${beforeLocked.toString()} -> 0`
       );
     }
   }
@@ -216,20 +327,55 @@ async function main() {
   const tokenA = jwt.sign(payloadA, secret, { expiresIn });
   const tokenB = jwt.sign(payloadB, secret, { expiresIn });
 
+  const emitIdx = process.argv.indexOf('--emit-json');
+  if (emitIdx >= 0) {
+    const rawPath = process.argv[emitIdx + 1];
+    if (!rawPath?.trim()) {
+      console.error('Usage: --emit-json <path-to.json>');
+      process.exit(1);
+    }
+    const abs = path.isAbsolute(rawPath) ? rawPath : path.resolve(process.cwd(), rawPath);
+    mkdirSync(path.dirname(abs), { recursive: true });
+    writeFileSync(
+      abs,
+      JSON.stringify(
+        {
+          E2E_JWT: tokenA,
+          E2E_COUNTERPARTY_JWT: tokenB,
+          E2E_API_KEY: API_KEY_A,
+          E2E_COUNTERPARTY_API_KEY: API_KEY_B,
+        },
+        null,
+        2
+      ),
+      'utf8'
+    );
+    console.log(`Wrote credentials JSON: ${abs}`);
+  }
+
+  const shouldPrintSecrets = process.env.E2E_PRINT_SECRETS === '1';
   console.log('');
-  console.log('=== E2E credentials (add to .env.e2e or export before npm run test:e2e) ===');
-  console.log('');
-  console.log(`E2E_JWT=${tokenA}`);
-  console.log(`E2E_COUNTERPARTY_JWT=${tokenB}`);
-  console.log(`E2E_API_KEY=${API_KEY_A}`);
-  console.log(`E2E_COUNTERPARTY_API_KEY=${API_KEY_B}`);
-  console.log('');
+  if (shouldPrintSecrets) {
+    console.log('=== E2E credentials (add to .env.e2e or export before npm run test:e2e) ===');
+    console.log('');
+    console.log(`E2E_JWT=${tokenA}`);
+    console.log(`E2E_COUNTERPARTY_JWT=${tokenB}`);
+    console.log(`E2E_API_KEY=${API_KEY_A}`);
+    console.log(`E2E_COUNTERPARTY_API_KEY=${API_KEY_B}`);
+    console.log('');
+  } else {
+    console.log('E2E credentials generated and saved (secrets hidden by default).');
+    console.log('Set E2E_PRINT_SECRETS=1 only for local debugging.');
+    console.log('');
+  }
   console.log('=== Reference ===');
   console.log(JSON.stringify({ trader_a: A_EMAIL, trader_b: B_EMAIL, password: PASSWORD, user_ids: [idA, idB] }, null, 2));
   console.log('');
 }
 
-main().catch((e) => {
-  console.error(e instanceof Error ? e.message : e);
-  process.exit(1);
-});
+main()
+  .then(() => process.exit(0))
+  .catch((e) => {
+    console.error(e instanceof Error ? e.message : e);
+    process.exit(1);
+  });

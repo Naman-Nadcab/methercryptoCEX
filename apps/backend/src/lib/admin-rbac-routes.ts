@@ -3,6 +3,19 @@
  */
 
 const SUPER_ROLES = ['super_admin', 'super admin', 'Super Admin'];
+const ROLE_ALIASES: Record<string, string> = {
+  support_agent: 'support',
+  support: 'support',
+  compliance_officer: 'compliance',
+  compliance: 'compliance',
+  finance_admin: 'finance_ops',
+  finance_ops: 'finance_ops',
+};
+
+function normalizeRole(role: string): string {
+  const normalized = (role || '').toLowerCase().replace(/\s+/g, '_');
+  return ROLE_ALIASES[normalized] ?? normalized;
+}
 
 export const ADMIN_IMPLICIT_ROLE_PERMISSIONS: Record<string, string[]> = {
   super_admin: ['all'],
@@ -18,7 +31,7 @@ export const ADMIN_IMPLICIT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'analytics:view',
     'audit:view',
   ],
-  finance_admin: [
+  finance_ops: [
     'withdrawals:approve',
     'withdrawals:view',
     'deposits:credit',
@@ -30,7 +43,8 @@ export const ADMIN_IMPLICIT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'analytics:view',
     'audit:view',
   ],
-  support_agent: ['users:view', 'users:edit', 'kyc:review', 'deposits:view', 'withdrawals:view', 'p2p:disputes'],
+  support: ['users:view', 'users:edit', 'deposits:view', 'withdrawals:view', 'p2p:disputes', 'monitoring:view'],
+  compliance: ['kyc:review', 'aml:view', 'aml:escalate', 'audit:view', 'monitoring:view', 'users:view'],
   auditor: [
     'audit:view',
     'monitoring:view',
@@ -51,17 +65,20 @@ export const ADMIN_LEGACY_ROLE_PERMISSION: Record<string, string> = {
   kyc_reviewer: 'kyc:review',
   aml_reviewer: 'aml:view',
   risk_manager: 'monitoring:view',
+  support_agent: 'users:view',
+  finance_admin: 'withdrawals:view',
+  compliance_officer: 'aml:view',
 };
 
 export function hasAdminRbacPermission(role: string, permission: string): boolean {
-  const normalizedRole = (role || '').toLowerCase().replace(/\s+/g, '_');
+  const normalizedRole = normalizeRole(role);
   if (SUPER_ROLES.some((r) => r.toLowerCase().replace(/\s+/g, '_') === normalizedRole)) return true;
   const perms = ADMIN_IMPLICIT_ROLE_PERMISSIONS[normalizedRole] || [];
   return perms.includes('all') || perms.includes(permission);
 }
 
 export function getImplicitRolePermissions(normalizedRole: string): string[] {
-  return ADMIN_IMPLICIT_ROLE_PERMISSIONS[normalizedRole] ?? [];
+  return ADMIN_IMPLICIT_ROLE_PERMISSIONS[normalizeRole(normalizedRole)] ?? [];
 }
 
 /** URL pathname under /api/v1/admin (leading slash, no query). */
@@ -76,9 +93,9 @@ const ADMIN_ROUTE_RULES: Array<{ pattern: RegExp; read: string; write: string }>
     write: 'withdrawals:approve',
   },
   {
-    pattern: /^\/(trading|trading-halt|matches|settlement|spot|engine)\b/,
+    pattern: /^\/(trading|trading-halt|matches|settlement|spot|engine|hybrid|external-liquidity)\b/,
     read: 'monitoring:view',
-    write: 'control:trading',
+    write: 'markets:manage',
   },
   { pattern: /^\/(risk|aml)\b/, read: 'aml:view', write: 'aml:escalate' },
   {
@@ -107,7 +124,7 @@ const ADMIN_ROUTE_RULES: Array<{ pattern: RegExp; read: string; write: string }>
 ];
 
 export function isSuperAdminRole(role: string): boolean {
-  const normalizedRole = (role || '').toLowerCase().replace(/\s+/g, '_');
+  const normalizedRole = normalizeRole(role);
   return SUPER_ROLES.some((r) => r.toLowerCase().replace(/\s+/g, '_') === normalizedRole);
 }
 
@@ -126,7 +143,7 @@ export function evaluateAdminRouteRbac(
       if (hasAdminRbacPermission(role, required)) {
         return { allowed: true, required, mapped: true };
       }
-      const normalizedRole = (role || '').toLowerCase().replace(/\s+/g, '_');
+      const normalizedRole = normalizeRole(role);
       const legacy = ADMIN_LEGACY_ROLE_PERMISSION[normalizedRole];
       if (legacy === required) {
         return { allowed: true, required, mapped: true };

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { AlertTriangle, Copy, Check } from 'lucide-react';
+import { toast } from '@/components/ui/toaster';
 
 function pickString(obj: Record<string, unknown>, keys: string[]): string {
   for (const k of keys) {
@@ -32,7 +33,9 @@ export function P2PPaymentInstructions({ details, displayName }: Props) {
       await navigator.clipboard.writeText(value);
       setCopied(label);
       setTimeout(() => setCopied(null), 2000);
-    } catch { /* ignore */ }
+    } catch {
+      toast({ title: 'Copy failed', description: 'Could not copy payment details.', variant: 'destructive' });
+    }
   };
 
   const accountName = pickString(details, [

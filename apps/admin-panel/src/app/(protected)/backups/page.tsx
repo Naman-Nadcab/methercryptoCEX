@@ -11,6 +11,7 @@ import { Modal, ModalFooter } from '@/components/ui/Modal';
 import { ProtectedAction } from '@/components/rbac/ProtectedAction';
 import { usePermission } from '@/hooks/usePermission';
 import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
+import { ActionAuthModal, type ActionAuthPayload } from '@/components/ops/ActionAuthModal';
 import {
   Database, Download, RotateCcw, Plus, AlertTriangle, ShieldAlert,
 } from 'lucide-react';
@@ -60,6 +61,8 @@ export default function BackupsPage() {
   const { isSuper } = usePermission();
 
   const [restoreTarget, setRestoreTarget] = useState<BackupRow | null>(null);
+  const [createAuthOpen, setCreateAuthOpen] = useState(false);
+  const [restoreAuthOpen, setRestoreAuthOpen] = useState(false);
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['admin', 'backups', token],
@@ -115,13 +118,15 @@ export default function BackupsPage() {
     <AdminPageFrame
       title="Database Backups"
       description="Manage database snapshots and restores. Super admin only."
+      error={isError ? 'Failed to load backup history.' : null}
+      onRetry={isError ? () => { void refetch(); } : undefined}
       quickActions={
         <ProtectedAction permission="all" fallback="disabled">
           <Button
             size="sm"
             icon={<Plus className="h-3.5 w-3.5" />}
             loading={createMutation.isPending}
-            onClick={() => createMutation.mutate()}
+            onClick={() => setCreateAuthOpen(true)}
           >
             Create Backup
           </Button>
@@ -272,12 +277,52 @@ export default function BackupsPage() {
             size="sm"
             loading={restoreMutation.isPending}
             icon={<RotateCcw className="h-3.5 w-3.5" />}
-            onClick={() => restoreTarget && restoreMutation.mutate(restoreTarget.id)}
+            onClick={() => setRestoreAuthOpen(true)}
           >
             Request Restore
           </Button>
         </ModalFooter>
       </Modal>
+      <ActionAuthModal
+        open={createAuthOpen}
+        onClose={() => setCreateAuthOpen(false)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          void payload;
+          createMutation.mutate();
+          setCreateAuthOpen(false);
+        }}
+        title="Authorize backup creation"
+        actionLabel="Create new database backup snapshot"
+        description="Backup operations are sensitive and are audited for compliance."
+        requireReason
+        twofaRequired
+        confirmationPhrase="CONFIRM BACKUP_CREATE"
+        externalError={createMutation.error instanceof Error ? createMutation.error.message : null}
+        isPending={createMutation.isPending}
+        confirmLabel={createMutation.isPending ? 'Creating…' : 'Create backup'}
+        confirmVariant="primary"
+      />
+      <ActionAuthModal
+        open={restoreAuthOpen}
+        onClose={() => setRestoreAuthOpen(false)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          void payload;
+          if (restoreTarget) {
+            restoreMutation.mutate(restoreTarget.id);
+          }
+          setRestoreAuthOpen(false);
+        }}
+        title="Authorize restore request"
+        actionLabel={restoreTarget ? `Request restore from backup ${restoreTarget.id.slice(0, 8)}` : 'Request database restore'}
+        description="Restore requests are high-impact and require explicit approval."
+        requireReason
+        twofaRequired
+        confirmationPhrase="CONFIRM BACKUP_RESTORE"
+        externalError={restoreMutation.error instanceof Error ? restoreMutation.error.message : null}
+        isPending={restoreMutation.isPending}
+        confirmLabel={restoreMutation.isPending ? 'Submitting…' : 'Submit restore request'}
+        confirmVariant="danger"
+      />
     </AdminPageFrame>
   );
 }

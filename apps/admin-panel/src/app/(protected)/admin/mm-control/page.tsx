@@ -67,6 +67,7 @@ import {
 import { AdminPageFrame, type AdminPageStatus } from '@/components/admin-shell/AdminPageFrame';
 import { ProtectedAction } from '@/components/rbac/ProtectedAction';
 import { cn } from '@/lib/cn';
+import { ActionAuthModal, type ActionAuthPayload } from '@/components/ops/ActionAuthModal';
 
 const REFETCH_MS = 12_000;
 const SPARK_MAX_POINTS = 18;
@@ -572,6 +573,12 @@ export default function MmControlPage() {
   const [unwindMarket, setUnwindMarket] = useState<string | null>(null);
   const [healthDismissed, setHealthDismissed] = useState(false);
   const [showGlobalDetail, setShowGlobalDetail] = useState(false);
+  const [deskActionAuth, setDeskActionAuth] = useState<
+    | { kind: 'stop_all' }
+    | { kind: 'safe_mode' }
+    | { kind: 'reset_desk' }
+    | null
+  >(null);
 
   // ── Queries ──────────────────────────────────────────────────────────────
   const statusQ = useQuery({
@@ -881,9 +888,9 @@ export default function MmControlPage() {
           status={statusData}
           globalDraft={globalDraft}
           onRefresh={refresh}
-          onStopAll={() => saveGlobalM.mutate({ enabled: false })}
-          onSafeMode={() => saveGlobalM.mutate({ mode: 'safe' })}
-          onResetDesk={() => saveGlobalM.mutate({ enabled: true, mode: 'normal' })}
+          onStopAll={() => setDeskActionAuth({ kind: 'stop_all' })}
+          onSafeMode={() => setDeskActionAuth({ kind: 'safe_mode' })}
+          onResetDesk={() => setDeskActionAuth({ kind: 'reset_desk' })}
           onSetMode={(mode) => saveGlobalM.mutate({ mode })}
           globalBusy={globalBusy}
         />
@@ -1428,6 +1435,38 @@ export default function MmControlPage() {
       </div>
 
       {/* ── Add Pair Modal ── */}
+      <ActionAuthModal
+        open={deskActionAuth !== null}
+        onClose={() => setDeskActionAuth(null)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          if (!deskActionAuth) return;
+          if (deskActionAuth.kind === 'stop_all') {
+            saveGlobalM.mutate({ enabled: false });
+          } else if (deskActionAuth.kind === 'safe_mode') {
+            saveGlobalM.mutate({ mode: 'safe' });
+          } else {
+            saveGlobalM.mutate({ enabled: true, mode: 'normal' });
+          }
+          void payload;
+          setDeskActionAuth(null);
+        }}
+        title="Confirm MM desk control action"
+        actionLabel={
+          deskActionAuth?.kind === 'stop_all'
+            ? 'Stop all market making'
+            : deskActionAuth?.kind === 'safe_mode'
+              ? 'Switch MM desk to safe mode'
+              : 'Reset MM desk to normal mode'
+        }
+        description="This action directly affects market making runtime behavior."
+        requireReason
+        twofaRequired
+        confirmationPhrase={deskActionAuth?.kind === 'stop_all' ? 'CONFIRM STOP_MM' : 'CONFIRM MM_ACTION'}
+        externalError={saveGlobalM.error instanceof Error ? saveGlobalM.error.message : null}
+        isPending={saveGlobalM.isPending}
+        confirmLabel={saveGlobalM.isPending ? 'Applying…' : 'Apply action'}
+        confirmVariant={deskActionAuth?.kind === 'stop_all' ? 'danger' : 'primary'}
+      />
       <AddPairModal
         open={showAddPair}
         onClose={() => setShowAddPair(false)}

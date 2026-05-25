@@ -73,7 +73,7 @@ export default function RiskSeveritySettingsPage() {
   const [whale500k, setWhale500k] = useState<Severity>('high');
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['admin', 'risk', 'severity', token],
     queryFn: () => getRiskSeveritySettings(token),
     enabled: !!token,
@@ -117,7 +117,8 @@ export default function RiskSeveritySettingsPage() {
       title="Alert Severity Configuration"
       description="Map trade size thresholds to alert severity levels. Affects how operators triage incoming whale-trade alerts."
       status="active"
-      error={null}
+      error={isError ? (error instanceof Error ? error.message : 'Failed to load severity configuration.') : null}
+      onRetry={isError ? () => { void refetch(); } : undefined}
       quickActions={
         <Link href="/risk">
           <button type="button" className="flex items-center gap-1.5 rounded-lg border border-admin-border/50 bg-white/[0.02] px-2.5 py-1.5 text-xs font-medium text-admin-muted hover:text-admin-text transition-colors">

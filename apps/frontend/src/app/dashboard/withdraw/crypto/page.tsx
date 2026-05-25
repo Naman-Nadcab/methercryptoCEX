@@ -162,6 +162,7 @@ export default function WithdrawCryptoPage() {
   const [copied, setCopied] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null);
   const [showConfirmStep, setShowConfirmStep] = useState(false);
 
   const API_URL = getApiBaseUrl();
@@ -543,7 +544,6 @@ export default function WithdrawCryptoPage() {
   const cancelWithdrawal = async (id: string) => {
     if (!accessToken) return;
     setCancelError(null);
-    if (!confirm('Cancel this withdrawal? Funds will remain in your account.')) return;
     try {
       const res = await fetch(`${API_URL}/api/v1/wallet/withdrawals/${id}/cancel`, {
         method: 'POST',
@@ -554,6 +554,7 @@ export default function WithdrawCryptoPage() {
       });
       const data = await res.json();
       if (data.success) {
+        setCancelConfirmId(null);
         queryClient.invalidateQueries({ queryKey: ['balances'] });
         fetchRecentWithdrawals();
       } else {
@@ -1255,12 +1256,32 @@ export default function WithdrawCryptoPage() {
                           {dateStr ? `${new Date(dateStr).toLocaleDateString()} ${new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : '—'}
                         </span>
                         {withdrawal.status === 'pending' && withdrawal.withdrawal_type !== 'internal' && (
-                          <button
-                            onClick={() => cancelWithdrawal(withdrawal.id)}
-                            className="text-xs text-red-500 hover:text-red-600 font-medium"
-                          >
-                            Cancel
-                          </button>
+                          cancelConfirmId === withdrawal.id ? (
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setCancelConfirmId(null)}
+                                className="text-xs text-muted-foreground hover:text-foreground font-medium"
+                              >
+                                Keep
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void cancelWithdrawal(withdrawal.id)}
+                                className="text-xs text-red-500 hover:text-red-600 font-semibold"
+                              >
+                                Confirm cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setCancelConfirmId(withdrawal.id)}
+                              className="text-xs text-red-500 hover:text-red-600 font-medium"
+                            >
+                              Cancel
+                            </button>
+                          )
                         )}
                       </div>
                     </div>

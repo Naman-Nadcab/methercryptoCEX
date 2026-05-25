@@ -33,9 +33,16 @@ interface UseSpotBottomPanelParams {
   isAuth: boolean;
   ordersVersion: number;
   tradesVersion?: number;
+  promptCancelAllConfirmation?: boolean;
 }
 
-export function useSpotBottomPanel({ symbol, isAuth, ordersVersion, tradesVersion = 0 }: UseSpotBottomPanelParams) {
+export function useSpotBottomPanel({
+  symbol,
+  isAuth,
+  ordersVersion,
+  tradesVersion = 0,
+  promptCancelAllConfirmation = true,
+}: UseSpotBottomPanelParams) {
   const [tab, setTab] = useState<'open' | 'orders' | 'trades' | 'assets'>('open');
   const [openOrders, setOpenOrders] = useState<Order[]>([]);
   const [openLoading, setOpenLoading] = useState(false);
@@ -50,6 +57,7 @@ export function useSpotBottomPanel({ symbol, isAuth, ordersVersion, tradesVersio
   const [tradesLoadMore, setTradesLoadMore] = useState(false);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [cancellingAll, setCancellingAll] = useState(false);
+  const [cancelAllArmed, setCancelAllArmed] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
 
   const fetchOpen = useCallback(async () => {
@@ -148,11 +156,23 @@ export function useSpotBottomPanel({ symbol, isAuth, ordersVersion, tradesVersio
     if (!isAuth || !symbol || cancellingAll) return;
     const forMarket = openOrders.filter((o) => o.market === symbol);
     if (forMarket.length === 0) return;
+    if (promptCancelAllConfirmation) {
+      if (!cancelAllArmed) {
+        setCancelAllArmed(true);
+        toast({
+          title: 'Confirm cancel all',
+          description: `Click "Cancel All" again to cancel open orders for ${symbol}.`,
+          variant: 'default',
+        });
+        return;
+      }
+    }
     setCancelError(null);
     setCancellingAll(true);
     try {
       const res = await api.post('/api/v1/spot/orders/cancel-all', { market: symbol });
       if (res.success) {
+        setCancelAllArmed(false);
         setOpenOrders((prev) => prev.filter((o) => o.market !== symbol));
         toast({
           title: 'Orders cancelled',
@@ -172,7 +192,13 @@ export function useSpotBottomPanel({ symbol, isAuth, ordersVersion, tradesVersio
     } finally {
       setCancellingAll(false);
     }
-  }, [isAuth, symbol, openOrders, cancellingAll]);
+  }, [isAuth, symbol, openOrders, cancellingAll, promptCancelAllConfirmation, cancelAllArmed]);
+
+  useEffect(() => {
+    if (!cancelAllArmed) return;
+    const timer = window.setTimeout(() => setCancelAllArmed(false), 6000);
+    return () => window.clearTimeout(timer);
+  }, [cancelAllArmed]);
 
   const loadMoreTrades = useCallback(() => {
     const nextPage = tradesPage + 1;
@@ -199,6 +225,7 @@ export function useSpotBottomPanel({ symbol, isAuth, ordersVersion, tradesVersio
     loadMoreTrades,
     cancellingId,
     cancellingAll,
+    cancelAllArmed,
     cancelError,
     setCancelError,
     fetchOpen,

@@ -1,428 +1,330 @@
 'use client';
 
-import { useState } from 'react';
-import { ChevronDown, FileText, Download, Clock, Check, FileSpreadsheet, History, Info } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import Link from 'next/link';
+import { Download, FileText, History, FileSpreadsheet, Loader2, AlertTriangle } from 'lucide-react';
+import { api } from '@/lib/api';
+import { downloadCsv, ordersToCsv } from '@/lib/exportCsv';
+import { notifyError } from '@/lib/notifyError';
 
 type TabType = 'transaction' | 'order' | 'account';
-type TimeRangeType = '7days' | '30days' | '90days' | 'customize';
-type StatementType = 'monthly' | 'custom';
+type TimeRangeType = '7days' | '30days' | '90days' | 'custom';
+
+type ExportLog = {
+  id: string;
+  kind: TabType;
+  requestedAt: string;
+  status: 'completed' | 'failed';
+  rows: number;
+  fileName?: string;
+  reason?: string;
+};
+
+type WalletTx = {
+  id?: string;
+  type?: string;
+  coin?: string;
+  symbol?: string;
+  quantity?: string;
+  amount?: string;
+  status?: string;
+  date_time?: string;
+  created_at?: string;
+  txid?: string;
+  txHash?: string;
+};
+
+type OrderExportRow = {
+  market: string;
+  side: string;
+  type?: string;
+  price: string | null;
+  stop_price?: string | null;
+  quantity: string;
+  filled_quantity: string;
+  status: string;
+  created_at: string;
+};
+
+function toDateBounds(timeRange: TimeRangeType, startDate: string, endDate: string): { start: Date; end: Date } {
+  const end = new Date();
+  const start = new Date(end);
+  if (timeRange === '7days') start.setDate(end.getDate() - 7);
+  if (timeRange === '30days') start.setDate(end.getDate() - 30);
+  if (timeRange === '90days') start.setDate(end.getDate() - 90);
+  if (timeRange === 'custom') {
+    const s = new Date(`${startDate}T00:00:00`);
+    const e = new Date(`${endDate}T23:59:59`);
+    return { start: Number.isFinite(s.getTime()) ? s : start, end: Number.isFinite(e.getTime()) ? e : end };
+  }
+  return { start, end };
+}
+
+function toCsvCell(value: unknown): string {
+  if (value == null) return '';
+  const s = String(value);
+  if (s.includes(',') || s.includes('"') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function walletTransactionsToCsv(rows: WalletTx[]): string {
+  const headers = ['Time', 'Type', 'Asset', 'Amount', 'Status', 'Tx Hash'];
+  const body = rows.map((r) => [
+    r.date_time ?? r.created_at ?? '',
+    r.type ?? '',
+    r.coin ?? r.symbol ?? '',
+    r.quantity ?? r.amount ?? '',
+    r.status ?? '',
+    r.txid ?? r.txHash ?? '',
+  ]);
+  return [headers.map(toCsvCell).join(','), ...body.map((row) => row.map(toCsvCell).join(','))].join('\n');
+}
 
 export default function DataExportPage() {
   const [activeTab, setActiveTab] = useState<TabType>('transaction');
-  const [account, setAccount] = useState('');
-  const [exportType, setExportType] = useState('');
-  const [timeRange, setTimeRange] = useState<TimeRangeType>('7days');
-  const [startDate, setStartDate] = useState('2026-01-23');
-  const [endDate, setEndDate] = useState('2026-01-30');
-  const [includeLegalName, setIncludeLegalName] = useState(false);
-  const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
-  const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
-  const [statementType, setStatementType] = useState<StatementType>('monthly');
-  const [statementTypeDropdown, setStatementTypeDropdown] = useState('');
-  const [statementTypeDropdownOpen, setStatementTypeDropdownOpen] = useState(false);
+  const [timeRange, setTimeRange] = useState<TimeRangeType>('30days');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [exportType, setExportType] = useState<'all' | 'deposit' | 'withdrawal' | 'transfer' | 'trade'>('all');
+  const [running, setRunning] = useState(false);
+  const [logs, setLogs] = useState<ExportLog[]>([]);
 
-  const tabs = [
-    { id: 'transaction' as TabType, label: 'Transaction Log', icon: FileText },
-    { id: 'order' as TabType, label: 'Order History', icon: History },
-    { id: 'account' as TabType, label: 'Account Statement', icon: FileSpreadsheet },
+  const tabs: Array<{ id: TabType; label: string; icon: typeof FileText }> = [
+    { id: 'transaction', label: 'Transaction Log', icon: FileText },
+    { id: 'order', label: 'Order History', icon: History },
+    { id: 'account', label: 'Account Statement', icon: FileSpreadsheet },
   ];
 
-  const accountOptions = [
-    { value: 'main', label: 'Main Account' },
-    { value: 'funding', label: 'Funding Account' },
-    { value: 'trading', label: 'Trading Account' },
-  ];
+  const canRun = useMemo(() => {
+    if (activeTab === 'account') return false;
+    if (timeRange !== 'custom') return true;
+    return Boolean(startDate && endDate);
+  }, [activeTab, timeRange, startDate, endDate]);
 
-  const typeOptions = [
-    { value: 'deposit', label: 'Deposit' },
-    { value: 'withdrawal', label: 'Withdrawal' },
-    { value: 'transfer', label: 'Transfer' },
-    { value: 'trade', label: 'Trade' },
-    { value: 'all', label: 'All Types' },
-  ];
-
-  const statementTypeOptions = [
-    { value: 'all', label: 'All' },
-    { value: 'spot', label: 'Spot' },
-    { value: 'funding', label: 'Funding' },
-  ];
-
-  const handleExport = () => {
-    alert('Export functionality is coming soon.');
+  const appendLog = (entry: Omit<ExportLog, 'id' | 'requestedAt'>) => {
+    setLogs((prev) => [
+      {
+        id: crypto.randomUUID(),
+        requestedAt: new Date().toISOString(),
+        ...entry,
+      },
+      ...prev.slice(0, 24),
+    ]);
   };
 
-  const Dropdown = ({ 
-    label, 
-    value, 
-    options, 
-    isOpen, 
-    onToggle, 
-    onSelect 
-  }: { 
-    label: string;
-    value: string;
-    options: { value: string; label: string }[];
-    isOpen: boolean;
-    onToggle: () => void;
-    onSelect: (value: string) => void;
-  }) => (
-    <div className="relative dropdown-container">
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onToggle();
-        }}
-        className="w-full max-w-xs px-4 py-3.5 bg-muted border border-border rounded-xl text-left flex items-center justify-between hover:border-primary transition-colors"
-      >
-        <span className={value ? 'text-foreground font-medium' : 'text-muted-foreground'}>
-          {value ? options.find(o => o.value === value)?.label : 'Please select'}
-        </span>
-        <ChevronDown className={`w-5 h-5 text-muted-foreground transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-      </button>
-      
-      {isOpen && (
-        <div className="absolute top-full left-0 right-0 max-w-xs mt-2 bg-card border border-border rounded-xl shadow-xl z-20 overflow-hidden">
-          {options.map((option) => (
-            <button
-              key={option.value}
-              onClick={(e) => {
-                e.stopPropagation();
-                onSelect(option.value);
-              }}
-              className={`w-full px-4 py-3 text-left flex items-center justify-between hover:bg-accent transition-colors ${
-                value === option.value ? 'bg-muted' : ''
-              }`}
-            >
-              <span className="font-medium text-foreground">{option.label}</span>
-              {value === option.value && <Check className="w-5 h-5 text-primary" />}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+  const handleExport = async () => {
+    if (!canRun || running) return;
+    setRunning(true);
+    try {
+      const { start, end } = toDateBounds(timeRange, startDate, endDate);
+      if (activeTab === 'order') {
+        const orders: OrderExportRow[] = [];
+        let cursor: string | null = null;
+        for (let i = 0; i < 200; i += 1) {
+          const requestUrl: string = `/api/v1/spot/orders?status=HISTORY&limit=100${
+            cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''
+          }`;
+          const res = (await api.get<{ orders?: OrderExportRow[]; next_cursor?: string | null }>(
+            requestUrl,
+            { notifyOnError: false }
+          )) as { success: boolean; data?: { orders?: OrderExportRow[]; next_cursor?: string | null } };
+          if (!res.success) break;
+          const batch = Array.isArray(res.data?.orders) ? res.data.orders : [];
+          if (batch.length === 0) break;
+          orders.push(...batch);
+          cursor = res.data?.next_cursor ?? null;
+          if (!cursor) break;
+        }
+        const filtered = orders.filter((o) => {
+          const t = new Date(o.created_at).getTime();
+          if (!Number.isFinite(t)) return false;
+          if (t < start.getTime() || t > end.getTime()) return false;
+          if (exportType !== 'all' && exportType !== 'trade') return false;
+          return true;
+        });
+        const csv = ordersToCsv(filtered);
+        const fileName = `spot-orders-${new Date().toISOString().slice(0, 10)}.csv`;
+        downloadCsv(fileName, csv);
+        appendLog({ kind: 'order', status: 'completed', rows: filtered.length, fileName });
+        return;
+      }
 
-  const RadioCard = ({ checked, onChange, label, description }: {
-    checked: boolean;
-    onChange: () => void;
-    label: string;
-    description?: string;
-  }) => (
-    <button
-      onClick={onChange}
-      className={`flex-1 p-4 rounded-xl border-2 text-left transition-all ${
-        checked 
-          ? 'border-primary bg-muted' 
-          : 'border-border hover:border-border'
-      }`}
-    >
-      <div className="flex items-center gap-3">
-        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-          checked ? 'border-primary' : 'border-border'
-        }`}>
-          {checked && <div className="w-2.5 h-2.5 rounded-full bg-primary" />}
-        </div>
-        <div>
-          <span className={`font-medium ${checked ? 'text-primary' : 'text-foreground'}`}>{label}</span>
-          {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
-        </div>
-      </div>
-    </button>
-  );
+      const txRes = await api.get<WalletTx[]>('/api/v1/wallet/transactions/all', { notifyOnError: false });
+      if (!txRes.success || !Array.isArray(txRes.data)) {
+        throw new Error('Unable to fetch wallet transactions.');
+      }
+      const filtered = txRes.data.filter((t) => {
+        const stamp = t.date_time ?? t.created_at;
+        const ms = stamp ? new Date(stamp).getTime() : NaN;
+        if (!Number.isFinite(ms)) return false;
+        if (ms < start.getTime() || ms > end.getTime()) return false;
+        if (exportType !== 'all') {
+          const rowType = (t.type ?? '').toLowerCase();
+          if (rowType !== exportType) return false;
+        }
+        return true;
+      });
+      const csv = walletTransactionsToCsv(filtered);
+      const fileName = `wallet-transactions-${new Date().toISOString().slice(0, 10)}.csv`;
+      downloadCsv(fileName, csv);
+      appendLog({ kind: 'transaction', status: 'completed', rows: filtered.length, fileName });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Export failed';
+      notifyError(message);
+      appendLog({ kind: activeTab, status: 'failed', rows: 0, reason: message });
+    } finally {
+      setRunning(false);
+    }
+  };
 
   return (
-    <div className="p-4 lg:p-8 bg-background min-h-full" onClick={(e) => {
-      const target = e.target as HTMLElement;
-      if (!target.closest('.dropdown-container')) {
-        setAccountDropdownOpen(false);
-        setTypeDropdownOpen(false);
-        setStatementTypeDropdownOpen(false);
-      }
-    }}>
-      <div className="max-w-5xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-xl font-semibold text-foreground">Data Export</h1>
-          <p className="text-muted-foreground mt-2">Export your transaction history, orders, and account statements</p>
-        </div>
+    <div className="mx-auto max-w-5xl space-y-6 p-4 lg:p-8">
+      <div>
+        <h1 className="text-xl font-semibold text-foreground">Data Export</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Download account activity exports. Account statements are temporarily disabled until backend job pipeline is enabled.
+        </p>
+      </div>
 
-        {/* Tabs */}
-        <div className="flex items-center gap-2 mb-8 p-1.5 bg-card rounded-xl border border-border w-fit">
-          {tabs.map(tab => {
-            const Icon = tab.icon;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-5 py-3 rounded-xl font-medium text-sm transition-all ${
-                  activeTab === tab.id
-                    ? 'bg-primary text-primary-foreground shadow-lg shadow-blue-500/25'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-                }`}
-              >
-                <Icon className="w-4 h-4" />
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Create Export Section */}
-        <div className="bg-card rounded-xl border border-border overflow-hidden mb-6">
-          <div className="px-6 py-4 border-b border-border flex items-center gap-3">
-            <div className="w-10 h-10 bg-muted rounded-xl flex items-center justify-center">
-              <Download className="w-5 h-5 text-primary" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-foreground">Create Export</h2>
-              <p className="text-sm text-muted-foreground">Generate a new data export file</p>
-            </div>
-          </div>
-
-          <div className="p-6">
-            {/* Info Box */}
-            <div className="p-4 bg-muted border border-border rounded-xl mb-6">
-              <div className="flex items-start gap-3">
-                <Info className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
-                <div className="text-sm text-muted-foreground space-y-1">
-                  {activeTab === 'account' ? (
-                    <>
-                      <p>Generate and download statements from your Funding and Unified Trading Accounts.</p>
-                      <p>Statements can be generated for up to 12 months of historical data, with a limit of 50 exports per month.</p>
-                    </>
-                  ) : (
-                    <>
-                      <p>Daily data is updated the following day and is available for export.</p>
-                      <p>The export period is limited to 12 months, with a maximum of 50 exports per month.</p>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-6">
-              {/* Account Selection */}
-              <div>
-                <label className="block text-sm font-medium text-foreground/80 mb-3">Account</label>
-                <Dropdown
-                  label="Account"
-                  value={account}
-                  options={accountOptions}
-                  isOpen={accountDropdownOpen}
-                  onToggle={() => {
-                    setAccountDropdownOpen(!accountDropdownOpen);
-                    setTypeDropdownOpen(false);
-                    setStatementTypeDropdownOpen(false);
-                  }}
-                  onSelect={(val) => {
-                    setAccount(val);
-                    setAccountDropdownOpen(false);
-                  }}
-                />
-              </div>
-
-              {/* Account Statement Specific Options */}
-              {activeTab === 'account' && (
-                <>
-                  {/* Statement Type Radio */}
-                  <div>
-                    <label className="block text-sm font-medium text-foreground/80 mb-3">Statement Period</label>
-                    <div className="flex gap-4 max-w-lg">
-                      <RadioCard
-                        checked={statementType === 'monthly'}
-                        onChange={() => setStatementType('monthly')}
-                        label="Monthly Statement"
-                      />
-                      <RadioCard
-                        checked={statementType === 'custom'}
-                        onChange={() => setStatementType('custom')}
-                        label="Custom Time"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Type Dropdown */}
-                  <div>
-                    <label className="block text-sm font-medium text-foreground/80 mb-3">Type</label>
-                    <Dropdown
-                      label="Type"
-                      value={statementTypeDropdown}
-                      options={statementTypeOptions}
-                      isOpen={statementTypeDropdownOpen}
-                      onToggle={() => {
-                        setStatementTypeDropdownOpen(!statementTypeDropdownOpen);
-                        setAccountDropdownOpen(false);
-                        setTypeDropdownOpen(false);
-                      }}
-                      onSelect={(val) => {
-                        setStatementTypeDropdown(val);
-                        setStatementTypeDropdownOpen(false);
-                      }}
-                    />
-                  </div>
-                </>
-              )}
-
-              {/* Transaction/Order Options */}
-              {activeTab !== 'account' && (
-                <>
-                  {/* Type */}
-                  <div>
-                    <label className="block text-sm font-medium text-foreground/80 mb-3">Type</label>
-                    <Dropdown
-                      label="Type"
-                      value={exportType}
-                      options={typeOptions}
-                      isOpen={typeDropdownOpen}
-                      onToggle={() => {
-                        setTypeDropdownOpen(!typeDropdownOpen);
-                        setAccountDropdownOpen(false);
-                        setStatementTypeDropdownOpen(false);
-                      }}
-                      onSelect={(val) => {
-                        setExportType(val);
-                        setTypeDropdownOpen(false);
-                      }}
-                    />
-                  </div>
-
-                  {/* Time Range */}
-                  <div>
-                    <label className="block text-sm font-medium text-foreground/80 mb-3">Time Range (UTC)</label>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 max-w-xl">
-                      {[
-                        { value: '7days', label: 'Last 7 Days' },
-                        { value: '30days', label: 'Last 30 Days' },
-                        { value: '90days', label: 'Last 90 Days' },
-                        { value: 'customize', label: 'Custom' },
-                      ].map(option => (
-                        <button
-                          key={option.value}
-                          onClick={() => setTimeRange(option.value as TimeRangeType)}
-                          className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                            timeRange === option.value
-                              ? 'bg-primary text-primary-foreground shadow-lg shadow-blue-500/25'
-                              : 'bg-accent text-foreground/80 hover:bg-accent'
-                          }`}
-                        >
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* Date Range Inputs */}
-                    {timeRange === 'customize' && (
-                      <div className="flex items-center gap-3 max-w-md">
-                        <div className="relative flex-1">
-                          <input
-                            type="date"
-                            value={startDate}
-                            onChange={(e) => setStartDate(e.target.value)}
-                            className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-foreground outline-none focus:border-primary"
-                          />
-                        </div>
-                        <span className="text-muted-foreground">→</span>
-                        <div className="relative flex-1">
-                          <input
-                            type="date"
-                            value={endDate}
-                            onChange={(e) => setEndDate(e.target.value)}
-                            className="w-full px-4 py-3 bg-muted border border-border rounded-xl text-foreground outline-none focus:border-primary"
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Format Options */}
-                  <div>
-                    <label className="block text-sm font-medium text-foreground/80 mb-3">Options</label>
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <div
-                        onClick={() => setIncludeLegalName(!includeLegalName)}
-                        className={`w-5 h-5 rounded-md flex items-center justify-center border-2 transition-all ${
-                          includeLegalName ? 'bg-primary border-primary' : 'border-border'
-                        }`}
-                      >
-                        {includeLegalName && <Check className="w-3 h-3 text-primary-foreground" />}
-                      </div>
-                      <span className="text-sm text-foreground/80">Include Legal Name in export</span>
-                    </label>
-                  </div>
-                </>
-              )}
-
-              {/* Export Button */}
-              <div className="pt-4 border-t border-border flex items-center gap-4">
-                <button
-                  onClick={handleExport}
-                  className="px-8 py-3.5 bg-primary hover:bg-primary/85 text-primary-foreground font-semibold rounded-xl transition-all shadow-lg shadow-blue-500/25 flex items-center gap-2"
-                >
-                  <Download className="w-5 h-5" />
-                  Export Now
-                  <span className="ml-1 px-2 py-0.5 bg-primary-foreground/20 text-[10px] font-bold rounded-md uppercase">Coming Soon</span>
-                </button>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Clock className="w-4 h-4" />
-                  <span><span className="font-semibold text-primary">50</span> exports remaining this month</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* My Exports Section */}
-        <div className="bg-card rounded-xl border border-border overflow-hidden">
-          <div className="px-6 py-4 border-b border-border flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-buy-light rounded-xl flex items-center justify-center">
-                <History className="w-5 h-5 text-buy" />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold text-foreground">My Exports</h2>
-                <p className="text-sm text-muted-foreground">Download your previously generated exports</p>
-              </div>
-            </div>
-            <button className="text-sm text-primary hover:text-primary/85 font-medium">
-              How to Extract Content →
+      <div className="flex flex-wrap gap-2 rounded-xl border border-border bg-card p-2">
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          const active = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+                active ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+              }`}
+            >
+              <Icon className="h-4 w-4" />
+              {tab.label}
             </button>
-          </div>
+          );
+        })}
+      </div>
 
-          {/* Table Header */}
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-muted">
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Statement</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Date Range</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Submitted</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Action</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
-
-          {/* Empty State */}
-          <div className="py-20">
-            <div className="flex flex-col items-center justify-center">
-              <div className="w-24 h-24 bg-accent rounded-full flex items-center justify-center mb-6">
-                <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-                  <rect x="8" y="6" width="32" height="36" rx="4" className="fill-muted"/>
-                  <rect x="14" y="14" width="20" height="3" rx="1.5" className="fill-border"/>
-                  <rect x="14" y="20" width="14" height="3" rx="1.5" className="fill-border"/>
-                  <rect x="14" y="26" width="17" height="3" rx="1.5" className="fill-border"/>
-                  <circle cx="36" cy="36" r="10" className="fill-primary/15"/>
-                  <path d="M32 36l3 3 5-5" className="stroke-primary" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </div>
-              <h3 className="text-lg font-semibold text-foreground mb-2">No Exports Yet</h3>
-              <p className="text-muted-foreground text-center max-w-md">
-                Create your first export to download your transaction history, orders, or account statements.
+      {activeTab === 'account' ? (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <p className="font-medium">Account statement export is not live yet.</p>
+              <p className="mt-1 text-amber-100/80">
+                Use trade and wallet exports for now. This prevents showing a fake export flow.
               </p>
             </div>
           </div>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-border bg-card p-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Type</span>
+              <select
+                value={exportType}
+                onChange={(e) =>
+                  setExportType(e.target.value as 'all' | 'deposit' | 'withdrawal' | 'transfer' | 'trade')
+                }
+                className="w-full rounded-lg border border-border bg-background px-3 py-2"
+              >
+                {activeTab === 'order' ? (
+                  <>
+                    <option value="all">All orders</option>
+                    <option value="trade">Trade orders</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="all">All transactions</option>
+                    <option value="deposit">Deposits</option>
+                    <option value="withdrawal">Withdrawals</option>
+                    <option value="transfer">Transfers</option>
+                  </>
+                )}
+              </select>
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="text-muted-foreground">Time Range</span>
+              <select
+                value={timeRange}
+                onChange={(e) => setTimeRange(e.target.value as TimeRangeType)}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2"
+              >
+                <option value="7days">Last 7 days</option>
+                <option value="30days">Last 30 days</option>
+                <option value="90days">Last 90 days</option>
+                <option value="custom">Custom range</option>
+              </select>
+            </label>
+          </div>
+          {timeRange === 'custom' && (
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">Start Date</span>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2"
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-muted-foreground">End Date</span>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2"
+                />
+              </label>
+            </div>
+          )}
+
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              disabled={!canRun || running}
+              onClick={() => void handleExport()}
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+            >
+              {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              {running ? 'Preparing export...' : 'Export CSV'}
+            </button>
+            <Link href="/wallet/history" className="text-sm text-primary hover:underline">
+              Open full wallet history
+            </Link>
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-xl border border-border bg-card">
+        <div className="border-b border-border px-4 py-3">
+          <h2 className="text-sm font-semibold text-foreground">Export Activity</h2>
+        </div>
+        <div className="p-4">
+          {logs.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No export jobs in this session.</p>
+          ) : (
+            <div className="space-y-2">
+              {logs.map((log) => (
+                <div key={log.id} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm">
+                  <div>
+                    <p className="font-medium text-foreground">
+                      {log.kind} export - {log.status}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(log.requestedAt).toLocaleString()} · rows: {log.rows}
+                    </p>
+                  </div>
+                  <span className={log.status === 'completed' ? 'text-emerald-400' : 'text-red-400'}>
+                    {log.fileName ?? log.reason ?? 'Failed'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

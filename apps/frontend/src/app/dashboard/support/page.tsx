@@ -14,6 +14,7 @@ import { ArrowLeft, HelpCircle, Loader2, MessageCircle, Plus, Send } from 'lucid
 import { useAuthStore } from '@/store/auth';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { notifyError } from '@/lib/notifyError';
+import { ErrorState } from '@/components/ui/ErrorState';
 
 type View = 'list' | 'create' | 'detail';
 
@@ -95,6 +96,7 @@ export default function SupportPage() {
   // List
   const [tickets, setTickets] = useState<TicketSummary[]>([]);
   const [listLoading, setListLoading] = useState(true);
+  const [listError, setListError] = useState<string | null>(null);
 
   // Create
   const [subject, setSubject] = useState('');
@@ -107,27 +109,33 @@ export default function SupportPage() {
   const [detail, setDetail] = useState<TicketDetail | null>(null);
   const [messages, setMessages] = useState<TicketMessage[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
   const [replying, setReplying] = useState(false);
 
-  const authHeaders = useMemo<HeadersInit>(
-    () => (accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-    [accessToken]
-  );
+  const authHeaders = useMemo((): Record<string, string> => {
+    if (!accessToken) return {};
+    return { Authorization: `Bearer ${accessToken}` };
+  }, [accessToken]);
 
   const fetchList = async () => {
     if (!accessToken) return;
     setListLoading(true);
+    setListError(null);
     try {
       const res = await fetch(`${apiUrl}/api/v1/support/tickets`, { headers: authHeaders });
       const json = await res.json();
       if (res.ok && json?.success) {
         setTickets(json.data?.tickets || []);
       } else {
-        notifyError(json?.error?.message || 'Failed to load tickets');
+        const message = json?.error?.message || 'Failed to load tickets';
+        setListError(message);
+        notifyError(message);
       }
     } catch {
-      notifyError('Failed to load tickets');
+      const message = 'Failed to load tickets';
+      setListError(message);
+      notifyError(message);
     } finally {
       setListLoading(false);
     }
@@ -136,6 +144,7 @@ export default function SupportPage() {
   const fetchDetail = async (id: string) => {
     if (!accessToken) return;
     setDetailLoading(true);
+    setDetailError(null);
     try {
       const res = await fetch(`${apiUrl}/api/v1/support/tickets/${id}`, { headers: authHeaders });
       const json = await res.json();
@@ -143,12 +152,14 @@ export default function SupportPage() {
         setDetail(json.data.ticket);
         setMessages(json.data.messages || []);
       } else {
-        notifyError(json?.error?.message || 'Failed to load ticket');
-        setView('list');
+        const message = json?.error?.message || 'Failed to load ticket';
+        setDetailError(message);
+        notifyError(message);
       }
     } catch {
-      notifyError('Failed to load ticket');
-      setView('list');
+      const message = 'Failed to load ticket';
+      setDetailError(message);
+      notifyError(message);
     } finally {
       setDetailLoading(false);
     }
@@ -344,10 +355,22 @@ export default function SupportPage() {
           <ArrowLeft className="w-4 h-4" /> Back to tickets
         </button>
 
-        {detailLoading || !detail ? (
+        {detailLoading ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
           </div>
+        ) : detailError ? (
+          <ErrorState
+            title="Could not load this ticket"
+            message={detailError}
+            onRetry={() => selectedId && fetchDetail(selectedId)}
+          />
+        ) : !detail ? (
+          <ErrorState
+            title="Ticket not found"
+            message="This ticket may be unavailable or no longer accessible."
+            onRetry={() => selectedId && fetchDetail(selectedId)}
+          />
         ) : (
           <>
             <div className="bg-card border border-border rounded-2xl p-6">
@@ -375,6 +398,15 @@ export default function SupportPage() {
             </div>
 
             <div className="space-y-3">
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => selectedId && fetchDetail(selectedId)}
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  Refresh conversation
+                </button>
+              </div>
               {messages.map((m) => (
                 <div
                   key={m.id}
@@ -439,6 +471,14 @@ export default function SupportPage() {
         {listLoading ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : listError ? (
+          <div className="p-4">
+            <ErrorState
+              title="Could not load support tickets"
+              message={listError}
+              onRetry={() => fetchList()}
+            />
           </div>
         ) : tickets.length === 0 ? (
           <div className="py-16 text-center">

@@ -46,6 +46,7 @@ const SERVICE_OPTIONS = [
   'matching_engine', 'settlement', 'wallets', 'api_gateway', 'websocket',
   'database', 'redis', 'rpc_provider', 'kyc', 'security', 'other',
 ];
+const PAGE_SIZE = 20;
 
 function getSeverity(s: string) {
   return SEVERITY_STYLES[s.toLowerCase()] ?? SEVERITY_STYLES.info;
@@ -80,16 +81,17 @@ export function MonitoringIncidentsPanel() {
   const token = useAdminAuthStore((s) => s.accessToken);
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<string>('all');
+  const [page, setPage] = useState(1);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['admin', 'monitoring-incidents', token, status],
+    queryKey: ['admin', 'monitoring-incidents', token, status, page],
     queryFn: () =>
       getMonitoringIncidents(token, {
-        limit: 100,
-        offset: 0,
+        limit: PAGE_SIZE,
+        offset: (page - 1) * PAGE_SIZE,
         status: status === 'all' ? undefined : status,
       }),
     enabled: !!token,
@@ -99,6 +101,7 @@ export function MonitoringIncidentsPanel() {
 
   const incidents = (data?.data?.incidents ?? []) as IncidentRow[];
   const total = data?.data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
@@ -158,7 +161,7 @@ export function MonitoringIncidentsPanel() {
                 ? 'border-emerald-500/40 bg-emerald-500/5 ring-emerald-500/20'
                 : 'border-admin-primary/40 bg-admin-primary/5 ring-admin-primary/20';
           return (
-            <button key={tab.id} onClick={() => setStatus(tab.id)}
+            <button key={tab.id} onClick={() => { setStatus(tab.id); setPage(1); }}
               className={cn(
                 'flex items-center gap-3 rounded-xl border p-3.5 transition-all',
                 isActive ? `${colors} ring-1` : 'border-admin-border bg-admin-card hover:border-admin-border/80'
@@ -226,6 +229,32 @@ export function MonitoringIncidentsPanel() {
                 isPending={ackMutation.isPending || resolveMutation.isPending}
               />
             ))}
+          </div>
+        )}
+        {!isLoading && !isError && total > PAGE_SIZE && (
+          <div className="flex items-center justify-between border-t border-admin-border/60 px-4 py-3 text-[11px] text-admin-muted">
+            <span>
+              {(page - 1) * PAGE_SIZE + 1}-{Math.min(page * PAGE_SIZE, total)} of {total}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="rounded border border-admin-border px-2 py-1 disabled:opacity-40 hover:text-admin-text"
+              >
+                Prev
+              </button>
+              <span>Page {page}/{totalPages}</span>
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                className="rounded border border-admin-border px-2 py-1 disabled:opacity-40 hover:text-admin-text"
+              >
+                Next
+              </button>
+            </div>
           </div>
         )}
       </div>

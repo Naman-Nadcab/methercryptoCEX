@@ -412,8 +412,16 @@ export default function TreasuryPage() {
           ) : (
             <HotWalletsTable
               rows={hotWallets}
-              availableFamilies={(hotWalletsCrud as Record<string, unknown>)?.availableFamilies as HotWalletsTableProps['availableFamilies']}
-              allFamilies={(hotWalletsCrud as Record<string, unknown>)?.allFamilies as HotWalletsTableProps['allFamilies']}
+              availableFamilies={
+                hotWalletsCrud?.success && hotWalletsCrud.data != null && typeof hotWalletsCrud.data === 'object'
+                  ? ((hotWalletsCrud.data as unknown as Record<string, unknown>).availableFamilies as HotWalletsTableProps['availableFamilies'])
+                  : undefined
+              }
+              allFamilies={
+                hotWalletsCrud?.success && hotWalletsCrud.data != null && typeof hotWalletsCrud.data === 'object'
+                  ? ((hotWalletsCrud.data as unknown as Record<string, unknown>).allFamilies as HotWalletsTableProps['allFamilies'])
+                  : undefined
+              }
             />
           )}
         </CardContent>

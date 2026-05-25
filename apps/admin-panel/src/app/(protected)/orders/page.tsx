@@ -203,7 +203,7 @@ export default function OrdersPage() {
     refetchInterval: 30_000,
   });
 
-  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
+  const { data, isLoading, isFetching, isError, error, refetch, dataUpdatedAt } = useQuery({
     queryKey: ['admin', 'orders-page', token, page, status, market, side, debouncedQ],
     staleTime: 30_000,
     queryFn: () =>
@@ -217,8 +217,12 @@ export default function OrdersPage() {
       }),
     enabled: !!token,
     refetchInterval: 15_000,
-    onSuccess: () => setLastUpdated(new Date()),
   });
+
+  useEffect(() => {
+    if (!dataUpdatedAt || !data?.success) return;
+    setLastUpdated(new Date(dataUpdatedAt));
+  }, [dataUpdatedAt, data?.success]);
 
   const marketOptions = useMemo(() => {
     const rows = marketsRes?.data?.markets ?? [];

@@ -74,7 +74,8 @@ services:
       - "4001:4001"
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=${DATABASE_URL:-postgresql://exchange:exchange_secret@postgres:5432/exchange}
+      # Always use Docker service hostname — host DATABASE_URL (127.0.0.1) breaks inside the container.
+      - DATABASE_URL=postgresql://exchange:exchange_secret@postgres:5432/exchange
       - INDEXER_API_PORT=4001
     depends_on:
       postgres:
@@ -92,7 +93,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=4000
-      - DATABASE_URL=${DATABASE_URL:-postgresql://exchange:exchange_secret@postgres:5432/exchange}
+      - DATABASE_URL=postgresql://exchange:exchange_secret@postgres:5432/exchange
       - REDIS_URL=redis://redis:6379
       - RABBITMQ_URL=amqp://exchange:exchange_secret@rabbitmq:5672
     depends_on:

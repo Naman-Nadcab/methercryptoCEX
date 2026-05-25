@@ -8,6 +8,7 @@ import { adminFetch } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { ProtectedAction } from '@/components/rbac/ProtectedAction';
 import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
+import { ActionAuthModal, type ActionAuthPayload } from '@/components/ops/ActionAuthModal';
 
 /* ── types ──────────────────────────────────────────────────────────── */
 const TYPE_OPTIONS = [
@@ -89,6 +90,9 @@ export default function AnnouncementsPage() {
   const [deleteTarget, setDeleteTarget] = useState<Announcement | null>(null);
   const [formError,  setFormError]  = useState('');
   const [previewMode, setPreviewMode] = useState(false);
+  const [publishAuthOpen, setPublishAuthOpen] = useState(false);
+  const [toggleAuthTarget, setToggleAuthTarget] = useState<{ id: string; is_published: boolean } | null>(null);
+  const [deleteAuthOpen, setDeleteAuthOpen] = useState(false);
 
   const patchForm = (patch: Partial<FormState>) => setForm((f) => ({ ...f, ...patch }));
 
@@ -268,7 +272,7 @@ export default function AnnouncementsPage() {
                       <Pencil className="h-3.5 w-3.5" />
                     </button>
                     <button type="button"
-                      onClick={() => togglePublishMut.mutate({ id: a.id, is_published: !a.is_published })}
+                      onClick={() => setToggleAuthTarget({ id: a.id, is_published: !a.is_published })}
                       disabled={togglePublishMut.isPending}
                       title={a.is_published ? 'Unpublish' : 'Publish'}
                       className={cn('p-1.5 rounded-lg transition-colors',
@@ -370,7 +374,7 @@ export default function AnnouncementsPage() {
                 {isPending ? '…' : 'Save Draft'}
               </button>
               <ProtectedAction permission="settings:edit" fallback="disabled">
-                <button type="button" disabled={isPending} onClick={() => handleSubmit(true)}
+                <button type="button" disabled={isPending} onClick={() => setPublishAuthOpen(true)}
                   className="flex-1 rounded-xl bg-blue-600 py-2 text-xs font-semibold text-white hover:bg-blue-500 disabled:opacity-40 transition-all">
                   {isPending ? 'Publishing…' : form.scheduled_at ? 'Schedule' : 'Publish Now'}
                 </button>
@@ -403,7 +407,7 @@ export default function AnnouncementsPage() {
                 className="flex-1 rounded-xl border border-admin-border/50 py-2 text-xs font-medium text-admin-muted hover:text-admin-text transition-colors disabled:opacity-40">
                 Cancel
               </button>
-              <button type="button" onClick={() => deleteMut.mutate(deleteTarget.id)} disabled={deleteMut.isPending}
+              <button type="button" onClick={() => setDeleteAuthOpen(true)} disabled={deleteMut.isPending}
                 className="flex-1 rounded-xl bg-red-600 py-2 text-xs font-semibold text-white hover:bg-red-500 disabled:opacity-40 transition-all">
                 {deleteMut.isPending ? 'Deleting…' : 'Delete'}
               </button>
@@ -411,6 +415,67 @@ export default function AnnouncementsPage() {
           </div>
         </div>
       )}
+      <ActionAuthModal
+        open={publishAuthOpen}
+        onClose={() => setPublishAuthOpen(false)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          void payload;
+          handleSubmit(true);
+          setPublishAuthOpen(false);
+        }}
+        title={form.scheduled_at ? 'Authorize announcement schedule' : 'Authorize announcement publish'}
+        actionLabel={form.scheduled_at ? 'Schedule user-facing announcement' : 'Publish user-facing announcement'}
+        description="This message becomes visible to exchange users and must be audited."
+        requireReason
+        twofaRequired
+        confirmationPhrase="CONFIRM ANNOUNCEMENT_PUBLISH"
+        externalError={formError || (createMut.error instanceof Error ? createMut.error.message : updateMut.error instanceof Error ? updateMut.error.message : null)}
+        isPending={isPending}
+        confirmLabel={isPending ? 'Processing…' : form.scheduled_at ? 'Schedule announcement' : 'Publish announcement'}
+        confirmVariant="primary"
+      />
+      <ActionAuthModal
+        open={toggleAuthTarget !== null}
+        onClose={() => setToggleAuthTarget(null)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          void payload;
+          if (toggleAuthTarget) {
+            togglePublishMut.mutate(toggleAuthTarget);
+          }
+          setToggleAuthTarget(null);
+        }}
+        title="Authorize visibility change"
+        actionLabel={toggleAuthTarget?.is_published ? 'Publish announcement' : 'Unpublish announcement'}
+        description="Visibility changes immediately affect what users can see."
+        requireReason
+        twofaRequired
+        confirmationPhrase="CONFIRM ANNOUNCEMENT_VISIBILITY"
+        externalError={togglePublishMut.error instanceof Error ? togglePublishMut.error.message : null}
+        isPending={togglePublishMut.isPending}
+        confirmLabel={togglePublishMut.isPending ? 'Updating…' : 'Apply visibility change'}
+        confirmVariant={toggleAuthTarget?.is_published ? 'primary' : 'danger'}
+      />
+      <ActionAuthModal
+        open={deleteAuthOpen}
+        onClose={() => setDeleteAuthOpen(false)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          void payload;
+          if (deleteTarget) {
+            deleteMut.mutate(deleteTarget.id);
+          }
+          setDeleteAuthOpen(false);
+        }}
+        title="Authorize announcement deletion"
+        actionLabel={deleteTarget ? `Delete announcement: ${deleteTarget.title}` : 'Delete announcement'}
+        description="Deleting removes this announcement permanently from the admin and user surfaces."
+        requireReason
+        twofaRequired
+        confirmationPhrase="CONFIRM ANNOUNCEMENT_DELETE"
+        externalError={deleteMut.error instanceof Error ? deleteMut.error.message : null}
+        isPending={deleteMut.isPending}
+        confirmLabel={deleteMut.isPending ? 'Deleting…' : 'Delete announcement'}
+        confirmVariant="danger"
+      />
     </AdminPageFrame>
   );
 }

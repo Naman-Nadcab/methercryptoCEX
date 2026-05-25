@@ -11,18 +11,30 @@ function getBaseUrl(): string {
 export interface AdminApiResponse<T = unknown> {
   success: boolean;
   data?: T;
-  error?: { code?: string; message?: string };
+  error?: { code?: string; message?: string; hint?: string; actionable?: boolean };
 }
 
 export class AdminApiError extends Error {
   code: string;
   statusCode?: number;
-  constructor(message: string, code: string, statusCode?: number) {
-    super(message);
+  hint?: string;
+  actionable?: boolean;
+  constructor(message: string, code: string, statusCode?: number, hint?: string, actionable?: boolean) {
+    super(hint ? `${message} ${hint}` : message);
     this.name = 'AdminApiError';
     this.code = code;
     this.statusCode = statusCode;
+    this.hint = hint;
+    this.actionable = actionable;
   }
+}
+
+export function formatAdminError(err: unknown, fallback: string): string {
+  if (err instanceof AdminApiError) {
+    return err.message || fallback;
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return fallback;
 }
 
 /**
@@ -150,6 +162,8 @@ export async function adminFetch<T = unknown>(
         json.error?.message ?? res.statusText,
         code,
         res.status,
+        json.error?.hint,
+        json.error?.actionable,
       );
     }
     if (json.success === false) {
@@ -157,6 +171,8 @@ export async function adminFetch<T = unknown>(
         json.error?.message ?? 'Request failed',
         json.error?.code ?? 'API_ERROR',
         res.status,
+        json.error?.hint,
+        json.error?.actionable,
       );
     }
     return json;
@@ -314,7 +330,7 @@ export async function getExchangeHealthTier1(token: string | null, signal?: Abor
 
 export async function postGlobalControlAction(
   token: string | null,
-  body: { action: string; reason?: string; market?: string; twofa_code?: string }
+  body: { action: string; reason?: string; market?: string; twofa_code?: string; submit_for_approval?: boolean }
 ) {
   return adminFetch<Record<string, unknown>>('/control/global-action', { method: 'POST', body, token });
 }

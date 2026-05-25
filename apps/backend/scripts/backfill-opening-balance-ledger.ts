@@ -22,7 +22,8 @@ import { Decimal } from '../src/lib/decimal.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
-dotenv.config({ path: path.resolve(__dirname, '../../.env'), override: true });
+// Keep shell-provided DATABASE_URL authoritative for ops/CI use-cases.
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 const BACKFILL_VERSION = 'genesis_backfill_v1';
 /** Fixed namespace — do not change after first production use (reference_ids must stay stable). */
@@ -72,8 +73,17 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  const parsedUrl = new URL(url);
+  const sslMode = parsedUrl.searchParams.get('sslmode')?.toLowerCase();
+  const sslEnabledEnv = (process.env.DATABASE_SSL ?? '').trim().toLowerCase();
+  const sslExplicitlyDisabled =
+    sslMode === 'disable' || sslEnabledEnv === 'false' || sslEnabledEnv === '0' || sslEnabledEnv === 'off';
   const ssl =
-    process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === 'false' ? { rejectUnauthorized: false as const } : undefined;
+    sslExplicitlyDisabled
+      ? undefined
+      : process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === 'false'
+        ? { rejectUnauthorized: false as const }
+        : undefined;
   const pool = new pg.Pool({ connectionString: url, ssl });
   const client = await pool.connect();
 

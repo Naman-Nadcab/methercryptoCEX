@@ -35,7 +35,7 @@ import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/dashboard/StatusBadge';
 import { ArrowLeft, Power, PowerOff, AlertTriangle, History, RotateCcw, GitCompare, Shield, Layers, Search, Download, Upload, GitBranch, Pencil, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/cn';
-import { SensitiveActionModal } from '@/components/ops/SensitiveActionModal';
+import { ActionAuthModal, type ActionAuthPayload } from '@/components/ops/ActionAuthModal';
 import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
 
 const TRADING_KEYS = ['default_maker_fee', 'default_taker_fee', 'min_order_size'];
@@ -152,7 +152,8 @@ export default function SystemSettingsPage() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<SystemTab>('configuration');
   const [emergencyModal, setEmergencyModal] = useState<{ action: string; label: string; enabled: boolean } | null>(null);
-  const [emergencyReason, setEmergencyReason] = useState('');
+  const [safeModeAuthTarget, setSafeModeAuthTarget] = useState<boolean | null>(null);
+  const [walletAuthTarget, setWalletAuthTarget] = useState<{ type: 'deposit' | 'withdrawal'; next: boolean } | null>(null);
   const [tradingPauseModalOpen, setTradingPauseModalOpen] = useState(false);
   const [diffModal, setDiffModal] = useState<{ versionId: string; versionNum: number } | null>(null);
   const [rollbackModal, setRollbackModal] = useState<ConfigVersionRow | null>(null);
@@ -385,15 +386,20 @@ export default function SystemSettingsPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin', 'risk', 'settings'] }),
   });
   const haltMutation = useMutation({
-    mutationFn: ({ halted, reason }: { halted: boolean; reason?: string }) =>
-      setTradingHalt(token, halted, reason ? { reason } : undefined),
-    onSuccess: () => {
+    mutationFn: ({ halted, reason, twofa_code }: { halted: boolean; reason?: string; twofa_code?: string }) =>
+      setTradingHalt(token, halted, reason ? { reason, twofa_code } : { twofa_code }),
+    onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'trading-halt'] });
+      const queued = Boolean((res?.data as { queued_for_approval?: boolean } | undefined)?.queued_for_approval);
+      if (queued) {
+        queryClient.invalidateQueries({ queryKey: ['admin', 'approval-requests'] });
+      }
       setTradingPauseModalOpen(false);
     },
   });
   const emergencyMutation = useMutation({
-    mutationFn: ({ action, enabled }: { action: string; enabled: boolean }) => postEmergencyAction(token, action, enabled),
+    mutationFn: ({ action, enabled, reason, twofa_code }: { action: string; enabled: boolean; reason?: string; twofa_code?: string }) =>
+      postEmergencyAction(token, action, enabled, { reason, twofa_code }),
     onSuccess: (_, { action }) => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'system', 'settings'] });
       if (action === 'pause_trading') queryClient.invalidateQueries({ queryKey: ['admin', 'trading-halt'] });
@@ -418,7 +424,8 @@ export default function SystemSettingsPage() {
     },
   });
   const safeModeMutation = useMutation({
-    mutationFn: (enabled: boolean) => postSystemSafeMode(token, enabled),
+    mutationFn: ({ enabled, reason, twofa_code }: { enabled: boolean; reason?: string; twofa_code?: string }) =>
+      postSystemSafeMode(token, enabled, { reason, twofa_code }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'system', 'safe-mode'] });
       queryClient.invalidateQueries({ queryKey: ['admin', 'system', 'settings'] });
@@ -426,8 +433,12 @@ export default function SystemSettingsPage() {
     },
   });
   const walletStatusMutation = useMutation({
-    mutationFn: (body: { depositPaused?: boolean; withdrawalPaused?: boolean }) =>
-      patchOperationalWalletStatus(token, body),
+    mutationFn: (body: { depositPaused?: boolean; withdrawalPaused?: boolean; reason?: string; twofa_code?: string }) =>
+      patchOperationalWalletStatus(
+        token,
+        { depositPaused: body.depositPaused, withdrawalPaused: body.withdrawalPaused },
+        { reason: body.reason, twofa_code: body.twofa_code }
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'operational', 'wallet-status'] });
     },
@@ -581,15 +592,22 @@ export default function SystemSettingsPage() {
         </>
       }
     >
-      <SensitiveActionModal
+      <ActionAuthModal
         open={tradingPauseModalOpen}
         onClose={() => setTradingPauseModalOpen(false)}
-        onConfirm={(note) => haltMutation.mutate({ halted: true, reason: note })}
+        onConfirm={(payload: ActionAuthPayload) =>
+          haltMutation.mutate({ halted: true, reason: payload.reason, twofa_code: payload.twofa_code })
+        }
         title="Pause all spot trading"
+        actionLabel="Pause all spot trading"
         description="Required for audit compliance. Users cannot place or cancel orders while halted."
-        variant="danger"
-        confirmLabel="Pause trading"
-        isLoading={haltMutation.isPending}
+        requireReason
+        twofaRequired
+        confirmationPhrase="CONFIRM PAUSE_TRADING"
+        externalError={haltMutation.error instanceof Error ? haltMutation.error.message : null}
+        isPending={haltMutation.isPending}
+        confirmLabel={haltMutation.isPending ? 'Pausing…' : 'Pause trading'}
+        confirmVariant="danger"
       />
 
       <div className="border-b border-admin-border">
@@ -731,7 +749,7 @@ export default function SystemSettingsPage() {
             <span className="font-medium">Safe mode is {safeMode ? 'on' : 'off'}</span>
             <Button
               variant={safeMode ? 'secondary' : 'primary'}
-              onClick={() => safeModeMutation.mutate(!safeMode)}
+              onClick={() => setSafeModeAuthTarget(!safeMode)}
               disabled={safeModeMutation.isPending}
             >
               {safeMode ? 'Turn off safe mode' : 'Turn on safe mode'}
@@ -757,7 +775,7 @@ export default function SystemSettingsPage() {
               </div>
               <Button
                 variant={walletStatus.depositPaused ? 'secondary' : 'primary'}
-                onClick={() => walletStatusMutation.mutate({ depositPaused: !walletStatus.depositPaused })}
+                onClick={() => setWalletAuthTarget({ type: 'deposit', next: !walletStatus.depositPaused })}
                 disabled={walletStatusMutation.isPending}
               >
                 {walletStatus.depositPaused ? 'Resume' : 'Pause'}
@@ -770,7 +788,7 @@ export default function SystemSettingsPage() {
               </div>
               <Button
                 variant={walletStatus.withdrawalPaused ? 'secondary' : 'primary'}
-                onClick={() => walletStatusMutation.mutate({ withdrawalPaused: !walletStatus.withdrawalPaused })}
+                onClick={() => setWalletAuthTarget({ type: 'withdrawal', next: !walletStatus.withdrawalPaused })}
                 disabled={walletStatusMutation.isPending}
               >
                 {walletStatus.withdrawalPaused ? 'Resume' : 'Pause'}
@@ -1362,44 +1380,70 @@ export default function SystemSettingsPage() {
         </CardContent>
       </Card>
 
-      {emergencyModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => { setEmergencyModal(null); setEmergencyReason(''); }}>
-          <div className="w-full max-w-sm rounded-xl bg-admin-card border border-red-500/30 p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-red-950/40 border border-red-500/30">
-                <span className="block h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-              </span>
-              <h3 className="text-base font-semibold text-admin-text">Confirm Emergency Action</h3>
-            </div>
-            <p className="mt-1 text-sm text-admin-muted">{emergencyModal.label}. This may affect all users immediately.</p>
-            <div className="mt-4">
-              <label className="block text-xs font-medium text-admin-muted mb-1">Reason / Notes (required for audit trail)</label>
-              <textarea
-                value={emergencyReason}
-                onChange={(e) => setEmergencyReason(e.target.value)}
-                placeholder="e.g. Suspicious withdrawal volume detected, pausing to investigate…"
-                className="w-full rounded-lg border border-admin-border bg-admin-surface px-3 py-2 text-sm text-admin-text resize-none focus:outline-none focus:ring-1 focus:ring-red-500/50"
-                rows={3}
-              />
-            </div>
-            <div className="mt-4 flex gap-2">
-              <Button variant="secondary" className="flex-1" onClick={() => { setEmergencyModal(null); setEmergencyReason(''); }}>
-                Cancel
-              </Button>
-              <Button
-                className="flex-1 bg-red-600 hover:bg-red-700 text-white border-0"
-                onClick={() => emergencyMutation.mutate({ action: emergencyModal.action, enabled: emergencyModal.enabled })}
-                disabled={emergencyMutation.isPending || !emergencyReason.trim()}
-              >
-                {emergencyMutation.isPending ? 'Applying…' : 'Confirm'}
-              </Button>
-            </div>
-            {!emergencyReason.trim() && (
-              <p className="mt-2 text-center text-xs text-admin-muted/60">Enter a reason to enable confirm</p>
-            )}
-          </div>
-        </div>
-      )}
+      <ActionAuthModal
+        open={!!emergencyModal}
+        onClose={() => setEmergencyModal(null)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          if (!emergencyModal) return;
+          emergencyMutation.mutate({
+            action: emergencyModal.action,
+            enabled: emergencyModal.enabled,
+            reason: payload.reason,
+            twofa_code: payload.twofa_code,
+          });
+        }}
+        title="Confirm emergency action"
+        actionLabel={emergencyModal?.label ?? 'Emergency action'}
+        description="Emergency controls impact production users immediately."
+        requireReason
+        twofaRequired
+        confirmationPhrase="CONFIRM EMERGENCY_ACTION"
+        externalError={emergencyMutation.error instanceof Error ? emergencyMutation.error.message : null}
+        isPending={emergencyMutation.isPending}
+        confirmLabel={emergencyMutation.isPending ? 'Applying…' : 'Apply emergency action'}
+        confirmVariant="danger"
+      />
+      <ActionAuthModal
+        open={safeModeAuthTarget !== null}
+        onClose={() => setSafeModeAuthTarget(null)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          if (safeModeAuthTarget === null) return;
+          safeModeMutation.mutate({ enabled: safeModeAuthTarget, reason: payload.reason, twofa_code: payload.twofa_code });
+        }}
+        title={safeModeAuthTarget ? 'Enable safe mode' : 'Disable safe mode'}
+        actionLabel={safeModeAuthTarget ? 'Enable exchange safe mode' : 'Disable exchange safe mode'}
+        description="Safe mode pauses multiple critical exchange operations."
+        requireReason
+        twofaRequired
+        confirmationPhrase={safeModeAuthTarget ? 'CONFIRM SAFE_MODE_ON' : 'CONFIRM SAFE_MODE_OFF'}
+        externalError={safeModeMutation.error instanceof Error ? safeModeMutation.error.message : null}
+        isPending={safeModeMutation.isPending}
+        confirmLabel={safeModeMutation.isPending ? 'Processing…' : 'Confirm'}
+        confirmVariant={safeModeAuthTarget ? 'danger' : 'primary'}
+      />
+      <ActionAuthModal
+        open={walletAuthTarget !== null}
+        onClose={() => setWalletAuthTarget(null)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          if (!walletAuthTarget) return;
+          walletStatusMutation.mutate({
+            depositPaused: walletAuthTarget.type === 'deposit' ? walletAuthTarget.next : undefined,
+            withdrawalPaused: walletAuthTarget.type === 'withdrawal' ? walletAuthTarget.next : undefined,
+            reason: payload.reason,
+            twofa_code: payload.twofa_code,
+          });
+        }}
+        title={walletAuthTarget?.next ? `Pause ${walletAuthTarget.type}` : `Resume ${walletAuthTarget?.type}`}
+        actionLabel={walletAuthTarget ? `${walletAuthTarget.next ? 'Pause' : 'Resume'} ${walletAuthTarget.type} flow` : 'Wallet control'}
+        description="Wallet flow controls are high-impact and are audited."
+        requireReason
+        twofaRequired
+        confirmationPhrase={walletAuthTarget?.next ? 'CONFIRM WALLET_PAUSE' : undefined}
+        externalError={walletStatusMutation.error instanceof Error ? walletStatusMutation.error.message : null}
+        isPending={walletStatusMutation.isPending}
+        confirmLabel={walletStatusMutation.isPending ? 'Applying…' : 'Apply wallet action'}
+        confirmVariant={walletAuthTarget?.next ? 'danger' : 'primary'}
+      />
 
         </>
       )}

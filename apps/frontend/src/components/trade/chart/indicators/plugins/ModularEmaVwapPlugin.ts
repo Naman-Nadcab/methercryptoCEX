@@ -5,10 +5,23 @@ import type { CandleData } from '../../ChartAdapter';
 import type { ChartExtensionsConfig } from '../../extension/types';
 import { computeEma, computeVwapDailyUtc } from '../../indicators';
 import type { LineOverlayPluginContext, ModularExtensionPatch, PricePaneOverlayPlugin } from './pluginTypes';
+import { lineSeriesDataFromRows } from '../../lightweightChartsData';
 
 const toTs = (t: number) => t as UTCTimestamp;
 
 const EMA_PERIODS = [7, 20, 50, 200] as const;
+
+function safeSetLineData(series: ISeriesApi<'Line'>, rows: { time: number; value: number }[]): void {
+  try {
+    series.setData(lineSeriesDataFromRows(rows));
+  } catch {
+    try {
+      series.setData([]);
+    } catch {
+      /* ignore */
+    }
+  }
+}
 
 function emaLineColor(period: number): string {
   const map: Record<number, string> = {
@@ -99,13 +112,11 @@ export class ModularEmaVwapPlugin implements PricePaneOverlayPlugin {
   onCandlesFull(workingCandles: CandleData[]): void {
     this.lastWorkingForVwap = workingCandles;
     this.cancelDeferredWork();
-    const mapPts = (rows: { time: number; value: number }[]) =>
-      rows.map((d) => ({ time: toTs(d.time), value: d.value }));
 
     this.modularEmaLines.forEach((line, period) => {
       try {
         const rows = computeEma(workingCandles, period);
-        line.setData(mapPts(rows));
+        safeSetLineData(line, rows);
         if (rows.length >= 2) {
           this.modularEmaInc.set(period, { emaBeforeLast: rows[rows.length - 2]!.value });
         } else {
@@ -117,11 +128,7 @@ export class ModularEmaVwapPlugin implements PricePaneOverlayPlugin {
     });
 
     if (this.modularVwapLine) {
-      try {
-        this.modularVwapLine.setData(mapPts(computeVwapDailyUtc(workingCandles)));
-      } catch {
-        /* ignore */
-      }
+      safeSetLineData(this.modularVwapLine, computeVwapDailyUtc(workingCandles));
     }
   }
 
@@ -175,9 +182,7 @@ export class ModularEmaVwapPlugin implements PricePaneOverlayPlugin {
       if (!this.modularVwapLine) return;
       try {
         const candles = this.lastWorkingForVwap;
-        const mapPts = (rows: { time: number; value: number }[]) =>
-          rows.map((d) => ({ time: toTs(d.time), value: d.value }));
-        this.modularVwapLine.setData(mapPts(computeVwapDailyUtc(candles)));
+        safeSetLineData(this.modularVwapLine, computeVwapDailyUtc(candles));
       } catch {
         /* ignore */
       }

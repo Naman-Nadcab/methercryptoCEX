@@ -23,6 +23,7 @@ interface SpotBottomPanelProps {
   ordersVersion?: number;
   tradesVersion?: number;
   markets?: SpotMarketMeta[];
+  promptCancelAllConfirmation?: boolean;
 }
 
 function precisionForMarket(markets: SpotMarketMeta[] | undefined, marketSymbol: string | null | undefined) {
@@ -182,8 +183,21 @@ function displayOrderType(t: string | undefined): string {
 }
 
 export function SpotBottomPanel(props: SpotBottomPanelProps) {
-  const { symbol, isAuth, ordersVersion = 0, tradesVersion = 0, markets } = props;
-  const data = useSpotBottomPanel({ symbol, isAuth, ordersVersion, tradesVersion });
+  const {
+    symbol,
+    isAuth,
+    ordersVersion = 0,
+    tradesVersion = 0,
+    markets,
+    promptCancelAllConfirmation = true,
+  } = props;
+  const data = useSpotBottomPanel({
+    symbol,
+    isAuth,
+    ordersVersion,
+    tradesVersion,
+    promptCancelAllConfirmation,
+  });
   const { data: balancesByAccount = [] } = useBalancesByAccount(isAuth);
   const allTradingBalances = useMemo(
     () => balancesByAccount.filter((b) => parseFloat(b.trading ?? '0') > 0).slice(0, 24),
@@ -298,7 +312,7 @@ export function SpotBottomPanel(props: SpotBottomPanelProps) {
           {data.tab === 'open' && canCancelAll && (
             <button type="button" onClick={() => data.handleCancelAll?.()} disabled={data.cancellingAll} className="flex min-h-[36px] touch-manipulation items-center gap-1 rounded border border-destructive/30 px-3 py-1.5 text-label text-destructive hover:bg-destructive/10 disabled:opacity-50" title="Cancel all open orders for this pair">
               {data.cancellingAll ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
-              Cancel All
+              {data.cancelAllArmed ? 'Confirm All' : 'Cancel All'}
             </button>
           )}
           {data.tab === 'orders' && data.orderHistory.length > 0 && (

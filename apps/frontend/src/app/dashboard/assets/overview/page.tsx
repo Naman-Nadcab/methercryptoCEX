@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { CoinIcon } from '@/components/ui/CoinIcon';
+import { ErrorState } from '@/components/ui/ErrorState';
+import { toast } from '@/components/ui/toaster';
 
 /* ── Types ── */
 interface Transaction {
@@ -234,6 +236,8 @@ export default function AssetsOverviewPage() {
   const [portfolioHistory, setPortfolioHistory] = useState<PortfolioPoint[]>([]);
   const [recentTxs, setRecentTxs] = useState<Transaction[]>([]);
   const [tickers, setTickers] = useState<TickerRow[]>([]);
+  const [portfolioError, setPortfolioError] = useState<string | null>(null);
+  const [recentTxError, setRecentTxError] = useState<string | null>(null);
   const [dustLoading, setDustLoading] = useState(false);
   const [statementLoading, setStatementLoading] = useState(false);
   const [security, setSecurity] = useState<{ loading: boolean; totp: boolean; hasEmail: boolean }>({
@@ -255,33 +259,77 @@ export default function AssetsOverviewPage() {
   const totalBtc = (summary?.fundingBalance?.totalBtc ?? 0) + (summary?.tradingBalance?.totalBtc ?? 0);
 
   /* ── Fetch tickers for 24h change ── */
+  const fetchPortfolioHistory = useCallback(async () => {
+    if (!accessToken) return;
+    try {
+      setPortfolioError(null);
+      const r = await api.get<{ success: boolean; data?: PortfolioPoint[] }>(
+        `/api/v1/wallet/portfolio-history?period=${chartPeriod}`,
+        { notifyOnError: false }
+      );
+      if (r.success && Array.isArray(r.data)) {
+        setPortfolioHistory(r.data as PortfolioPoint[]);
+        return;
+      }
+      setPortfolioError('Portfolio history is temporarily unavailable.');
+    } catch {
+      setPortfolioError('Portfolio history is temporarily unavailable.');
+      toast({
+        title: 'Portfolio history unavailable',
+        description: 'Could not load your performance chart. Try again.',
+        variant: 'destructive',
+      });
+    }
+  }, [accessToken, chartPeriod]);
+
   useEffect(() => {
     const base = getApiBaseUrl();
     if (!base) return;
     fetch(`${base}/api/v1/spot/tickers`).then((r) => r.json()).then((d) => {
       if (d?.success && Array.isArray(d.data)) setTickers(d.data);
-    }).catch(() => {});
+    }).catch(() => {
+      toast({
+        title: 'Market data unavailable',
+        description: 'Live ticker data could not be loaded.',
+        variant: 'destructive',
+      });
+    });
   }, []);
 
   /* ── Fetch portfolio history ── */
   useEffect(() => {
-    if (!accessToken) return;
-    api.get<{ success: boolean; data?: PortfolioPoint[] }>(`/api/v1/wallet/portfolio-history?period=${chartPeriod}`, { notifyOnError: false })
-      .then((r) => { if (r.success && Array.isArray(r.data)) setPortfolioHistory(r.data as PortfolioPoint[]); })
-      .catch(() => {});
-  }, [accessToken, chartPeriod]);
+    void fetchPortfolioHistory();
+  }, [fetchPortfolioHistory]);
 
   /* ── Fetch recent transactions (normalize API shape: coin, quantity, date_time, withdraw) ── */
-  useEffect(() => {
+  const fetchRecentTransactions = useCallback(async () => {
     if (!accessToken) return;
-    api.get<{ success: boolean; data?: unknown[] }>('/api/v1/wallet/transactions/all?limit=8', { notifyOnError: false })
-      .then((r) => {
-        if (r.success && Array.isArray(r.data)) {
-          setRecentTxs(r.data.map((row) => normalizeWalletTx(row as Record<string, unknown>)));
-        }
-      })
-      .catch(() => {});
+    try {
+      setRecentTxError(null);
+      const r = await api.get<{ success: boolean; data?: unknown[] }>(
+        '/api/v1/wallet/transactions/all?limit=8',
+        { notifyOnError: false }
+      );
+      if (r.success && Array.isArray(r.data)) {
+        setRecentTxs(r.data.map((row) => normalizeWalletTx(row as Record<string, unknown>)));
+        return;
+      }
+      setRecentTxError('Recent activity is temporarily unavailable.');
+      setRecentTxs([]);
+    } catch {
+      setRecentTxError('Recent activity is temporarily unavailable.');
+      setRecentTxs([]);
+      toast({
+        title: 'Recent activity unavailable',
+        description: 'Could not load wallet activity. Try again.',
+        variant: 'destructive',
+      });
+    }
   }, [accessToken]);
+
+  useEffect(() => {
+    void fetchRecentTransactions();
+  }, [fetchRecentTransactions]);
 
   /* ── Security snapshot from profile (no fake badges) ── */
   useEffect(() => {
@@ -432,7 +480,13 @@ export default function AssetsOverviewPage() {
           refetchSummary();
         }
       }
-    } catch { /* ignore */ }
+    } catch {
+      toast({
+        title: 'Dust conversion failed',
+        description: 'Could not convert small balances right now.',
+        variant: 'destructive',
+      });
+    }
     setDustLoading(false);
   }, [refetchSummary]);
 
@@ -442,7 +496,13 @@ export default function AssetsOverviewPage() {
       const year = new Date().getFullYear();
       const base = getApiBaseUrl();
       window.open(`${base}/api/v1/wallet/statement?year=${year}&format=csv`, '_blank');
-    } catch { /* ignore */ }
+    } catch {
+      toast({
+        title: 'Statement export failed',
+        description: 'Could not start the statement download.',
+        variant: 'destructive',
+      });
+    }
     setStatementLoading(false);
   }, []);
 
@@ -579,6 +639,15 @@ export default function AssetsOverviewPage() {
                 maskStr={mask}
                 formatUsd={fmtUsd}
               />
+              {portfolioError ? (
+                <button
+                  type="button"
+                  onClick={() => void fetchPortfolioHistory()}
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  {portfolioError} Retry
+                </button>
+              ) : null}
               <p className="text-xs text-muted-foreground">Portfolio value · {chartPeriod}</p>
             </div>
           </div>
@@ -888,7 +957,15 @@ export default function AssetsOverviewPage() {
             </Link>
           </div>
           <div className="divide-y divide-border">
-            {recentTxs.length === 0 ? (
+            {recentTxError ? (
+              <div className="px-6 py-8">
+                <ErrorState
+                  title="Could not load recent activity"
+                  message={recentTxError}
+                  onRetry={() => void fetchRecentTransactions()}
+                />
+              </div>
+            ) : recentTxs.length === 0 ? (
               <div className="px-6 py-12 text-center">
                 <FileText className="mx-auto mb-2 h-8 w-8 text-muted-foreground/30" />
                 <p className="text-sm font-medium text-foreground">No recent activity</p>

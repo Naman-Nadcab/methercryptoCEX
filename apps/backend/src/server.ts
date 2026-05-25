@@ -38,6 +38,7 @@ import {
   logMatchingEngineShardRoutingCompliance,
 } from './services/settlement/matching-engine-shard-router.js';
 import { p2pService } from './services/p2p.service.js';
+import { assertP2PExpirySchema } from './services/p2p-expiry.service.js';
 import { runCandleAggregation, seedSyntheticCandles } from './services/candle-aggregation.service.js';
 import { processTriggeredStopOrders } from './services/spot-trigger.service.js';
 import { detectWashTrading, detectSpoofing, detectPump, createManipulationAlerts } from './services/market-manipulation.service.js';
@@ -68,6 +69,7 @@ import adminIntegrationsRoutes from './routes/admin-integrations.fastify.js';
 import adminPhase1ComplianceRoutes from './routes/admin-phase1-compliance.fastify.js';
 import adminPhase24Routes from './routes/admin-phase2-4.fastify.js';
 import adminMmControlRoutes from './routes/admin-mm-control.fastify.js';
+import adminHybridRoutes from './routes/admin-hybrid.fastify.js';
 import observabilityRoutes from './routes/observability.fastify.js';
 import pushRoutes from './routes/push.fastify.js';
 import supportUserRoutes from './routes/support-user.fastify.js';
@@ -240,6 +242,12 @@ export async function buildServer(): Promise<FastifyInstance> {
       /* indexer_state may not exist */
     }
 
+    const { getTradingHalted, getSettlementCircuitOpen } = await import('./lib/trading-halt.js');
+    const [tradingHalted, settlementCircuitOpen] = await Promise.all([
+      getTradingHalted(),
+      getSettlementCircuitOpen(),
+    ]);
+
     const natsConfigured = Boolean(config.nats.url?.trim());
     let natsProbe: { ok: boolean; stream_status?: Record<string, string>; error?: string } = { ok: true };
     if (natsConfigured) {
@@ -297,6 +305,8 @@ export async function buildServer(): Promise<FastifyInstance> {
     const warnings: string[] = [];
     if (indexerDegradedForDisplay) warnings.push('indexer_heartbeat_stale');
     if (wsUnstable) warnings.push('spot_ws_disconnect_elevated');
+    if (tradingHalted) warnings.push('trading_halt_active');
+    if (settlementCircuitOpen) warnings.push('settlement_circuit_open');
 
     let status: 'healthy' | 'degraded' | 'unhealthy';
     if (!coreOk) {
@@ -376,6 +386,10 @@ export async function buildServer(): Promise<FastifyInstance> {
         fail_on_stale_indexer: config.health.failOnStaleIndexer,
       },
       checks: {
+        safety: {
+          trading_halt_active: tradingHalted,
+          settlement_circuit_open: settlementCircuitOpen,
+        },
         nats: {
           configured: natsConfigured,
           ok: natsConfigured ? natsProbe.ok : null,
@@ -572,7 +586,13 @@ export async function buildServer(): Promise<FastifyInstance> {
     const keyToUse = apiKey || apiKeyAlt;
     if (keyToUse) {
       try {
-        const needHmac = hasHmacHeaders(request);
+        const rawPath = (request.url || '').split('?')[0] ?? '';
+        const isSpotApiKeyTradeMutation =
+          request.method === 'POST' &&
+          rawPath.startsWith('/api/v1/spot/') &&
+          (rawPath.includes('/spot/order') || rawPath.includes('/spot/orders'));
+        const forceTradeHmac = config.security.apiKeyRequireHmacForTrade && isSpotApiKeyTradeMutation;
+        const needHmac = hasHmacHeaders(request) || forceTradeHmac;
         // Omit users.role: some production DBs predate the column; API-key auth defaults to end-user role.
         const selectCols = needHmac
           ? 'uak.user_id, uak.permission, uak.permissions, uak.ip_restriction, uak.ip_addresses, uak.api_secret, u.email, u.phone'
@@ -611,7 +631,10 @@ export async function buildServer(): Promise<FastifyInstance> {
         if (Array.isArray(raw)) ipList = raw;
         else if (typeof raw === 'string') try { ipList = JSON.parse(raw) || []; } catch { /* ignore */ }
         if (row.ip_restriction === 'ip_only' && ipList.length > 0) {
-          const clientIp = (request.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || request.ip;
+          const trustLb = config.security.trustedProxyIps.length > 0;
+          const clientIp = trustLb
+            ? request.ip
+            : (request.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || request.ip;
           if (!clientIp || !ipList.includes(clientIp)) {
             return reply.status(403).send({ success: false, error: { code: 'IP_NOT_ALLOWED', message: 'API key not allowed from this IP' } });
           }
@@ -670,6 +693,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(adminPhase1ComplianceRoutes, { prefix: '/api/v1/admin' });
   await app.register(adminPhase24Routes, { prefix: '/api/v1/admin' });
   await app.register(adminMmControlRoutes, { prefix: '/api/v1/admin' });
+  await app.register(adminHybridRoutes, { prefix: '/api/v1/admin' });
   await app.register(observabilityRoutes, { prefix: '/api/v1/observability' });
   await app.register(pushRoutes, { prefix: '/api/v1/push' });
   await app.register(supportUserRoutes, { prefix: '/api/v1/support' });
@@ -1003,11 +1027,31 @@ async function start() {
       }
     }, orderbookRefreshMs);
 
+    try {
+      await assertP2PExpirySchema();
+      logger.info('P2P expiry schema guard passed');
+    } catch (e) {
+      logger.error('P2P expiry schema guard failed', { error: e instanceof Error ? e.message : String(e) });
+      const { p2pExpiryFailuresTotal, p2pExpiryLastRunOk } = await import('./lib/prometheus-metrics.js');
+      p2pExpiryFailuresTotal.inc({ stage: 'schema_guard' });
+      p2pExpiryLastRunOk.set(0);
+    }
+
     const p2pExpiryIntervalMs = 90_000;
     setInterval(async () => {
       try {
-        await p2pService.handleExpiredOrders();
+        const run = await p2pService.handleExpiredOrders();
+        const { p2pExpiryLastRunOk, p2pExpiryFailuresTotal } = await import('./lib/prometheus-metrics.js');
+        if (run.errors > 0) {
+          p2pExpiryFailuresTotal.inc({ stage: 'run' }, run.errors);
+          p2pExpiryLastRunOk.set(0);
+        } else {
+          p2pExpiryLastRunOk.set(1);
+        }
       } catch (e) {
+        const { p2pExpiryFailuresTotal, p2pExpiryLastRunOk } = await import('./lib/prometheus-metrics.js');
+        p2pExpiryFailuresTotal.inc({ stage: 'run' });
+        p2pExpiryLastRunOk.set(0);
         logger.warn('P2P expiry job failed', { error: e instanceof Error ? e.message : 'Unknown' });
       }
     }, p2pExpiryIntervalMs);
@@ -1131,6 +1175,12 @@ async function start() {
       startSafetyTriggerWorker();
     } else {
       logger.info('Safety trigger worker disabled (DISABLE_SAFETY_TRIGGER_WORKER=true)');
+    }
+    if (config.hybrid.hedgeEnabled) {
+      const { startHedgeEngineWorker } = await import('./services/hedge-engine.service.js');
+      startHedgeEngineWorker();
+    } else {
+      logger.info('Hedge engine worker disabled (HEDGE_ENABLED=false)');
     }
     logger.info('Phase-8 settlement pipeline started');
 

@@ -34,6 +34,7 @@ import {
 import { cn } from '@/lib/cn';
 import { TableSkeleton } from '@/components/ui';
 import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
+import { ActionAuthModal, type ActionAuthPayload } from '@/components/ops/ActionAuthModal';
 
 type MonitoringTab = 'overview' | 'history';
 type RefreshRate = 5000 | 10000 | 15000 | 30000;
@@ -141,34 +142,34 @@ export default function MonitoringPage() {
   const [refreshDropdownOpen, setRefreshDropdownOpen] = useState(false);
   const detectAnomaly = useAnomalyDetector();
 
-  const { data: healthData } = useQuery({
+  const { data: healthData, isError: healthIsError, error: healthError, refetch: refetchHealth } = useQuery({
     queryKey: ['admin', 'monitoring', 'health', token],
     queryFn: () => getMonitoringHealth(token),
     enabled: !!token, refetchInterval: refreshRate, staleTime: 30_000,
   });
-  const { data: systemHealthData } = useQuery({
+  const { data: systemHealthData, isError: systemHealthIsError, error: systemHealthError, refetch: refetchSystemHealth } = useQuery({
     queryKey: ['admin', 'system-health', token],
     queryFn: () => getSystemHealth(token),
     enabled: !!token, refetchInterval: refreshRate, staleTime: 30_000,
   });
-  const { data: rpcData } = useQuery({
+  const { data: rpcData, isError: rpcIsError, error: rpcError, refetch: refetchRpc } = useQuery({
     queryKey: ['admin', 'monitoring', 'rpc', token],
     staleTime: 30_000,
     queryFn: () => getMonitoringRpcProviders(token),
     enabled: !!token, refetchInterval: Math.max(refreshRate, 15000),
   });
-  const { data: queuesData } = useQuery({
+  const { data: queuesData, isError: queuesIsError, error: queuesError, refetch: refetchQueues } = useQuery({
     queryKey: ['admin', 'monitoring', 'queues', token],
     queryFn: () => getMonitoringQueues(token),
     enabled: !!token, refetchInterval: refreshRate, staleTime: 30_000,
   });
-  const { data: resourcesData } = useQuery({
+  const { data: resourcesData, isError: resourcesIsError, error: resourcesError, refetch: refetchResources } = useQuery({
     queryKey: ['admin', 'monitoring', 'resources', token],
     staleTime: 30_000,
     queryFn: () => getMonitoringResources(token),
     enabled: !!token, refetchInterval: refreshRate,
   });
-  const { data: alertsData, isLoading: alertsLoading } = useQuery({
+  const { data: alertsData, isLoading: alertsLoading, isError: alertsIsError, error: alertsError, refetch: refetchAlerts } = useQuery({
     queryKey: ['admin', 'monitoring', 'alerts', token, alertsPage],
     staleTime: 30_000,
     queryFn: () => getMonitoringAlerts(token, { limit: 20, offset: (alertsPage - 1) * 20 }),
@@ -198,7 +199,7 @@ export default function MonitoringPage() {
     queryFn: () => getMonitoringHistory(token, 'queue_size'),
     enabled: !!token && activeTab === 'history',
   });
-  const { data: incidentsData } = useQuery({
+  const { data: incidentsData, isError: incidentsIsError, error: incidentsError, refetch: refetchIncidents } = useQuery({
     queryKey: ['admin', 'monitoring', 'incidents', token],
     staleTime: 30_000,
     queryFn: () => getMonitoringIncidents(token, { limit: 20 }),
@@ -233,7 +234,8 @@ export default function MonitoringPage() {
   });
 
   const actionMutation = useMutation({
-    mutationFn: (action: string) => triggerMonitoringAction(token, action),
+    mutationFn: ({ action, reason, twofa_code }: { action: string; reason?: string; twofa_code?: string }) =>
+      triggerMonitoringAction(token, action, { reason, twofa_code }),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['admin', 'monitoring'] }); setControlModal(null); },
   });
 
@@ -280,15 +282,39 @@ export default function MonitoringPage() {
     queryClient.invalidateQueries({ predicate: (q) => ((q.queryKey[0] as string) === 'admin') });
   }, [queryClient]);
 
-  const handleConfirmAction = () => { if (controlModal) actionMutation.mutate(controlModal); };
+  const handleConfirmAction = (payload: ActionAuthPayload) => {
+    if (!controlModal) return;
+    actionMutation.mutate({ action: controlModal, reason: payload.reason, twofa_code: payload.twofa_code });
+  };
 
   const hasCriticalResource = (cpuPct !== null && cpuPct > 90) || (memPct !== null && memPct > 90);
   const healthLevel = healthScore >= 90 ? 'healthy' : healthScore >= 70 ? 'degraded' : 'critical';
+  const pageError =
+    (healthIsError && (healthError instanceof Error ? healthError.message : 'Failed to load monitoring health.')) ||
+    (systemHealthIsError && (systemHealthError instanceof Error ? systemHealthError.message : 'Failed to load system health.')) ||
+    (rpcIsError && (rpcError instanceof Error ? rpcError.message : 'Failed to load RPC providers.')) ||
+    (queuesIsError && (queuesError instanceof Error ? queuesError.message : 'Failed to load queue metrics.')) ||
+    (resourcesIsError && (resourcesError instanceof Error ? resourcesError.message : 'Failed to load resource metrics.')) ||
+    (alertsIsError && (alertsError instanceof Error ? alertsError.message : 'Failed to load alerts.')) ||
+    (incidentsIsError && (incidentsError instanceof Error ? incidentsError.message : 'Failed to load incidents.')) ||
+    null;
+
+  const retryPage = useCallback(() => {
+    void refetchHealth();
+    void refetchSystemHealth();
+    void refetchRpc();
+    void refetchQueues();
+    void refetchResources();
+    void refetchAlerts();
+    void refetchIncidents();
+  }, [refetchHealth, refetchSystemHealth, refetchRpc, refetchQueues, refetchResources, refetchAlerts, refetchIncidents]);
 
   return (
     <AdminPageFrame
       title="System Monitoring"
       description="Live telemetry, SLOs, queues, and safe infrastructure actions."
+      error={pageError}
+      onRetry={pageError ? retryPage : undefined}
       quickActions={
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative">
@@ -774,11 +800,26 @@ export default function MonitoringPage() {
       </div>
 
       <InfrastructureControlModal
+        open={false}
+        action={null}
+        onClose={() => setControlModal(null)}
+        onConfirm={() => {}}
+        isLoading={actionMutation.isPending}
+      />
+      <ActionAuthModal
         open={!!controlModal}
-        action={controlModal}
         onClose={() => setControlModal(null)}
         onConfirm={handleConfirmAction}
-        isLoading={actionMutation.isPending}
+        title="Confirm infrastructure action"
+        actionLabel={controlModal ? controlModal.replace(/_/g, ' ') : 'Infrastructure action'}
+        description="Destructive infrastructure commands require audit reason and step-up authentication."
+        requireReason
+        twofaRequired
+        confirmationPhrase="CONFIRM INFRA_ACTION"
+        externalError={actionMutation.error instanceof Error ? actionMutation.error.message : null}
+        isPending={actionMutation.isPending}
+        confirmLabel={actionMutation.isPending ? 'Executing…' : 'Execute action'}
+        confirmVariant="danger"
       />
       <RpcPriorityModal
         open={!!rpcPriorityModal}

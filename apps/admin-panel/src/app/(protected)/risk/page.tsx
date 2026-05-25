@@ -125,7 +125,7 @@ export default function RiskPage() {
 
   useEffect(() => { setAlertsPage(1); }, [alertsStatus, alertsSeverity, alertsSearch]);
 
-  const { data: dashboardData, isFetching: dashFetching, refetch: refetchAll } = useQuery({
+  const { data: dashboardData, isFetching: dashFetching, isError: dashIsError, error: dashError, refetch: refetchAll } = useQuery({
     queryKey: ['admin', 'risk', token],
     staleTime: 30_000,
     queryFn: () => getRiskDashboard(token),
@@ -133,7 +133,7 @@ export default function RiskPage() {
     refetchInterval: 30_000,
   });
 
-  const { data: suspiciousData } = useQuery({
+  const { data: suspiciousData, isError: suspiciousIsError, error: suspiciousError, refetch: refetchSuspicious } = useQuery({
     queryKey: ['admin', 'risk', 'suspicious', token],
     staleTime: 30_000,
     queryFn: () => getRiskSuspicious(token),
@@ -141,7 +141,7 @@ export default function RiskPage() {
     refetchInterval: 30_000,
   });
 
-  const { data: alertsData, isLoading: alertsLoading, isFetching: alertsFetching } = useQuery({
+  const { data: alertsData, isLoading: alertsLoading, isFetching: alertsFetching, isError: alertsIsError, error: alertsError, refetch: refetchAlerts } = useQuery({
     queryKey: ['admin', 'risk', 'alerts', token, alertsPage, alertsStatus, alertsSeverity],
     queryFn: () => getRiskAlerts(token, {
       limit: 20,
@@ -153,7 +153,7 @@ export default function RiskPage() {
     refetchInterval: 30_000,
   });
 
-  const { data: highRiskData, isLoading: highRiskLoading } = useQuery({
+  const { data: highRiskData, isLoading: highRiskLoading, isError: highRiskIsError, error: highRiskError, refetch: refetchHighRisk } = useQuery({
     queryKey: ['admin', 'risk', 'high-risk-users', token],
     staleTime: 30_000,
     queryFn: () => getRiskHighRiskUsers(token, { limit: 50 }),
@@ -161,7 +161,7 @@ export default function RiskPage() {
     refetchInterval: 60_000,
   });
 
-  const { data: sanctionsData, isLoading: sanctionsLoading } = useQuery({
+  const { data: sanctionsData, isLoading: sanctionsLoading, isError: sanctionsIsError, error: sanctionsError, refetch: refetchSanctions } = useQuery({
     queryKey: ['admin', 'risk', 'sanctions', token],
     staleTime: 30_000,
     queryFn: () => getRiskSanctions(token, { limit: 50 }),
@@ -235,13 +235,27 @@ export default function RiskPage() {
 
   const isActionLoading = updateStatusMutation.isPending || escalateMutation.isPending || freezeMutation.isPending;
   const openCount       = dashboard?.open_aml_alerts ?? 0;
+  const pageError =
+    (dashIsError && (dashError instanceof Error ? dashError.message : 'Failed to load risk dashboard.')) ||
+    (suspiciousIsError && (suspiciousError instanceof Error ? suspiciousError.message : 'Failed to load suspicious trades.')) ||
+    (alertsIsError && (alertsError instanceof Error ? alertsError.message : 'Failed to load alerts.')) ||
+    (highRiskIsError && (highRiskError instanceof Error ? highRiskError.message : 'Failed to load high-risk users.')) ||
+    (sanctionsIsError && (sanctionsError instanceof Error ? sanctionsError.message : 'Failed to load sanctions data.')) ||
+    null;
 
   return (
     <AdminPageFrame
       title="Risk & AML"
       description="Monitor AML alerts, suspicious trading, and high-risk users."
       status="active"
-      error={null}
+      error={pageError}
+      onRetry={pageError ? () => {
+        void refetchAll();
+        void refetchSuspicious();
+        void refetchAlerts();
+        void refetchHighRisk();
+        void refetchSanctions();
+      } : undefined}
       quickActions={
         <>
           {/* Live badge */}

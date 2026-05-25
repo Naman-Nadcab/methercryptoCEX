@@ -7,7 +7,7 @@
  */
 
 import { Counter, Gauge, Histogram } from 'prom-client';
-import { register } from '../lib/prometheus-metrics.js';
+import { register, hedgeKillSwitchGauge } from '../lib/prometheus-metrics.js';
 import { db } from '../lib/database.js';
 import { config } from '../config/index.js';
 
@@ -161,9 +161,29 @@ export async function collectExchangeMetrics(): Promise<void> {
   } catch { /* best effort */ }
 
   try {
-    const rows = await db.query<{ chain: string; currency: string; balance: string }>(
-      `SELECT chain, currency, balance::text FROM hot_wallets WHERE balance IS NOT NULL`
-    ).catch(() => ({ rows: [] as { chain: string; currency: string; balance: string }[] }));
+    // hot_wallets schema evolved (chain_id + balance_cache in current migrations; chain/currency/balance in legacy).
+    // Detect columns first to avoid noisy "column does not exist" errors during /metrics scrapes.
+    const cols = await db.query<{ column_name: string }>(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'hot_wallets'`
+    ).catch(() => ({ rows: [] as { column_name: string }[] }));
+    const colSet = new Set(cols.rows.map((r) => r.column_name));
+
+    let rows: { rows: { chain: string; currency: string; balance: string }[] } = { rows: [] };
+    if (colSet.has('chain_id') && colSet.has('balance_cache')) {
+      rows = await db.query<{ chain: string; currency: string; balance: string }>(
+        `SELECT chain_id::text AS chain, 'NATIVE'::text AS currency, balance_cache::text AS balance
+         FROM hot_wallets
+         WHERE balance_cache IS NOT NULL`
+      ).catch(() => ({ rows: [] as { chain: string; currency: string; balance: string }[] }));
+    } else if (colSet.has('chain') && colSet.has('currency') && colSet.has('balance')) {
+      rows = await db.query<{ chain: string; currency: string; balance: string }>(
+        `SELECT chain::text AS chain, currency::text AS currency, balance::text AS balance
+         FROM hot_wallets
+         WHERE balance IS NOT NULL`
+      ).catch(() => ({ rows: [] as { chain: string; currency: string; balance: string }[] }));
+    }
 
     for (const row of rows.rows) {
       hotWalletBalance.labels(row.chain, row.currency).set(parseFloat(row.balance) || 0);
@@ -176,4 +196,15 @@ export async function collectExchangeMetrics(): Promise<void> {
     const val = await redis.get(circuitKey).catch(() => null);
     settlementCircuitOpen.set(val === '1' || val === 'true' ? 1 : 0);
   } catch { /* best effort */ }
+
+  try {
+    const { refreshHedgeExposureGauge } = await import('./hedge-risk.service.js');
+    const { refreshPnlGaugesFromDb } = await import('./pnl.service.js');
+    const { readHedgeSystemBool } = await import('./hedge-risk.service.js');
+    await refreshHedgeExposureGauge();
+    await refreshPnlGaugesFromDb();
+    hedgeKillSwitchGauge.set((await readHedgeSystemBool('hedge_emergency_stop')) ? 1 : 0);
+  } catch {
+    /* best effort */
+  }
 }

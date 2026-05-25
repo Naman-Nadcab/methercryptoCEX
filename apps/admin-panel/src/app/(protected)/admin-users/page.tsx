@@ -11,6 +11,8 @@ import { adminFetch } from '@/lib/api';
 import { useAdminAuthStore } from '@/store/auth';
 import { cn } from '@/lib/cn';
 import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
+import { ActionAuthModal, type ActionAuthPayload } from '@/components/ops/ActionAuthModal';
+import { StatusBadge } from '@/components/dashboard/StatusBadge';
 
 /* ── types ──────────────────────────────────────────────────────────── */
 type AdminAccountRow = {
@@ -23,6 +25,7 @@ type AdminAccountRow = {
   last_login_at?: string;
   two_factor_enabled?: boolean;
   permissions?: string[];
+  is_active?: boolean;
 };
 
 const ROLE_OPTIONS = [
@@ -73,19 +76,6 @@ function RolePill({ role }: { role: string }) {
   return (
     <span className={cn('inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-semibold', ROLE_ACCENTS[key] ?? 'border-slate-500/30 bg-slate-950/15 text-slate-400')}>
       {label}
-    </span>
-  );
-}
-
-function StatusPill({ status }: { status: string }) {
-  const s = (status ?? 'active').toLowerCase();
-  return (
-    <span className={cn('inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold',
-      s === 'active' ? 'border-emerald-500/30 bg-emerald-950/15 text-emerald-400' :
-      s === 'suspended' ? 'border-amber-500/30 bg-amber-950/15 text-amber-400' :
-      'border-slate-500/30 bg-slate-950/15 text-slate-400')}>
-      <span className={cn('h-1.5 w-1.5 rounded-full', s === 'active' ? 'bg-emerald-400' : s === 'suspended' ? 'bg-amber-400' : 'bg-slate-400')} />
-      {s.charAt(0).toUpperCase() + s.slice(1)}
     </span>
   );
 }
@@ -200,7 +190,7 @@ export default function AdminUsersPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, body }: { id: string; body: Record<string, string> }) =>
+    mutationFn: ({ id, body }: { id: string; body: Record<string, string | boolean> }) =>
       adminFetch(`/admins/${id}`, { method: 'PATCH', body, token }),
     onSuccess: (res) => {
       void queryClient.invalidateQueries({ queryKey: ['admin', 'admins'] });
@@ -208,6 +198,12 @@ export default function AdminUsersPage() {
       else setEditError(res.error?.message ?? 'Update failed');
     },
     onError: () => setEditError('Failed to update. Please try again.'),
+  });
+  const resetPwMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      adminFetch(`/admins/${id}/reset-password`, { method: 'POST', token, body: { reason } }),
+    onSuccess: () => setActionTarget(null),
+    onError: () => setEditError('Failed to send password reset email.'),
   });
 
   const openEditRole = (row: AdminAccountRow) => {
@@ -222,6 +218,8 @@ export default function AdminUsersPage() {
     <AdminPageFrame
       title="Admin Users"
       description="Manage admin accounts, roles, access, and 2FA."
+      error={listQ.isError ? (listQ.error instanceof Error ? listQ.error.message : 'Failed to load admin users.') : null}
+      onRetry={listQ.isError ? () => { void listQ.refetch(); } : undefined}
       quickActions={
         <>
           <button type="button" onClick={() => listQ.refetch()} disabled={listQ.isFetching}
@@ -307,7 +305,8 @@ export default function AdminUsersPage() {
                   </tr>
                 ) : filtered.map((row) => {
                   const ll = row.lastLogin ?? row.last_login_at;
-                  const st = (row.status ?? 'active').toLowerCase();
+                  const normalizedStatus = row.status ?? (row.is_active === false ? 'suspended' : 'active');
+                  const st = normalizedStatus.toLowerCase();
                   return (
                     <tr key={row.id} className="border-b border-admin-border/25 transition-colors hover:bg-white/[0.02]">
                       <td className="px-5 py-3">
@@ -322,7 +321,7 @@ export default function AdminUsersPage() {
                         </div>
                       </td>
                       <td className="px-5 py-3"><RolePill role={row.role} /></td>
-                      <td className="px-5 py-3"><StatusPill status={row.status ?? 'active'} /></td>
+                      <td className="px-5 py-3"><StatusBadge status={normalizedStatus} /></td>
                       <td className="px-5 py-3">
                         {row.two_factor_enabled === true ? (
                           <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-400"><Check className="h-3 w-3" /> On</span>
@@ -434,52 +433,55 @@ export default function AdminUsersPage() {
         </div>
       )}
 
-      {/* Action Confirm Modal (suspend/activate/resetpw) */}
-      {actionTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !updateMutation.isPending && setActionTarget(null)} />
-          <div className="relative z-10 w-full max-w-sm rounded-2xl border border-admin-border/60 bg-admin-card p-6 shadow-2xl">
-            <div className={cn('mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full border',
-              actionTarget.action === 'suspend' ? 'border-amber-500/30 bg-amber-950/20' :
-              actionTarget.action === 'resetpw' ? 'border-blue-500/30 bg-blue-950/20' :
-              'border-emerald-500/30 bg-emerald-950/20')}>
-              {actionTarget.action === 'suspend' ? <ShieldOff className="h-6 w-6 text-amber-400" /> :
-               actionTarget.action === 'resetpw' ? <KeyRound className="h-6 w-6 text-blue-400" /> :
-               <Check className="h-6 w-6 text-emerald-400" />}
-            </div>
-            <h3 className="mb-1 text-center text-sm font-semibold text-admin-text">
-              {actionTarget.action === 'suspend' ? 'Suspend Admin' : actionTarget.action === 'resetpw' ? 'Send Password Reset' : 'Activate Admin'}
-            </h3>
-            <p className="mb-5 text-center text-xs text-admin-muted">
-              {actionTarget.action === 'suspend' ? `${actionTarget.row.name ?? actionTarget.row.email} will be suspended and lose access.` :
-               actionTarget.action === 'resetpw' ? `A password reset email will be sent to ${actionTarget.row.email}.` :
-               `${actionTarget.row.name ?? actionTarget.row.email} will regain access.`}
-            </p>
-            <div className="flex gap-2">
-              <button type="button" onClick={() => setActionTarget(null)} disabled={updateMutation.isPending}
-                className="flex-1 rounded-xl border border-admin-border/50 py-2 text-xs font-medium text-admin-muted hover:text-admin-text transition-colors disabled:opacity-40">
-                Cancel
-              </button>
-              <button type="button" disabled={updateMutation.isPending}
-                onClick={() => {
-                  const { row, action } = actionTarget;
-                  if (action === 'resetpw') {
-                    adminFetch(`/admins/${row.id}/reset-password`, { method: 'POST', token, body: {} })
-                      .finally(() => setActionTarget(null));
-                  } else {
-                    updateMutation.mutate({ id: row.id, body: { status: action === 'suspend' ? 'suspended' : 'active' } });
-                  }
-                }}
-                className={cn('flex-1 rounded-xl py-2 text-xs font-semibold text-white transition-all disabled:opacity-40',
-                  actionTarget.action === 'suspend' ? 'bg-amber-600 hover:bg-amber-500' :
-                  actionTarget.action === 'resetpw' ? 'bg-blue-600 hover:bg-blue-500' :
-                  'bg-emerald-600 hover:bg-emerald-500')}>
-                {updateMutation.isPending ? 'Processing…' : 'Confirm'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ActionAuthModal
+        open={!!actionTarget}
+        onClose={() => setActionTarget(null)}
+        onConfirm={(payload: ActionAuthPayload) => {
+          if (!actionTarget) return;
+          const { row, action } = actionTarget;
+          if (action === 'resetpw') {
+            resetPwMutation.mutate({ id: row.id, reason: payload.reason });
+            return;
+          }
+          updateMutation.mutate({
+            id: row.id,
+            body: {
+              is_active: action === 'activate',
+              reason: payload.reason,
+            },
+          });
+        }}
+        title={
+          actionTarget?.action === 'suspend'
+            ? 'Suspend admin account'
+            : actionTarget?.action === 'resetpw'
+              ? 'Send admin password reset'
+              : 'Activate admin account'
+        }
+        actionLabel={
+          actionTarget?.action === 'suspend'
+            ? `Suspend ${actionTarget.row.email}`
+            : actionTarget?.action === 'resetpw'
+              ? `Send password reset to ${actionTarget.row.email}`
+              : `Activate ${actionTarget?.row.email ?? 'admin'}`
+        }
+        description="Privileged admin actions require operator reason and verification."
+        requireReason
+        twofaRequired
+        confirmationPhrase={actionTarget?.action === 'suspend' ? 'CONFIRM SUSPEND_ADMIN' : undefined}
+        externalError={editError || null}
+        isPending={updateMutation.isPending || resetPwMutation.isPending}
+        confirmLabel={
+          updateMutation.isPending || resetPwMutation.isPending
+            ? 'Processing…'
+            : actionTarget?.action === 'suspend'
+              ? 'Suspend admin'
+              : actionTarget?.action === 'resetpw'
+                ? 'Send reset'
+                : 'Activate admin'
+        }
+        confirmVariant={actionTarget?.action === 'suspend' ? 'danger' : 'primary'}
+      />
 
       {/* Add Admin Modal */}
       {addOpen && (

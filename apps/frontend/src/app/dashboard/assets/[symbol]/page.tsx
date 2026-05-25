@@ -8,6 +8,7 @@ import { useBalancesFunding, useBalancesSpot, type TokenBalance, type SpotBalanc
 import { api } from '@/lib/api';
 import { CoinIcon } from '@/components/ui/CoinIcon';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { toast } from '@/components/ui/toaster';
 import TransferModal from '@/components/TransferModal';
 import {
   ArrowLeft,
@@ -163,6 +164,7 @@ export default function AssetSymbolPage() {
 
   // Ticker (live price)
   const [ticker, setTicker] = useState<TickerRow | null>(null);
+  const [tickerLoadError, setTickerLoadError] = useState<string | null>(null);
   useEffect(() => {
     if (!symbol) return;
     const base = getApiBaseUrl();
@@ -175,8 +177,13 @@ export default function AssetSymbolPage() {
         const pair = list.find(
           (t) => t.symbol === `${symbol}_USDT` || t.symbol === `${symbol}USDT` || t.symbol === `${symbol}/USDT`,
         );
-        if (!cancelled && pair) setTicker(pair);
-      } catch { /* silently ignore */ }
+        if (!cancelled && pair) {
+          setTicker(pair);
+          setTickerLoadError(null);
+        }
+      } catch {
+        if (!cancelled) setTickerLoadError('Live price feed unavailable.');
+      }
     };
     load();
     const iv = setInterval(load, 15_000);
@@ -210,6 +217,7 @@ export default function AssetSymbolPage() {
   // Transactions
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [txLoading, setTxLoading] = useState(false);
+  const [txLoadError, setTxLoadError] = useState<string | null>(null);
   const [txPage, setTxPage] = useState(1);
   const TX_PER_PAGE = 10;
 
@@ -217,12 +225,20 @@ export default function AssetSymbolPage() {
     if (!ready || !symbol) return;
     setTxLoading(true);
     try {
+      setTxLoadError(null);
       const res = await api.get<Transaction[]>(
         `/api/v1/wallet/transactions/all?coin=${symbol}&limit=50`,
         { notifyOnError: false },
       );
       if (res.success && Array.isArray(res.data)) setTransactions(res.data);
-    } catch { /* ignore */ }
+    } catch {
+      setTxLoadError('Could not load transaction history.');
+      toast({
+        title: 'History unavailable',
+        description: `Could not load ${symbol} transactions. Retry to refresh.`,
+        variant: 'destructive',
+      });
+    }
     finally { setTxLoading(false); }
   }, [ready, symbol]);
 
@@ -297,6 +313,9 @@ export default function AssetSymbolPage() {
               ) : (
                 <span className="text-sm text-muted-foreground">Price unavailable</span>
               )}
+              {tickerLoadError ? (
+                <span className="text-xs text-amber-600 dark:text-amber-400">{tickerLoadError}</span>
+              ) : null}
             </div>
           </div>
         </div>
@@ -474,6 +493,9 @@ export default function AssetSymbolPage() {
             <RefreshCw className={`w-3.5 h-3.5 ${txLoading ? 'animate-spin' : ''}`} /> Refresh
           </button>
         </div>
+        {txLoadError ? (
+          <div className="px-5 py-2 text-xs text-destructive">{txLoadError}</div>
+        ) : null}
 
         {txLoading && transactions.length === 0 ? (
           <div className="flex items-center justify-center py-12">

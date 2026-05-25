@@ -6,7 +6,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { db } from '../lib/database.js';
 import { logger } from '../lib/logger.js';
 import { getAdminWithPermission } from './admin.fastify.js';
-import { getTradingHalted, setTradingHalt } from '../lib/trading-halt.js';
+import { getSettlementCircuitOpen, getTradingHalted, setSettlementCircuitOpen, setTradingHalt } from '../lib/trading-halt.js';
 import { getMmCircuitState, setMmCircuitState } from '../services/mm-circuit-breaker.service.js';
 import { getSpotMetrics } from '../services/spot-metrics.service.js';
 import { config } from '../config/index.js';
@@ -295,7 +295,9 @@ export default async function adminControlRoutes(app: FastifyInstance) {
       const redisSnap = getRedisHealthSnapshot();
 
       const tradingHalted = await getTradingHalted().catch(() => true);
+      const settlementCircuitOpen = await getSettlementCircuitOpen().catch(() => true);
       if (tradingHalted) reasons.push('trading_halt_active');
+      if (settlementCircuitOpen) reasons.push('settlement_circuit_open');
 
       let engineOk = false;
       let engineDetail = 'not_checked';
@@ -355,14 +357,14 @@ export default async function adminControlRoutes(app: FastifyInstance) {
       }
 
       const criticalDown = !dbOk || !redisOk;
-      const majorIssue = criticalDown || !engineOk || !treasuryOk || tradingHalted;
+      const majorIssue = criticalDown || !engineOk || !treasuryOk || tradingHalted || settlementCircuitOpen;
       const minorIssue =
         !redisSnap.ok ||
         reasons.some((r) => r.startsWith('mm_')) ||
         (mmDetail && Boolean((mmDetail as { tradingPaused?: boolean }).tradingPaused));
 
       let overall: 'GREEN' | 'YELLOW' | 'RED' = 'GREEN';
-      if (criticalDown || (!engineOk && config.rustMatchingEngine.enabled) || !treasuryOk) overall = 'RED';
+      if (criticalDown || settlementCircuitOpen || (!engineOk && config.rustMatchingEngine.enabled) || !treasuryOk) overall = 'RED';
       else if (majorIssue || minorIssue || tradingHalted) overall = 'YELLOW';
 
       return {
@@ -372,6 +374,7 @@ export default async function adminControlRoutes(app: FastifyInstance) {
           database: { ok: dbOk, latency_ms: dbMs },
           redis: { ok: redisOk, latency_ms: redisMs, snapshot: redisSnap },
           trading_halt: { active: tradingHalted },
+          settlement_circuit: { open: settlementCircuitOpen },
           matching_engine: { ok: engineOk, detail: engineDetail },
           treasury: { ok: treasuryOk, detail: treasuryDetail },
           market_making: { ok: mmOk, circuit: mmDetail },
@@ -379,6 +382,42 @@ export default async function adminControlRoutes(app: FastifyInstance) {
         timestamp: new Date().toISOString(),
       };
   }
+
+  app.get('/control/incident/state', async (_request, reply) => {
+    try {
+      const [halted, settlementCircuitOpen, pendingRes, workerPauseRes] = await Promise.all([
+        getTradingHalted().catch(() => true),
+        getSettlementCircuitOpen().catch(() => true),
+        db.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM settlement_events WHERE status = 'pending'`),
+        db.query<{ value: unknown }>(
+          `SELECT value FROM system_settings WHERE key = 'admin_pause_high_risk_workers' LIMIT 1`
+        ),
+      ]);
+      const pending = parseInt(pendingRes.rows[0]?.n ?? '0', 10) || 0;
+      const workerPausedRaw = workerPauseRes.rows[0]?.value;
+      const highRiskWorkersPaused =
+        workerPausedRaw === true ||
+        workerPausedRaw === '1' ||
+        (typeof workerPausedRaw === 'string' && workerPausedRaw.toLowerCase().includes('true'));
+
+      return reply.send({
+        success: true,
+        data: {
+          trading_halt_active: halted,
+          settlement_circuit_open: settlementCircuitOpen,
+          settlement_pending: pending,
+          high_risk_workers_paused: highRiskWorkersPaused,
+          timestamp: new Date().toISOString(),
+        },
+      });
+    } catch (e) {
+      logger.warn('incident state read failed', { error: e instanceof Error ? e.message : String(e) });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'FETCH_FAILED', message: 'Failed to read incident state' },
+      });
+    }
+  });
 
   type GlobalAction =
     | 'halt_trading'
@@ -412,6 +451,7 @@ export default async function adminControlRoutes(app: FastifyInstance) {
       reason?: string;
       market?: string;
       twofa_code?: string;
+      submit_for_approval?: boolean;
     };
   }>('/control/global-action', async (request, reply) => {
     const admin = await getAdminWithPermission(app, request, reply, 'control:commands');
@@ -459,34 +499,57 @@ export default async function adminControlRoutes(app: FastifyInstance) {
     }
 
     try {
+      const { getAdminApprovalPolicyByKey } = await import('../services/admin-approval-policy.service.js');
+      const policy = await getAdminApprovalPolicyByKey(`global_action:${action}`);
+      const shouldQueue = needsReason
+        ? policy.mode !== 'single_allowed' || request.body?.submit_for_approval === true
+        : request.body?.submit_for_approval === true;
+      if (shouldQueue) {
+        const market = (request.body?.market ?? '').trim().toUpperCase().replace(/-/g, '_') || undefined;
+        const { adminApprovalService } = await import('../services/admin-approval.service.js');
+        const approval = await adminApprovalService.createRequest(
+          'global_control_action',
+          {
+            action,
+            reason,
+            ...(market ? { market } : {}),
+          },
+          admin.adminId,
+          policy.required_approvals
+        );
+        await logAuditFromRequest(request, {
+          actorType: 'admin',
+          actorId: admin.adminId,
+          action: 'global_action_approval_requested',
+          resourceType: 'exchange_control',
+          resourceId: null,
+          oldValue: null,
+          newValue: {
+            action,
+            reason,
+            approval_request_id: approval.id,
+            required_approvals: approval.required_approvals,
+            policy_mode: policy.mode,
+            bypass_requested: request.body?.submit_for_approval === false,
+          },
+        });
+        return reply.send({
+          success: true,
+          data: {
+            action,
+            queued_for_approval: true,
+            approval_request_id: approval.id,
+            required_approvals: approval.required_approvals,
+            current_approvals: approval.current_approvals,
+          },
+        });
+      }
+
       let result: Record<string, unknown> = { action };
 
-      if (action === 'halt_trading') {
-        await setTradingHalt(true);
-        result = { ...result, halted: true };
-      } else if (action === 'resume_trading') {
+      if (action === 'resume_trading') {
         await setTradingHalt(false);
         result = { ...result, halted: false };
-      } else if (action === 'cancel_all_orders') {
-        const market = (request.body?.market ?? '').trim().toUpperCase().replace(/-/g, '_') || null;
-        let conditions = "status IN ('new', 'partially_filled')";
-        const params: string[] = [];
-        if (market) {
-          conditions += ' AND market = $1';
-          params.push(market);
-        }
-        const updateRes = await db.query(
-          `UPDATE spot_orders SET status = 'cancelled', updated_at = NOW() WHERE ${conditions}`,
-          params.length ? params : undefined
-        );
-        result = { ...result, cancelled: (updateRes as { rowCount?: number }).rowCount ?? 0, market };
-      } else if (action === 'disable_withdrawals') {
-        await db.query(
-          `INSERT INTO system_settings (key, value, updated_at, updated_by) VALUES ('emergency_disable_withdrawals', '1', NOW(), $1)
-           ON CONFLICT (key) DO UPDATE SET value = '1', updated_at = NOW(), updated_by = $1`,
-          [admin.adminId]
-        );
-        result = { ...result, withdrawals_disabled: true };
       } else if (action === 'enable_withdrawals') {
         await db.query(
           `INSERT INTO system_settings (key, value, updated_at, updated_by) VALUES ('emergency_disable_withdrawals', '0', NOW(), $1)
@@ -494,13 +557,6 @@ export default async function adminControlRoutes(app: FastifyInstance) {
           [admin.adminId]
         );
         result = { ...result, withdrawals_disabled: false };
-      } else if (action === 'disable_deposits') {
-        await db.query(
-          `INSERT INTO system_settings (key, value, updated_at, updated_by) VALUES ('emergency_disable_deposits', '1', NOW(), $1)
-           ON CONFLICT (key) DO UPDATE SET value = '1', updated_at = NOW(), updated_by = $1`,
-          [admin.adminId]
-        );
-        result = { ...result, deposits_disabled: true };
       } else if (action === 'enable_deposits') {
         await db.query(
           `INSERT INTO system_settings (key, value, updated_at, updated_by) VALUES ('emergency_disable_deposits', '0', NOW(), $1)
@@ -508,13 +564,6 @@ export default async function adminControlRoutes(app: FastifyInstance) {
           [admin.adminId]
         );
         result = { ...result, deposits_disabled: false };
-      } else if (action === 'pause_p2p') {
-        await db.query(
-          `INSERT INTO system_settings (key, value, updated_at, updated_by) VALUES ('admin_p2p_orders_paused', '1', NOW(), $1)
-           ON CONFLICT (key) DO UPDATE SET value = '1', updated_at = NOW(), updated_by = $1`,
-          [admin.adminId]
-        );
-        result = { ...result, p2p_paused: true };
       } else if (action === 'resume_p2p') {
         await db.query(
           `INSERT INTO system_settings (key, value, updated_at, updated_by) VALUES ('admin_p2p_orders_paused', '0', NOW(), $1)
@@ -522,12 +571,14 @@ export default async function adminControlRoutes(app: FastifyInstance) {
           [admin.adminId]
         );
         result = { ...result, p2p_paused: false };
-      } else if (action === 'pause_market_making') {
-        const state = await setMmCircuitState({ tradingPaused: true, orderPlacementBlocked: true }, { source: 'admin' });
-        result = { ...result, mm_circuit: state };
       } else if (action === 'resume_market_making') {
         const state = await setMmCircuitState({ tradingPaused: false, orderPlacementBlocked: false }, { source: 'admin' });
         result = { ...result, mm_circuit: state };
+      } else {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'APPROVAL_REQUIRED', message: 'This action requires maker-checker approval and cannot execute directly.' },
+        });
       }
 
       await logAuditFromRequest(request, {
@@ -535,7 +586,7 @@ export default async function adminControlRoutes(app: FastifyInstance) {
         actorId: admin.adminId,
         action: `global_action_${action}`,
         resourceType: 'exchange_control',
-        resourceId: 'global',
+        resourceId: null,
         newValue: { ...result, reason: reason || undefined },
       });
       logger.warn('Global control action', { adminId: admin.adminId, action, reason: reason.slice(0, 200) });
@@ -546,6 +597,149 @@ export default async function adminControlRoutes(app: FastifyInstance) {
       return reply.status(500).send({
         success: false,
         error: { code: 'ACTION_FAILED', message: e instanceof Error ? e.message : 'Action failed' },
+      });
+    }
+  });
+
+  app.post<{
+    Body: {
+      mode: 'start' | 'recover';
+      reason?: string;
+      twofa_code?: string;
+      force?: boolean;
+      clear_settlement_circuit?: boolean;
+    };
+  }>('/control/incident/execute', async (request, reply) => {
+    const admin = await getAdminWithPermission(app, request, reply, 'control:commands');
+    if (!admin) return;
+
+    const mode = request.body?.mode;
+    if (mode !== 'start' && mode !== 'recover') {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'INVALID_MODE', message: 'mode must be start or recover' },
+      });
+    }
+    const reason = (request.body?.reason ?? '').trim();
+    if (reason.length < 8) {
+      return reply.status(400).send({
+        success: false,
+        error: { code: 'REASON_REQUIRED', message: 'Reason (min 8 characters) is required.' },
+      });
+    }
+    if (!(await verifyGlobalAction2fa(request, admin.adminId, request.body?.twofa_code))) {
+      return reply.status(401).send({
+        success: false,
+        error: { code: 'INVALID_2FA', message: 'Valid 2FA code required for this administrator.' },
+      });
+    }
+    const force = request.body?.force === true;
+    const clearSettlementCircuit = request.body?.clear_settlement_circuit === true;
+
+    try {
+      const [beforeHalt, beforeCircuit, beforePendingRes] = await Promise.all([
+        getTradingHalted().catch(() => true),
+        getSettlementCircuitOpen().catch(() => true),
+        db.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM settlement_events WHERE status = 'pending'`),
+      ]);
+      const beforePending = parseInt(beforePendingRes.rows[0]?.n ?? '0', 10) || 0;
+
+      const steps: Array<{ step: string; status: 'ok' | 'skipped'; detail?: string }> = [];
+      if (mode === 'start') {
+        await setTradingHalt(true);
+        steps.push({ step: 'set_trading_halt', status: 'ok' });
+        await setMmCircuitState({ tradingPaused: true, orderPlacementBlocked: true }, { source: 'admin' });
+        steps.push({ step: 'pause_market_making', status: 'ok' });
+        await db.query(
+          `INSERT INTO system_settings (key, value, updated_at, updated_by)
+           VALUES ('emergency_disable_withdrawals', '1', NOW(), $1),
+                  ('admin_p2p_orders_paused', '1', NOW(), $1),
+                  ('admin_pause_high_risk_workers', '1', NOW(), $1)
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW(), updated_by = EXCLUDED.updated_by`,
+          [admin.adminId]
+        );
+        steps.push({ step: 'pause_high_risk_flows', status: 'ok' });
+      } else {
+        if (!force && beforePending > 0) {
+          return reply.status(409).send({
+            success: false,
+            error: {
+              code: 'SETTLEMENT_PENDING',
+              message: `Recovery blocked: ${beforePending} pending settlement events. Use force=true only with runbook approval.`,
+            },
+            data: { settlement_pending: beforePending },
+          });
+        }
+        await setTradingHalt(false);
+        steps.push({ step: 'clear_trading_halt', status: 'ok' });
+        await setMmCircuitState({ tradingPaused: false, orderPlacementBlocked: false }, { source: 'admin' });
+        steps.push({ step: 'resume_market_making', status: 'ok' });
+        await db.query(
+          `INSERT INTO system_settings (key, value, updated_at, updated_by)
+           VALUES ('emergency_disable_withdrawals', '0', NOW(), $1),
+                  ('admin_p2p_orders_paused', '0', NOW(), $1),
+                  ('admin_pause_high_risk_workers', '0', NOW(), $1)
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW(), updated_by = EXCLUDED.updated_by`,
+          [admin.adminId]
+        );
+        steps.push({ step: 'resume_high_risk_flows', status: 'ok' });
+        if (clearSettlementCircuit) {
+          await setSettlementCircuitOpen(false);
+          steps.push({ step: 'clear_settlement_circuit', status: 'ok' });
+        } else {
+          steps.push({
+            step: 'clear_settlement_circuit',
+            status: 'skipped',
+            detail: 'clear_settlement_circuit flag not provided',
+          });
+        }
+      }
+
+      const [afterHalt, afterCircuit, afterPendingRes] = await Promise.all([
+        getTradingHalted().catch(() => true),
+        getSettlementCircuitOpen().catch(() => true),
+        db.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM settlement_events WHERE status = 'pending'`),
+      ]);
+      const afterPending = parseInt(afterPendingRes.rows[0]?.n ?? '0', 10) || 0;
+
+      const payload = {
+        mode,
+        force,
+        clear_settlement_circuit: clearSettlementCircuit,
+        steps,
+        before: {
+          trading_halt_active: beforeHalt,
+          settlement_circuit_open: beforeCircuit,
+          settlement_pending: beforePending,
+        },
+        after: {
+          trading_halt_active: afterHalt,
+          settlement_circuit_open: afterCircuit,
+          settlement_pending: afterPending,
+        },
+      };
+
+      await logAuditFromRequest(request, {
+        actorType: 'admin',
+        actorId: admin.adminId,
+        action: `incident_${mode}`,
+        resourceType: 'incident_control',
+        resourceId: 'global',
+        oldValue: payload.before,
+        newValue: { ...payload.after, mode, reason, force, clear_settlement_circuit: clearSettlementCircuit, steps },
+      });
+      broadcastAdminControlEvent('control_status_changed', {
+        incident_mode: mode,
+        adminId: admin.adminId,
+        trading_halt_active: afterHalt,
+        settlement_circuit_open: afterCircuit,
+      });
+      return reply.send({ success: true, data: payload });
+    } catch (e) {
+      logger.warn('incident execute failed', { mode, error: e instanceof Error ? e.message : String(e) });
+      return reply.status(500).send({
+        success: false,
+        error: { code: 'INCIDENT_ACTION_FAILED', message: e instanceof Error ? e.message : 'Incident action failed' },
       });
     }
   });

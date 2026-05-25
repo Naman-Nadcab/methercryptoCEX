@@ -17,6 +17,11 @@ const HMAC_SECRET = (
 const EID = (process.env.E2E_ENGINE_INSTANCE_ID || 'default').trim();
 const SVC_USER = (process.env.E2E_ENGINE_SERVICE_USER_ID || '00000000-0000-0000-0000-000000000001').trim();
 
+/** Rust Axum nests handlers under `/engine`; HMAC canonical path is the inner segment (`/place`, not `/engine/place`). */
+function engineHmacPath(pathWithQuery: string): string {
+  return pathWithQuery.startsWith('/engine/') ? pathWithQuery.slice('/engine'.length) || '/' : pathWithQuery;
+}
+
 function engineHeaders(
   method: 'GET' | 'POST',
   pathWithQuery: string,
@@ -65,7 +70,7 @@ export async function runPhase4(): Promise<{ passed: number; failed: number; res
     const pathQ = '/engine/place';
     const res = await fetch(`${ENGINE}${pathQ}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...engineHeaders('POST', pathQ, body, userId, EID) },
+      headers: { 'Content-Type': 'application/json', ...engineHeaders('POST', engineHmacPath(pathQ), body, userId, EID) },
       body,
       signal: AbortSignal.timeout(TIMEOUT),
     });
@@ -89,7 +94,7 @@ export async function runPhase4(): Promise<{ passed: number; failed: number; res
   try {
     const pathQ = '/engine/matches?after_id=0';
     const res = await fetch(`${ENGINE}${pathQ}`, {
-      headers: engineHeaders('GET', pathQ, '', SVC_USER, EID),
+      headers: engineHeaders('GET', engineHmacPath(pathQ), '', SVC_USER, EID),
       signal: AbortSignal.timeout(TIMEOUT),
     });
     const data = await res.json() as { last_id?: number; events?: unknown[] };
@@ -115,7 +120,7 @@ export async function runPhase4(): Promise<{ passed: number; failed: number; res
     const cancelBody = JSON.stringify({ order_id: orderId });
     const res = await fetch(`${ENGINE}${pathQ}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...engineHeaders('POST', pathQ, cancelBody, userId, EID) },
+      headers: { 'Content-Type': 'application/json', ...engineHeaders('POST', engineHmacPath(pathQ), cancelBody, userId, EID) },
       body: cancelBody,
       signal: AbortSignal.timeout(TIMEOUT),
     });
@@ -135,7 +140,7 @@ export async function runPhase4(): Promise<{ passed: number; failed: number; res
   try {
     const pathQ = '/engine/snapshot?market=BTC_USDT';
     const res = await fetch(`${ENGINE}${pathQ}`, {
-      headers: engineHeaders('GET', pathQ, '', SVC_USER, EID),
+      headers: engineHeaders('GET', engineHmacPath(pathQ), '', SVC_USER, EID),
       signal: AbortSignal.timeout(TIMEOUT),
     });
     const data = await res.json() as { markets?: Record<string, { bids?: unknown[]; asks?: unknown[] }> };

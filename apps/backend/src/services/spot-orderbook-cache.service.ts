@@ -7,6 +7,7 @@ import { db } from '../lib/database.js';
 import { redis } from '../lib/redis.js';
 import { logger } from '../lib/logger.js';
 import { withTimeout } from '../lib/async-timeout.js';
+import { getSpotOrdersUseMarketSync } from '../lib/spot-schema-cache.js';
 
 const CACHE_PREFIX = 'spot:orderbook:';
 const CACHE_TTL_SEC = 10;
@@ -33,10 +34,18 @@ async function getTradingPairId(symbol: string): Promise<string | null> {
 }
 
 export async function getOrderbookFromDb(symbol: string, limit: number = DEFAULT_LEVELS): Promise<OrderbookSnapshot> {
-  const pairId = await getTradingPairId(symbol);
-  const useMarket = !pairId; // If no trading_pairs row, try market column (migrate schema)
+  const ordersUseMarketColumn = getSpotOrdersUseMarketSync();
+  let pairId: string | null = null;
+  if (!ordersUseMarketColumn) {
+    pairId = await getTradingPairId(symbol);
+    if (!pairId) {
+      logger.warn('getOrderbookFromDb_no_trading_pair', { symbol });
+      const now = Date.now();
+      return { symbol, bids: [], asks: [], lastUpdateId: now, snapshotAtMs: now };
+    }
+  }
 
-  const bidsQuery = useMarket
+  const bidsQuery = ordersUseMarketColumn
     ? db.query<{ price: string; quantity: string }>(`
         SELECT price::text as price, SUM(quantity - COALESCE(filled_quantity,0))::text as quantity
         FROM spot_orders
@@ -55,7 +64,7 @@ export async function getOrderbookFromDb(symbol: string, limit: number = DEFAULT
         LIMIT $2
       `, [pairId, limit]);
 
-  const asksQuery = useMarket
+  const asksQuery = ordersUseMarketColumn
     ? db.query<{ price: string; quantity: string }>(`
         SELECT price::text as price, SUM(quantity - COALESCE(filled_quantity,0))::text as quantity
         FROM spot_orders

@@ -22,6 +22,15 @@ const provider = new JsonRpcProvider(polygonRpc);
 const ERC20_TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 
 async function scanPastDeposits() {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('[scan-past-deposits] Refusing to run: NODE_ENV=production (hardcoded wallet + balance credit).');
+    process.exit(1);
+  }
+  if (process.env.ALLOW_SCAN_PAST_DEPOSITS !== 'true') {
+    console.error('[scan-past-deposits] Refusing to run: set ALLOW_SCAN_PAST_DEPOSITS=true (dev-only recovery helper).');
+    process.exit(1);
+  }
+
   console.log('🔍 Scanning past USDC deposits on Polygon...');
   console.log('User address:', USER_ADDRESS);
   

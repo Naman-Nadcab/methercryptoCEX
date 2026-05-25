@@ -154,7 +154,7 @@ export default async function authRoutes(app: FastifyInstance) {
    * FIX #4: Rate limit 3/min per IP via preHandler (before handler/DB).
    */
   app.post<{ Body: SendOTPBody }>('/send-otp', {
-    preHandler: [rateLimitByIp('auth:send-otp', 3, 60, { failClosed: false })],
+    preHandler: [rateLimitByIp('auth:send-otp', 3, 60, { failClosed: config.rateLimit.failClosed })],
     schema: {
       body: {
         type: 'object',
@@ -305,7 +305,7 @@ export default async function authRoutes(app: FastifyInstance) {
    * FIX #4: Rate limit 5/min per IP via preHandler.
    */
   app.post<{ Body: VerifyOTPBody }>('/verify-otp', {
-    preHandler: [rateLimitByIp('auth:verify-otp', 5, 60, { failClosed: false })],
+    preHandler: [rateLimitByIp('auth:verify-otp', 5, 60, { failClosed: config.rateLimit.failClosed })],
     schema: {
       body: {
         type: 'object',
@@ -746,7 +746,8 @@ export default async function authRoutes(app: FastifyInstance) {
           created_at: Date;
         }>(
           `SELECT id, email, phone, username, first_name, last_name, avatar_url,
-                  status, email_verified, phone_verified, two_fa_enabled,
+                  status, email_verified, phone_verified,
+                  (COALESCE(two_fa_enabled, FALSE) OR COALESCE(two_factor_enabled, FALSE)) AS two_fa_enabled,
                   tier_level, country_code, created_at
            FROM users WHERE id = $1 AND deleted_at IS NULL`,
           [userId]
@@ -902,7 +903,7 @@ export default async function authRoutes(app: FastifyInstance) {
       referralCode?: string;
     };
   }>('/signup', {
-    preHandler: [rateLimitByIp('auth:signup', 10, 3600, { failClosed: false })],
+    preHandler: [rateLimitByIp('auth:signup', 10, 3600, { failClosed: config.rateLimit.failClosed })],
     schema: {
       body: {
         type: 'object',
@@ -1004,17 +1005,17 @@ export default async function authRoutes(app: FastifyInstance) {
 
       if (type === 'email') {
         insertQuery = `INSERT INTO users (
-          email, email_verified, password_hash, salt, status, tier_level
-        ) VALUES ($1, TRUE, $2, $3, 'active', 0)
+          email, email_verified, password_hash, salt, status, tier_level, referral_code
+        ) VALUES ($1, TRUE, $2, $3, 'active', 0, $4)
         RETURNING id, email, phone, username, status, email_verified, phone_verified, tier_level`;
-        insertParams = [cleanIdentifier, passwordHash, salt.substring(0, 64)];
+        insertParams = [cleanIdentifier, passwordHash, salt.substring(0, 64), userReferralCode];
       } else {
         const placeholderEmail = `${cleanIdentifier.replace(/[^0-9]/g, '')}@phone.local`;
         insertQuery = `INSERT INTO users (
-          email, phone, phone_verified, password_hash, salt, status, tier_level
-        ) VALUES ($1, $2, TRUE, $3, $4, 'active', 0)
+          email, phone, phone_verified, password_hash, salt, status, tier_level, referral_code
+        ) VALUES ($1, $2, TRUE, $3, $4, 'active', 0, $5)
         RETURNING id, email, phone, username, status, email_verified, phone_verified, tier_level`;
-        insertParams = [placeholderEmail, cleanIdentifier, passwordHash, salt.substring(0, 64)];
+        insertParams = [placeholderEmail, cleanIdentifier, passwordHash, salt.substring(0, 64), userReferralCode];
       }
 
       const newUser = await db.query<{
@@ -1182,7 +1183,7 @@ export default async function authRoutes(app: FastifyInstance) {
     };
   }>('/login', {
     preHandler: [
-      rateLimitByIp('auth:login', 5, 60, { failClosed: false }),
+      rateLimitByIp('auth:login', 5, 60, { failClosed: config.rateLimit.failClosed }),
       // Identifier-scoped limit defends against attackers rotating source IPs against
       // a single account: 10 login attempts per email/phone per minute, regardless of IP.
       rateLimitByIdentifier(
@@ -1193,7 +1194,7 @@ export default async function authRoutes(app: FastifyInstance) {
           const body = (req.body as { email?: string; phone?: string } | undefined) || {};
           return body.email || body.phone || null;
         },
-        { failClosed: false }
+        { failClosed: config.rateLimit.failClosed }
       ),
     ],
     schema: {
@@ -1509,7 +1510,7 @@ export default async function authRoutes(app: FastifyInstance) {
       code: string;
     };
   }>('/login/verify-step', {
-    preHandler: [rateLimitByIp('auth:login-verify-step', 10, 60, { failClosed: false })],
+    preHandler: [rateLimitByIp('auth:login-verify-step', 10, 60, { failClosed: config.rateLimit.failClosed })],
     schema: {
       body: {
         type: 'object',
@@ -1784,7 +1785,7 @@ export default async function authRoutes(app: FastifyInstance) {
       step: 'sms' | 'email';
     };
   }>('/login/resend-otp', {
-    preHandler: [rateLimitByIp('auth:login-resend-otp', 5, 60, { failClosed: false })],
+    preHandler: [rateLimitByIp('auth:login-resend-otp', 5, 60, { failClosed: config.rateLimit.failClosed })],
     schema: {
       body: {
         type: 'object',
@@ -1881,7 +1882,7 @@ export default async function authRoutes(app: FastifyInstance) {
       phone?: string;
     };
   }>('/login/check-passkeys', {
-    preHandler: [rateLimitByIp('auth:check-passkeys', 10, 60, { failClosed: false })],
+    preHandler: [rateLimitByIp('auth:check-passkeys', 10, 60, { failClosed: config.rateLimit.failClosed })],
     schema: {
       body: {
         type: 'object',
@@ -2271,7 +2272,7 @@ export default async function authRoutes(app: FastifyInstance) {
   // to only show the "Login with Passkey" button for identifiers that actually have a
   // passkey enrolled — instead of showing it to every user and failing at click time.
   app.post('/passkey/available', {
-    preHandler: [rateLimitByIp('auth:passkey-probe', 30, 60, { failClosed: false })],
+    preHandler: [rateLimitByIp('auth:passkey-probe', 30, 60, { failClosed: config.rateLimit.failClosed })],
   }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { email, phone } = (request.body || {}) as { email?: string; phone?: string };
@@ -4344,6 +4345,11 @@ export default async function authRoutes(app: FastifyInstance) {
         ? new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString() 
         : null;
 
+      const mergedPermissions = {
+        ...(permissions || {}),
+        no_withdraw: true,
+        no_internal_transfer: true,
+      };
       await db.query(
         `INSERT INTO user_api_keys (
           user_id, name, key_type, api_key_usage, api_key, api_secret, public_key,
@@ -4351,7 +4357,7 @@ export default async function authRoutes(app: FastifyInstance) {
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
         [
           userId, name, keyType, apiKeyUsage, apiKey, apiSecret, publicKey || null,
-          permission, ipRestriction, ipAddresses, JSON.stringify(permissions), expiresAt
+          permission, ipRestriction, ipAddresses, JSON.stringify(mergedPermissions), expiresAt
         ]
       );
 

@@ -93,12 +93,18 @@ export function getTradingHalt(token: string | null) {
 export function setTradingHalt(
   token: string | null,
   halted: boolean,
-  options?: { reason?: string; admin_note?: string }
+  options?: { reason?: string; admin_note?: string; twofa_code?: string; submit_for_approval?: boolean }
 ) {
   return adminFetch<{ halted: boolean }>('/trading/halt', {
     method: 'POST',
     token,
-    body: { halted, reason: options?.reason, admin_note: options?.admin_note },
+    body: {
+      halted,
+      reason: options?.reason,
+      admin_note: options?.admin_note,
+      twofa_code: options?.twofa_code,
+      submit_for_approval: options?.submit_for_approval,
+    },
   });
 }
 

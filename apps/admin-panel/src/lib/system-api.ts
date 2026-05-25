@@ -132,16 +132,21 @@ export function deleteSystemFeatureDependency(
 
 export function patchSystemFeature(
   token: string | null,
-  body: { id?: string; feature_key?: string; status?: string; rollout?: string }
+  body: { id?: string; feature_key?: string; status?: string; rollout?: string; reason?: string; twofa_code?: string }
 ) {
   return adminFetch<{ updated: boolean }>('/system/features', { method: 'PATCH', token, body });
 }
 
-export function postEmergencyAction(token: string | null, action: string, enabled: boolean) {
+export function postEmergencyAction(
+  token: string | null,
+  action: string,
+  enabled: boolean,
+  opts?: { reason?: string; twofa_code?: string }
+) {
   return adminFetch<{ action: string; enabled: boolean }>('/system/emergency', {
     method: 'POST',
     token,
-    body: { action, enabled },
+    body: { action, enabled, reason: opts?.reason, twofa_code: opts?.twofa_code },
   });
 }
 
@@ -169,11 +174,15 @@ export function getSystemSafeMode(token: string | null) {
   return adminFetch<{ safe_mode: boolean }>('/system/safe-mode', { token });
 }
 
-export function postSystemSafeMode(token: string | null, enabled: boolean) {
+export function postSystemSafeMode(
+  token: string | null,
+  enabled: boolean,
+  opts?: { reason?: string; twofa_code?: string }
+) {
   return adminFetch<{ safe_mode: boolean }>('/system/safe-mode', {
     method: 'POST',
     token,
-    body: { enabled },
+    body: { enabled, reason: opts?.reason, twofa_code: opts?.twofa_code },
   });
 }
 
@@ -183,11 +192,12 @@ export function getOperationalWalletStatus(token: string | null) {
 
 export function patchOperationalWalletStatus(
   token: string | null,
-  body: { depositPaused?: boolean; withdrawalPaused?: boolean }
+  body: { depositPaused?: boolean; withdrawalPaused?: boolean },
+  opts?: { reason?: string; twofa_code?: string }
 ) {
   return adminFetch<{ message: string }>('/operational/wallet-status', {
     method: 'PATCH',
     token,
-    body,
+    body: { ...body, reason: opts?.reason, twofa_code: opts?.twofa_code },
   });
 }

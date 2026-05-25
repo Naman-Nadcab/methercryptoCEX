@@ -1,15 +1,18 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileText, ExternalLink, Download, AlertTriangle, ShieldCheck, RefreshCw, Calendar } from 'lucide-react';
 import { adminFetch } from '@/lib/api';
-import { downloadAnalyticsExport } from '@/lib/analytics-api';
+import { downloadRiskExport } from '@/lib/risk-api';
 import { useAdminAuthStore } from '@/store/auth';
 import { cn } from '@/lib/cn';
 import { AdminPageFrame } from '@/components/admin-shell/AdminPageFrame';
+import { StatusBadge } from '@/components/dashboard/StatusBadge';
 import { TableSkeleton } from '@/components/ui';
+
+const STR_PAGE_SIZE = 25;
 
 type AmlDashboard = Record<string, unknown>;
 
@@ -60,23 +63,6 @@ function KpiCard({
   );
 }
 
-function StatusPill({ status }: { status: string }) {
-  const s = (status ?? '').toLowerCase();
-  return (
-    <span className={cn(
-      'inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-semibold capitalize',
-      (s === 'filed' || s === 'reported')  && 'border-emerald-500/30 bg-emerald-950/20 text-emerald-400',
-      s === 'pending'   && 'border-amber-500/30 bg-amber-950/20 text-amber-400',
-      s === 'reviewing' && 'border-blue-500/30 bg-blue-950/20 text-blue-400',
-      s === 'closed'    && 'border-admin-border/50 bg-white/[0.04] text-admin-muted',
-      !['filed','reported','pending','reviewing','closed'].includes(s)
-        && 'border-admin-border/50 bg-white/[0.04] text-admin-muted',
-    )}>
-      {status ?? '—'}
-    </span>
-  );
-}
-
 function ExportBtn({
   label, exportKey, active, disabled, onClick,
 }: { label: string; exportKey: string; active: string | null; disabled: boolean; onClick: () => void }) {
@@ -99,6 +85,7 @@ export default function CompliancePage() {
   const token = useAdminAuthStore((s) => s.accessToken);
   const queryClient = useQueryClient();
   const [exporting, setExporting] = useState<string | null>(null);
+  const [strPage, setStrPage] = useState(1);
 
   const amlQ = useQuery({
     queryKey: ['admin', 'aml', 'dashboard', token],
@@ -110,12 +97,11 @@ export default function CompliancePage() {
   });
 
   const strQ = useQuery({
-    queryKey: ['admin', 'compliance', 'str', token],
+    queryKey: ['admin', 'compliance', 'str', token, strPage],
     staleTime: 30_000,
     queryFn: () => adminFetch<{ alerts: RiskAlertRow[]; total?: number }>('/risk/alerts', {
       token,
-      // fetch all — backend may not support status filter; filter client-side
-      params: { limit: 50 },
+      params: { limit: STR_PAGE_SIZE, offset: (strPage - 1) * STR_PAGE_SIZE },
     }),
     enabled: !!token,
     retry: false,
@@ -134,6 +120,8 @@ export default function CompliancePage() {
   const sanctions    = aml ? num(aml.sanctions_checks_24h ?? aml.sanctions_checks ?? aml.sanctions_hits) : '—';
 
   const strReports: RiskAlertRow[] = strQ.data?.success && strQ.data.data?.alerts ? strQ.data.data.alerts : [];
+  const strTotal = strQ.data?.success ? Number(strQ.data.data?.total ?? 0) : 0;
+  const strTotalPages = Math.max(1, Math.ceil(strTotal / STR_PAGE_SIZE));
   const strPendingCount = strReports.filter((r) => {
     const s = (r.status ?? 'pending').toLowerCase();
     return s !== 'filed' && s !== 'reported' && s !== 'closed';
@@ -152,13 +140,24 @@ export default function CompliancePage() {
     setExporting(key);
     try { await fn(); } catch { /* download failed */ } finally { setExporting(null); }
   };
+  const visibleStrRange = useMemo(() => {
+    if (strTotal <= 0) return '0';
+    const start = (strPage - 1) * STR_PAGE_SIZE + 1;
+    const end = Math.min(strPage * STR_PAGE_SIZE, strTotal);
+    return `${start}-${end}`;
+  }, [strPage, strTotal]);
+  const pageError =
+    (amlQ.isError && (amlQ.error instanceof Error ? amlQ.error.message : 'Failed to load AML data.')) ||
+    (strQ.isError && (strQ.error instanceof Error ? strQ.error.message : 'Failed to load STR reports.')) ||
+    null;
 
   return (
     <AdminPageFrame
       title="Compliance & Reporting"
       description="AML compliance metrics, STR reports, and regulatory filing tools."
       status="active"
-      error={null}
+      error={pageError}
+      onRetry={pageError ? () => { void amlQ.refetch(); void strQ.refetch(); } : undefined}
       quickActions={
         <button
           type="button"
@@ -209,9 +208,14 @@ export default function CompliancePage() {
               </span>
             )}
           </div>
-          <span className="rounded-full border border-admin-border/50 bg-white/[0.02] px-2.5 py-0.5 text-[10px] font-semibold uppercase text-admin-muted tracking-wide">
-            Regulatory
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="rounded-full border border-admin-border/50 bg-white/[0.02] px-2.5 py-0.5 text-[10px] font-semibold uppercase text-admin-muted tracking-wide">
+              Regulatory
+            </span>
+            <span className="text-[11px] text-admin-muted">
+              {visibleStrRange} of {strTotal.toLocaleString()}
+            </span>
+          </div>
         </div>
 
         {strFailed && (
@@ -273,7 +277,7 @@ export default function CompliancePage() {
                             </span>
                           </td>
                           <td className="px-4 py-3.5 whitespace-nowrap">
-                            <StatusPill status={r.status ?? 'pending'} />
+                            <StatusBadge status={r.status ?? 'pending'} />
                           </td>
                           <td className="px-4 py-3.5 text-sm text-admin-muted whitespace-nowrap">
                             {fmtRelative(r.created_at)}
@@ -287,6 +291,34 @@ export default function CompliancePage() {
             </div>
           )}
         </div>
+        {!strQ.isLoading && strTotalPages > 1 && (
+          <div className="flex items-center justify-between border-t border-admin-border/30 px-5 py-3">
+            <span className="text-xs text-admin-muted">
+              Showing {visibleStrRange} of {strTotal.toLocaleString()} STR alerts
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setStrPage((p) => Math.max(1, p - 1))}
+                disabled={strPage <= 1}
+                className="rounded-lg border border-admin-border/50 px-2 py-1 text-xs text-admin-muted disabled:opacity-40 hover:text-admin-text"
+              >
+                Prev
+              </button>
+              <span className="text-xs text-admin-muted">
+                Page {strPage}/{strTotalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setStrPage((p) => Math.min(strTotalPages, p + 1))}
+                disabled={strPage >= strTotalPages}
+                className="rounded-lg border border-admin-border/50 px-2 py-1 text-xs text-admin-muted disabled:opacity-40 hover:text-admin-text"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Report generation ─────────────────────────────────────────── */}
@@ -295,11 +327,11 @@ export default function CompliancePage() {
         <p className="mb-4 text-xs text-admin-muted">Download regulatory-grade exports. Files are generated from live data at the time of download.</p>
         <div className="flex flex-wrap gap-2">
           <ExportBtn label="Compliance Report (CSV)"  exportKey="compliance" active={exporting} disabled={!token}
-            onClick={() => runExport('compliance', () => downloadAnalyticsExport(token, 'aml-alerts', 'csv'))} />
+            onClick={() => runExport('compliance', async () => { await downloadRiskExport(token, 'str-reports', 'csv'); })} />
           <ExportBtn label="Transaction Report (CSV)" exportKey="trading"    active={exporting} disabled={!token}
-            onClick={() => runExport('trading', () => downloadAnalyticsExport(token, 'trading', 'csv'))} />
+            onClick={() => runExport('trading', async () => { await downloadRiskExport(token, 'suspicious-trades', 'csv'); })} />
           <ExportBtn label="User Audit (JSON)"        exportKey="audit"      active={exporting} disabled={!token}
-            onClick={() => runExport('audit', () => downloadAnalyticsExport(token, 'users', 'json'))} />
+            onClick={() => runExport('audit', async () => { await downloadRiskExport(token, 'aml-alerts', 'json'); })} />
         </div>
       </div>
 
