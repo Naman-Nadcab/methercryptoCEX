@@ -211,25 +211,66 @@ export async function buildServer(): Promise<FastifyInstance> {
 
   // Deep health check — DB + Redis required; NATS/engine probes always included when configured; gates control 503.
   // Exposed at both /health (historical) and /health/deep (explicit name for dashboards / k8s readiness probes).
+  const HEALTH_CACHE_TTL_MS = 5000;
+  const HEALTH_STALE_MAX_MS = Number(process.env.HEALTH_STALE_MAX_MS || 30000);
+  const HEALTH_INFLIGHT_WAIT_MS = Number(process.env.HEALTH_INFLIGHT_WAIT_MS || 1200);
+  let deepHealthCache:
+    | { expiresAt: number; statusCode: number; payload: Record<string, unknown> }
+    | null = null;
+  let deepHealthInFlight: Promise<{ statusCode: number; payload: Record<string, unknown> }> | null = null;
   const deepHealthHandler = async (_request: FastifyRequest, reply: FastifyReply) => {
+    const now = Date.now();
+    if (deepHealthCache && deepHealthCache.expiresAt > now) {
+      reply.status(deepHealthCache.statusCode);
+      return deepHealthCache.payload;
+    }
+    if (deepHealthInFlight) {
+      // Keep /health responsive under contention by returning recent snapshot while a probe is running.
+      if (deepHealthCache && now - (deepHealthCache.expiresAt - HEALTH_CACHE_TTL_MS) < HEALTH_STALE_MAX_MS) {
+        reply.status(deepHealthCache.statusCode);
+        return deepHealthCache.payload;
+      }
+      try {
+        const res = await (await import('./lib/async-timeout.js')).withTimeout(
+          deepHealthInFlight,
+          HEALTH_INFLIGHT_WAIT_MS,
+          'health.inflight_wait'
+        );
+        reply.status(res.statusCode);
+        return res.payload;
+      } catch {
+        reply.status(200);
+        return { status: 'degraded', timestamp: new Date().toISOString(), warnings: ['health_probe_inflight_timeout'] };
+      }
+    }
     const { withTimeout } = await import('./lib/async-timeout.js');
     const { pingDatabaseWithRetries } = await import('./lib/health-db-ping.js');
+    const HEALTH_DB_TIMEOUT_MS = Number(process.env.HEALTH_FAST_DB_TIMEOUT_MS || 1000);
+    const HEALTH_DB_MAX_ATTEMPTS = Number(process.env.HEALTH_FAST_DB_MAX_ATTEMPTS || 1);
+    const HEALTH_DEP_TIMEOUT_MS = Number(process.env.HEALTH_DEP_TIMEOUT_MS || 1200);
 
+    const compute = (async () => {
     const dbPing = await pingDatabaseWithRetries(db, {
-      timeoutMsPerAttempt: config.health.databasePingTimeoutMs,
-      maxAttempts: config.health.databasePingMaxAttempts,
+      timeoutMsPerAttempt: Math.min(config.health.databasePingTimeoutMs, HEALTH_DB_TIMEOUT_MS),
+      maxAttempts: Math.max(1, Math.min(config.health.databasePingMaxAttempts, HEALTH_DB_MAX_ATTEMPTS)),
       retryBaseMs: config.health.databasePingRetryBaseMs,
       label: 'health.db_ping',
     });
     const dbOk = dbPing.ok;
-    const redisOk = await redis.ping().then(() => true).catch(() => false);
+    const redisOk = await withTimeout(redis.ping(), HEALTH_DEP_TIMEOUT_MS, 'health.redis_ping')
+      .then(() => true)
+      .catch(() => false);
 
     let indexerOk: boolean | null = null;
     let indexerLagSec: number | null = null;
     try {
       if (dbOk) {
-        const r = await db.query<{ updated_at: string }>(
-          `SELECT updated_at FROM indexer_state ORDER BY updated_at DESC LIMIT 1`
+        const r = await withTimeout(
+          db.query<{ updated_at: string }>(
+            `SELECT updated_at FROM indexer_state ORDER BY updated_at DESC LIMIT 1`
+          ),
+          HEALTH_DEP_TIMEOUT_MS,
+          'health.indexer_state'
         );
         if (r.rows.length > 0) {
           const updated = new Date(r.rows[0]!.updated_at).getTime();
@@ -253,7 +294,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     if (natsConfigured) {
       try {
         const { probeNatsJetStreamStreams } = await import('./services/nats.service.js');
-        natsProbe = await withTimeout(probeNatsJetStreamStreams(), 8_000, 'health.nats_probe');
+        natsProbe = await withTimeout(probeNatsJetStreamStreams(), HEALTH_DEP_TIMEOUT_MS, 'health.nats_probe');
       } catch (e) {
         natsProbe = { ok: false, error: e instanceof Error ? e.message : String(e) };
       }
@@ -264,7 +305,8 @@ export async function buildServer(): Promise<FastifyInstance> {
     let engineProbe: { ok: boolean; latency_ms?: number; error?: string } = { ok: true };
     if (engineConfigured) {
       const { probeMatchingEngineHttp } = await import('./services/matching-engine-health.service.js');
-      engineProbe = await probeMatchingEngineHttp();
+      engineProbe = await withTimeout(probeMatchingEngineHttp(), HEALTH_DEP_TIMEOUT_MS, 'health.matching_engine_probe')
+        .catch((e) => ({ ok: false, error: e instanceof Error ? e.message : String(e) }));
     }
     const engineBlocks = config.health.requireMatchingEngine && engineConfigured && !engineProbe.ok;
 
@@ -333,8 +375,16 @@ export async function buildServer(): Promise<FastifyInstance> {
     try {
       if (dbOk) {
         const [setRes, wqRes] = await Promise.all([
-          db.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM settlement_events WHERE status = 'pending'`),
-          db.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM withdrawal_signing_queue WHERE status IN ('pending', 'signing', 'broadcast')`),
+          withTimeout(
+            db.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM settlement_events WHERE status = 'pending'`),
+            HEALTH_DEP_TIMEOUT_MS,
+            'health.settlement_pending'
+          ),
+          withTimeout(
+            db.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM withdrawal_signing_queue WHERE status IN ('pending', 'signing', 'broadcast')`),
+            HEALTH_DEP_TIMEOUT_MS,
+            'health.withdrawal_queue'
+          ),
         ]);
         settlementPending = parseInt(setRes.rows[0]?.n ?? '0', 10) || 0;
         withdrawalQueueDepth = parseInt(wqRes.rows[0]?.n ?? '0', 10) || 0;
@@ -371,7 +421,7 @@ export async function buildServer(): Promise<FastifyInstance> {
       orderbookWriter = await getOrderbookWriterHealthSnapshot();
     } catch { /* ignore */ }
 
-    return {
+    const payload = {
       status,
       timestamp: new Date().toISOString(),
       ...(unhealthyReasons.length > 0 && { unhealthy_reasons: unhealthyReasons }),
@@ -407,12 +457,59 @@ export async function buildServer(): Promise<FastifyInstance> {
       ...(staleMarkets.length > 0 && { stale_markets: staleMarkets }),
       ...(orderbookWriter && { orderbook_writer: orderbookWriter }),
     };
+    deepHealthCache = {
+      expiresAt: Date.now() + HEALTH_CACHE_TTL_MS,
+      statusCode: status === 'unhealthy' ? 503 : 200,
+      payload,
+    };
+    return { statusCode: status === 'unhealthy' ? 503 : 200, payload };
+    })();
+    deepHealthInFlight = compute;
+    try {
+      const res = await compute;
+      reply.status(res.statusCode);
+      return res.payload;
+    } finally {
+      deepHealthInFlight = null;
+    }
   };
   app.get('/health', deepHealthHandler);
   app.get('/health/deep', deepHealthHandler);
 
   // Prometheus metrics (GET /metrics) — includes SLO gauges + exchange-domain metrics
   app.get('/metrics', async (_request, reply) => {
+    const METRICS_CACHE_TTL_MS = Number(process.env.METRICS_CACHE_TTL_MS || 2000);
+    const METRICS_INFLIGHT_WAIT_MS = Number(process.env.METRICS_INFLIGHT_WAIT_MS || 1200);
+    if (!(app as unknown as { __metricsCache?: { expiresAt: number; body: string } }).__metricsCache) {
+      (app as unknown as { __metricsCache?: { expiresAt: number; body: string } }).__metricsCache = undefined;
+    }
+    const state = app as unknown as {
+      __metricsCache?: { expiresAt: number; body: string };
+      __metricsInFlight?: Promise<string>;
+    };
+    const now = Date.now();
+    if (state.__metricsCache && state.__metricsCache.expiresAt > now) {
+      reply.header('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+      return state.__metricsCache.body;
+    }
+    if (state.__metricsInFlight) {
+      if (state.__metricsCache) {
+        reply.header('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+        return state.__metricsCache.body;
+      }
+      try {
+        const body = await (await import('./lib/async-timeout.js')).withTimeout(
+          state.__metricsInFlight,
+          METRICS_INFLIGHT_WAIT_MS,
+          'metrics.inflight_wait'
+        );
+        reply.header('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+        return body;
+      } catch {
+        reply.header('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+        return '# metrics temporarily unavailable (inflight timeout)\n';
+      }
+    }
     const {
       register,
       withdrawalQueueDepthGauge,
@@ -423,17 +520,26 @@ export async function buildServer(): Promise<FastifyInstance> {
       spotOrderbookWriterPending,
     } = await import('./lib/prometheus-metrics.js');
     const { getSpotMetrics } = await import('./services/spot-metrics.service.js');
+    const { withTimeout } = await import('./lib/async-timeout.js');
     const { collectExchangeMetrics } = await import('./services/prometheus-metrics.service.js');
+    const METRICS_DEP_TIMEOUT_MS = Number(process.env.METRICS_DEP_TIMEOUT_MS || 1200);
     try {
-      const wqRes = await db
-        .query<{ n: string }>(
+      const wqRes = await withTimeout(
+        db.query<{ n: string }>(
           `SELECT COUNT(*)::text AS n FROM withdrawal_signing_queue WHERE status IN ('pending', 'signing', 'broadcast')`
-        )
+        ),
+        METRICS_DEP_TIMEOUT_MS,
+        'metrics.withdrawal_queue_depth'
+      )
         .catch(() => ({ rows: [{ n: '0' }] }));
       withdrawalQueueDepthGauge.set(parseInt(wqRes.rows[0]?.n ?? '0', 10) || 0);
       try {
-        const idx = await db.query<{ updated_at: string }>(
-          `SELECT updated_at FROM indexer_state ORDER BY updated_at DESC LIMIT 1`
+        const idx = await withTimeout(
+          db.query<{ updated_at: string }>(
+            `SELECT updated_at FROM indexer_state ORDER BY updated_at DESC LIMIT 1`
+          ),
+          METRICS_DEP_TIMEOUT_MS,
+          'metrics.indexer_lag'
         );
         if (idx.rows.length > 0) {
           const lag = Math.round((Date.now() - new Date(idx.rows[0]!.updated_at).getTime()) / 1000);
@@ -458,11 +564,25 @@ export async function buildServer(): Promise<FastifyInstance> {
     } catch {
       /* best-effort; gauges keep last value */
     }
-    await collectExchangeMetrics();
+    const computeMetrics = (async () => {
+      await withTimeout(collectExchangeMetrics(), METRICS_DEP_TIMEOUT_MS, 'metrics.collect_exchange_metrics').catch(() => {});
     const { evaluateTier1AlertsOnMetricsScrape } = await import('./services/tier1-alert-evaluation.service.js');
-    await evaluateTier1AlertsOnMetricsScrape();
-    reply.header('Content-Type', register.contentType);
-    return register.metrics();
+    void evaluateTier1AlertsOnMetricsScrape().catch(() => {});
+      const body = await register.metrics();
+      state.__metricsCache = {
+        expiresAt: Date.now() + METRICS_CACHE_TTL_MS,
+        body,
+      };
+      return body;
+    })();
+    state.__metricsInFlight = computeMetrics;
+    try {
+      const body = await computeMetrics;
+      reply.header('Content-Type', register.contentType);
+      return body;
+    } finally {
+      state.__metricsInFlight = undefined;
+    }
   });
 
   // JWT Authentication decorator

@@ -1,62 +1,63 @@
 {
-  "generated_at": "2026-05-25T09:08:02.411Z",
-  "started_at": "2026-05-25T09:06:12.744Z",
+  "generated_at": "2026-05-28T08:46:53.024Z",
+  "started_at": "2026-05-28T08:45:57.340Z",
+  "strict_profile": true,
   "pass": true,
   "results": [
     {
       "id": "tier1_phase1",
       "ok": true,
       "exit_code": 0,
-      "elapsed_ms": 1038,
-      "output_tail": "trading_balance_mismatch_count 0\nsettlement_ledger_chain_breaks 0\nsettlement_events_pending 0\n2026-05-25 14:36:13 [\u001b[32minfo\u001b[39m]: Database pool closed {\"service\":\"exchange-api\",\"shard_id\":0}\nTIER1_PHASE1_VERIFY_OK\n\n⚠️ WARNING: 2FA DISABLED (DEV MODE ONLY)",
+      "elapsed_ms": 711,
+      "output_tail": "trading_balance_mismatch_count 0\nsettlement_ledger_chain_breaks 0\nsettlement_events_pending 0\n2026-05-28 14:15:58 [\u001b[32minfo\u001b[39m]: Database pool closed {\"service\":\"exchange-api\",\"shard_id\":0}\nTIER1_PHASE1_VERIFY_OK\n\n⚠️ WARNING: 2FA DISABLED (DEV MODE ONLY)",
       "attempts": 1
     },
     {
       "id": "tier1_phase2",
       "ok": true,
       "exit_code": 0,
-      "elapsed_ms": 1072,
-      "output_tail": "trading_balance_mismatch_count 0\nsettlement_ledger_chain_breaks 0\nsettlement_events_pending 0\n2026-05-25 14:36:14 [\u001b[32minfo\u001b[39m]: Database pool closed {\"service\":\"exchange-api\",\"shard_id\":0}\nGET /api/v1/p2p/ads OK, rows= 0\nTIER1_PHASE2_VERIFY_OK\n\n⚠️ WARNING: 2FA DISABLED (DEV MODE ONLY)",
+      "elapsed_ms": 808,
+      "output_tail": "trading_balance_mismatch_count 0\nsettlement_ledger_chain_breaks 0\nsettlement_events_pending 0\n2026-05-28 14:15:58 [\u001b[32minfo\u001b[39m]: Database pool closed {\"service\":\"exchange-api\",\"shard_id\":0}\nGET /api/v1/p2p/ads OK, rows= 0\nTIER1_PHASE2_VERIFY_OK\n\n⚠️ WARNING: 2FA DISABLED (DEV MODE ONLY)",
       "attempts": 1
     },
     {
       "id": "tier1_phase3",
       "ok": true,
       "exit_code": 0,
-      "elapsed_ms": 3552,
-      "output_tail": "[phase3] trading_balance_mismatch_count 0\n[phase3] settlement_ledger_chain_breaks 0\n[phase3] settlement_events_pending 0\n2026-05-25 14:36:15 [\u001b[32minfo\u001b[39m]: Database pool closed {\"service\":\"exchange-api\",\"shard_id\":0}\n[phase3] GET /health OK healthy\n[phase3] GET /api/v1/p2p/ads OK, rows= 0\n[phase3] running npm run test:security ...\n\n> crypto-exchange@1.0.0 test:security\n> tsx security/run-security-tests.ts\n\nSecurity Penetration Test Runner\nBASE_URL: http://127.0.0.1:4000\nPhases: Phase 1 — Auth attacks, Phase 2 — API security, Phase 3 — Wallet, Phase 4 — Trading, Phase 9 — DoS / rate limit\n---\n\nPhase 1 — Auth attacks\n   PASS: Invalid JWT returns 401\n   PASS: Expired/malformed JWT returns 401\n   PASS: Invalid API key returns 401\n   PASS: OTP rate limit enforced (429)\n   PASS: Admin route without auth returns 401\n\nPhase 2 — API security\n   PASS: Invalid HMAC or invalid key returns 401\n   PASS: Old timestamp rejected (401/403)\n   PASS: Protected route without auth returns 401\n\nPhase 3 — Wallet\n   PASS: Withdrawal without auth returns 401\n\nPhase 4 — Trading\n   PASS: Order without auth returns 401\n   PASS: Cancel without auth returns 401/400 (rejected)\n\nPhase 9 — DoS / rate limit\n   PASS: Health burst (5) accepted\n   SKIP: Spot order rate limit (no E2E_JWT/E2E_API_KEY)\n\n---\nTotal: 12 passed, 0 failed\nTIER1_PHASE3_VERIFY_OK\n\n⚠️ WARNING: 2FA DISABLED (DEV MODE ONLY)",
+      "elapsed_ms": 2048,
+      "output_tail": "[phase3] trading_balance_mismatch_count 0\n[phase3] settlement_ledger_chain_breaks 0\n[phase3] settlement_events_pending 0\n2026-05-28 14:15:59 [\u001b[32minfo\u001b[39m]: Database pool closed {\"service\":\"exchange-api\",\"shard_id\":0}\n[phase3] GET /health OK healthy\n[phase3] GET /api/v1/p2p/ads OK, rows= 0\n[phase3] running npm run test:security ...\n\n> crypto-exchange@1.0.0 test:security\n> tsx security/run-security-tests.ts\n\nSecurity Penetration Test Runner\nBASE_URL: http://127.0.0.1:4000\nPhases: Phase 1 — Auth attacks, Phase 2 — API security, Phase 3 — Wallet, Phase 4 — Trading, Phase 9 — DoS / rate limit\n---\n\nPhase 1 — Auth attacks\n   PASS: Invalid JWT returns 401\n   PASS: Expired/malformed JWT returns 401\n   PASS: Invalid API key returns 401\n   PASS: OTP rate limit enforced (429)\n   PASS: Admin route without auth returns 401\n\nPhase 2 — API security\n   PASS: Invalid HMAC or invalid key returns 401\n   PASS: Old timestamp rejected (401/403)\n   PASS: Protected route without auth returns 401\n\nPhase 3 — Wallet\n   PASS: Withdrawal without auth returns 401\n   PASS: Invalid withdrawal body returns 400/422\n\nPhase 4 — Trading\n   PASS: Order without auth returns 401\n   PASS: Cancel without auth returns 401/400 (rejected)\n\nPhase 9 — DoS / rate limit\n   PASS: Health burst (5) accepted\n   PASS: Spot order rate limit enforced (429)\n\n---\nTotal: 14 passed, 0 failed\nTIER1_PHASE3_VERIFY_OK\n\n⚠️ WARNING: 2FA DISABLED (DEV MODE ONLY)",
       "attempts": 1
     },
     {
       "id": "load_gate",
       "ok": true,
       "exit_code": 0,
-      "elapsed_ms": 46523,
-      "output_tail": "=== Load Gate Summary ===\nbase=http://127.0.0.1:4000\nduration_sec=45 concurrency=8\ntotal=5700 failures=0 error_pct=0.00 rate_limited=0 rate_limited_pct=0.00\nlatency_avg_ms=60.47 p95_ms=194.87\n/api/v1/p2p/ads 200 -> 1424\n/api/v1/spot/markets 200 -> 1428\n/api/v1/spot/tickers 200 -> 1422\n/health 200 -> 1426\nLOAD_GATE_OK",
-      "attempts": 2
+      "elapsed_ms": 45097,
+      "output_tail": "=== Load Gate Summary ===\nbase=http://127.0.0.1:4000\nduration_sec=45 concurrency=8\ntotal=16900 failures=8 error_pct=0.05 rate_limited=0 rate_limited_pct=0.00\nlatency_avg_ms=21.26 p95_ms=29.37\n/api/v1/p2p/ads 200 -> 4225\n/api/v1/spot/markets 200 -> 4226\n/api/v1/spot/tickers 200 -> 4225\n/health 200 -> 4216\n/health ERR -> 8\nLOAD_GATE_OK",
+      "attempts": 1
     },
     {
       "id": "incident_drill",
       "ok": true,
       "exit_code": 0,
-      "elapsed_ms": 5271,
-      "output_tail": "== Incident drill start ==\nbase_url=http://127.0.0.1:4000\nservices=redis nats rabbitmq\n[ok] baseline live health\n\n== drill: restart redis ==\n[ok] redis restart recovered within 90s\n\n== drill: restart nats ==\n[ok] nats restart recovered within 90s\n\n== drill: restart rabbitmq ==\n[ok] rabbitmq restart recovered within 90s\n\n== final deep health ==\n[health] {\"status\":\"healthy\",\"timestamp\":\"2026-05-25T09:08:00.515Z\",\"services\":{\"database\":\"up\",\"redis\":\"up\",\"nats\":\"up\",\"matching_engine\":\"up\",\"indexer\":\"up\"},\"gates\":{\"require_nats\":false,\"require_matching_engine\":false,\"fail_on_stale_indexer\":false},\"checks\":{\"safety\":{\"trading_halt_active\":false,\"settlement_circuit_open\":false},\"nats\":{\"configured\":true,\"ok\":true,\"stream_status\":{\"SPOT_MATCH\":\"ok\",\"SPOT_ORDERBOOK\":\"ok\",\"MATCH_EVENTS\":\"ok\",\"MATCH_SETTLEMENT_DLQ\":\"ok\"}},\"matching_engine\":{\"configured\":true,\"ok\":true,\"latency_ms\":3}},\"depth\":{\"settlement_pending\":0,\"settlement_lag_sec\":0,\"withdrawal_queue\":0,\"indexer_lag_sec\":3},\"stale_markets\":[\"BTC_USDT\"],\"orderbook_writer\":{\"enabled\":true,\"shard_id\":0,\"shard_total\":1,\"leader_election\":true,\"leader_holder\":null,\"lag_ms\":0,\"pending_messages_estimate\":0,\"last_spot_match_stream_seq\":0,\"strict_writer_seq\":false,\"dedup_redis\":true}}\nINCIDENT_DRILL_OK\n\n Container exchange-redis Restarting \n Container exchange-redis Started \n Container exchange-nats Restarting \n Container exchange-nats Started \n Container exchange-rabbitmq Restarting \n Container exchange-rabbitmq Started",
+      "elapsed_ms": 5982,
+      "output_tail": "== Incident drill start ==\nbase_url=http://127.0.0.1:4000\nservices=redis nats rabbitmq\n[ok] baseline live health\n\n== drill: restart redis ==\n[ok] redis restart recovered within 90s\n\n== drill: restart nats ==\n[ok] nats restart recovered within 90s\n\n== drill: restart rabbitmq ==\n[ok] rabbitmq restart recovered within 90s\n\n== final deep health ==\n[health] {\"status\":\"healthy\",\"timestamp\":\"2026-05-28T08:46:51.994Z\",\"services\":{\"database\":\"up\",\"redis\":\"up\",\"nats\":\"up\",\"matching_engine\":\"up\",\"indexer\":\"up\"},\"gates\":{\"require_nats\":false,\"require_matching_engine\":false,\"fail_on_stale_indexer\":false},\"checks\":{\"safety\":{\"trading_halt_active\":false,\"settlement_circuit_open\":false},\"nats\":{\"configured\":true,\"ok\":true,\"stream_status\":{\"SPOT_MATCH\":\"ok\",\"SPOT_ORDERBOOK\":\"ok\",\"MATCH_EVENTS\":\"ok\",\"MATCH_SETTLEMENT_DLQ\":\"ok\"}},\"matching_engine\":{\"configured\":true,\"ok\":true,\"latency_ms\":1}},\"depth\":{\"settlement_pending\":0,\"settlement_lag_sec\":0,\"withdrawal_queue\":0,\"indexer_lag_sec\":2},\"stale_markets\":[\"BTC_USDT\"],\"orderbook_writer\":{\"enabled\":true,\"shard_id\":0,\"shard_total\":1,\"leader_election\":true,\"leader_holder\":\"default:25485\",\"lag_ms\":0,\"pending_messages_estimate\":0,\"last_spot_match_stream_seq\":0,\"strict_writer_seq\":false,\"dedup_redis\":true}}\nINCIDENT_DRILL_OK\n\n Container exchange-redis Restarting \n Container exchange-redis Started \n Container exchange-nats Restarting \n Container exchange-nats Started \n Container exchange-rabbitmq Restarting \n Container exchange-rabbitmq Started",
       "attempts": 1
     },
     {
       "id": "monitoring_slo",
       "ok": true,
       "exit_code": 0,
-      "elapsed_ms": 593,
-      "output_tail": "[PASS] exchange_settlement_events_pending metric=exchange_settlement_events_pending, value=0, budget<=0\n[PASS] exchange_settlement_circuit_open metric=exchange_settlement_circuit_open, value=0, expected=0\n[PASS] exchange_db_pool_waiting metric=exchange_db_pool_waiting, value=0, budget<=2\n[PASS] exchange_ws_connections_active_present metric=exchange_ws_connections_active, value=null\n[PASS] alert-routing-config missing\nMONITORING_SLO_OK",
+      "elapsed_ms": 340,
+      "output_tail": "[PASS] exchange_settlement_events_pending metric=exchange_settlement_events_pending, value=0, budget<=0\n[PASS] exchange_settlement_circuit_open metric=exchange_settlement_circuit_open, value=0, expected=0\n[PASS] exchange_db_pool_waiting metric=exchange_db_pool_waiting, value=0, budget<=2\n[PASS] exchange_ws_connections_active_present metric=exchange_ws_connections_active, value=null\n[PASS] alert-routing-config configured (env=no, db=yes)\nMONITORING_SLO_OK",
       "attempts": 1
     },
     {
       "id": "compliance_signoff",
       "ok": true,
       "exit_code": 0,
-      "elapsed_ms": 1285,
-      "output_tail": "Compliance signoff report: /Users/namansingh/Desktop/Exchange/docs/reports/compliance-signoff.latest.json\n[PASS] AML_LARGE_FIAT_INR_THRESHOLD - value=1000000\n[PASS] AML_LARGE_CRYPTO_WITHDRAWAL_THRESHOLD - value=100000\n[PASS] AML_VELOCITY_WITHDRAWAL_COUNT - value=3\n[PASS] AML_VELOCITY_WINDOW_HOURS - value=24\n[PASS] WITHDRAWAL_APPROVAL_THRESHOLD - value=10000\n[FAIL] alert-routing-webhook - Require at least one alert webhook target\n[FAIL] sanctions-provider-configured - provider=none\n[FAIL] geo-blocked-countries-configured - value=none\n[FAIL] aml-high-risk-countries-configured - value=none\n[PASS] tier1-fiu-readiness-script - pass\n[WARN] No alert webhook configured; SEV notifications will be local-only.\n[WARN] SANCTIONS_PROVIDER is empty; sanctions checks may be no-op.\n[WARN] GEO_BLOCKED_COUNTRIES not configured.\n[WARN] AML_HIGH_RISK_COUNTRIES not configured.\nCOMPLIANCE_SIGNOFF_OK",
+      "elapsed_ms": 682,
+      "output_tail": "Compliance signoff report: /Users/namansingh/Desktop/Exchange/docs/reports/compliance-signoff.latest.json\n[PASS] AML_LARGE_FIAT_INR_THRESHOLD - value=1000000\n[PASS] AML_LARGE_CRYPTO_WITHDRAWAL_THRESHOLD - value=10000\n[PASS] AML_VELOCITY_WITHDRAWAL_COUNT - value=10\n[PASS] AML_VELOCITY_WINDOW_HOURS - value=24\n[PASS] WITHDRAWAL_APPROVAL_THRESHOLD - value=5000\n[PASS] alert-routing-webhook - Require at least one alert webhook target\n[PASS] sanctions-provider-configured - provider=chainalysis_stub\n[PASS] geo-blocked-countries-configured - value=KP,IR,SY,CU\n[PASS] aml-high-risk-countries-configured - value=IR,KP,SY,CU\n[PASS] legal-signoff-id - value=LEGAL-2026-05-28\n[PASS] fiu-officer-assigned - value=fiu.officer@exchange.local\n[PASS] audit-retention-days - value=365\n[PASS] tier1-fiu-readiness-script - pass\nCOMPLIANCE_SIGNOFF_OK",
       "attempts": 1
     }
   ],

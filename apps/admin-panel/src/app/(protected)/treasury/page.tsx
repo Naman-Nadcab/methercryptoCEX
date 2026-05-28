@@ -49,10 +49,15 @@ export default function TreasuryPage() {
   const [activeTab, setActiveTab] = useState<TreasuryTab>('overview');
   const [txPage, setTxPage] = useState(1);
   const [txType, setTxType] = useState<string>('all');
+  const [deferSecondaryTreasuryLoads, setDeferSecondaryTreasuryLoads] = useState(false);
   /** Defer heavy /hot-wallets (families metadata) until after first paint so treasury shell + tables load first. */
   const [deferHotWalletMeta, setDeferHotWalletMeta] = useState(false);
   useEffect(() => {
     const t = window.setTimeout(() => setDeferHotWalletMeta(true), 400);
+    return () => window.clearTimeout(t);
+  }, []);
+  useEffect(() => {
+    const t = window.setTimeout(() => setDeferSecondaryTreasuryLoads(true), 700);
     return () => window.clearTimeout(t);
   }, []);
 
@@ -79,7 +84,7 @@ export default function TreasuryPage() {
   const { data: hotData, isLoading: hotLoading } = useQuery({
     queryKey: ['admin', 'treasury', 'hot-wallets', token],
     queryFn: () => getTreasuryHotWallets(token),
-    enabled: !!token,
+    enabled: !!token && deferSecondaryTreasuryLoads,
     refetchInterval: 30_000,
     staleTime: 30_000,
     retry: 1,
@@ -97,7 +102,7 @@ export default function TreasuryPage() {
     queryKey: ['admin', 'treasury', 'sweeps', token, sweepsPage],
     queryFn: () =>
       getTreasurySweeps(token, { page: sweepsPage, limit: 20 }),
-    enabled: !!token,
+    enabled: !!token && deferSecondaryTreasuryLoads,
     refetchInterval: 30_000,
     staleTime: 30_000,
     retry: 1,
@@ -145,7 +150,7 @@ export default function TreasuryPage() {
   const { data: reconData } = useQuery({
     queryKey: ['admin', 'treasury', 'reconciliation', token],
     queryFn: () => getTreasuryReconciliation(token),
-    enabled: !!token,
+    enabled: !!token && deferSecondaryTreasuryLoads,
     staleTime: 120_000,
     refetchInterval: 120_000,
     retry: 1,

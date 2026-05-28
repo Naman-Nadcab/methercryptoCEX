@@ -6,8 +6,17 @@
  * worker has nothing to process → Phase 3/14 cross-trade orders stay OPEN forever.
  *
  * This script compares Rust engine's reported max event_id with the DB max and, if the
- * engine is behind, deletes settlement_events + DLQ rows for that match_engine_id. It is
- * gated on an opt-in env (E2E_AUTO_RESET_SETTLEMENT_ON_ENGINE_RESTART=1) so production
+ * engine is behind, clears settlement_events + DLQ rows for that match_engine_id.
+ *
+ * CRITICAL: the reset must keep settlement_ledger_entries consistent. Deleting only
+ * settlement_events leaves orphan ledger rows, which later triggers
+ * SETTLEMENT_LEDGER_AGGREGATE_MISMATCH and opens settlement circuit.
+ *
+ * To avoid that corruption path, this script also:
+ * 1) deletes ledger rows tied to deleted settlement_events, and
+ * 2) deletes pre-existing orphan ledger rows (defensive cleanup).
+ *
+ * It is gated on an opt-in env (E2E_AUTO_RESET_SETTLEMENT_ON_ENGINE_RESTART=1) so production
  * never wipes settlement state.
  *
  * Usage (called from scripts/run-e2e-provisioned.sh):
@@ -93,13 +102,61 @@ async function main(): Promise<void> {
   }
 
   await db.transaction(async (client) => {
-    await client.query('DELETE FROM settlement_events WHERE match_engine_id = $1', [MATCH_ENGINE_ID]);
-    await client.query('DELETE FROM settlement_events_dlq WHERE match_engine_id = $1', [MATCH_ENGINE_ID]);
-    await client.query(
-      `UPDATE settlement_engine_poll_cursor SET last_after_id = 0 WHERE engine_id = $1`,
-      [MATCH_ENGINE_ID]
-    );
-    await client.query(`UPDATE settlement_poller_cursor SET last_engine_event_id = 0 WHERE id = 1`);
+    await client.query('LOCK TABLE settlement_events, settlement_events_dlq, settlement_ledger_entries IN ACCESS EXCLUSIVE MODE');
+    await client.query('ALTER TABLE settlement_ledger_entries DISABLE TRIGGER trg_settlement_ledger_immutable_no_delete');
+    await client.query('ALTER TABLE settlement_ledger_entries DISABLE TRIGGER trg_settlement_ledger_immutable_no_update');
+    try {
+      const deletedLedger = await client.query<{ count: string }>(
+        `WITH del AS (
+           DELETE FROM settlement_ledger_entries sle
+           USING settlement_events se
+           WHERE sle.settlement_event_id = se.id
+             AND se.match_engine_id = $1
+           RETURNING 1
+         )
+         SELECT COUNT(*)::text AS count FROM del`,
+        [MATCH_ENGINE_ID]
+      );
+      const deletedEvents = await client.query<{ count: string }>(
+        `WITH del AS (
+           DELETE FROM settlement_events WHERE match_engine_id = $1 RETURNING 1
+         )
+         SELECT COUNT(*)::text AS count FROM del`,
+        [MATCH_ENGINE_ID]
+      );
+      const deletedDlq = await client.query<{ count: string }>(
+        `WITH del AS (
+           DELETE FROM settlement_events_dlq WHERE match_engine_id = $1 RETURNING 1
+         )
+         SELECT COUNT(*)::text AS count FROM del`,
+        [MATCH_ENGINE_ID]
+      );
+      const deletedOrphans = await client.query<{ count: string }>(
+        `WITH del AS (
+           DELETE FROM settlement_ledger_entries sle
+           WHERE NOT EXISTS (
+             SELECT 1 FROM settlement_events se WHERE se.id = sle.settlement_event_id
+           )
+           RETURNING 1
+         )
+         SELECT COUNT(*)::text AS count FROM del`
+      );
+
+      await client.query(
+        `UPDATE settlement_engine_poll_cursor SET last_after_id = 0 WHERE engine_id = $1`,
+        [MATCH_ENGINE_ID]
+      );
+      await client.query(`UPDATE settlement_poller_cursor SET last_engine_event_id = 0 WHERE id = 1`);
+
+      console.log(
+        `[reset-settlement] deleted ledger_rows=${deletedLedger.rows[0]?.count ?? '0'} ` +
+          `events=${deletedEvents.rows[0]?.count ?? '0'} dlq=${deletedDlq.rows[0]?.count ?? '0'} ` +
+          `orphan_ledger_rows=${deletedOrphans.rows[0]?.count ?? '0'}`
+      );
+    } finally {
+      await client.query('ALTER TABLE settlement_ledger_entries ENABLE TRIGGER trg_settlement_ledger_immutable_no_update');
+      await client.query('ALTER TABLE settlement_ledger_entries ENABLE TRIGGER trg_settlement_ledger_immutable_no_delete');
+    }
   });
 
   console.log(`[reset-settlement] cleared settlement_events for match_engine_id=${MATCH_ENGINE_ID} (engine restarted with lower next_event_id)`);

@@ -36,6 +36,25 @@ function eventToPayload(ev: EngineMatchEvent): Record<string, unknown> {
   };
 }
 
+function isSameMatchEvent(
+  existing: Record<string, unknown> | null,
+  incoming: Record<string, unknown>
+): boolean {
+  if (!existing) return false;
+  return (
+    String(existing.match_engine_id ?? '') === String(incoming.match_engine_id ?? '') &&
+    String(existing.event_id ?? '') === String(incoming.event_id ?? '') &&
+    String(existing.symbol ?? '') === String(incoming.symbol ?? '') &&
+    String(existing.taker_order_id ?? '') === String(incoming.taker_order_id ?? '') &&
+    String(existing.maker_order_id ?? '') === String(incoming.maker_order_id ?? '') &&
+    String(existing.taker_user_id ?? '') === String(incoming.taker_user_id ?? '') &&
+    String(existing.maker_user_id ?? '') === String(incoming.maker_user_id ?? '') &&
+    String(existing.taker_side ?? '') === String(incoming.taker_side ?? '') &&
+    String(existing.price ?? '') === String(incoming.price ?? '') &&
+    String(existing.qty ?? '') === String(incoming.qty ?? '')
+  );
+}
+
 /**
  * Persist engine match events to settlement_events. Idempotent per (match_engine_id, engine_event_id).
  * Use the same client as an outer transaction when provided.
@@ -58,7 +77,53 @@ export async function persistEngineMatchEvents(
          ON CONFLICT (match_engine_id, engine_event_id) DO NOTHING`,
         [mid, ev.event_id, payload]
       );
-      if ((r.rowCount ?? 0) > 0) inserted += 1;
+      if ((r.rowCount ?? 0) > 0) {
+        inserted += 1;
+        continue;
+      }
+
+      const existing = await executor.query<{ payload: Record<string, unknown> | null }>(
+        `SELECT payload FROM settlement_events WHERE match_engine_id = $1 AND engine_event_id = $2 LIMIT 1`,
+        [mid, ev.event_id]
+      );
+      const incomingPayload = JSON.parse(payload) as Record<string, unknown>;
+      const existingPayload = existing.rows[0]?.payload ?? null;
+      if (isSameMatchEvent(existingPayload, incomingPayload)) {
+        continue;
+      }
+
+      // Engine restarted and reused event IDs; preserve event by reassigning a new per-engine id.
+      let reassignedInserted = false;
+      let reassignedId = ev.event_id;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const nextIdRow = await executor.query<{ next_id: string }>(
+          `SELECT (COALESCE(MAX(engine_event_id), 0) + 1)::text AS next_id
+             FROM settlement_events
+            WHERE match_engine_id = $1`,
+          [mid]
+        );
+        const nextId = parseInt(nextIdRow.rows[0]?.next_id ?? '0', 10) || ev.event_id + attempt + 1;
+        const insReassigned = await executor.query(
+          `INSERT INTO settlement_events (match_engine_id, engine_event_id, payload, status)
+           VALUES ($1, $2, $3::jsonb, 'pending')
+           ON CONFLICT (match_engine_id, engine_event_id) DO NOTHING`,
+          [mid, nextId, payload]
+        );
+        if ((insReassigned.rowCount ?? 0) > 0) {
+          reassignedInserted = true;
+          reassignedId = nextId;
+          inserted += 1;
+          break;
+        }
+      }
+      if (reassignedInserted) {
+        logger.warn('settlement_event_id_collision_reassigned', {
+          matchEngineId: mid,
+          originalEngineEventId: ev.event_id,
+          reassignedEngineEventId: reassignedId,
+          source,
+        });
+      }
     }
     if (inserted > 0) {
       matchEventsPersistedTotal.inc({ source }, inserted);

@@ -74,6 +74,12 @@ export default function WalletsPage() {
   const [exportingCsv, setExportingCsv] = useState(false);
   const deferredQ = useDeferredValue(q.trim());
   const pageSize = 20;
+  const [deferFundsSummary, setDeferFundsSummary] = useState(false);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDeferFundsSummary(true), 500);
+    return () => window.clearTimeout(t);
+  }, []);
 
   useEffect(() => {
     setPage(1);
@@ -83,7 +89,7 @@ export default function WalletsPage() {
     queryKey: ['admin', 'funds-summary', token],
     staleTime: 30_000,
     queryFn: () => getFundsSummary(token),
-    enabled: !!token,
+    enabled: !!token && deferFundsSummary,
     refetchInterval: 30_000,
   });
 

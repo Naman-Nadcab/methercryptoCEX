@@ -30,6 +30,7 @@ async function main() {
   const crypto = await import('crypto');
   const jwt = (await import('jsonwebtoken')).default;
   const { createSession } = await import('../src/services/session.service.js');
+  const { config } = await import('../src/config/index.js');
 
   const url = process.env.DATABASE_URL;
   if (!url) {
@@ -41,7 +42,9 @@ async function main() {
     console.error('JWT_SECRET missing or too short (min 32 chars)');
     process.exit(1);
   }
-  const expiresIn = process.env.JWT_EXPIRES_IN || '15m';
+  // Keep generated E2E tokens aligned with backend runtime defaults (12h in dev),
+  // otherwise stale credentials quickly fail /auth/me and private WS auth.
+  const expiresIn = process.env.E2E_JWT_EXPIRES_IN || config.jwt.expiresIn || process.env.JWT_EXPIRES_IN || '12h';
 
   /** Local Postgres (Docker/host) typically has no TLS; `ssl = { rejectUnauthorized: false }` still enables STARTTLS and fails. Remote DBs usually need permissive TLS. */
   function pgSslForUrl(connectionString: string): undefined | { rejectUnauthorized: boolean } {
@@ -98,6 +101,9 @@ async function main() {
     `SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='users'`
   );
   const hasRole = userCols.rows.some((r) => r.column_name === 'role');
+  const hasSpotTradingSuspendedAt = userCols.rows.some((r) => r.column_name === 'spot_trading_suspended_at');
+  const hasLockedUntil = userCols.rows.some((r) => r.column_name === 'locked_until');
+  const hasFailedLoginAttempts = userCols.rows.some((r) => r.column_name === 'failed_login_attempts');
 
   async function ensureUser(email: string): Promise<string> {
     const ex = await client.query<{ id: string }>(
@@ -134,6 +140,39 @@ async function main() {
 
   const idA = await ensureUser(A_EMAIL);
   const idB = await ensureUser(B_EMAIL);
+  const targetUsers = [idA, idB];
+
+  const userSetClauses = ["status = 'active'"];
+  if (hasSpotTradingSuspendedAt) userSetClauses.push('spot_trading_suspended_at = NULL');
+  if (hasLockedUntil) userSetClauses.push('locked_until = NULL');
+  if (hasFailedLoginAttempts) userSetClauses.push('failed_login_attempts = 0');
+  await client.query(`UPDATE users SET ${userSetClauses.join(', ')} WHERE id = ANY($1::uuid[])`, [targetUsers]);
+
+  // Prevent balance-integrity auto-suspension from stale OPEN orders left by older failed E2E runs.
+  // We cancel orders first, then re-align balances to deterministic seed values below.
+  const spotOrdersHasMarket = await client.query<{ exists: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_schema='public' AND table_name='spot_orders' AND column_name='market'
+     ) AS exists`
+  );
+  if (spotOrdersHasMarket.rows[0]?.exists) {
+    await client.query(
+      `UPDATE spot_orders
+          SET status = 'CANCELLED', updated_at = NOW()
+        WHERE user_id = ANY($1::uuid[])
+          AND status IN ('OPEN', 'PARTIALLY_FILLED', 'PENDING_TRIGGER', 'TRIGGERED')`,
+      [targetUsers]
+    );
+  } else {
+    await client.query(
+      `UPDATE spot_orders
+          SET status = 'cancelled'::order_status, updated_at = NOW()
+        WHERE user_id = ANY($1::uuid[])
+          AND status IN ('new'::order_status, 'partially_filled'::order_status)`,
+      [targetUsers]
+    );
+  }
 
   const chainCol = await client.query(
     `SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='user_balances' AND column_name='chain_id'`

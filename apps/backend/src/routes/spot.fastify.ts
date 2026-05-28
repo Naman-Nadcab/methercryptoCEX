@@ -221,18 +221,88 @@ function displayStatus(status: string): string {
 }
 
 export default async function spotRoutes(app: FastifyInstance) {
+  const MARKETS_LOCAL_TTL_MS = 2_500;
+  let marketsLocalCache: { expiresAt: number; payload: unknown[] } | null = null;
+  let marketsRefreshInFlight: Promise<unknown[]> | null = null;
+  let marketsLastGoodSnapshot: { generatedAt: number; payload: unknown[] } | null = null;
+  const orderbookLastGoodSnapshot = new Map<
+    string,
+    {
+      generatedAt: number;
+      payload: { symbol: string; bids: unknown[]; asks: unknown[]; lastUpdateId?: number; snapshotAtMs?: number };
+    }
+  >();
+
+  const refreshMarkets = () => {
+    if (marketsRefreshInFlight) return marketsRefreshInFlight;
+    marketsRefreshInFlight = (async () => {
+      const markets = await withTimeout(getMarketsCached(), 6_000, 'spot.markets');
+      marketsLocalCache = { expiresAt: Date.now() + MARKETS_LOCAL_TTL_MS, payload: markets };
+      marketsLastGoodSnapshot = { generatedAt: Date.now(), payload: markets };
+      return markets;
+    })().finally(() => {
+      marketsRefreshInFlight = null;
+    });
+    return marketsRefreshInFlight;
+  };
+
   // GET /spot/markets — cache owned by services/spot-markets-cache.service.ts so admin
   // mutation routes can call invalidateMarketsCache() without touching this handler.
   app.get('/markets', async (_request, reply) => {
     try {
-      const markets = await withTimeout(getMarketsCached(), 6_000, 'spot.markets');
+      const now = Date.now();
+      if (marketsLocalCache && marketsLocalCache.expiresAt > now) {
+        reply.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=30');
+        return reply.send({ success: true, data: marketsLocalCache.payload });
+      }
+
+      // Serve last known-good snapshot immediately and refresh in background to reduce
+      // cache-boundary latency spikes under polling bursts.
+      if (marketsLastGoodSnapshot?.payload?.length) {
+        void refreshMarkets().catch((e) => {
+          logger.warn('Spot markets background refresh failed', {
+            error: e instanceof Error ? e.message : String(e),
+          });
+        });
+        reply.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=30');
+        return reply.send({ success: true, data: marketsLastGoodSnapshot.payload });
+      }
+
+      const markets = await refreshMarkets();
       // CDN/edge cache: 60s fresh + 30s stale-while-revalidate keeps the origin under
       // light load even when 1000s of clients poll. Server-side in-process memo (3s)
       // plus Redis (10s) still protect against stale spikes after invalidation.
       reply.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=30');
       return reply.send({ success: true, data: markets });
     } catch (error) {
+      if (marketsLastGoodSnapshot?.payload?.length) {
+        logger.warn('Spot markets failed; serving stale snapshot', {
+          error: error instanceof Error ? error.message : String(error),
+          staleAgeMs: Date.now() - marketsLastGoodSnapshot.generatedAt,
+        });
+        reply.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=30');
+        return reply.send({ success: true, data: marketsLastGoodSnapshot.payload });
+      }
       if (error instanceof AsyncTimeoutError) {
+        try {
+          const light = await withTimeout(
+            db.query<{ symbol: string; base_asset: string | null; quote_asset: string | null; status: string }>(
+              `SELECT symbol, base_asset, quote_asset, status
+                 FROM spot_markets
+                WHERE status IN ('active', 'maintenance')
+                ORDER BY symbol`
+            ),
+            2_000,
+            'spot.markets.light'
+          );
+          if (light.rows.length > 0) {
+            reply.header('Cache-Control', 'public, max-age=30, stale-while-revalidate=30');
+            reply.header('x-spot-markets-fallback', 'light');
+            return reply.send({ success: true, data: light.rows });
+          }
+        } catch {
+          // continue to timeout response below
+        }
         logger.error('Spot markets timed out', { error: error.message });
         return reply.status(504).send({
           success: false,
@@ -244,8 +314,13 @@ export default async function spotRoutes(app: FastifyInstance) {
     }
   });
 
-  const TICKERS_CACHE_KEY = 'spot:tickers:v2';
-  const TICKERS_CACHE_TTL_SEC = 2;
+  const TICKERS_CACHE_KEY = 'spot:tickers:v3';
+  // Slightly longer TTL smooths DB spikes under burst polling while keeping feeds fresh.
+  const TICKERS_CACHE_TTL_SEC = 5;
+  const TICKERS_LOCAL_TTL_MS = 1_500;
+  let tickersLocalCache: { expiresAt: number; payload: { success: true; data: unknown[] } } | null = null;
+  let tickersInFlight: Promise<{ success: true; data: unknown[] }> | null = null;
+  let tickersLastGoodSnapshot: { generatedAt: number; payload: { success: true; data: unknown[] } } | null = null;
 
   /** 24h % change vs first trade in window (matches WS `price_change_pct_24h` / live state). */
   function changePctFromOpenAndLast(open24h: string | null | undefined, lastPrice: string | null | undefined): number | null {
@@ -259,15 +334,25 @@ export default async function spotRoutes(app: FastifyInstance) {
   // GET /spot/tickers — all active markets with last_price, 24h stats, change_pct (single optimized query + Redis cache)
   app.get('/tickers', async (_request, reply) => {
     try {
+      const now = Date.now();
+      if (tickersLocalCache && tickersLocalCache.expiresAt > now) {
+        reply.header('Cache-Control', 'public, max-age=2');
+        return reply.send(tickersLocalCache.payload);
+      }
       const cached = await redis.getJson<{ success: true; data: unknown[] }>(TICKERS_CACHE_KEY).catch(() => null);
       if (cached?.data && Array.isArray(cached.data) && cached.data.length >= 0) {
+        tickersLocalCache = { expiresAt: now + TICKERS_LOCAL_TTL_MS, payload: cached };
         reply.header('Cache-Control', 'public, max-age=2');
         return reply.send(cached);
       }
-      const useMarket = await getSpotTradesUseMarket();
-      // Ticker query: trade-based last_price with fallback to market_prices oracle and ohlcv_candles
-      const tickersQuery = useMarket
-        ? `
+
+      const refreshTickers = () => {
+        if (tickersInFlight) return tickersInFlight;
+        tickersInFlight = (async () => {
+          const useMarket = await getSpotTradesUseMarket();
+          // Ticker query: trade-based last_price with fallback to market_prices oracle and ohlcv_candles
+          const tickersQuery = useMarket
+            ? `
           SELECT m.symbol, m.base_asset, m.quote_asset,
             COALESCE(lp.price::text, mp.price::text, candle_lp.close_price::text) as last_price,
             COALESCE(s.high, candle_24.high_price::text, '0') as high_24h,
@@ -315,7 +400,7 @@ export default async function spotRoutes(app: FastifyInstance) {
           WHERE m.status IN ('active', 'maintenance')
           ORDER BY m.symbol
         `
-        : `
+            : `
           SELECT m.symbol, m.base_asset, m.quote_asset,
             COALESCE(lp.price::text, mp.price::text, candle_lp.close_price::text) as last_price,
             COALESCE(s.high, candle_24.high_price::text, '0') as high_24h,
@@ -365,41 +450,82 @@ export default async function spotRoutes(app: FastifyInstance) {
           WHERE m.status IN ('active', 'maintenance')
           ORDER BY m.symbol
         `;
-      const result = await db.queryRead<{
-        symbol: string;
-        base_asset: string;
-        quote_asset: string;
-        last_price: string | null;
-        high_24h: string;
-        low_24h: string;
-        volume_24h: string;
-        base_volume: string | null;
-        open_24h: string | null;
-      }>(tickersQuery);
-      const tickers = result.rows.map((r) => {
-        const lastPrice = r.last_price ?? null;
-        const high = r.high_24h ?? '0';
-        const low = r.low_24h ?? '0';
-        const open24 = r.open_24h ?? null;
-        const changePct = changePctFromOpenAndLast(open24, lastPrice);
-        return {
-          symbol: r.symbol,
-          base_asset: r.base_asset,
-          quote_asset: r.quote_asset,
-          last_price: lastPrice,
-          open_24h: open24 != null && open24 !== '' ? open24 : null,
-          high_24h: high !== '0' ? high : null,
-          low_24h: low !== '0' ? low : null,
-          volume_24h: r.volume_24h ?? '0',
-          base_volume_24h: r.base_volume ?? '0',
-          change_pct: changePct,
-        };
-      });
-      const payload = { success: true, data: tickers };
-      await redis.setJson(TICKERS_CACHE_KEY, payload, TICKERS_CACHE_TTL_SEC).catch(() => {});
+          const result = await withTimeout(
+            db.queryRead<{
+              symbol: string;
+              base_asset: string;
+              quote_asset: string;
+              last_price: string | null;
+              high_24h: string;
+              low_24h: string;
+              volume_24h: string;
+              base_volume: string | null;
+              open_24h: string | null;
+            }>(tickersQuery),
+            4_000,
+            'spot.tickers'
+          );
+          const tickers = result.rows.map((r) => {
+            const lastPrice = r.last_price ?? null;
+            const high = r.high_24h ?? '0';
+            const low = r.low_24h ?? '0';
+            const open24 = r.open_24h ?? null;
+            const changePct = changePctFromOpenAndLast(open24, lastPrice);
+            return {
+              symbol: r.symbol,
+              base_asset: r.base_asset,
+              quote_asset: r.quote_asset,
+              last_price: lastPrice,
+              open_24h: open24 != null && open24 !== '' ? open24 : null,
+              high_24h: high !== '0' ? high : null,
+              low_24h: low !== '0' ? low : null,
+              volume_24h: r.volume_24h ?? '0',
+              base_volume_24h: r.base_volume ?? '0',
+              change_pct: changePct,
+            };
+          });
+          const payload = { success: true as const, data: tickers };
+          tickersLocalCache = { expiresAt: Date.now() + TICKERS_LOCAL_TTL_MS, payload };
+          tickersLastGoodSnapshot = { generatedAt: Date.now(), payload };
+          await redis.setJson(TICKERS_CACHE_KEY, payload, TICKERS_CACHE_TTL_SEC).catch(() => {});
+          return payload;
+        })().finally(() => {
+          tickersInFlight = null;
+        });
+        return tickersInFlight;
+      };
+
+      // Serve stale snapshot immediately and refresh in background to avoid latency spikes
+      // at cache-boundary moments under burst polling.
+      if (tickersLastGoodSnapshot?.payload?.data?.length) {
+        void refreshTickers().catch((e) => {
+          logger.warn('Spot tickers background refresh failed', {
+            error: e instanceof Error ? e.message : String(e),
+          });
+        });
+        reply.header('Cache-Control', 'public, max-age=2, stale-while-revalidate=8');
+        return reply.send(tickersLastGoodSnapshot.payload);
+      }
+
+      const payload = await refreshTickers();
       reply.header('Cache-Control', 'public, max-age=2');
       return reply.send(payload);
     } catch (error) {
+      if (tickersLastGoodSnapshot?.payload?.data?.length) {
+        logger.warn('Spot tickers failed; serving stale snapshot', {
+          error: error instanceof Error ? error.message : 'Unknown',
+          staleAgeMs: Date.now() - tickersLastGoodSnapshot.generatedAt,
+        });
+        reply.header('Cache-Control', 'public, max-age=2');
+        return reply.send(tickersLastGoodSnapshot.payload);
+      }
+      if (error instanceof AsyncTimeoutError) {
+        logger.error('Spot tickers timed out', { error: error.message });
+        return reply.status(504).send({
+          success: false,
+          error: { code: 'TICKERS_TIMEOUT', message: 'Tickers timed out; check database load' },
+        });
+      }
       logger.error('Spot tickers failed', { error: error instanceof Error ? error.message : 'Unknown' });
       return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to fetch tickers' } });
     }
@@ -479,21 +605,24 @@ export default async function spotRoutes(app: FastifyInstance) {
         12_000,
         `GET /spot/orderbook/${symbol}`
       );
+      orderbookLastGoodSnapshot.set(symbol, { generatedAt: Date.now(), payload: data });
       return reply.send({ success: true, data });
     } catch (error) {
       const e = error as Error & { code?: string };
       if (e.message === 'NOT_FOUND' || e.code === 'NOT_FOUND') {
         return reply.status(404).send({ success: false, error: { code: 'NOT_FOUND', message: 'Market not found' } });
       }
-      if (error instanceof AsyncTimeoutError) {
-        logger.error('Spot orderbook timed out', { symbol: request.params.symbol, error: error.message });
-        return reply.status(504).send({
-          success: false,
-          error: { code: 'ORDERBOOK_TIMEOUT', message: 'Orderbook fetch timed out; retry or check Redis/DB' },
-        });
+      const symbol = request.params.symbol?.toUpperCase().replace(/-/g, '_') || '';
+      const stale = orderbookLastGoodSnapshot.get(symbol);
+      if (stale?.payload) {
+        reply.header('x-spot-orderbook-fallback', 'stale');
+        return reply.send({ success: true, data: stale.payload });
       }
-      logger.error('Spot orderbook failed', { error: error instanceof Error ? error.message : 'Unknown' });
-      return reply.status(500).send({ success: false, error: { code: 'FETCH_FAILED', message: 'Failed to fetch orderbook' } });
+      const limitRaw = request.query.limit ?? request.query.depth ?? '20';
+      const limit = Math.min(100, Math.max(5, parseInt(String(limitRaw), 10) || 20));
+      const memory = snapshotTop(symbol, limit);
+      reply.header('x-spot-orderbook-fallback', 'memory');
+      return reply.send({ success: true, data: memory });
     }
   });
 

@@ -1,5 +1,5 @@
-'use client';
+import { redirect } from 'next/navigation';
 
-import WalletOverviewPage from '../dashboard/assets/overview/page';
-
-export default WalletOverviewPage;
+export default function WalletPage() {
+  redirect('/dashboard/assets/overview');
+}

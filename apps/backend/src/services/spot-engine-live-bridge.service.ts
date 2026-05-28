@@ -143,7 +143,7 @@ export async function syncEngineMatchesAfterPlace(
     if (events.length === 0 && last_id > 0 && last_id < afterBefore) {
       const fixed = await reconcilePollCursorIfEngineBehind(matchEngineId, afterBefore, last_id);
       if (fixed) {
-        afterBefore = last_id;
+        afterBefore = 0;
         fetchResult = await fetchMatchesForEngine(baseUrl, afterBefore, matchEngineId);
         last_id = fetchResult.last_id;
         events = fetchResult.events;

@@ -240,11 +240,17 @@ export default function AssetsOverviewPage() {
   const [recentTxError, setRecentTxError] = useState<string | null>(null);
   const [dustLoading, setDustLoading] = useState(false);
   const [statementLoading, setStatementLoading] = useState(false);
+  const [deferSecondaryLoads, setDeferSecondaryLoads] = useState(false);
   const [security, setSecurity] = useState<{ loading: boolean; totp: boolean; hasEmail: boolean }>({
     loading: true,
     totp: false,
     hasEmail: false,
   });
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDeferSecondaryLoads(true), 700);
+    return () => window.clearTimeout(t);
+  }, []);
 
   /* ── Data hooks ── */
   const { data: summary, isLoading: summaryLoading, refetch: refetchSummary } = useBalancesSummary(ready);
@@ -283,6 +289,7 @@ export default function AssetsOverviewPage() {
   }, [accessToken, chartPeriod]);
 
   useEffect(() => {
+    if (!deferSecondaryLoads) return;
     const base = getApiBaseUrl();
     if (!base) return;
     fetch(`${base}/api/v1/spot/tickers`).then((r) => r.json()).then((d) => {
@@ -294,12 +301,13 @@ export default function AssetsOverviewPage() {
         variant: 'destructive',
       });
     });
-  }, []);
+  }, [deferSecondaryLoads]);
 
   /* ── Fetch portfolio history ── */
   useEffect(() => {
+    if (!deferSecondaryLoads) return;
     void fetchPortfolioHistory();
-  }, [fetchPortfolioHistory]);
+  }, [fetchPortfolioHistory, deferSecondaryLoads]);
 
   /* ── Fetch recent transactions (normalize API shape: coin, quantity, date_time, withdraw) ── */
   const fetchRecentTransactions = useCallback(async () => {
@@ -328,11 +336,13 @@ export default function AssetsOverviewPage() {
   }, [accessToken]);
 
   useEffect(() => {
+    if (!deferSecondaryLoads) return;
     void fetchRecentTransactions();
-  }, [fetchRecentTransactions]);
+  }, [fetchRecentTransactions, deferSecondaryLoads]);
 
   /* ── Security snapshot from profile (no fake badges) ── */
   useEffect(() => {
+    if (!deferSecondaryLoads) return;
     if (!_hasHydrated) return;
     if (!accessToken) {
       setSecurity({ loading: false, totp: false, hasEmail: false });
@@ -366,7 +376,7 @@ export default function AssetsOverviewPage() {
     return () => {
       cancelled = true;
     };
-  }, [_hasHydrated, accessToken]);
+  }, [_hasHydrated, accessToken, deferSecondaryLoads]);
 
   /* ── Price map for USD values ── */
   const priceMap = useMemo(() => {

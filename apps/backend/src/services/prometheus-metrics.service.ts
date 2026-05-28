@@ -10,6 +10,7 @@ import { Counter, Gauge, Histogram } from 'prom-client';
 import { register, hedgeKillSwitchGauge } from '../lib/prometheus-metrics.js';
 import { db } from '../lib/database.js';
 import { config } from '../config/index.js';
+import { withTimeout } from '../lib/async-timeout.js';
 
 // ---------------------------------------------------------------------------
 // Counters
@@ -132,7 +133,23 @@ export const dbPoolWaiting = new Gauge({
 // Collector — called on each /metrics scrape to refresh gauge values
 // ---------------------------------------------------------------------------
 
+const METRICS_REFRESH_TTL_MS = Number(process.env.METRICS_REFRESH_TTL_MS || 5000);
+const METRICS_QUERY_TIMEOUT_MS = Number(process.env.METRICS_QUERY_TIMEOUT_MS || 1500);
+const HOT_WALLET_SCHEMA_CACHE_TTL_MS = Number(process.env.METRICS_HOT_WALLET_SCHEMA_CACHE_TTL_MS || 300000);
+
+let lastCollectAtMs = 0;
+let collectInFlight: Promise<void> | null = null;
+let hotWalletColumnCache: { expiresAt: number; columns: Set<string> } | null = null;
+
 export async function collectExchangeMetrics(): Promise<void> {
+  const now = Date.now();
+  if (now - lastCollectAtMs < METRICS_REFRESH_TTL_MS) return;
+  if (collectInFlight) {
+    await collectInFlight;
+    return;
+  }
+
+  collectInFlight = (async () => {
   try {
     const pool = db.getPool();
     dbPoolActive.set(pool.totalCount - pool.idleCount);
@@ -142,14 +159,26 @@ export async function collectExchangeMetrics(): Promise<void> {
 
   try {
     const [pendingSettlement, pendingDeposits, pendingWithdrawals] = await Promise.all([
-      db.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM settlement_events WHERE status = 'pending'`)
+      withTimeout(
+        db.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM settlement_events WHERE status = 'pending'`),
+        METRICS_QUERY_TIMEOUT_MS,
+        'metrics.pending_settlement'
+      )
         .then((r) => parseInt(r.rows[0]?.n ?? '0', 10) || 0)
         .catch(() => 0),
-      db.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM deposits WHERE status = 'pending'`)
+      withTimeout(
+        db.query<{ n: string }>(`SELECT COUNT(*)::text AS n FROM deposits WHERE status = 'pending'`),
+        METRICS_QUERY_TIMEOUT_MS,
+        'metrics.pending_deposits'
+      )
         .then((r) => parseInt(r.rows[0]?.n ?? '0', 10) || 0)
         .catch(() => 0),
-      db.query<{ n: string }>(
-        `SELECT COUNT(*)::text AS n FROM withdrawal_signing_queue WHERE status IN ('pending', 'signing', 'broadcast')`
+      withTimeout(
+        db.query<{ n: string }>(
+          `SELECT COUNT(*)::text AS n FROM withdrawal_signing_queue WHERE status IN ('pending', 'signing', 'broadcast')`
+        ),
+        METRICS_QUERY_TIMEOUT_MS,
+        'metrics.pending_withdrawals'
       )
         .then((r) => parseInt(r.rows[0]?.n ?? '0', 10) || 0)
         .catch(() => 0),
@@ -163,25 +192,46 @@ export async function collectExchangeMetrics(): Promise<void> {
   try {
     // hot_wallets schema evolved (chain_id + balance_cache in current migrations; chain/currency/balance in legacy).
     // Detect columns first to avoid noisy "column does not exist" errors during /metrics scrapes.
-    const cols = await db.query<{ column_name: string }>(
-      `SELECT column_name
-       FROM information_schema.columns
-       WHERE table_schema = 'public' AND table_name = 'hot_wallets'`
-    ).catch(() => ({ rows: [] as { column_name: string }[] }));
-    const colSet = new Set(cols.rows.map((r) => r.column_name));
+    let colSet: Set<string>;
+    if (hotWalletColumnCache && hotWalletColumnCache.expiresAt > Date.now()) {
+      colSet = hotWalletColumnCache.columns;
+    } else {
+      const cols = await withTimeout(
+        db.query<{ column_name: string }>(
+          `SELECT column_name
+           FROM information_schema.columns
+           WHERE table_schema = 'public' AND table_name = 'hot_wallets'`
+        ),
+        METRICS_QUERY_TIMEOUT_MS,
+        'metrics.hot_wallet_schema'
+      ).catch(() => ({ rows: [] as { column_name: string }[] }));
+      colSet = new Set(cols.rows.map((r) => r.column_name));
+      hotWalletColumnCache = {
+        expiresAt: Date.now() + HOT_WALLET_SCHEMA_CACHE_TTL_MS,
+        columns: colSet,
+      };
+    }
 
     let rows: { rows: { chain: string; currency: string; balance: string }[] } = { rows: [] };
     if (colSet.has('chain_id') && colSet.has('balance_cache')) {
-      rows = await db.query<{ chain: string; currency: string; balance: string }>(
-        `SELECT chain_id::text AS chain, 'NATIVE'::text AS currency, balance_cache::text AS balance
-         FROM hot_wallets
-         WHERE balance_cache IS NOT NULL`
+      rows = await withTimeout(
+        db.query<{ chain: string; currency: string; balance: string }>(
+          `SELECT chain_id::text AS chain, 'NATIVE'::text AS currency, balance_cache::text AS balance
+           FROM hot_wallets
+           WHERE balance_cache IS NOT NULL`
+        ),
+        METRICS_QUERY_TIMEOUT_MS,
+        'metrics.hot_wallet_balance_cache'
       ).catch(() => ({ rows: [] as { chain: string; currency: string; balance: string }[] }));
     } else if (colSet.has('chain') && colSet.has('currency') && colSet.has('balance')) {
-      rows = await db.query<{ chain: string; currency: string; balance: string }>(
-        `SELECT chain::text AS chain, currency::text AS currency, balance::text AS balance
-         FROM hot_wallets
-         WHERE balance IS NOT NULL`
+      rows = await withTimeout(
+        db.query<{ chain: string; currency: string; balance: string }>(
+          `SELECT chain::text AS chain, currency::text AS currency, balance::text AS balance
+           FROM hot_wallets
+           WHERE balance IS NOT NULL`
+        ),
+        METRICS_QUERY_TIMEOUT_MS,
+        'metrics.hot_wallet_balance_legacy'
       ).catch(() => ({ rows: [] as { chain: string; currency: string; balance: string }[] }));
     }
 
@@ -191,10 +241,11 @@ export async function collectExchangeMetrics(): Promise<void> {
   } catch { /* best effort */ }
 
   try {
-    const circuitKey = 'settlement:circuit_breaker_open';
+    const circuitKeys = ['settlement_circuit:open', 'settlement:circuit_breaker_open'];
     const { redis } = await import('../lib/redis.js');
-    const val = await redis.get(circuitKey).catch(() => null);
-    settlementCircuitOpen.set(val === '1' || val === 'true' ? 1 : 0);
+    const vals = await Promise.all(circuitKeys.map((k) => redis.get(k).catch(() => null)));
+    const isOpen = vals.some((val) => val === '1' || val === 'true');
+    settlementCircuitOpen.set(isOpen ? 1 : 0);
   } catch { /* best effort */ }
 
   try {
@@ -207,4 +258,10 @@ export async function collectExchangeMetrics(): Promise<void> {
   } catch {
     /* best effort */
   }
+    lastCollectAtMs = Date.now();
+  })().finally(() => {
+    collectInFlight = null;
+  });
+
+  await collectInFlight;
 }

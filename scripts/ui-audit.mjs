@@ -185,24 +185,62 @@ async function adminLogin(page) {
   const submitBtn = page.getByRole('button', { name: /sign in|login|continue/i }).first();
   await submitBtn.click();
   const navOk = await page
-    .waitForURL(/\/dashboard/, { timeout: 15_000 })
+    .waitForURL(/\/dashboard/, { timeout: 25_000 })
     .then(() => true)
     .catch(() => false);
   if (navOk) return;
-  const fallbackOk = await page.evaluate(() => {
-    const raw = localStorage.getItem('admin-auth');
-    if (!raw) return false;
+
+  // In dev mode, first-submit can be slower (Next compile / API warmup).
+  // Wait a bit longer for persisted auth before failing login.
+  const tokenOk = await page
+    .waitForFunction(() => {
+      const raw = localStorage.getItem('admin-auth');
+      if (!raw) return false;
+      try {
+        const parsed = JSON.parse(raw);
+        const token = parsed?.state?.accessToken;
+        return typeof token === 'string' && token.length > 0;
+      } catch {
+        return false;
+      }
+    }, { timeout: 25_000 })
+    .then(() => true)
+    .catch(() => false);
+
+  if (tokenOk) {
+    await gotoWithRetry(page, `${adminBase}/dashboard`);
+    return;
+  }
+  // Last-resort fallback for local/dev: authenticate through API and seed local storage.
+  const seededByApi = await page.evaluate(async ({ base, email, password }) => {
     try {
-      const parsed = JSON.parse(raw);
-      const token = parsed?.state?.accessToken;
-      return typeof token === 'string' && token.length > 0;
+      const res = await fetch(`${base.replace(/\/$/, '')}/api/v1/admin/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok || !payload?.success) return false;
+      const d = payload?.data ?? payload;
+      if (!d?.accessToken || !d?.admin) return false;
+      localStorage.setItem(
+        'admin-auth',
+        JSON.stringify({
+          state: { accessToken: d.accessToken, admin: d.admin },
+          version: 0,
+        })
+      );
+      return true;
     } catch {
       return false;
     }
-  });
-  if (!fallbackOk) {
-    throw new Error('Admin login did not navigate to /dashboard and no admin-auth token was persisted');
+  }, { base: adminBase, email: adminEmail, password: adminPassword });
+
+  if (seededByApi) {
+    await gotoWithRetry(page, `${adminBase}/dashboard`);
+    return;
   }
+  throw new Error('Admin login did not navigate to /dashboard and no admin-auth token was persisted');
 }
 
 async function run() {

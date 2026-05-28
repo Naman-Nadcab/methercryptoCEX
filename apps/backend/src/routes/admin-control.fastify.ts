@@ -51,7 +51,9 @@ export default async function adminControlRoutes(app: FastifyInstance) {
             orderLatencyP99Ms: null,
           })),
           db.query<{ count: string }>('SELECT COUNT(*)::text AS count FROM settlement_events WHERE status = $1', ['pending']).catch(() => ({ rows: [{ count: '0' }] })),
-          db.query<{ symbol: string; status: string }>('SELECT symbol, status FROM spot_markets ORDER BY symbol'),
+          db
+            .query<{ symbol: string; status: string }>('SELECT symbol, status FROM spot_markets ORDER BY symbol')
+            .catch(() => ({ rows: [] as { symbol: string; status: string }[] })),
         ]);
         const settlementPending = parseInt(settlementRes.rows[0]?.count ?? '0', 10);
         const markets = marketsRes.rows ?? [];

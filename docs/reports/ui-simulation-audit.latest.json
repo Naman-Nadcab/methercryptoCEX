@@ -1,0 +1,365 @@
+{
+  "generated_at": "2026-05-28T07:45:54.722Z",
+  "started_at": "2026-05-28T07:45:38.649Z",
+  "user_base": "http://localhost:3000",
+  "admin_base": "http://localhost:3001",
+  "admin_login": {
+    "ok": false,
+    "email": "admin@example.com",
+    "error": "locator.waitFor: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator('input[type=\"email\"], input[name=\"email\"], input[autocomplete=\"email\"]').first() to be visible\n"
+  },
+  "user_results": [
+    {
+      "route": "home",
+      "url": "http://localhost:3000/",
+      "kind": "user",
+      "ok": true,
+      "finalUrl": "http://localhost:3000/",
+      "title": "CryptoExchange - Trade Crypto with Confidence",
+      "brokenImages": 0,
+      "visibleButtons": 2,
+      "visibleLinks": 30,
+      "fontStatus": "loaded",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "server5xx": [],
+      "notes": []
+    },
+    {
+      "route": "login",
+      "url": "http://localhost:3000/login",
+      "kind": "user",
+      "ok": true,
+      "finalUrl": "http://localhost:3000/login",
+      "title": "CryptoExchange - Trade Crypto with Confidence",
+      "brokenImages": 0,
+      "visibleButtons": 5,
+      "visibleLinks": 4,
+      "fontStatus": "loaded",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "server5xx": [],
+      "notes": []
+    },
+    {
+      "route": "signup",
+      "url": "http://localhost:3000/signup",
+      "kind": "user",
+      "ok": true,
+      "finalUrl": "http://localhost:3000/signup",
+      "title": "CryptoExchange - Trade Crypto with Confidence",
+      "brokenImages": 0,
+      "visibleButtons": 5,
+      "visibleLinks": 5,
+      "fontStatus": "loaded",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "server5xx": [],
+      "notes": []
+    },
+    {
+      "route": "spot",
+      "url": "http://localhost:3000/spot",
+      "kind": "user",
+      "ok": true,
+      "finalUrl": "http://localhost:3000/trade/spot",
+      "title": "CryptoExchange - Trade Crypto with Confidence",
+      "brokenImages": 0,
+      "visibleButtons": 87,
+      "visibleLinks": 10,
+      "fontStatus": "loaded",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "server5xx": [],
+      "notes": []
+    },
+    {
+      "route": "p2p",
+      "url": "http://localhost:3000/p2p",
+      "kind": "user",
+      "ok": true,
+      "finalUrl": "http://localhost:3000/p2p",
+      "title": "CryptoExchange - Trade Crypto with Confidence",
+      "brokenImages": 0,
+      "visibleButtons": 13,
+      "visibleLinks": 16,
+      "fontStatus": "loaded",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "server5xx": [],
+      "notes": []
+    },
+    {
+      "route": "wallet",
+      "url": "http://localhost:3000/wallet",
+      "kind": "user",
+      "ok": true,
+      "finalUrl": "http://localhost:3000/login?redirect=%2Fwallet",
+      "title": "CryptoExchange - Trade Crypto with Confidence",
+      "brokenImages": 0,
+      "visibleButtons": 5,
+      "visibleLinks": 4,
+      "fontStatus": "loaded",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "server5xx": [],
+      "notes": []
+    },
+    {
+      "route": "dashboard",
+      "url": "http://localhost:3000/dashboard",
+      "kind": "user",
+      "ok": true,
+      "finalUrl": "http://localhost:3000/login?redirect=%2Fdashboard",
+      "title": "CryptoExchange - Trade Crypto with Confidence",
+      "brokenImages": 0,
+      "visibleButtons": 5,
+      "visibleLinks": 4,
+      "fontStatus": "loaded",
+      "consoleErrors": [],
+      "failedRequests": [],
+      "server5xx": [],
+      "notes": []
+    }
+  ],
+  "admin_results": [
+    {
+      "route": "admin-dashboard",
+      "url": "http://localhost:3001/dashboard",
+      "kind": "admin",
+      "ok": false,
+      "finalUrl": "http://localhost:3001/dashboard",
+      "title": "",
+      "brokenImages": 0,
+      "visibleButtons": 0,
+      "visibleLinks": 0,
+      "fontStatus": "unknown",
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+      ],
+      "failedRequests": [],
+      "server5xx": [
+        "500 http://localhost:3001/dashboard"
+      ],
+      "notes": [
+        "navigation_error: locator.waitFor: Timeout 5000ms exceeded.\nCall log:\n  - waiting for locator('body') to be visible\n    15 × locator resolved to hidden <body>…</body>\n"
+      ]
+    },
+    {
+      "route": "admin-users",
+      "url": "http://localhost:3001/users",
+      "kind": "admin",
+      "ok": false,
+      "finalUrl": "http://localhost:3001/users",
+      "title": "",
+      "brokenImages": 0,
+      "visibleButtons": 0,
+      "visibleLinks": 0,
+      "fontStatus": "unknown",
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+      ],
+      "failedRequests": [],
+      "server5xx": [
+        "500 http://localhost:3001/users"
+      ],
+      "notes": [
+        "navigation_error: locator.waitFor: Timeout 5000ms exceeded.\nCall log:\n  - waiting for locator('body') to be visible\n    15 × locator resolved to hidden <body>…</body>\n"
+      ]
+    },
+    {
+      "route": "admin-wallets",
+      "url": "http://localhost:3001/wallets",
+      "kind": "admin",
+      "ok": false,
+      "finalUrl": "http://localhost:3001/wallets",
+      "title": "",
+      "brokenImages": 0,
+      "visibleButtons": 0,
+      "visibleLinks": 0,
+      "fontStatus": "unknown",
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+      ],
+      "failedRequests": [],
+      "server5xx": [
+        "500 http://localhost:3001/wallets"
+      ],
+      "notes": [
+        "navigation_error: locator.waitFor: Timeout 5000ms exceeded.\nCall log:\n  - waiting for locator('body') to be visible\n    15 × locator resolved to hidden <body>…</body>\n"
+      ]
+    },
+    {
+      "route": "admin-orders",
+      "url": "http://localhost:3001/orders",
+      "kind": "admin",
+      "ok": false,
+      "finalUrl": "http://localhost:3001/orders",
+      "title": "",
+      "brokenImages": 0,
+      "visibleButtons": 0,
+      "visibleLinks": 0,
+      "fontStatus": "unknown",
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+      ],
+      "failedRequests": [],
+      "server5xx": [
+        "500 http://localhost:3001/orders"
+      ],
+      "notes": [
+        "navigation_error: locator.waitFor: Timeout 5000ms exceeded.\nCall log:\n  - waiting for locator('body') to be visible\n    15 × locator resolved to hidden <body>…</body>\n"
+      ]
+    },
+    {
+      "route": "admin-p2p",
+      "url": "http://localhost:3001/p2p",
+      "kind": "admin",
+      "ok": false,
+      "finalUrl": "http://localhost:3001/p2p",
+      "title": "Exchange Admin",
+      "brokenImages": 0,
+      "visibleButtons": 0,
+      "visibleLinks": 0,
+      "fontStatus": "unknown",
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "Failed to load resource: the server responded with a status of 404 (Not Found)"
+      ],
+      "failedRequests": [],
+      "server5xx": [],
+      "notes": [
+        "navigation_error: locator.waitFor: Timeout 5000ms exceeded.\nCall log:\n  - waiting for locator('body') to be visible\n    14 × locator resolved to hidden <body>…</body>\n"
+      ]
+    },
+    {
+      "route": "admin-treasury",
+      "url": "http://localhost:3001/treasury",
+      "kind": "admin",
+      "ok": false,
+      "finalUrl": "http://localhost:3001/treasury",
+      "title": "",
+      "brokenImages": 0,
+      "visibleButtons": 0,
+      "visibleLinks": 0,
+      "fontStatus": "unknown",
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+      ],
+      "failedRequests": [],
+      "server5xx": [
+        "500 http://localhost:3001/treasury"
+      ],
+      "notes": [
+        "navigation_error: locator.waitFor: Timeout 5000ms exceeded.\nCall log:\n  - waiting for locator('body') to be visible\n    15 × locator resolved to hidden <body>…</body>\n"
+      ]
+    },
+    {
+      "route": "admin-liquidity",
+      "url": "http://localhost:3001/liquidity",
+      "kind": "admin",
+      "ok": false,
+      "finalUrl": "http://localhost:3001/liquidity",
+      "title": "Exchange Admin",
+      "brokenImages": 0,
+      "visibleButtons": 0,
+      "visibleLinks": 0,
+      "fontStatus": "unknown",
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "Failed to load resource: the server responded with a status of 404 (Not Found)"
+      ],
+      "failedRequests": [],
+      "server5xx": [],
+      "notes": [
+        "navigation_error: locator.waitFor: Timeout 5000ms exceeded.\nCall log:\n  - waiting for locator('body') to be visible\n    15 × locator resolved to hidden <body>…</body>\n"
+      ]
+    },
+    {
+      "route": "admin-risk",
+      "url": "http://localhost:3001/risk",
+      "kind": "admin",
+      "ok": false,
+      "finalUrl": "http://localhost:3001/risk",
+      "title": "",
+      "brokenImages": 0,
+      "visibleButtons": 0,
+      "visibleLinks": 0,
+      "fontStatus": "unknown",
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+      ],
+      "failedRequests": [],
+      "server5xx": [
+        "500 http://localhost:3001/risk"
+      ],
+      "notes": [
+        "navigation_error: locator.waitFor: Timeout 5000ms exceeded.\nCall log:\n  - waiting for locator('body') to be visible\n    15 × locator resolved to hidden <body>…</body>\n"
+      ]
+    },
+    {
+      "route": "admin-monitoring",
+      "url": "http://localhost:3001/monitoring",
+      "kind": "admin",
+      "ok": false,
+      "finalUrl": "http://localhost:3001/monitoring",
+      "title": "",
+      "brokenImages": 0,
+      "visibleButtons": 0,
+      "visibleLinks": 0,
+      "fontStatus": "unknown",
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+      ],
+      "failedRequests": [],
+      "server5xx": [
+        "500 http://localhost:3001/monitoring"
+      ],
+      "notes": [
+        "navigation_error: locator.waitFor: Timeout 5000ms exceeded.\nCall log:\n  - waiting for locator('body') to be visible\n    15 × locator resolved to hidden <body>…</body>\n"
+      ]
+    },
+    {
+      "route": "admin-compliance",
+      "url": "http://localhost:3001/compliance",
+      "kind": "admin",
+      "ok": false,
+      "finalUrl": "http://localhost:3001/compliance",
+      "title": "Exchange Admin",
+      "brokenImages": 0,
+      "visibleButtons": 0,
+      "visibleLinks": 0,
+      "fontStatus": "unknown",
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "Failed to load resource: the server responded with a status of 404 (Not Found)"
+      ],
+      "failedRequests": [],
+      "server5xx": [],
+      "notes": [
+        "navigation_error: locator.waitFor: Timeout 5000ms exceeded.\nCall log:\n  - waiting for locator('body') to be visible\n    15 × locator resolved to hidden <body>…</body>\n"
+      ]
+    }
+  ],
+  "summary": {
+    "total": 17,
+    "pass": 7,
+    "fail": 10,
+    "ok": false
+  }
+}

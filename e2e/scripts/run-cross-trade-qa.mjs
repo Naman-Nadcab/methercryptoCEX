@@ -14,6 +14,17 @@ const JWT_B = process.env.E2E_COUNTERPARTY_JWT || '';
 const MARKET = 'BTC_USDT';
 const QTY = (process.env.CROSS_QTY || '0.01').trim();
 const ITERATIONS = Math.min(5, Math.max(1, parseInt(process.env.CROSS_ITERATIONS || '3', 10) || 3));
+const AUTH_FAILURE_EXIT_CODE = 12;
+const GENERIC_FAILURE_EXIT_CODE = 11;
+const REQUEST_TIMEOUT_MS = parseInt(process.env.CROSS_REQUEST_TIMEOUT_MS || '45000', 10) || 45000;
+
+const reqStats = {
+  total: 0,
+  unauthorized: 0,
+  timeouts: 0,
+  server5xx: 0,
+  networkErrors: 0,
+};
 
 function hKey(key) {
   return { 'Content-Type': 'application/json', 'X-API-Key': key };
@@ -23,15 +34,34 @@ function hJwt(token) {
 }
 
 async function j(path, opts = {}) {
-  const r = await fetch(`${API}${path}`, { ...opts, signal: AbortSignal.timeout(45_000) });
-  const t = await r.text();
-  let body;
+  reqStats.total += 1;
   try {
-    body = JSON.parse(t);
-  } catch {
-    body = { raw: t };
+    const r = await fetch(`${API}${path}`, { ...opts, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    const t = await r.text();
+    let body;
+    try {
+      body = JSON.parse(t);
+    } catch {
+      body = { raw: t };
+    }
+    if (r.status === 401) reqStats.unauthorized += 1;
+    if (r.status >= 500) reqStats.server5xx += 1;
+    return { ok: r.ok, status: r.status, body };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.toLowerCase().includes('timeout')) reqStats.timeouts += 1;
+    else reqStats.networkErrors += 1;
+    return {
+      ok: false,
+      status: 0,
+      body: {
+        error: {
+          code: message.toLowerCase().includes('timeout') ? 'FETCH_TIMEOUT' : 'FETCH_ERROR',
+          message,
+        },
+      },
+    };
   }
-  return { ok: r.ok, status: r.status, body };
 }
 
 async function tradingBalancesJwt(token) {
@@ -81,7 +111,13 @@ async function runOnce(iter, price) {
       client_order_id: cidA,
     }),
   });
-  console.log('place BUY A', placeBuy.status, placeBuy.body?.data?.status, placeBuy.body?.data?.id);
+  console.log(
+    'place BUY A',
+    placeBuy.status,
+    placeBuy.body?.data?.status,
+    placeBuy.body?.data?.id,
+    placeBuy.body?.error?.code || ''
+  );
 
   await new Promise((r) => setTimeout(r, 500));
 
@@ -99,7 +135,29 @@ async function runOnce(iter, price) {
       client_order_id: cidB,
     }),
   });
-  console.log('place SELL B', placeSell.status, placeSell.body?.data?.status, placeSell.body?.data?.id);
+  console.log(
+    'place SELL B',
+    placeSell.status,
+    placeSell.body?.data?.status,
+    placeSell.body?.data?.id,
+    placeSell.body?.error?.code || ''
+  );
+
+  // Avoid poll storms when auth/session is clearly invalid for this iteration.
+  if (placeBuy.status === 401 || placeSell.status === 401) {
+    return {
+      filled: false,
+      stuck: false,
+      tradesA: 0,
+      tradesB: 0,
+      openA: 0,
+      openB: 0,
+      buyStatus: placeBuy.status,
+      sellStatus: placeSell.status,
+      buyErrorCode: placeBuy.body?.error?.code ?? null,
+      sellErrorCode: placeSell.body?.error?.code ?? null,
+    };
+  }
 
   let filled = false;
   for (let p = 0; p < 12; p++) {
@@ -142,6 +200,10 @@ async function runOnce(iter, price) {
     tradesB: tradesB.length,
     openA: openA.body?.data?.length ?? 0,
     openB: openB.body?.data?.length ?? 0,
+    buyStatus: placeBuy.status,
+    sellStatus: placeSell.status,
+    buyErrorCode: placeBuy.body?.error?.code ?? null,
+    sellErrorCode: placeSell.body?.error?.code ?? null,
   };
 }
 
@@ -160,11 +222,26 @@ async function main() {
 
   const anyFilled = results.some((r) => r.filled);
   const anyStuck = results.some((r) => r.stuck);
+  const onlyAuthNoise =
+    !anyFilled &&
+    reqStats.unauthorized > 0 &&
+    reqStats.timeouts === 0 &&
+    reqStats.server5xx === 0 &&
+    reqStats.networkErrors === 0;
+  const summary = {
+    anyFilled,
+    anyStuck,
+    request_stats: reqStats,
+    auth_noise_only: onlyAuthNoise,
+  };
   console.log('\n=== SUMMARY ===');
   console.log(JSON.stringify(results, null, 2));
+  console.log('CROSS_TRADE_RESULT', JSON.stringify(summary));
   console.log('ANY_TRADE_FILLED', anyFilled);
   console.log('ANY_STUCK_ORDERS', anyStuck);
-  process.exit(anyFilled && !anyStuck ? 0 : 1);
+  if (anyFilled && !anyStuck) process.exit(0);
+  if (onlyAuthNoise) process.exit(AUTH_FAILURE_EXIT_CODE);
+  process.exit(GENERIC_FAILURE_EXIT_CODE);
 }
 
 main().catch((e) => {

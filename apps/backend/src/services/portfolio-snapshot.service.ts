@@ -10,33 +10,60 @@ const LOG_CAT = 'portfolio-snapshot';
 const SNAPSHOT_INTERVAL_MS = 60 * 60 * 1000;
 const PRICE_CACHE_KEY = 'portfolio:prices';
 const PRICE_CACHE_TTL = 300;
+const PRICE_LOCAL_CACHE_TTL_MS = 30_000;
 
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
+let priceLocalCache: { expiresAt: number; payload: Record<string, number> } | null = null;
+let priceRefreshInFlight: Promise<Record<string, number>> | null = null;
 
-async function fetchLatestPrices(): Promise<Record<string, number>> {
-  try {
-    const cached = await redis.get(PRICE_CACHE_KEY);
-    if (cached) return JSON.parse(cached);
-  } catch { /* ignore */ }
-
-  const prices: Record<string, number> = { USDT: 1, USDC: 1, DAI: 1 };
-  try {
-    const { rows } = await db.query<{ symbol: string; last_price: string }>(
+async function queryLatestPricesFast(): Promise<Array<{ symbol: string; last_price: string }>> {
+  const result = await db.transaction(async (client) => {
+    await client.query(`SET LOCAL statement_timeout = '2200ms'`);
+    return client.query<{ symbol: string; last_price: string }>(
       `SELECT sm.symbol,
-              COALESCE(mp.price::text, candle.close_price::text, '0') AS last_price
+              COALESCE(mp.price::text, '0') AS last_price
        FROM spot_markets sm
        LEFT JOIN LATERAL (
          SELECT mp2.price FROM market_prices mp2
          WHERE mp2.base_currency_id = sm.base_currency_id AND mp2.quote_currency_id = sm.quote_currency_id
          LIMIT 1
        ) mp ON TRUE
-       LEFT JOIN LATERAL (
-         SELECT oc.close_price FROM ohlcv_candles oc
-         JOIN trading_pairs tp2 ON tp2.id = oc.trading_pair_id
-         WHERE tp2.symbol = sm.symbol ORDER BY oc.open_time DESC LIMIT 1
-       ) candle ON TRUE
        WHERE sm.status IN ('active', 'maintenance')`
     );
+  });
+  return result.rows;
+}
+
+async function queryLatestPricesFallback(): Promise<Array<{ symbol: string; last_price: string }>> {
+  const result = await db.query<{ symbol: string; last_price: string }>(
+    `SELECT sm.symbol, COALESCE(mp.price::text, '0') AS last_price
+     FROM spot_markets sm
+     LEFT JOIN market_prices mp
+       ON mp.base_currency_id = sm.base_currency_id
+      AND mp.quote_currency_id = sm.quote_currency_id
+     WHERE sm.status IN ('active', 'maintenance')`
+  );
+  return result.rows;
+}
+
+async function fetchLatestPrices(): Promise<Record<string, number>> {
+  const now = Date.now();
+  if (priceLocalCache && priceLocalCache.expiresAt > now) return priceLocalCache.payload;
+  if (priceRefreshInFlight) return priceRefreshInFlight;
+
+  priceRefreshInFlight = (async () => {
+  try {
+    const cached = await redis.get(PRICE_CACHE_KEY);
+    if (cached) {
+      const parsed = JSON.parse(cached) as Record<string, number>;
+      priceLocalCache = { expiresAt: Date.now() + PRICE_LOCAL_CACHE_TTL_MS, payload: parsed };
+      return parsed;
+    }
+  } catch { /* ignore */ }
+
+  const prices: Record<string, number> = { USDT: 1, USDC: 1, DAI: 1 };
+  try {
+    const rows = await queryLatestPricesFast().catch(() => queryLatestPricesFallback());
     for (const r of rows) {
       const base = r.symbol.split('_')[0];
       if (base) prices[base] = parseFloat(r.last_price) || 0;
@@ -49,7 +76,13 @@ async function fetchLatestPrices(): Promise<Record<string, number>> {
     await redis.set(PRICE_CACHE_KEY, JSON.stringify(prices), PRICE_CACHE_TTL);
   } catch { /* ignore */ }
 
+  priceLocalCache = { expiresAt: Date.now() + PRICE_LOCAL_CACHE_TTL_MS, payload: prices };
   return prices;
+  })().finally(() => {
+    priceRefreshInFlight = null;
+  });
+
+  return priceRefreshInFlight;
 }
 
 async function takeSnapshotsForActiveUsers(): Promise<number> {

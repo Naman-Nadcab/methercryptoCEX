@@ -394,7 +394,7 @@ export default function AnnouncementsPage() {
             </div>
             <h3 className="mb-1 text-center text-sm font-semibold text-admin-text">Delete Announcement</h3>
             <p className="mb-2 text-center text-xs text-admin-muted">
-              Delete <span className="font-semibold text-admin-text">"{deleteTarget.title}"</span>?
+              Delete <span className="font-semibold text-admin-text">&quot;{deleteTarget.title}&quot;</span>?
             </p>
             {deleteTarget.is_published && (
               <div className="mb-4 flex items-center gap-2 rounded-lg border border-amber-500/20 bg-amber-950/10 px-3 py-2 text-xs text-amber-400">

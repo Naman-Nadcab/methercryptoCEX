@@ -13,21 +13,13 @@ export ENCRYPTION_KEY="${ENCRYPTION_KEY:-01234567890123456789012345678901}"
 export SESSION_SECRET="${SESSION_SECRET:-dev-session-secret-32-chars-minimum-here}"
 export CSRF_SECRET="${CSRF_SECRET:-dev-csrf-secret-key-32-chars-minimum-here-}"
 export NODE_ENV="${NODE_ENV:-development}"
-# Avoid clashing with an existing dev server on :4000 — bind an ephemeral verify port when needed.
+# Avoid spawning duplicate API workers. If :4000 already has a running API, reuse it for verification.
 export PORT="${PORT:-4000}"
+USE_EXISTING_API=0
 if command -v lsof >/dev/null 2>&1; then
   if lsof -iTCP:"${PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
-    found=""
-    for p in $(seq 4010 4050); do
-      if ! lsof -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1; then found=$p; break; fi
-    done
-    if [[ -n "${found}" ]]; then
-      echo "Port ${PORT} already in use; using PORT=${found} for this verify run"
-      export PORT="${found}"
-    else
-      echo "ERROR: Port ${PORT} is in use and no free port in 4010-4050. Stop the other process or set PORT=." >&2
-      exit 1
-    fi
+    echo "Port ${PORT} already in use; reusing existing API process for verification"
+    USE_EXISTING_API=1
   fi
 fi
 # Lighter boot: no RabbitMQ consumers; still serves HTTP + spot routes
@@ -38,13 +30,18 @@ if [[ ! -f apps/backend/dist/server.js ]]; then
   npm run build --workspace=@exchange/backend
 fi
 
-echo "Starting API on port ${PORT} (background, EXCHANGE_VERIFY_STACK=1 skips Tier-1 engine wait)..."
-EXCHANGE_VERIFY_STACK=1 EXCHANGE_DEV_STACK_BOOT=1 node apps/backend/dist/server.js &
-API_PID=$!
+API_PID=""
+if [[ "${USE_EXISTING_API}" != 1 ]]; then
+  echo "Starting API on port ${PORT} (background, EXCHANGE_VERIFY_STACK=1 skips Tier-1 engine wait)..."
+  EXCHANGE_VERIFY_STACK=1 EXCHANGE_DEV_STACK_BOOT=1 node apps/backend/dist/server.js &
+  API_PID=$!
+fi
 
 cleanup() {
-  kill "${API_PID}" 2>/dev/null || true
-  wait "${API_PID}" 2>/dev/null || true
+  if [[ -n "${API_PID}" ]]; then
+    kill "${API_PID}" 2>/dev/null || true
+    wait "${API_PID}" 2>/dev/null || true
+  fi
 }
 trap cleanup EXIT
 
@@ -54,7 +51,7 @@ for _ in $(seq 1 180); do
     ok=1
     break
   fi
-  if ! kill -0 "${API_PID}" 2>/dev/null; then
+  if [[ -n "${API_PID}" ]] && ! kill -0 "${API_PID}" 2>/dev/null; then
     echo "ERROR: backend process died before /health/live"
     exit 1
   fi

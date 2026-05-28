@@ -183,12 +183,27 @@ export default function DashboardPage() {
   const [referralPreview, setReferralPreview] = useState<ReferralRailPreview | null>(null);
   const [feePreview, setFeePreview] = useState<FeeRailPreview | null>(null);
   const [p2pPreview, setP2pPreview] = useState<P2PRailPreview | null>(null);
+  // Defer non-critical dashboard data so first paint feels snappier.
+  const [deferSecondaryLoads, setDeferSecondaryLoads] = useState(false);
+  // Defer heavy panel rendering/fetch for faster initial dashboard open.
+  const [deferHeavyPanels, setDeferHeavyPanels] = useState(false);
 
   const progressDone = EXCHANGE_PROGRESS_STEPS.filter((s) => s.status === 'done').length;
   const progressTotal = EXCHANGE_PROGRESS_STEPS.length;
   const progressPct = progressTotal > 0 ? Math.round((progressDone / progressTotal) * 100) : 0;
 
   useEffect(() => {
+    const t = window.setTimeout(() => setDeferSecondaryLoads(true), 700);
+    return () => window.clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDeferHeavyPanels(true), 450);
+    return () => window.clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
+    if (!deferSecondaryLoads) return;
     let cancelled = false;
     setAnnouncementsLoading(true);
     setAnnouncementsError(null);
@@ -222,9 +237,10 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [accessToken]);
+  }, [accessToken, deferSecondaryLoads]);
 
   useEffect(() => {
+    if (!deferHeavyPanels) return;
     let cancelled = false;
     const url = getApiBaseUrl();
     setMarketsLoading(true);
@@ -266,9 +282,10 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [deferHeavyPanels]);
 
   useEffect(() => {
+    if (!deferSecondaryLoads) return;
     if (!accessToken) return;
     fetch(`${getApiBaseUrl()}/api/v1/wallet/kyc-status`, { headers: { Authorization: `Bearer ${accessToken}` } })
       .then((res) => res.json())
@@ -276,10 +293,11 @@ export default function DashboardPage() {
         if (data?.success) setKycVerified(!!data.data?.verified);
       })
       .catch(() => setKycVerified(false));
-  }, [accessToken]);
+  }, [accessToken, deferSecondaryLoads]);
 
   // Right-rail cards: lightweight previews (same APIs as destination pages)
   useEffect(() => {
+    if (!deferSecondaryLoads) return;
     if (!_hasHydrated) return;
 
     if (!accessToken) {
@@ -421,7 +439,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [_hasHydrated, accessToken, user?.id]);
+  }, [_hasHydrated, accessToken, user?.id, deferSecondaryLoads]);
 
   const marketTabs = [
     { id: 'favorites', label: 'Favorites', icon: Star },
@@ -1331,6 +1349,25 @@ export default function DashboardPage() {
 
           {/* Right rail */}
           <div className="grid shrink-0 grid-cols-2 gap-3 xl:w-80 xl:grid-cols-1 xl:gap-4">
+            {!deferHeavyPanels ? (
+              <>
+                {[0, 1, 2, 3].map((i) => (
+                  <div
+                    key={`rail-skeleton-${i}`}
+                    className="min-h-[268px] rounded-xl border border-border bg-card p-4 shadow-sm sm:min-h-[280px] sm:p-5"
+                  >
+                    <div className="h-10 w-10 animate-pulse rounded-xl bg-muted" />
+                    <div className="mt-3 space-y-2">
+                      <div className="h-4 w-28 animate-pulse rounded bg-muted" />
+                      <div className="h-3 w-40 animate-pulse rounded bg-muted" />
+                    </div>
+                    <div className="mt-4 h-[148px] animate-pulse rounded-xl border border-border bg-muted/40" />
+                    <div className="mt-3 h-3 w-24 animate-pulse rounded bg-muted" />
+                  </div>
+                ))}
+              </>
+            ) : (
+              <>
             <Link
               href="/dashboard/help"
               className="group relative flex min-h-[268px] flex-col overflow-hidden rounded-xl border border-border bg-card p-4 shadow-sm transition hover:border-primary/30 sm:min-h-[280px] sm:p-5"
@@ -1543,6 +1580,8 @@ export default function DashboardPage() {
                 </div>
               )}
             </Link>
+              </>
+            )}
           </div>
         </div>
       </DashboardPageShell>

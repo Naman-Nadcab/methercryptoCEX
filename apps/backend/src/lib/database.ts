@@ -21,7 +21,9 @@ const SLOW_QUERY_SAMPLE_RATE = 0.01;
 const DB_IDLE_TIMEOUT_MS = Number(process.env.DB_IDLE_TIMEOUT_MS ?? 20_000);
 const DB_CONNECTION_TIMEOUT_MS = Number(process.env.DB_CONNECTION_TIMEOUT_MS ?? 8_000);
 const DB_STATEMENT_TIMEOUT_MS = Number(process.env.DB_STATEMENT_TIMEOUT_MS ?? 20_000);
+const DB_IDLE_IN_TXN_TIMEOUT_MS = Number(process.env.DB_IDLE_IN_TXN_TIMEOUT_MS ?? 15_000);
 const DB_MAX_USES = Number(process.env.DB_MAX_USES ?? 7_500);
+const DB_APPLICATION_NAME = process.env.DB_APPLICATION_NAME?.trim() || 'exchange-api';
 
 type SlowQueryStats = { samples: number[]; lastWarnAt: number };
 const slowQueryStats = new Map<string, SlowQueryStats>();
@@ -89,8 +91,9 @@ class Database {
       idleTimeoutMillis: DB_IDLE_TIMEOUT_MS,
       connectionTimeoutMillis: DB_CONNECTION_TIMEOUT_MS,
       statement_timeout: DB_STATEMENT_TIMEOUT_MS,
+      idle_in_transaction_session_timeout: DB_IDLE_IN_TXN_TIMEOUT_MS,
       maxUses: DB_MAX_USES,
-      application_name: 'exchange-api',
+      application_name: DB_APPLICATION_NAME,
       ...(sslConfig && { ssl: sslConfig }),
     });
 
@@ -114,7 +117,9 @@ class Database {
         idleTimeoutMillis: DB_IDLE_TIMEOUT_MS,
         connectionTimeoutMillis: Math.min(DB_CONNECTION_TIMEOUT_MS, 8_000),
         statement_timeout: DB_STATEMENT_TIMEOUT_MS,
+        idle_in_transaction_session_timeout: DB_IDLE_IN_TXN_TIMEOUT_MS,
         maxUses: DB_MAX_USES,
+        application_name: `${DB_APPLICATION_NAME}-read`,
         ...(readSsl && { ssl: readSsl }),
       });
     }

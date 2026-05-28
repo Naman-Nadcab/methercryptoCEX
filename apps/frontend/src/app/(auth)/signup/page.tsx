@@ -7,7 +7,6 @@ import { ExternalLink, Loader2, Mail, Smartphone } from 'lucide-react';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { useAuthStore, type User } from '@/store/auth';
 import { useAuth } from '@/context/AuthContext';
-import { initiateGoogleLogin } from '@/lib/oauth';
 import AuthSplitLayout from '@/components/auth/AuthSplitLayout';
 
 type Step = 'choose' | 'email' | 'otp' | 'password';
@@ -135,6 +134,7 @@ export default function SignupPage() {
     if (!terms) return setError('Accept Terms & Privacy to continue');
     setError('');
     try {
+      const { initiateGoogleLogin } = await import('@/lib/oauth');
       await initiateGoogleLogin(searchParams.get('redirect') ?? undefined);
     } catch {
       setError('Google sign-in failed');

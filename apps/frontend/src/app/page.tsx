@@ -307,6 +307,12 @@ export default function HomePage() {
   const { accessToken, _hasHydrated } = useAuthStore();
   const spotHref = _hasHydrated && accessToken ? SPOT_TRADE_HREF : ROUTES.spotLegacy;
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [renderExtendedContent, setRenderExtendedContent] = useState(false);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setRenderExtendedContent(true), 450);
+    return () => window.clearTimeout(t);
+  }, []);
 
   const features = useMemo(() => [
     {
@@ -555,6 +561,8 @@ export default function HomePage() {
         </div>
       </section>
 
+      {renderExtendedContent ? (
+        <>
       {/* ─── Built for Every Trader ─── */}
       <RevealSection className="border-b border-border/60 bg-card/40 px-4 py-20 sm:py-24 lg:px-8">
         <div className="container mx-auto max-w-[1400px]">
@@ -878,6 +886,19 @@ export default function HomePage() {
           </div>
         </div>
       </RevealSection>
+        </>
+      ) : (
+        <section className="border-b border-border/60 bg-card/30 px-4 py-16 sm:py-20 lg:px-8">
+          <div className="container mx-auto max-w-[1400px]">
+            <div className="mb-6 h-7 w-52 animate-pulse rounded-lg bg-muted/60" />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="h-28 animate-pulse rounded-2xl border border-border/50 bg-card/60" />
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* ─── Footer ─── */}
       <footer className="border-t border-border/60 bg-background px-4 py-14 lg:px-8 lg:py-16">

@@ -525,7 +525,7 @@ function RemovePairModal({
           <div className="rounded-lg border border-admin-border/60 bg-white/[0.02] p-3 text-sm text-admin-text space-y-1">
             <p>Pair: <span className="font-mono font-bold">{symbol}</span></p>
             {isEnvPair ? (
-              <p className="text-amber-400 text-xs">⚠ This is an env-defined pair. Removing the runtime override means the bot will continue with <strong>env defaults</strong>. To fully stop it, use "Pause Pair" instead.</p>
+              <p className="text-amber-400 text-xs">⚠ This is an env-defined pair. Removing the runtime override means the bot will continue with <strong>env defaults</strong>. To fully stop it, use &quot;Pause Pair&quot; instead.</p>
             ) : (
               <p className="text-red-400 text-xs">This runtime pair will be removed from memory and database. The bot will stop managing this market.</p>
             )}

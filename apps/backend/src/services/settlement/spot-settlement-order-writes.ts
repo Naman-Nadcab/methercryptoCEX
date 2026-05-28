@@ -29,8 +29,8 @@ export async function updateSpotOrdersFilledAfterMatch(
     : `UPDATE spot_orders SET filled_quantity = filled_quantity + $1::numeric,
          remaining_quantity = GREATEST(0::numeric, COALESCE(remaining_quantity, quantity)::numeric - $1::numeric),
          status = CASE
-           WHEN (quantity::numeric - filled_quantity::numeric - $1::numeric) <= 0 THEN 'filled'::order_status
-           ELSE 'partially_filled'::order_status
+           WHEN (quantity::numeric - filled_quantity::numeric - $1::numeric) <= 0 THEN 'filled'
+           ELSE 'partially_filled'
          END, updated_at = NOW() WHERE id = $2::uuid`;
   const r1 = await client.query(sql, [fillQty, takerOrderId]);
   if ((r1.rowCount ?? 0) === 0) throw new Error('ORDER_INVARIANT_VIOLATION');

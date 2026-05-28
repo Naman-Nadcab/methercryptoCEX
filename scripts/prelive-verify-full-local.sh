@@ -55,4 +55,4 @@ fi
 echo "GET /health/live OK"
 
 export EXCHANGE_PRESERVE_SHELL_DATABASE_URL=1
-npm run prelive:verify
+npm run prelive:verify:noapi

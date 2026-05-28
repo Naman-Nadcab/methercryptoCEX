@@ -22,6 +22,7 @@ info() { echo -e "${CYAN}==>${NC} $*"; }
 export DATABASE_URL="${DATABASE_URL:-postgresql://exchange:exchange_secret@127.0.0.1:5432/exchange}"
 export REDIS_URL="${REDIS_URL:-redis://127.0.0.1:6379}"
 export RABBITMQ_URL="${RABBITMQ_URL:-amqp://exchange:exchange_secret@127.0.0.1:5672}"
+export EXCHANGE_PRESERVE_SHELL_DATABASE_URL="${EXCHANGE_PRESERVE_SHELL_DATABASE_URL:-1}"
 
 P0_APPLY_MIGRATIONS="${P0_APPLY_MIGRATIONS:-1}"
 P0_BUILD_BACKEND="${P0_BUILD_BACKEND:-0}"
@@ -99,7 +100,18 @@ fi
 
 if [[ "${P0_APPLY_MIGRATIONS}" == "1" ]]; then
   info "P0 — 7) DB migrations (DATABASE_URL from env; local default = Docker exchange DB)"
-  npm run db:migrate
+  ok_migrate=0
+  for i in 1 2 3; do
+    if npm run db:migrate; then
+      ok_migrate=1
+      break
+    fi
+    warn "db:migrate failed; retry ${i}/3"
+    sleep $((i * 2))
+  done
+  if [[ "${ok_migrate}" != "1" ]]; then
+    fail "db:migrate failed after retries"
+  fi
   ok "Migrations finished"
 else
   warn "Skipped db:migrate (P0_APPLY_MIGRATIONS!=1)"

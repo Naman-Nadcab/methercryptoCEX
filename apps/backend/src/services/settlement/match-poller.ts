@@ -44,15 +44,17 @@ export async function reconcilePollCursorIfEngineBehind(
   engineLastId: number
 ): Promise<boolean> {
   if (!(engineLastId > 0 && engineLastId < dbAfterId)) return false;
+  const rewindAfterId = 0;
   await db.query(
     `INSERT INTO settlement_engine_poll_cursor (engine_id, last_after_id) VALUES ($1, $2)
      ON CONFLICT (engine_id) DO UPDATE SET last_after_id = EXCLUDED.last_after_id`,
-    [engineId, engineLastId]
+    [engineId, rewindAfterId]
   );
   logger.warn('settlement_engine_poll_cursor reconciled down (engine max id behind DB cursor)', {
     engineId,
     dbAfterId,
     engineLastId,
+    rewoundTo: rewindAfterId,
   });
   return true;
 }
@@ -75,7 +77,7 @@ async function pollOneEngine(inst: { id: string; baseUrl: string }): Promise<boo
     if (events.length === 0 && last_id > 0 && last_id < afterId) {
       const fixed = await reconcilePollCursorIfEngineBehind(inst.id, afterId, last_id);
       if (fixed) {
-        afterId = last_id;
+        afterId = 0;
         ({ last_id, events } = await fetchMatchesForEngine(inst.baseUrl, afterId, inst.id));
       }
     }

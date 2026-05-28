@@ -534,7 +534,7 @@ const envSchema = z.object({
   SIGNING_SERVICE_MTLS_CERT_PATH: z.string().optional().transform((v) => (v ?? '').trim() || undefined),
   SIGNING_SERVICE_MTLS_KEY_PATH: z.string().optional().transform((v) => (v ?? '').trim() || undefined),
 
-  PUBLIC_API_FASTIFY_RATE_LIMIT_MAX: z.coerce.number().min(10).max(100_000).default(10000),
+  PUBLIC_API_FASTIFY_RATE_LIMIT_MAX: z.coerce.number().min(10).max(100_000).default(60000),
   PUBLIC_API_REDIS_RATE_ENABLED: z.string().transform((v) => v !== 'false' && v !== '0').default('true'),
   PUBLIC_API_REDIS_RATE_IP_MAX: z.coerce.number().min(1).max(50_000).default(400),
   PUBLIC_API_REDIS_RATE_IP_WINDOW_SEC: z.coerce.number().min(1).max(3600).default(60),

@@ -10,10 +10,26 @@ import 'dotenv/config';
 import { db } from '../src/lib/database.js';
 import { assertZeroPendingSettlement } from './tier1-pending-settlement-gate.js';
 
+async function queryWithRetry<T>(pool: ReturnType<typeof db.getPool>, sql: string): Promise<{ rows: T[] }> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return (await pool.query<T>(sql)) as { rows: T[] };
+    } catch (e) {
+      lastErr = e;
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+      }
+    }
+  }
+  throw lastErr;
+}
+
 async function main(): Promise<void> {
   const pool = db.getPool();
 
-  const mismatch = await pool.query<{ n: string }>(
+  const mismatch = await queryWithRetry<{ n: string }>(
+    pool,
     `WITH ledger_sums AS (
        SELECT user_id, currency_id,
          COALESCE(SUM(CASE WHEN balance_type = 'available' THEN credit::numeric - debit::numeric ELSE 0 END), 0) AS avail_sum,
@@ -34,7 +50,8 @@ async function main(): Promise<void> {
   const mc = mismatch.rows[0]?.n ?? '?';
   console.log('trading_balance_mismatch_count', mc);
 
-  const chain = await pool.query<{ broken: string }>(
+  const chain = await queryWithRetry<{ broken: string }>(
+    pool,
     `WITH ordered AS (
        SELECT id, prev_hash, entry_hash,
          LAG(entry_hash) OVER (ORDER BY id) AS expected_prev
@@ -47,7 +64,8 @@ async function main(): Promise<void> {
   const br = chain.rows[0]?.broken ?? '?';
   console.log('settlement_ledger_chain_breaks', br);
 
-  const pending = await pool.query<{ n: string }>(
+  const pending = await queryWithRetry<{ n: string }>(
+    pool,
     `SELECT count(*)::text AS n FROM settlement_events WHERE LOWER(TRIM(status::text)) = 'pending'`
   );
   const pend = pending.rows[0]?.n ?? '?';
@@ -69,14 +87,25 @@ async function main(): Promise<void> {
 
   const base = (process.env.E2E_BASE_URL || 'http://127.0.0.1:4000').replace(/\/$/, '');
   const url = `${base}/api/v1/p2p/ads`;
-  const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(), 15_000);
-  let res: Response;
-  try {
-    res = await fetch(url, { signal: ac.signal });
-  } catch (e) {
-    clearTimeout(t);
-    const msg = e instanceof Error ? e.message : String(e);
+  let res: Response | null = null;
+  let lastFetchErr: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), 15_000);
+    try {
+      res = await fetch(url, { signal: ac.signal });
+      clearTimeout(t);
+      break;
+    } catch (e) {
+      clearTimeout(t);
+      lastFetchErr = e;
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+      }
+    }
+  }
+  if (!res) {
+    const msg = lastFetchErr instanceof Error ? lastFetchErr.message : String(lastFetchErr);
     if (process.env.TIER1_HTTP_FAIL_OPEN === '1') {
       console.warn('[phase2] p2p fetch failed; continuing (TIER1_HTTP_FAIL_OPEN=1)', msg);
       console.log('TIER1_PHASE2_VERIFY_OK');
@@ -85,7 +114,6 @@ async function main(): Promise<void> {
     console.error('TIER1_PHASE2_FAIL: p2p fetch', msg);
     process.exit(1);
   }
-  clearTimeout(t);
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     console.error('TIER1_PHASE2_FAIL: GET /api/v1/p2p/ads', res.status, body.slice(0, 200));
