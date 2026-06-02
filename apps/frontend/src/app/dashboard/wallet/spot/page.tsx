@@ -27,6 +27,7 @@ import { CoinIcon } from '@/components/ui/CoinIcon';
 import { useBalancesSpot } from '@/lib/balances';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
+import { useDisplayCurrency } from '@/context/DisplayCurrencyProvider';
 
 const COIN_NAMES: Record<string, string> = {
   BTC: 'Bitcoin', ETH: 'Ethereum', BNB: 'BNB', SOL: 'Solana',
@@ -58,10 +59,6 @@ interface SpotTickerRow {
 function parseNum(v: string | null | undefined): number {
   const n = parseFloat(v ?? '');
   return Number.isFinite(n) ? n : 0;
-}
-
-function formatUsd(n: number): string {
-  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function balFmt(val: string): string {
@@ -105,6 +102,7 @@ function RowActions({ asset }: { asset: string }) {
 
 export default function SpotWalletPage() {
   const { accessToken, _hasHydrated } = useAuthStore();
+  const { displayCurrency, formatFromUsdt } = useDisplayCurrency();
   const {
     data: balances = [],
     isLoading: loading,
@@ -223,7 +221,7 @@ export default function SpotWalletPage() {
   const rangeEnd = Math.min(page * PAGE_SIZE, totalFiltered);
 
   const maskBal = (s: string) => (balanceHidden ? '••••••' : balFmt(s));
-  const maskUsd = (n: number) => (balanceHidden ? '••••••' : `$${formatUsd(n)}`);
+  const maskUsd = (n: number) => (balanceHidden ? '••••••' : formatFromUsdt(n, 2));
 
   return (
     <div className="mx-auto min-h-screen max-w-[1400px] bg-background px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
@@ -281,7 +279,7 @@ export default function SpotWalletPage() {
             </div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Estimated total</p>
-              <p className="text-xs text-muted-foreground/90">Spot wallet (USD)</p>
+              <p className="text-xs text-muted-foreground/90">Spot wallet ({displayCurrency})</p>
             </div>
           </div>
           <p className="numeric text-3xl font-bold tracking-tight text-foreground">
@@ -356,7 +354,7 @@ export default function SpotWalletPage() {
                 onChange={(e) => setHideSmall(e.target.checked)}
                 className="h-4 w-4 rounded border-border accent-primary"
               />
-              {`Hide small balances (under $${SMALL_BALANCE_THRESHOLD_USD} USD)`}
+              {`Hide small balances (under ${formatFromUsdt(SMALL_BALANCE_THRESHOLD_USD, 0)})`}
             </label>
             {!loading && totalFiltered > 0 ? (
               <span className="text-xs text-muted-foreground">
@@ -374,7 +372,7 @@ export default function SpotWalletPage() {
                 <SortableHeader label="Total balance" sortKey="balance" current={sortKey} dir={sortDir} onSort={toggleSort} align="right" />
                 <SortableHeader label="Available" sortKey="available" current={sortKey} dir={sortDir} onSort={toggleSort} align="right" />
                 <SortableHeader label="In order" sortKey="locked" current={sortKey} dir={sortDir} onSort={toggleSort} align="right" />
-                <SortableHeader label="USD value" sortKey="usdValue" current={sortKey} dir={sortDir} onSort={toggleSort} align="right" />
+                <SortableHeader label={`${displayCurrency} value`} sortKey="usdValue" current={sortKey} dir={sortDir} onSort={toggleSort} align="right" />
                 <th scope="col" className="sticky top-0 z-20 bg-muted/95 px-4 py-3.5 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground shadow-[0_1px_0_0_hsl(var(--border))] backdrop-blur-sm first:pl-6 last:pr-6">
                   Actions
                 </th>
@@ -459,7 +457,7 @@ export default function SpotWalletPage() {
                         </span>
                       </td>
                       <td className="numeric px-5 py-4 text-right align-middle text-sm font-medium text-foreground">
-                        {balanceHidden ? '••••••' : `$${formatUsd(usd)}`}
+                        {balanceHidden ? '••••••' : formatFromUsdt(usd, 2)}
                       </td>
                       <td className="px-4 py-3 pr-6 text-right align-middle">
                         <RowActions asset={row.asset} />
@@ -486,7 +484,7 @@ export default function SpotWalletPage() {
                 <span className="mt-1 block text-xs text-muted-foreground sm:mt-0 sm:inline sm:text-sm">
                   Portfolio total:{' '}
                   <span className="numeric font-semibold text-foreground">
-                    {balanceHidden ? '••••••' : `$${formatUsd(totalEquityUsd)}`}
+                    {balanceHidden ? '••••••' : formatFromUsdt(totalEquityUsd, 2)}
                   </span>
                 </span>
               </p>

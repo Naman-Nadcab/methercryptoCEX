@@ -17,6 +17,7 @@ import {
 import type { SpotWsStreamPhase } from '@/hooks/useSpotWs';
 import { formatCompactNumber, formatValueFixedTrim } from './terminalFormat';
 import { CoinIcon } from '@/components/ui/CoinIcon';
+import { useDisplayCurrency } from '@/context/DisplayCurrencyProvider';
 
 type Market = { symbol: string; base_asset: string; quote_asset: string };
 
@@ -44,28 +45,33 @@ interface PairHeaderProps {
   onToggleFavorite?: (symbol: string) => void;
   tierLevel?: number;
   embedded?: boolean;
+  marketStatus?: string | null;
 }
 
 function MiniStat({
   label,
   children,
   className = '',
+  valueClassName = '',
   title: titleAttr,
 }: {
   label: string;
   children: ReactNode;
   className?: string;
+  valueClassName?: string;
   title?: string;
 }) {
   return (
     <div
-      className={`flex min-w-0 max-w-full flex-col items-center justify-center gap-px px-1.5 py-0 sm:px-2 ${className}`}
+      className={`flex min-w-0 max-w-full flex-col items-center justify-center gap-0 px-0.5 py-0 ${className}`}
       title={titleAttr}
     >
-      <span className="w-full truncate text-center text-label font-semibold uppercase leading-tight tracking-wide text-muted-foreground">
+      <span className="w-full truncate text-center text-[9px] font-semibold uppercase leading-none tracking-[0.04em] text-muted-foreground">
         {label}
       </span>
-      <div className="numeric w-full min-w-0 truncate text-center text-price font-semibold leading-tight text-foreground">
+      <div
+        className={`numeric w-full min-w-0 truncate text-center text-[11px] font-semibold leading-tight text-foreground ${valueClassName}`}
+      >
         {children}
       </div>
     </div>
@@ -95,10 +101,12 @@ export function PairHeader({
   onToggleFavorite,
   tierLevel,
   embedded = false,
+  marketStatus,
 }: PairHeaderProps) {
   const sym = symbol ?? 'BTC_USDT';
   const base = baseAsset ?? 'BTC';
   const quote = quoteAsset ?? 'USDT';
+  const { displayCurrency, formatFromUsdt } = useDisplayCurrency();
   const mkt = markets ?? [];
   const pairLabel = base && quote ? `${base}/${quote}` : sym;
   const onChange = onSymbolChange ?? (() => {});
@@ -144,13 +152,18 @@ export function PairHeader({
   const lastDisplay = !hasLastTrade
     ? NO_TRADES_ACTIONABLE
     : quote === 'USDT'
-      ? `$${formatValueFixedTrim(lastPrice, pricePrecision)}`
+      ? formatFromUsdt(Number(lastPrice), pricePrecision)
       : formatValueFixedTrim(lastPrice, pricePrecision);
 
-  const lastSub =
-    lastPriceUsd != null && lastPriceUsd !== '' && quote !== 'USDT'
-      ? `≈ ${formatValueFixedTrim(lastPriceUsd, pricePrecision)} USDT`
-      : undefined;
+  const lastSub = (() => {
+    if (quote === 'USDT') {
+      if (displayCurrency === 'INR' && hasLastTrade) {
+        return `≈ ${formatValueFixedTrim(lastPrice, pricePrecision)} USDT`;
+      }
+      return undefined;
+    }
+    return lastPriceUsd != null && lastPriceUsd !== '' ? `≈ ${formatValueFixedTrim(lastPriceUsd, pricePrecision)} USDT` : undefined;
+  })();
 
   const changeColor =
     changeTone === 'none'
@@ -193,6 +206,8 @@ export function PairHeader({
         : phaseForBadge === 'reconnecting'
           ? 'Reconnecting to market stream'
           : 'Connecting to market stream';
+  const normalizedStatus = String(marketStatus ?? 'ACTIVE').toUpperCase();
+  const marketStatusLabel = normalizedStatus === 'ACTIVE' ? 'Market Open' : `Status: ${normalizedStatus}`;
 
   return (
     <header
@@ -200,13 +215,13 @@ export function PairHeader({
         embedded ? 'rounded-t-lg' : ''
       }`}
     >
-      <div className="flex h-full shrink-0 items-center gap-1 border-r border-border bg-muted/40 px-1.5 dark:bg-muted/30 sm:gap-1.5 sm:px-2">
+      <div className="flex h-full shrink-0 items-center gap-1 border-r border-border bg-muted/35 px-1.5 dark:bg-muted/30 sm:gap-1 sm:px-1.5">
         <CoinIcon symbol={base} size={22} />
         {mkt.length > 1 ? (
           <select
             value={sym}
             onChange={(e) => onChange(e.target.value)}
-            className="numeric h-7 max-w-[7.5rem] min-w-0 shrink cursor-pointer truncate rounded border border-border bg-card py-0 pl-1.5 pr-6 text-book font-bold leading-7 text-foreground shadow-sm outline-none focus:ring-1 focus:ring-primary/30 sm:max-w-[9.5rem]"
+            className="numeric h-6 max-w-[8rem] min-w-0 shrink cursor-pointer truncate rounded border border-border bg-card py-0 pl-1.5 pr-6 text-book font-bold leading-6 text-foreground shadow-sm outline-none focus:ring-1 focus:ring-primary/30 sm:h-6 sm:max-w-[8.75rem] sm:pl-1.5 sm:pr-6 sm:leading-6"
           >
             {mkt.map((m) => (
               <option key={m.symbol} value={m.symbol}>
@@ -219,14 +234,14 @@ export function PairHeader({
             {pairLabel}
           </span>
         )}
-        <span className="inline-flex h-5 shrink-0 items-center rounded border border-border bg-muted px-1 text-label font-bold uppercase text-muted-foreground">
+        <span className="inline-flex h-4 shrink-0 items-center rounded border border-border bg-muted px-1 text-[10px] font-bold uppercase text-muted-foreground sm:h-4 sm:px-1">
           Spot
         </span>
         {onToggleFavorite && sym && (
           <button
             type="button"
             onClick={() => onToggleFavorite(sym)}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-primary"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-primary sm:h-6 sm:w-6"
             title={isFavorite?.(sym) ? 'Remove from favorites' : 'Add to favorites'}
             aria-label="Toggle favorite"
           >
@@ -243,7 +258,7 @@ export function PairHeader({
         )}
         {showStreamBadge && (
           <span
-            className="inline-flex h-5 shrink-0 items-center gap-1 rounded border border-border bg-muted px-1 text-label font-bold uppercase text-muted-foreground"
+            className="inline-flex h-4 shrink-0 items-center gap-1 rounded border border-border bg-muted px-1 text-[9px] font-bold uppercase text-muted-foreground sm:h-4 sm:px-1"
             title={streamTitle}
           >
             <span className={`h-1 w-1 shrink-0 rounded-full ${streamDotClass}`} aria-hidden />
@@ -255,21 +270,31 @@ export function PairHeader({
             </span>
           </span>
         )}
+        <span className="terminal-trust-pill inline-flex h-4 shrink-0 items-center rounded px-1" title="Secure trading environment">
+          Secure
+        </span>
+        <span className="terminal-trust-pill hidden h-4 shrink-0 items-center rounded px-1 lg:inline-flex" title="Market status">
+          {marketStatusLabel}
+        </span>
       </div>
 
       {/* Content-sized columns, centered; dividers only between stats */}
-      <div className="flex min-w-0 flex-1 items-stretch justify-evenly divide-x divide-border px-0.5 sm:px-1">
-        <MiniStat label="Last" title={lastSub ?? TOOLTIP_LAST_PRICE}>
+      <div className="flex min-w-0 flex-1 items-stretch justify-evenly divide-x divide-border px-0.5">
+        <MiniStat label="Last Price" title={lastSub ?? TOOLTIP_LAST_PRICE} valueClassName="text-[20px] font-bold leading-none tracking-tight">
           <span className={`font-bold ${hasLastTrade ? lastColor : 'text-muted-foreground'}`}>{lastDisplay}</span>
         </MiniStat>
-        <MiniStat label="24h" title={officialChangePct != null ? TOOLTIP_24H_CHANGE : TOOLTIP_CHANGE_UNAVAILABLE}>
+        <MiniStat
+          label="24h Change"
+          title={officialChangePct != null ? TOOLTIP_24H_CHANGE : TOOLTIP_CHANGE_UNAVAILABLE}
+          valueClassName="text-[13px] font-semibold"
+        >
           <span className={`${changeColor} max-w-[4.5rem] truncate sm:max-w-none`}>
             {officialChangePct != null
               ? `${officialChangePct > 0 ? '+' : ''}${officialChangePct.toFixed(2)}%`
               : '—'}
           </span>
         </MiniStat>
-        <MiniStat label="High" title={TOOLTIP_24H_HIGH}>
+        <MiniStat label="24h High" title={TOOLTIP_24H_HIGH} valueClassName="text-[11px]">
           <span className="max-w-[3.5rem] truncate sm:max-w-none">
             {(() => {
               const s = formatValueFixedTrim(high24h, pricePrecision);
@@ -277,7 +302,7 @@ export function PairHeader({
             })()}
           </span>
         </MiniStat>
-        <MiniStat label="Low" title={TOOLTIP_24H_LOW}>
+        <MiniStat label="24h Low" title={TOOLTIP_24H_LOW} valueClassName="text-[11px]">
           <span className="max-w-[3.5rem] truncate sm:max-w-none">
             {(() => {
               const s = formatValueFixedTrim(low24h, pricePrecision);
@@ -285,7 +310,7 @@ export function PairHeader({
             })()}
           </span>
         </MiniStat>
-        <MiniStat label={`V·${base.slice(0, 4)}`} title={TOOLTIP_BASE_VOLUME_24H}>
+        <MiniStat label={`Volume (${base.slice(0, 4)})`} title={TOOLTIP_BASE_VOLUME_24H} valueClassName="text-[11px]">
           <span className="max-w-[3rem] truncate sm:max-w-none">
             {(() => {
               const s = formatCompactNumber(volume24h);
@@ -293,7 +318,7 @@ export function PairHeader({
             })()}
           </span>
         </MiniStat>
-        <MiniStat label={`T·${quote.slice(0, 4)}`} title={TOOLTIP_QUOTE_VOLUME_24H}>
+        <MiniStat label={`Turnover (${quote.slice(0, 4)})`} title={TOOLTIP_QUOTE_VOLUME_24H} valueClassName="text-[11px]">
           <span className="max-w-[3rem] truncate sm:max-w-none">
             {(() => {
               const s = formatCompactNumber(turnover24h);
@@ -301,7 +326,7 @@ export function PairHeader({
             })()}
           </span>
         </MiniStat>
-        <MiniStat label="B/A" title={spreadTooltip} className="max-w-[min(100%,9.5rem)]">
+        <MiniStat label="Bid / Ask" title={spreadTooltip} className="max-w-[min(100%,8.5rem)]" valueClassName="text-[11px]">
           <div className="min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-center">
             <span className="text-buy">{formatValueFixedTrim(bid, pricePrecision)}</span>
             <span className="text-muted-foreground">/</span>

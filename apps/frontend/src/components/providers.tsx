@@ -7,6 +7,7 @@ import ThemeProvider from '@/components/ThemeProvider';
 import { rehydrateAuthStore, useAuthStore } from '@/store/auth';
 import { notifyError } from '@/lib/notifyError';
 import { TooltipProvider } from '@/components/ui/Tooltip';
+import { DisplayCurrencyProvider } from '@/context/DisplayCurrencyProvider';
 
 /** Zustand unblock fallback if persist is slow (AuthProvider /me still needs `_hasHydrated`). */
 const REHYDRATE_MAX_MS = 1200;
@@ -77,7 +78,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <TooltipProvider delayDuration={200}>
-          <AuthProvider>{children}</AuthProvider>
+          <AuthProvider>
+            <DisplayCurrencyProvider>{children}</DisplayCurrencyProvider>
+          </AuthProvider>
         </TooltipProvider>
       </ThemeProvider>
     </QueryClientProvider>

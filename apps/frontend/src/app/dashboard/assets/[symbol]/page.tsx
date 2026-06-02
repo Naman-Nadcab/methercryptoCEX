@@ -10,6 +10,7 @@ import { CoinIcon } from '@/components/ui/CoinIcon';
 import { getApiBaseUrl } from '@/lib/getApiUrl';
 import { toast } from '@/components/ui/toaster';
 import TransferModal from '@/components/TransferModal';
+import { useDisplayCurrency } from '@/context/DisplayCurrencyProvider';
 import {
   ArrowLeft,
   Download,
@@ -136,6 +137,7 @@ function resolveSymbol(row: Record<string, unknown>): string {
 export default function AssetSymbolPage() {
   const params = useParams();
   const { accessToken, _hasHydrated } = useAuthStore();
+  const { formatFromUsdt } = useDisplayCurrency();
   const rawSymbol = typeof params?.symbol === 'string' ? params.symbol : '';
   const symbol = rawSymbol.toUpperCase();
 
@@ -198,6 +200,7 @@ export default function AssetSymbolPage() {
   const fundingUsd = fundingTotal * priceForUsd;
   const spotUsd = spotTotal * priceForUsd;
   const totalUsd = grandTotal * priceForUsd;
+  const formatDisplay = (n: number | null | undefined) => formatFromUsdt(Number(n ?? 0), 2);
 
   // Coin info (CoinGecko)
   const [coinInfo, setCoinInfo] = useState<CoinInfo | null>(null);
@@ -361,7 +364,7 @@ export default function AssetSymbolPage() {
           ) : (
             <>
               <p className="text-2xl font-bold text-foreground tabular-nums">{fmtNum(grandTotal, 8)} <span className="text-sm font-normal text-muted-foreground">{symbol}</span></p>
-              <p className="text-sm text-muted-foreground tabular-nums">≈ {fmtUsd(totalUsd)}</p>
+              <p className="text-sm text-muted-foreground tabular-nums">≈ {formatDisplay(totalUsd)}</p>
             </>
           )}
         </div>
@@ -377,7 +380,7 @@ export default function AssetSymbolPage() {
           ) : (
             <>
               <p className="text-xl font-semibold text-foreground tabular-nums">{fmtNum(fundingTotal, 8)} <span className="text-sm font-normal text-muted-foreground">{symbol}</span></p>
-              <p className="text-sm text-muted-foreground tabular-nums">≈ {fmtUsd(fundingUsd)}</p>
+              <p className="text-sm text-muted-foreground tabular-nums">≈ {formatDisplay(fundingUsd)}</p>
               <div className="flex items-center gap-4 text-xs text-muted-foreground mt-1">
                 <span>Available: <span className="text-foreground tabular-nums">{fmtNum(fundingAvailable, 8)}</span></span>
                 <span>Locked: <span className="text-foreground tabular-nums">{fmtNum(fundingLocked, 8)}</span></span>
@@ -397,7 +400,7 @@ export default function AssetSymbolPage() {
           ) : (
             <>
               <p className="text-xl font-semibold text-foreground tabular-nums">{fmtNum(spotTotal, 8)} <span className="text-sm font-normal text-muted-foreground">{symbol}</span></p>
-              <p className="text-sm text-muted-foreground tabular-nums">≈ {fmtUsd(spotUsd)}</p>
+              <p className="text-sm text-muted-foreground tabular-nums">≈ {formatDisplay(spotUsd)}</p>
               <div className="flex items-center gap-4 text-xs text-muted-foreground mt-1">
                 <span>Available: <span className="text-foreground tabular-nums">{fmtNum(spotAvailable, 8)}</span></span>
                 <span>Locked: <span className="text-foreground tabular-nums">{fmtNum(spotLocked, 8)}</span></span>
@@ -433,11 +436,11 @@ export default function AssetSymbolPage() {
         ) : coinInfo ? (
           <>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-              <StatBox label="Market Cap" value={fmtUsd(coinInfo.market_cap)} />
-              <StatBox label="24h Volume" value={fmtUsd(coinInfo.total_volume)} />
+              <StatBox label="Market Cap" value={formatDisplay(coinInfo.market_cap)} />
+              <StatBox label="24h Volume" value={formatDisplay(coinInfo.total_volume)} />
               <StatBox label="Circulating Supply" value={`${fmtSupply(coinInfo.circulating_supply)} ${symbol}`} />
               <StatBox label="Total Supply" value={coinInfo.total_supply ? `${fmtSupply(coinInfo.total_supply)} ${symbol}` : '—'} />
-              <StatBox label="All-Time High" value={coinInfo.ath != null ? `$${fmtNum(coinInfo.ath, coinInfo.ath >= 1 ? 2 : 6)}` : '—'} />
+              <StatBox label="All-Time High" value={coinInfo.ath != null ? formatDisplay(coinInfo.ath) : '—'} />
             </div>
 
             {coinInfo.max_supply != null && (

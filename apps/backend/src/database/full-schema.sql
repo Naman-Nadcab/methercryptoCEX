@@ -170,6 +170,7 @@ CREATE TABLE users (
     
     -- Trading Preferences
     default_fiat_currency VARCHAR(10) DEFAULT 'USD',
+    preferences JSONB NOT NULL DEFAULT '{}'::jsonb,
     maker_fee_discount DECIMAL(5,4) DEFAULT 0,
     taker_fee_discount DECIMAL(5,4) DEFAULT 0,
     

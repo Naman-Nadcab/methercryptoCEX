@@ -20,6 +20,7 @@ import {
   Search,
 } from 'lucide-react';
 import { CoinIcon } from '@/components/ui/CoinIcon';
+import { useDisplayCurrency } from '@/context/DisplayCurrencyProvider';
 
 interface PnlAsset {
   symbol: string;
@@ -149,6 +150,7 @@ function EquityCurve({ assets, totalPnl }: { assets: PnlAsset[]; totalPnl: numbe
 // ── Main page ─────────────────────────────────────────────────────────
 export default function PnlAnalysisPage() {
   const { accessToken, _hasHydrated } = useAuthStore();
+  const { displayCurrency, formatFromUsdt } = useDisplayCurrency();
 
   const [period, setPeriod] = useState<Period>('7d');
   const [selectedSymbol, setSelectedSymbol] = useState('all');
@@ -259,7 +261,7 @@ export default function PnlAnalysisPage() {
       notifyError('No data to export');
       return;
     }
-    const header = 'Symbol,PnL (USD),PnL %,Buy Volume,Sell Volume,Avg Buy Price,Avg Sell Price';
+    const header = `Symbol,PnL (${displayCurrency}),PnL %,Buy Volume,Sell Volume,Avg Buy Price,Avg Sell Price`;
     const rows = assets.map(
       (a) =>
         `${a.symbol},${a.pnl},${a.pnlPercent},${a.buyVolume},${a.sellVolume},${a.avgBuyPrice},${a.avgSellPrice}`,
@@ -427,7 +429,7 @@ export default function PnlAnalysisPage() {
             <div className="flex items-center justify-between border-b border-border px-5 py-4">
               <h3 className="text-sm font-semibold text-foreground">Cumulative P&L</h3>
               <span className={`text-sm font-semibold tabular-nums ${pnlColor(totalPnl)}`}>
-                {pnlSign(totalPnl)}${fmt(Math.abs(totalPnl))}
+                {pnlSign(totalPnl)}{formatFromUsdt(Math.abs(totalPnl), 2)}
               </span>
             </div>
             <div className="px-2 py-3 sm:px-4">
@@ -460,7 +462,7 @@ export default function PnlAnalysisPage() {
                 <div className="min-w-0">
                   <p className="text-xs font-medium text-muted-foreground">Total P&L</p>
                   <p className={`truncate text-xl font-bold tabular-nums ${pnlColor(totalPnl)}`}>
-                    {pnlSign(totalPnl)}${fmt(Math.abs(totalPnl))}
+                    {pnlSign(totalPnl)}{formatFromUsdt(Math.abs(totalPnl), 2)}
                   </p>
                 </div>
               </div>
@@ -606,7 +608,7 @@ export default function PnlAnalysisPage() {
                           ) : asset.pnl < 0 ? (
                             <TrendingDown className="h-3.5 w-3.5 shrink-0" />
                           ) : null}
-                          {pnlSign(asset.pnl)}${fmt(Math.abs(asset.pnl))}
+                          {pnlSign(asset.pnl)}{formatFromUsdt(Math.abs(asset.pnl), 2)}
                         </span>
                       </div>
 

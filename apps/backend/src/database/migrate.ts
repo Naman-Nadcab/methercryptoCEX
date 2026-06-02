@@ -56,6 +56,7 @@ const migrations = [
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR(100);`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name VARCHAR(100);`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS preferences JSONB NOT NULL DEFAULT '{}'::jsonb;`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS tier_level INT DEFAULT 0;`,
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS country_code VARCHAR(2);`,
   // Auth profile reads `two_fa_enabled`; slim migrate uses `two_factor_enabled`; full-schema uses `two_fa_enabled`.

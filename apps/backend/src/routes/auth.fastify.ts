@@ -37,6 +37,28 @@ import type {
 } from '@simplewebauthn/server';
 import { isoBase64URL } from '@simplewebauthn/server/helpers';
 
+const DISPLAY_CURRENCIES = new Set(['USDT', 'INR']);
+
+function sanitizePreferencesInput(updates: Record<string, unknown>): { ok: true; value: Record<string, unknown> } | { ok: false; message: string } {
+  const normalized: Record<string, unknown> = { ...updates };
+  const rawDisplay =
+    typeof updates.displayCurrency === 'string'
+      ? updates.displayCurrency
+      : typeof updates.equivalentCurrency === 'string'
+        ? updates.equivalentCurrency
+        : null;
+  if (rawDisplay != null) {
+    const display = rawDisplay.trim().toUpperCase();
+    if (!DISPLAY_CURRENCIES.has(display)) {
+      return { ok: false, message: 'displayCurrency must be one of: USDT, INR' };
+    }
+    normalized.displayCurrency = display;
+    // Keep legacy key in sync for existing frontend settings page reads.
+    normalized.equivalentCurrency = display;
+  }
+  return { ok: true, value: normalized };
+}
+
 // WebAuthn configuration
 const RP_NAME = process.env.WEBAUTHN_RP_NAME || 'Methereum Exchange';
 const RP_ID = process.env.WEBAUTHN_RP_ID || 'localhost';
@@ -4449,6 +4471,20 @@ export default async function authRoutes(app: FastifyInstance) {
       }
 
       const preferences = result.rows[0]?.preferences || {};
+      const legacyDisplay =
+        typeof preferences.displayCurrency === 'string'
+          ? preferences.displayCurrency
+          : typeof preferences.equivalentCurrency === 'string'
+            ? preferences.equivalentCurrency
+            : 'USDT';
+      const normalizedDisplay = String(legacyDisplay).trim().toUpperCase();
+      if (DISPLAY_CURRENCIES.has(normalizedDisplay)) {
+        preferences.displayCurrency = normalizedDisplay;
+        preferences.equivalentCurrency = normalizedDisplay;
+      } else {
+        preferences.displayCurrency = 'USDT';
+        preferences.equivalentCurrency = 'USDT';
+      }
 
       return reply.send({
         success: true,
@@ -4457,9 +4493,10 @@ export default async function authRoutes(app: FastifyInstance) {
 
     } catch (error) {
       logger.error('Get preferences error', { error: error instanceof Error ? error.message : 'Unknown' });
-      return reply.status(500).send({
+      const statusCode = (error as { statusCode?: number })?.statusCode ?? 500;
+      return reply.status(statusCode).send({
         success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to get preferences' },
+        error: { code: statusCode === 401 ? 'UNAUTHORIZED' : 'INTERNAL_ERROR', message: statusCode === 401 ? 'Unauthorized' : 'Failed to get preferences' },
       });
     }
   });
@@ -4471,7 +4508,20 @@ export default async function authRoutes(app: FastifyInstance) {
     try {
       await request.jwtVerify();
       const userId = (request.user?.userId ?? request.user?.id)!;
-      const updates = request.body as Record<string, any>;
+      if (!request.body || typeof request.body !== 'object' || Array.isArray(request.body)) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'Request body must be an object' },
+        });
+      }
+      const updates = request.body as Record<string, unknown>;
+      const sanitized = sanitizePreferencesInput(updates);
+      if (!sanitized.ok) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: sanitized.message },
+        });
+      }
 
       // Get current preferences
       const currentResult = await db.query(
@@ -4487,7 +4537,7 @@ export default async function authRoutes(app: FastifyInstance) {
       }
 
       const currentPreferences = currentResult.rows[0]?.preferences || {};
-      const newPreferences = { ...currentPreferences, ...updates };
+      const newPreferences = { ...currentPreferences, ...sanitized.value };
 
       // Update preferences
       await db.query(
@@ -4504,9 +4554,10 @@ export default async function authRoutes(app: FastifyInstance) {
 
     } catch (error) {
       logger.error('Update preferences error', { error: error instanceof Error ? error.message : 'Unknown' });
-      return reply.status(500).send({
+      const statusCode = (error as { statusCode?: number })?.statusCode ?? 500;
+      return reply.status(statusCode).send({
         success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to update preferences' },
+        error: { code: statusCode === 401 ? 'UNAUTHORIZED' : 'INTERNAL_ERROR', message: statusCode === 401 ? 'Unauthorized' : 'Failed to update preferences' },
       });
     }
   });

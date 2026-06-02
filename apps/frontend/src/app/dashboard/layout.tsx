@@ -46,6 +46,7 @@ import {
   ROUTES,
   LEGACY_PATH_PREFIXES,
 } from '@/lib/routes';
+import { useDisplayCurrency } from '@/context/DisplayCurrencyProvider';
 
 const MOBILE_NAV_PAD = 'pb-[calc(3.75rem+env(safe-area-inset-bottom,0px))] md:pb-0';
 
@@ -91,6 +92,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const pathname = usePathname();
   const { user, accessToken, _hasHydrated } = useAuthStore();
+  const { displayCurrency, formatFromUsdt } = useDisplayCurrency();
   const { setUnauthenticated } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
@@ -362,7 +364,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     <span className="text-sm font-medium text-muted-foreground">Estimated Balance</span>
                     <ChevronRight className="w-4 h-4 text-muted-foreground" />
                   </div>
-                  <p className="text-2xl font-bold font-mono tabular-nums">{Number.isFinite(totalEquityUsd) ? totalEquityUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'} <span className="text-sm font-normal text-muted-foreground">USD</span></p>
+                  <p className="text-2xl font-bold font-mono tabular-nums">
+                    {Number.isFinite(totalEquityUsd) ? formatFromUsdt(totalEquityUsd, 2) : '—'}{' '}
+                    <span className="text-sm font-normal text-muted-foreground">{displayCurrency}</span>
+                  </p>
                   <p className="text-sm text-muted-foreground mt-0.5 font-mono tabular-nums">≈ {Number.isFinite(totalEquityBtc) ? totalEquityBtc.toFixed(8) : '—'} BTC</p>
                   {previewBalances.length > 0 && (
                     <div className="mt-3 pt-3 border-t border-border space-y-1">
@@ -570,7 +575,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         {/* Main content — no sidebar, full width */}
         <main id="main-content" tabIndex={-1} className={`min-h-[calc(100vh-3.5rem)] ${MOBILE_NAV_PAD}`}>
-          <div className="mx-auto max-w-[1200px] px-4 sm:px-6 py-6">
+          <div className="dashboard-page-wrap mx-auto max-w-[1200px]">
             {children}
           </div>
         </main>

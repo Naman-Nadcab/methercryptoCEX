@@ -17,6 +17,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { CoinIcon } from '@/components/ui/CoinIcon';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { toast } from '@/components/ui/toaster';
+import { useDisplayCurrency } from '@/context/DisplayCurrencyProvider';
 
 /* ── Types ── */
 interface Transaction {
@@ -223,6 +224,7 @@ function AllocationDonut({
 export default function AssetsOverviewPage() {
   const router = useRouter();
   const { accessToken, _hasHydrated } = useAuthStore();
+  const { displayCurrency, formatFromUsdt } = useDisplayCurrency();
   const ready = !!_hasHydrated && !!accessToken;
 
   /* ── State ── */
@@ -523,7 +525,7 @@ export default function AssetsOverviewPage() {
 
   const isLoading = summaryLoading || fundingLoading;
   const mask = (v: string) => (showBalance ? v : '••••••');
-  const fmtUsd = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtUsd = (n: number) => formatFromUsdt(n, 2);
   const fmtBtc = (n: number) => n.toFixed(8);
   const fmtBalance = (n: number) => {
     if (n === 0) return '0.00';
@@ -577,7 +579,7 @@ export default function AssetsOverviewPage() {
                 ) : (
                   <div className="flex items-baseline gap-3">
                     <span className="numeric text-4xl font-bold tracking-tight text-foreground sm:text-5xl">{mask(fmtUsd(totalUsd))}</span>
-                    <span className="text-lg font-medium text-muted-foreground">USD</span>
+                    <span className="text-lg font-medium text-muted-foreground">{displayCurrency}</span>
                   </div>
                 )}
                 <p className="mt-1 text-sm text-muted-foreground">≈ <span className="numeric">{mask(fmtBtc(totalBtc))}</span> BTC</p>
@@ -604,7 +606,7 @@ export default function AssetsOverviewPage() {
                       <Wallet className="h-4 w-4 text-primary" />
                       <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Funding</p>
                     </div>
-                    <p className="numeric text-xl font-bold text-foreground">${mask(fmtUsd(fundingTotal))}</p>
+                    <p className="numeric text-xl font-bold text-foreground">{mask(fmtUsd(fundingTotal))}</p>
                     <p className="mt-1 text-xs text-muted-foreground">Deposits & P2P</p>
                   </div>
                   <div className="flex-1 rounded-xl border border-border bg-muted/30 p-4">
@@ -612,7 +614,7 @@ export default function AssetsOverviewPage() {
                       <BarChart3 className="h-4 w-4 text-primary" />
                       <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Spot / Trading</p>
                     </div>
-                    <p className="numeric text-xl font-bold text-foreground">${mask(fmtUsd(tradingTotal))}</p>
+                    <p className="numeric text-xl font-bold text-foreground">{mask(fmtUsd(tradingTotal))}</p>
                     <p className="mt-1 text-xs text-muted-foreground">Open orders & trades</p>
                   </div>
                 </div>
@@ -692,7 +694,7 @@ export default function AssetsOverviewPage() {
                     <div className="text-right flex items-center gap-2">
                       <div>
                         <p className="numeric text-lg font-bold text-foreground">{mask(fmtUsd(fundingTotal))}</p>
-                        <p className="text-xs text-muted-foreground">USD</p>
+                        <p className="text-xs text-muted-foreground">{displayCurrency}</p>
                       </div>
                       <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
                     </div>
@@ -711,7 +713,7 @@ export default function AssetsOverviewPage() {
                               ) : null}
                             </div>
                             <span className="numeric text-right text-sm text-foreground">{fmtBalance(h.amount)}</span>
-                            <span className="numeric w-[5.5rem] text-right text-sm font-medium text-muted-foreground">${fmtUsd(h.usd)}</span>
+                            <span className="numeric w-[5.5rem] text-right text-sm font-medium text-muted-foreground">{fmtUsd(h.usd)}</span>
                           </div>
                         ))}
                       </div>
@@ -732,7 +734,7 @@ export default function AssetsOverviewPage() {
                     <div className="text-right flex items-center gap-2">
                       <div>
                         <p className="numeric text-lg font-bold text-foreground">{mask(fmtUsd(tradingTotal))}</p>
-                        <p className="text-xs text-muted-foreground">USD</p>
+                        <p className="text-xs text-muted-foreground">{displayCurrency}</p>
                       </div>
                       <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
                     </div>
@@ -751,7 +753,7 @@ export default function AssetsOverviewPage() {
                               ) : null}
                             </div>
                             <span className="numeric text-right text-sm text-foreground">{fmtBalance(h.amount)}</span>
-                            <span className="numeric w-[5.5rem] text-right text-sm font-medium text-muted-foreground">${fmtUsd(h.usd)}</span>
+                            <span className="numeric w-[5.5rem] text-right text-sm font-medium text-muted-foreground">{fmtUsd(h.usd)}</span>
                           </div>
                         ))}
                       </div>
@@ -792,7 +794,7 @@ export default function AssetsOverviewPage() {
                         <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground text-right">Funding</th>
                         <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground text-right">Trading</th>
                         <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground text-right cursor-pointer select-none" onClick={() => toggleSort('usd')}>
-                          USD Value {sortField === 'usd' && (sortDir === 'asc' ? '↑' : '↓')}
+                          {displayCurrency} Value {sortField === 'usd' && (sortDir === 'asc' ? '↑' : '↓')}
                         </th>
                         <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground text-right cursor-pointer select-none" onClick={() => toggleSort('change')}>
                           24h {sortField === 'change' && (sortDir === 'asc' ? '↑' : '↓')}
@@ -817,7 +819,7 @@ export default function AssetsOverviewPage() {
                           <td className="py-3.5 px-4 text-right numeric text-sm text-foreground">{mask(fmtBalance(a.total))}</td>
                           <td className="py-3.5 px-4 text-right numeric text-sm text-muted-foreground">{fmtBalance(a.funding)}</td>
                           <td className="py-3.5 px-4 text-right numeric text-sm text-muted-foreground">{fmtBalance(a.trading)}</td>
-                          <td className="py-3.5 px-4 text-right numeric text-sm font-medium text-foreground">${mask(fmtUsd(a.usd))}</td>
+                          <td className="py-3.5 px-4 text-right numeric text-sm font-medium text-foreground">{mask(fmtUsd(a.usd))}</td>
                           <td className={`py-3.5 px-4 text-right numeric text-sm font-medium ${a.change >= 0 ? 'text-buy' : 'text-sell'}`}>
                             {a.change >= 0 ? '+' : ''}{a.change.toFixed(2)}%
                           </td>

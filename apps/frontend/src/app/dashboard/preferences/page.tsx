@@ -16,6 +16,7 @@ import {
 
 interface PreferenceSettings {
   // General Settings
+  displayCurrency: string;
   equivalentCurrency: string;
   priceChangeReference: string;
   promptConfirmationOrders: boolean;
@@ -57,16 +58,8 @@ interface PreferenceSettings {
 }
 
 const currencies = [
-  { value: 'USD', label: 'USD', flag: '🇺🇸', name: 'US Dollar' },
-  { value: 'EUR', label: 'EUR', flag: '🇪🇺', name: 'Euro' },
-  { value: 'GBP', label: 'GBP', flag: '🇬🇧', name: 'British Pound' },
+  { value: 'USDT', label: 'USDT', flag: '💲', name: 'Tether (USDT)' },
   { value: 'INR', label: 'INR', flag: '🇮🇳', name: 'Indian Rupee' },
-  { value: 'JPY', label: 'JPY', flag: '🇯🇵', name: 'Japanese Yen' },
-  { value: 'AUD', label: 'AUD', flag: '🇦🇺', name: 'Australian Dollar' },
-  { value: 'CAD', label: 'CAD', flag: '🇨🇦', name: 'Canadian Dollar' },
-  { value: 'CNY', label: 'CNY', flag: '🇨🇳', name: 'Chinese Yuan' },
-  { value: 'KRW', label: 'KRW', flag: '🇰🇷', name: 'Korean Won' },
-  { value: 'SGD', label: 'SGD', flag: '🇸🇬', name: 'Singapore Dollar' },
 ];
 
 const languages = [
@@ -149,7 +142,8 @@ export default function PreferencesPage() {
   };
 
   const [settings, setSettings] = useState<PreferenceSettings>({
-    equivalentCurrency: 'USD',
+    displayCurrency: 'USDT',
+    equivalentCurrency: 'USDT',
     priceChangeReference: '24h',
     promptConfirmationOrders: true,
     showConfirmationMobile: true,
@@ -212,7 +206,14 @@ export default function PreferencesPage() {
       const result = await response.json();
 
       if (result.success && result.data) {
-        setSettings(prev => ({ ...prev, ...result.data }));
+        const incoming = result.data as Record<string, unknown>;
+        const display =
+          typeof incoming.displayCurrency === 'string'
+            ? incoming.displayCurrency
+            : typeof incoming.equivalentCurrency === 'string'
+              ? incoming.equivalentCurrency
+              : 'USDT';
+        setSettings(prev => ({ ...prev, ...result.data, displayCurrency: display, equivalentCurrency: display }));
       }
     } catch (error) {
       notifyError('Failed to load preferences. Please try again.');
@@ -424,13 +425,13 @@ export default function PreferencesPage() {
                         className="w-full max-w-md px-4 py-3.5 bg-muted border border-border rounded-xl text-left flex items-center justify-between hover:border-primary focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
                       >
                         <div className="flex items-center gap-3">
-                          <span className="text-2xl">{currencies.find(c => c.value === settings.equivalentCurrency)?.flag || '🌐'}</span>
+                          <span className="text-2xl">{currencies.find(c => c.value === settings.displayCurrency)?.flag || '🌐'}</span>
                           <div className="flex flex-col">
                             <span className="font-semibold text-foreground">
-                              {currencies.find(c => c.value === settings.equivalentCurrency)?.label || 'Select'}
+                              {currencies.find(c => c.value === settings.displayCurrency)?.label || 'Select'}
                             </span>
                             <span className="text-muted-foreground text-sm">
-                              {currencies.find(c => c.value === settings.equivalentCurrency)?.name}
+                              {currencies.find(c => c.value === settings.displayCurrency)?.name}
                             </span>
                           </div>
                         </div>
@@ -445,11 +446,11 @@ export default function PreferencesPage() {
                                 key={currency.value}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  updateSetting('equivalentCurrency', currency.value);
+                                  updateSetting('displayCurrency', currency.value);
                                   setShowCurrencyDropdown(false);
                                 }}
                                 className={`w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-accent/80 transition-colors ${
-                                  settings.equivalentCurrency === currency.value 
+                                  settings.displayCurrency === currency.value 
                                     ? 'bg-muted border-l-4 border-primary' 
                                     : 'border-l-4 border-transparent'
                                 } ${index !== currencies.length - 1 ? 'border-b border-border' : ''}`}
@@ -459,7 +460,7 @@ export default function PreferencesPage() {
                                   <div className="font-semibold text-foreground">{currency.label}</div>
                                   <div className="text-sm text-muted-foreground">{currency.name}</div>
                                 </div>
-                                {settings.equivalentCurrency === currency.value && (
+                                {settings.displayCurrency === currency.value && (
                                   <div className="w-6 h-6 bg-primary rounded-full flex items-center justify-center">
                                     <Check className="w-4 h-4 text-primary-foreground" />
                                   </div>

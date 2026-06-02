@@ -41,6 +41,7 @@ import { TOOLTIP_PAIR, TOOLTIP_LAST_PRICE, TOOLTIP_24H_CHANGE } from '@/lib/mark
 import { MiniSparkline } from '@/components/dashboard/MiniSparkline';
 import { DashboardPageShell } from '@/components/dashboard/DashboardPageShell';
 import { CoinIcon } from '@/components/ui/CoinIcon';
+import { useDisplayCurrency } from '@/context/DisplayCurrencyProvider';
 
 interface AnnouncementItem {
   id: string;
@@ -161,6 +162,7 @@ function RailCardPreviewSkeleton() {
 
 export default function DashboardPage() {
   const { user, accessToken, _hasHydrated } = useAuthStore();
+  const { displayCurrency, formatFromUsdt } = useDisplayCurrency();
   const { data: balanceData } = useBalancesSummary(!!_hasHydrated && !!accessToken);
   const totalUsd = (balanceData?.fundingBalance?.totalUsd ?? 0) + (balanceData?.tradingBalance?.totalUsd ?? 0);
   const fundingUsd = balanceData?.fundingBalance?.totalUsd ?? 0;
@@ -565,11 +567,11 @@ export default function DashboardPage() {
                     <div>
                       <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                         Estimated total balance
-                        <InfoTooltip content="Combined funding and trading account balance in USD." className="ml-1" />
+                        <InfoTooltip content="Combined funding and trading account balance in your selected display currency." className="ml-1" />
                       </p>
                       <p className="mt-1.5 text-3xl font-bold tabular-nums tracking-tight text-foreground sm:text-4xl">
-                        {Number.isFinite(totalUsd) ? formatUsd(totalUsd) : '—'}
-                        <span className="ml-2 text-lg font-semibold text-muted-foreground sm:text-xl">USD</span>
+                        {Number.isFinite(totalUsd) ? formatFromUsdt(totalUsd, 2) : '—'}
+                        <span className="ml-2 text-lg font-semibold text-muted-foreground sm:text-xl">{displayCurrency}</span>
                       </p>
                     </div>
                     <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
@@ -589,12 +591,12 @@ export default function DashboardPage() {
                     <div className="grid grid-cols-2 gap-3">
                       <div className="rounded-lg border border-border bg-muted/50 p-3">
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Funding</p>
-                        <p className="mt-1 text-base font-bold tabular-nums text-foreground sm:text-lg">${formatUsd(fundingUsd)}</p>
+                        <p className="mt-1 text-base font-bold tabular-nums text-foreground sm:text-lg">{formatFromUsdt(fundingUsd, 2)}</p>
                         <p className="mt-0.5 text-[10px] text-muted-foreground">Deposits &amp; P2P</p>
                       </div>
                       <div className="rounded-lg border border-border bg-muted/50 p-3">
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Trading</p>
-                        <p className="mt-1 text-base font-bold tabular-nums text-foreground sm:text-lg">${formatUsd(tradingUsd)}</p>
+                        <p className="mt-1 text-base font-bold tabular-nums text-foreground sm:text-lg">{formatFromUsdt(tradingUsd, 2)}</p>
                         <p className="mt-0.5 text-[10px] text-muted-foreground">Spot &amp; open orders</p>
                       </div>
                     </div>
@@ -1439,7 +1441,7 @@ export default function DashboardPage() {
                     </div>
                     <div className="flex flex-col justify-center rounded-lg border border-border bg-card/80 px-2.5 py-2.5 text-center">
                       <span className="text-lg font-bold tabular-nums leading-none text-foreground">
-                        ${formatUsd(referralRailDisplay.earnings)}
+                        {formatFromUsdt(referralRailDisplay.earnings, 2)}
                       </span>
                       <span className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                         Earned

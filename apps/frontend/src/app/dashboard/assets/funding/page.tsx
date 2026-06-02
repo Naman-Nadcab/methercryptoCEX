@@ -26,6 +26,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
+import { useDisplayCurrency } from '@/context/DisplayCurrencyProvider';
 
 const PAGE_SIZE = 25;
 
@@ -39,10 +40,6 @@ const COIN_NAMES: Record<string, string> = {
 
 type SortKey = 'symbol' | 'balance' | 'value';
 type SortDir = 'asc' | 'desc';
-
-function formatUsd(n: number): string {
-  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
 
 function formatCrypto(v: number | string, decimals = 8): string {
   const n = typeof v === 'string' ? parseFloat(v) : v;
@@ -120,6 +117,7 @@ function ActionDropdown({ symbol }: { symbol: string }) {
 
 export default function FundingAccountPage() {
   const { accessToken, _hasHydrated } = useAuthStore();
+  const { displayCurrency, formatFromUsdt } = useDisplayCurrency();
 
   const [showBalance, setShowBalance] = useState(true);
   const [activeTab, setActiveTab] = useState<'crypto' | 'fiat'>('crypto');
@@ -266,11 +264,11 @@ export default function FundingAccountPage() {
             </div>
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Total equity</p>
-              <p className="text-xs text-muted-foreground/90">Funding wallet (USD)</p>
+              <p className="text-xs text-muted-foreground/90">Funding wallet ({displayCurrency})</p>
             </div>
           </div>
           <p className="numeric text-3xl font-bold tracking-tight text-foreground">
-            {showBalance ? `$${formatUsd(totalEquity.usd)}` : '••••••'}
+            {showBalance ? formatFromUsdt(totalEquity.usd, 2) : '••••••'}
           </p>
           <p className="numeric mt-2 text-sm text-muted-foreground">
             ≈ {showBalance ? `${formatCrypto(totalEquity.btc, 8)} BTC` : '••••••••'}
@@ -287,7 +285,7 @@ export default function FundingAccountPage() {
             </div>
           </div>
           <p className="numeric text-3xl font-bold tracking-tight text-foreground">
-            {showBalance ? `$${formatUsd(availableBalance.usd)}` : '••••••'}
+            {showBalance ? formatFromUsdt(availableBalance.usd, 2) : '••••••'}
           </p>
           <p className="numeric mt-2 text-sm text-muted-foreground">
             ≈ {showBalance ? `${formatCrypto(availableBalance.btc, 8)} BTC` : '••••••••'}
@@ -304,7 +302,7 @@ export default function FundingAccountPage() {
             </div>
           </div>
           <p className="numeric text-3xl font-bold tracking-tight text-foreground">
-            {showBalance ? `$${formatUsd(inUse.usd)}` : '••••••'}
+            {showBalance ? formatFromUsdt(inUse.usd, 2) : '••••••'}
           </p>
           <p className="numeric mt-2 text-sm text-muted-foreground">
             ≈ {showBalance ? `${formatCrypto(inUse.btc, 8)} BTC` : '••••••••'}
@@ -406,7 +404,7 @@ export default function FundingAccountPage() {
                     ['balance', 'Total balance', 'right'],
                     [null, 'Available', 'right'],
                     [null, 'In use', 'right'],
-                    ['value', 'USD value', 'right'],
+                    ['value', `${displayCurrency} value`, 'right'],
                     [null, 'Actions', 'right'],
                   ] as const).map(([key, label, align], i) => {
                     const sortable = key !== null;
@@ -463,7 +461,7 @@ export default function FundingAccountPage() {
                           </span>
                         </td>
                         <td className="numeric px-5 py-4 text-right align-middle text-sm font-medium text-foreground">
-                          {showBalance ? `$${formatUsd(usdVal)}` : '••••••'}
+                          {showBalance ? formatFromUsdt(usdVal, 2) : '••••••'}
                         </td>
                         <td className="px-4 py-3 pr-6 text-right align-middle">
                           <ActionDropdown symbol={b.symbol} />
